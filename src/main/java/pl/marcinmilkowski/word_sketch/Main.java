@@ -9,6 +9,7 @@ import pl.marcinmilkowski.word_sketch.tagging.ConllUProcessor;
 import pl.marcinmilkowski.word_sketch.tagging.CorpusProcessor;
 import pl.marcinmilkowski.word_sketch.tagging.SimpleTagger;
 import pl.marcinmilkowski.word_sketch.tagging.UDPipeTagger;
+import pl.marcinmilkowski.word_sketch.viz.SnowballVisualizer;
 
 import java.io.IOException;
 import java.nio.file.Paths;
@@ -441,6 +442,7 @@ public class Main {
         String indexPath = null;
         String seedWords = null;
         String mode = "predicate";  // "predicate" or "linking"
+        String outputDir = null;  // For visualization export
         double minLogDice = 5.0;
         int maxPerIteration = 50;
         int maxDepth = 3;
@@ -452,10 +454,17 @@ public class Main {
                     System.out.println("Snowball command (recursive collocation exploration):");
                     System.out.println("  java -jar word-sketch-lucene.jar snowball --index <path> --seeds <words>");
                     System.out.println("    [--mode predicate|linking] [--min-logdice <score>] [--depth <n>]");
+                    System.out.println("    [--output <dir>]  # Export visualizations (SVG, JSON, HTML)");
                     System.out.println();
                     System.out.println("  Modes:");
                     System.out.println("    predicate: Explore adjectives -> nouns -> adjectives (default)");
                     System.out.println("    linking: Explore nouns via linking verbs (be, seem, appear, etc.)");
+                    System.out.println();
+                    System.out.println("  Visualization output (when --output is specified):");
+                    System.out.println("    - snowball_network.svg: Publication-quality network graph");
+                    System.out.println("    - radial_<word>.svg: Radial plots for top words");
+                    System.out.println("    - snowball_data.json: Data in JSON format");
+                    System.out.println("    - viewer.html: Interactive HTML viewer");
                     return;
                 case "--index":
                 case "-i":
@@ -468,6 +477,10 @@ public class Main {
                 case "--mode":
                 case "-m":
                     mode = args[++i].toLowerCase();
+                    break;
+                case "--output":
+                case "-o":
+                    outputDir = args[++i];
                     break;
                 case "--min-logdice":
                     minLogDice = Double.parseDouble(args[++i]);
@@ -520,6 +533,13 @@ public class Main {
                 result = explorer.exploreAsPredicates(seeds, minLogDice, maxPerIteration, maxDepth);
             }
 
+            
+            // Export visualizations if output directory specified
+            if (outputDir != null) {
+                System.out.println("\n=== EXPORTING VISUALIZATIONS ===");
+                SnowballVisualizer visualizer = new SnowballVisualizer(result);
+                visualizer.exportAll(outputDir);
+            }
             System.out.println("\n=== FINAL RESULT ===");
             System.out.println("Adjectives discovered (" + result.getAllAdjectives().size() + "):");
             System.out.println("  " + String.join(", ", result.getAllAdjectives()));
@@ -567,10 +587,17 @@ public class Main {
         System.out.println("Snowball command (recursive collocation exploration):");
         System.out.println("  java -jar word-sketch-lucene.jar snowball --index <path> --seeds <words>");
         System.out.println("    [--mode predicate|linking] [--min-logdice <score>] [--depth <n>]");
+        System.out.println("    [--output <dir>]  # Export publication-quality visualizations");
         System.out.println();
         System.out.println("  Modes:");
         System.out.println("    predicate: Explore adjectives -> nouns -> adjectives (default)");
         System.out.println("    linking: Explore nouns via linking verbs (be, seem, appear, etc.)");
+        System.out.println();
+        System.out.println("  Visualization output (when --output is specified):");
+        System.out.println("    - SVG network graph (vector format for publications)");
+        System.out.println("    - Radial plots for top words (ported from your Python code)");
+        System.out.println("    - JSON data export");
+        System.out.println("    - Interactive HTML viewer");
         System.out.println();
         System.out.println("Tag command (uses simple rule-based tagger):");
         System.out.println("  java -jar word-sketch-lucene.jar tag --input <file> --output <file>");
@@ -590,6 +617,6 @@ public class Main {
         System.out.println();
         System.out.println("  # Explore collocations recursively (snowball method):");
         System.out.println("  java -jar word-sketch-lucene.jar snowball --index data/index/ --seeds big,small,important");
-        System.out.println("  java -jar word-sketch-lucene.jar snowball --index data/index/ --seeds problem,solution --mode linking");
+        System.out.println("  java -jar word-sketch-lucene.jar snowball --index data/index/ --seeds problem,solution --mode linking --output viz/");
     }
 }

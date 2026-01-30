@@ -75,10 +75,18 @@ public class CQLToLuceneCompiler {
             return new SpanNearQuery(clauses, slop, true);
         }
 
-        // For different fields, return a SpanOrQuery of all queries
-        // This is a best-effort approach - for true multi-field matching,
-        // use post-filtering in the application layer
-        return new SpanOrQuery(spanQueries.toArray(new SpanQuery[0]));
+        // For different fields, we can't use SpanNearQuery (requires same field)
+        // Return queries from the first field - the WordSketchQueryExecutor
+        // will handle multi-field matching via post-filtering in matchesConstraints()
+        String firstField = queriesByField.keySet().iterator().next();
+        List<SpanQuery> firstFieldQueries = queriesByField.get(firstField);
+        
+        if (firstFieldQueries.size() == 1) {
+            return firstFieldQueries.get(0);
+        }
+        
+        int slop = calculateTotalSlop(elements);
+        return new SpanNearQuery(firstFieldQueries.toArray(new SpanQuery[0]), slop, true);
     }
 
     /**
@@ -220,6 +228,23 @@ public class CQLToLuceneCompiler {
         // For tag field, convert to lowercase since index stores tags lowercase
         if (FIELD_TAG.equals(field)) {
             target = target.toLowerCase();
+        }
+
+        // Handle regex OR patterns (a|b|c) by creating a SpanOrQuery
+        if (target.contains("|") && !target.contains(".*")) {
+            String[] alternatives = target.split("\\|");
+            List<SpanQuery> orQueries = new ArrayList<>();
+            for (String alt : alternatives) {
+                alt = alt.trim();
+                if (!alt.isEmpty()) {
+                    // Recursively build query for each alternative
+                    orQueries.add(buildTermQuery(alt, field));
+                }
+            }
+            if (orQueries.size() == 1) {
+                return orQueries.get(0);
+            }
+            return new SpanOrQuery(orQueries.toArray(new SpanQuery[0]));
         }
 
         // Check if it contains regex metacharacters

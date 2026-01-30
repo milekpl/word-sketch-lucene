@@ -68,7 +68,15 @@ public class ConllUProcessor {
         String currentText = "";
         int position = 0;
 
-        try (BufferedReader reader = Files.newBufferedReader(path)) {
+        // Use lenient UTF-8 decoder that replaces invalid bytes instead of throwing
+        java.nio.charset.CharsetDecoder decoder = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE)
+            .replaceWith("?");
+        BufferedReader reader = new BufferedReader(new InputStreamReader(
+            Files.newInputStream(path), decoder));
+
+        try {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
@@ -109,16 +117,25 @@ public class ConllUProcessor {
                 processCoNLLUSentence(currentSentenceLines, currentText, sentenceId);
                 sentenceCount++;
             }
+        } finally {
+            reader.close();
         }
 
-        // Final commit
+        // Final commit for this file
         indexer.commit();
-        indexer.optimize();
 
         long elapsed = System.currentTimeMillis() - startTime;
         logger.info("CoNLL-U processing complete. Processed " + sentenceCount +
                    " sentences, " + tokenCount + " tokens in " + (elapsed / 1000) + "s");
+    }
 
+    /**
+     * Close the processor and finalize the index.
+     * Performs final commit and optimization.
+     */
+    public void close() throws IOException {
+        indexer.commit();
+        indexer.optimize();
         indexer.close();
     }
 

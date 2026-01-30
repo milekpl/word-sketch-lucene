@@ -189,19 +189,24 @@ public class SnowballCollocations implements AutoCloseable {
             // For each noun, find adjectives linked via linking verbs
             Set<String> newAdjectives = new LinkedHashSet<>();
 
-            for (String noun : currentNouns) {
-                // Headword is the noun, find [verb] [adj] pattern before/after it
-                // We need to find: NOUN [linking verb] ADJ or ADJ [linking verb] NOUN
-                List<WordSketchResult> results = executor.findCollocations(noun, linkingVerbPattern, minLogDice, maxPerIteration);
-
-                for (WordSketchResult r : results) {
-                    newAdjectives.add(r.getLemma());
-                    edges.add(new Edge(noun, r.getLemma(), r.getLogDice(), "linking"));
-                }
-
-                if (!results.isEmpty()) {
-                    System.out.println("  " + noun + " <- " + results.size() + " adjectives: " +
-                        results.stream().map(WordSketchResult::getLemma).limit(5).collect(Collectors.joining(", ")) + "...");
+            // OPTIMIZATION: Instead of scanning all occurrences of each noun,
+            // search for the linking verb + adjective pattern directly, then check for nouns
+            System.out.println("  Searching for linking verb + adjective patterns...");
+            Map<String, List<String>> nounToAdjectives = executor.findLinkingVerbPredicates(
+                currentNouns, minLogDice, maxPerIteration);
+            
+            for (Map.Entry<String, List<String>> entry : nounToAdjectives.entrySet()) {
+                String noun = entry.getKey();
+                List<String> adjectives = entry.getValue();
+                
+                if (!adjectives.isEmpty()) {
+                    System.out.println("  " + noun + " <- " + adjectives.size() + " adjectives: " +
+                        adjectives.stream().limit(5).collect(Collectors.joining(", ")) + "...");
+                    
+                    for (String adj : adjectives) {
+                        newAdjectives.add(adj);
+                        edges.add(new Edge(noun, adj, minLogDice, "linking"));
+                    }
                 }
             }
 
@@ -214,16 +219,25 @@ public class SnowballCollocations implements AutoCloseable {
             }
 
             // Now for each new adjective, find related nouns (attributive use)
+            System.out.println("  Searching for nouns modified by adjectives...");
+            Map<String, List<String>> adjectiveToNouns = executor.findAttributiveNouns(
+                newAdjectives, minLogDice, maxPerIteration);
+            
             Set<String> newNouns = new LinkedHashSet<>();
-            for (String adj : newAdjectives) {
-                String attrPattern = "[tag=\"NN.*\"]~{0,3}";
-                List<WordSketchResult> results = executor.findCollocations(adj, attrPattern, minLogDice, maxPerIteration);
-
-                for (WordSketchResult r : results) {
-                    if (!allNouns.contains(r.getLemma())) {
-                        newNouns.add(r.getLemma());
+            for (Map.Entry<String, List<String>> entry : adjectiveToNouns.entrySet()) {
+                String adj = entry.getKey();
+                List<String> nouns = entry.getValue();
+                
+                if (!nouns.isEmpty()) {
+                    System.out.println("    '" + adj + "': found " + nouns.size() + " nouns: " +
+                        nouns.stream().limit(5).collect(Collectors.joining(", ")) + "...");
+                    
+                    for (String noun : nouns) {
+                        if (!allNouns.contains(noun)) {
+                            newNouns.add(noun);
+                        }
+                        edges.add(new Edge(adj, noun, minLogDice, "attributive"));
                     }
-                    edges.add(new Edge(adj, r.getLemma(), r.getLogDice(), "attributive"));
                 }
             }
 

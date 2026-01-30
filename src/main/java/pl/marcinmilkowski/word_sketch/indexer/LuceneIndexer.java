@@ -156,9 +156,9 @@ public class LuceneIndexer {
 
         // Indexed fields for searching
         // Note: StandardAnalyzer lowercases text, so we lowercase tags for matching
-        doc.add(new TextField(FIELD_LEMMA, lemma.toLowerCase(), Field.Store.NO));
-        doc.add(new TextField(FIELD_TAG, tag.toLowerCase(), Field.Store.NO));
-        doc.add(new TextField(FIELD_POS_GROUP, posGroup.toLowerCase(), Field.Store.NO));
+        doc.add(new TextField(FIELD_LEMMA, (lemma != null ? lemma : "").toLowerCase(), Field.Store.NO));
+        doc.add(new TextField(FIELD_TAG, (tag != null ? tag : "").toLowerCase(), Field.Store.NO));
+        doc.add(new TextField(FIELD_POS_GROUP, (posGroup != null ? posGroup : "").toLowerCase(), Field.Store.NO));
 
         // Index doc_id as StringField for sentence-level queries
         doc.add(new StringField(FIELD_DOC_ID, String.valueOf(docId), Field.Store.YES));

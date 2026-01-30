@@ -189,6 +189,43 @@ public class CQLParser {
         return parsed;
     }
 
+    /**
+     * Split a string by | character, but ignore | inside quoted strings.
+     * This distinguishes between:
+     *   - Field-level OR: tag="JJ"|tag="RB" -> ["tag=\"JJ\"", "tag=\"RB\""]
+     *   - Value-level regex: word="be|remain|seem" -> ["word=\"be|remain|seem\""]
+     * 
+     * @param str The constraint string to split
+     * @return List of parts split by | outside quotes
+     */
+    private List<String> splitByOrOutsideQuotes(String str) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuote = false;
+        
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            
+            if (c == '"') {
+                inQuote = !inQuote;
+                current.append(c);
+            } else if (c == '|' && !inQuote) {
+                // Split here - this is an OR operator between constraints
+                parts.add(current.toString());
+                current = new StringBuilder();
+            } else {
+                current.append(c);
+            }
+        }
+        
+        // Add the last part
+        if (current.length() > 0) {
+            parts.add(current.toString());
+        }
+        
+        return parts;
+    }
+
     private CQLPattern.PatternElement buildElement(int position, String target, String after) throws CQLParseException {
         CQLPattern.Constraint constraint = null;
         int minRepetition = 1;
@@ -249,8 +286,9 @@ public class CQLParser {
             return parseAndConstraint(constraintStr, negated);
         }
 
-        // Split by OR operator
-        String[] parts = constraintStr.split("\\|");
+        // Split by OR operator (but respect quoted strings)
+        List<String> partsList = splitByOrOutsideQuotes(constraintStr);
+        String[] parts = partsList.toArray(new String[0]);
 
         if (parts.length == 1) {
             // Use regex split with limit to avoid breaking on = in pattern

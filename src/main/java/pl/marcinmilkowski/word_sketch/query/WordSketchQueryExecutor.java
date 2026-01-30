@@ -4,12 +4,15 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.queries.spans.SpanMultiTermQueryWrapper;
+import org.apache.lucene.queries.spans.SpanOrQuery;
 import org.apache.lucene.queries.spans.SpanQuery;
 import org.apache.lucene.queries.spans.SpanTermQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.store.FSDirectory;
 import pl.marcinmilkowski.word_sketch.grammar.CQLParser;
 import pl.marcinmilkowski.word_sketch.grammar.CQLPattern;
@@ -72,6 +75,9 @@ public class WordSketchQueryExecutor {
         SpanTermQuery headwordQuery = new SpanTermQuery(new Term("lemma", headword.toLowerCase()));
         TopDocs headwordDocs = searcher.search(headwordQuery, Math.toIntExact(Math.min(headwordFreq, 100000)));
 
+        System.out.println(String.format("    '%s': found %,d occurrences, scanning...", 
+            headword, headwordDocs.scoreDocs.length));
+
         // Aggregate collocate frequencies
         Map<String, Long> lemmaFreqs = new HashMap<>();
         Map<String, String> lemmaPos = new HashMap<>();
@@ -83,6 +89,8 @@ public class WordSketchQueryExecutor {
 
         long collocateCount = 0;
         int scanned = 0;
+        long startTime = System.currentTimeMillis();
+        int totalOccurrences = headwordDocs.scoreDocs.length;
 
         for (ScoreDoc hit : headwordDocs.scoreDocs) {
             Document doc = searcher.storedFields().document(hit.doc);
@@ -131,8 +139,24 @@ public class WordSketchQueryExecutor {
 
             scanned++;
 
+            // Progress indicator every 1000 occurrences
+            if (scanned % 1000 == 0) {
+                long elapsed = System.currentTimeMillis() - startTime;
+                double rate = scanned / (elapsed / 1000.0);
+                int remaining = Math.min(totalOccurrences, 50000) - scanned;
+                int eta = (int) (remaining / rate);
+                System.out.print(String.format("\r      Scanned %,d/%,d occurrences, found %,d matches (%.0f occ/s, ETA %ds)    ",
+                    scanned, Math.min(totalOccurrences, 50000), lemmaFreqs.size(), rate, eta));
+            }
+
             // Limit scanned headwords for performance
             if (scanned >= 50000) break;
+        }
+
+        // Clear progress line
+        if (scanned > 0) {
+            System.out.println(String.format("\r      Scanned %,d occurrences in %.1fs, found %,d unique collocates",
+                scanned, (System.currentTimeMillis() - startTime) / 1000.0, lemmaFreqs.size()));
         }
 
         // Calculate logDice for each collocate
@@ -675,5 +699,200 @@ public class WordSketchQueryExecutor {
         public void close() throws IOException {
             executor.close();
         }
+    }
+
+    /**
+     * Optimized method for snowball: find adjectives linked to nouns via linking verbs.
+     * Instead of scanning all noun occurrences, we search for linking verbs directly.
+     * Then manually check if next token is adjective and if seed nouns appear nearby.
+     */
+    public Map<String, List<String>> findLinkingVerbPredicates(Set<String> seedNouns, 
+                                                                double minLogDice, 
+                                                                int maxResults) throws IOException {
+        Map<String, List<String>> results = new HashMap<>();
+        
+        // Build query for linking verbs only (simpler than multi-field pattern)
+        // Note: Search on lemma field, not word field (word contains inflected forms)
+        String[] linkingVerbs = {"be", "remain", "seem", "appear", "feel", "get", "become", "look", "smell", "taste"};
+        SpanQuery[] verbQueries = new SpanQuery[linkingVerbs.length];
+        for (int i = 0; i < linkingVerbs.length; i++) {
+            verbQueries[i] = new SpanTermQuery(new Term("lemma", linkingVerbs[i]));
+        }
+        SpanOrQuery verbQuery = new SpanOrQuery(verbQueries);
+        
+        System.out.println("    Searching for linking verbs...");
+        long startTime = System.currentTimeMillis();
+        
+        // Search for all linking verb occurrences (limit to reasonable number)
+        TopDocs verbMatches = searcher.search(verbQuery, 50000);
+        
+        System.out.println(String.format("    Found %,d linking verb occurrences in %.1fs", 
+            verbMatches.scoreDocs.length, (System.currentTimeMillis() - startTime) / 1000.0));
+        
+        System.out.println(String.format("    Found %,d linking verb occurrences in %.1fs", 
+            verbMatches.scoreDocs.length, (System.currentTimeMillis() - startTime) / 1000.0));
+        
+        // For each linking verb, check if next token is adjective and if seed nouns nearby
+        Map<String, Map<String, Long>> nounAdjectiveCounts = new HashMap<>();
+        int validPatterns = 0;
+        
+        for (ScoreDoc hit : verbMatches.scoreDocs) {
+            Document doc = searcher.storedFields().document(hit.doc);
+            int verbDocId = doc.getField("doc_id").numericValue().intValue();
+            int verbPos = doc.getField("position").numericValue().intValue();
+            
+            // Find all tokens in the same sentence
+            TermQuery sentenceQuery = new TermQuery(new Term("doc_id", String.valueOf(verbDocId)));
+            TopDocs sentenceDocs = searcher.search(sentenceQuery, 100);
+            
+            // Check each token: find adjective at verbPos+1, find seed nouns within window
+            String adjective = null;
+            for (ScoreDoc sentHit : sentenceDocs.scoreDocs) {
+                Document sentDoc = searcher.storedFields().document(sentHit.doc);
+                int sentPos = Integer.parseInt(sentDoc.get("position"));
+                String lemma = sentDoc.get("lemma");
+                String tag = sentDoc.get("tag");
+                
+                // Adjective is at linking verb position + 1
+                if (sentPos == verbPos + 1 && tag != null && tag.startsWith("JJ")) {
+                    adjective = lemma.toLowerCase();
+                    validPatterns++;
+                    break; // Found adjective, continue to check for nouns
+                }
+            }
+            
+            // If we found an adjective after the linking verb, check for nearby seed nouns
+            if (adjective != null) {
+                for (ScoreDoc sentHit : sentenceDocs.scoreDocs) {
+                    Document sentDoc = searcher.storedFields().document(sentHit.doc);
+                    int sentPos = Integer.parseInt(sentDoc.get("position"));
+                    String lemma = sentDoc.get("lemma");
+                    
+                    // Check if seed noun appears within window
+                    if (lemma != null && seedNouns.contains(lemma.toLowerCase()) && 
+                        Math.abs(sentPos - verbPos) <= 3) {
+                        
+                        // Found: seed noun within window of linking-verb + adjective
+                        nounAdjectiveCounts
+                            .computeIfAbsent(lemma.toLowerCase(), k -> new HashMap<>())
+                            .merge(adjective, 1L, Long::sum);
+                    }
+                }
+            }
+        }
+        
+        System.out.println(String.format("    Valid linking-verb + adjective patterns: %,d", validPatterns));
+        
+        // Convert counts to results
+        for (Map.Entry<String, Map<String, Long>> entry : nounAdjectiveCounts.entrySet()) {
+            String noun = entry.getKey();
+            Map<String, Long> adjectiveCounts = entry.getValue();
+            
+            // Sort by frequency and take top results
+            List<String> topAdjectives = adjectiveCounts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .limit(maxResults)
+                .map(Map.Entry::getKey)
+                .collect(java.util.stream.Collectors.toList());
+            
+            results.put(noun, topAdjectives);
+        }
+        
+        return results;
+    }
+
+    /**
+     * Optimized method for finding nouns modified by adjectives (attributive use).
+     * Instead of scanning all adjective occurrences, search for adjective tags first,
+     * then check if any seed adjectives match and if nouns appear nearby.
+     */
+    public Map<String, List<String>> findAttributiveNouns(Set<String> seedAdjectives,
+                                                           double minLogDice,
+                                                           int maxResults) throws IOException {
+        Map<String, List<String>> results = new HashMap<>();
+        
+        System.out.println("    Searching for seed adjectives by lemma...");
+        long startTime = System.currentTimeMillis();
+        
+        // For each adjective, check if it's one of our seed adjectives and find nearby nouns
+        Map<String, Map<String, Long>> adjectiveNounCounts = new HashMap<>();
+        int matchingSeedAdjs = 0;
+        
+        // Batch adjectives to avoid "TooManyNestedClauses" error (max 1024 clauses)
+        List<String> adjList = new ArrayList<>(seedAdjectives);
+        int batchSize = 500;
+        int totalHits = 0;
+        
+        for (int batchStart = 0; batchStart < adjList.size(); batchStart += batchSize) {
+            int batchEnd = Math.min(batchStart + batchSize, adjList.size());
+            List<String> batch = adjList.subList(batchStart, batchEnd);
+            
+            // Search for this batch of seed adjectives by lemma
+            SpanQuery[] adjQueries = new SpanQuery[batch.size()];
+            for (int i = 0; i < batch.size(); i++) {
+                adjQueries[i] = new SpanTermQuery(new Term("lemma", batch.get(i)));
+            }
+            SpanOrQuery adjQuery = new SpanOrQuery(adjQueries);
+            
+            // Search for adjective occurrences (limit to reasonable number per batch)
+            TopDocs batchMatches = searcher.search(adjQuery, 100000);
+            totalHits += batchMatches.scoreDocs.length;
+        
+            for (ScoreDoc hit : batchMatches.scoreDocs) {
+                Document doc = searcher.storedFields().document(hit.doc);
+                int adjDocId = doc.getField("doc_id").numericValue().intValue();
+                int adjPos = doc.getField("position").numericValue().intValue();
+                String lemma = doc.get("lemma");
+                
+                // Check if this is one of our seed adjectives (should always be true)
+                if (lemma == null || !seedAdjectives.contains(lemma.toLowerCase())) {
+                    continue;
+                }
+                matchingSeedAdjs++;
+                String adjective = lemma.toLowerCase();
+                
+                // Find all tokens in the same sentence
+                TermQuery sentenceQuery = new TermQuery(new Term("doc_id", String.valueOf(adjDocId)));
+                TopDocs sentenceDocs = searcher.search(sentenceQuery, 100);
+                
+                // Check for nearby nouns (within 3 tokens)
+                for (ScoreDoc sentHit : sentenceDocs.scoreDocs) {
+                    Document sentDoc = searcher.storedFields().document(sentHit.doc);
+                    int sentPos = Integer.parseInt(sentDoc.get("position"));
+                    String nounLemma = sentDoc.get("lemma");
+                    String tag = sentDoc.get("tag");
+                    
+                    // Check if nearby token is a noun
+                    if (nounLemma != null && tag != null && tag.startsWith("NN") &&
+                        Math.abs(sentPos - adjPos) <= 3 && sentPos != adjPos) {
+                        
+                        adjectiveNounCounts
+                            .computeIfAbsent(adjective, k -> new HashMap<>())
+                            .merge(nounLemma.toLowerCase(), 1L, Long::sum);
+                    }
+                }
+            }
+        }
+        
+        System.out.println(String.format("    Found %,d adjective occurrences in %.1fs",
+            totalHits, (System.currentTimeMillis() - startTime) / 1000.0));
+        System.out.println(String.format("    Matched %,d seed adjective occurrences", matchingSeedAdjs));
+        
+        // Convert counts to results
+        for (Map.Entry<String, Map<String, Long>> entry : adjectiveNounCounts.entrySet()) {
+            String adjective = entry.getKey();
+            Map<String, Long> nounCounts = entry.getValue();
+            
+            // Sort by frequency and take top results
+            List<String> topNouns = nounCounts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .limit(maxResults)
+                .map(Map.Entry::getKey)
+                .collect(java.util.stream.Collectors.toList());
+            
+            results.put(adjective, topNouns);
+        }
+        
+        return results;
     }
 }

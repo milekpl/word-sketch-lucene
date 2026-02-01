@@ -7,6 +7,7 @@ import pl.marcinmilkowski.word_sketch.query.WordSketchQueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.query.HybridQueryExecutor;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -98,6 +99,8 @@ public class WordSketchApiServer {
         server.createContext("/api/sketch", wrapHandler(this::handleFullSketch));
         server.createContext("/api/sketch/query", wrapHandler(this::handleQuery));
         server.createContext("/api/semantic-field", wrapHandler(this::handleSemanticField));
+        server.createContext("/api/semantic-field/examples", wrapHandler(this::handleSemanticFieldExamples));
+        server.createContext("/api/algorithm", wrapHandler(this::handleAlgorithm));
 
         // Legacy endpoints (for backward compatibility)
         server.createContext("/sketch", wrapHandler(this::handleLegacySketch));
@@ -115,6 +118,8 @@ public class WordSketchApiServer {
         System.out.println("  GET  /api/sketch/{lemma}     - Get full word sketch");
         System.out.println("  POST /api/sketch/query       - Execute custom CQL pattern");
         System.out.println("  GET  /api/semantic-field     - Semantic field exploration (shared adjective predicates)");
+        System.out.println("  GET  /api/semantic-field/examples - Get examples for adjective-noun pair");
+        System.out.println("  GET/POST /api/algorithm      - Get/set algorithm (SAMPLE_SCAN, SPAN_COUNT, PRECOMPUTED)");
     }
 
     /**
@@ -193,6 +198,7 @@ public class WordSketchApiServer {
         response.put("status", "ok");
         response.put("service", "word-sketch-lucene");
         response.put("port", port);
+        response.put("executor", buildExecutorReport(false));
 
         sendJson(exchange, 200, response);
     }
@@ -302,6 +308,7 @@ public class WordSketchApiServer {
         }
 
         response.put("patterns", patterns);
+        response.put("executor", buildExecutorReport(true));
         sendJson(exchange, 200, response);
 
         } catch (Exception e) {
@@ -375,6 +382,7 @@ public class WordSketchApiServer {
             collocations.add(colloc);
         }
         response.put("collocations", collocations);
+        response.put("executor", buildExecutorReport(true));
 
         sendJson(exchange, 200, response);
     }
@@ -466,6 +474,7 @@ public class WordSketchApiServer {
             }
             response.put("edges", edges);
             response.put("total_edges", edges.size());
+            response.put("executor", buildExecutorReport(true));
 
             sendJson(exchange, 200, response);
 
@@ -474,6 +483,140 @@ public class WordSketchApiServer {
         } catch (Exception e) {
             e.printStackTrace();
             sendError(exchange, 500, "Semantic field comparison failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * GET /api/semantic-field/examples?adjective=good&noun=theory&max=10
+     * Fetch example sentences for an adjective-noun pair.
+     */
+    private void handleSemanticFieldExamples(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        try {
+            String query = exchange.getRequestURI().getQuery();
+            Map<String, String> params = parseQueryParams(query);
+
+            String adjective = params.get("adjective");
+            String noun = params.get("noun");
+            if (adjective == null || adjective.isEmpty() || noun == null || noun.isEmpty()) {
+                sendError(exchange, 400, "Missing required parameters: adjective and noun");
+                return;
+            }
+
+            int maxExamples = Integer.parseInt(params.getOrDefault("max", "10"));
+
+            // Create explorer and fetch examples
+            SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+            List<String> examples = explorer.fetchExamples(adjective, noun, maxExamples);
+            explorer.close();
+
+            // Format response
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "ok");
+            response.put("adjective", adjective);
+            response.put("noun", noun);
+            response.put("examples", examples);
+            response.put("count", examples.size());
+
+            sendJson(exchange, 200, response);
+
+        } catch (NumberFormatException e) {
+            sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendError(exchange, 500, "Failed to fetch examples: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildExecutorReport(boolean includeLastQuery) {
+        Map<String, Object> report = new HashMap<>();
+        report.put("type", executor.getExecutorType());
+
+        if (executor instanceof HybridQueryExecutor hybrid) {
+            report.put("algorithm", hybrid.getAlgorithm().name());
+            report.put("stats", hybrid.getStatsReport());
+            if (includeLastQuery) {
+                report.put("last_query", hybrid.getLastQueryReport());
+            }
+        } else {
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("source", "none");
+            stats.put("loaded", false);
+            report.put("stats", stats);
+        }
+
+        return report;
+    }
+
+    /**
+     * POST /api/algorithm - Set the algorithm for HybridQueryExecutor.
+     * Body: { "algorithm": "SPAN_COUNT" | "SAMPLE_SCAN" }
+     */
+    private void handleAlgorithm(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+        String method = exchange.getRequestMethod();
+
+        if ("OPTIONS".equalsIgnoreCase(method)) {
+            handleOptions(exchange);
+            return;
+        }
+
+        if ("GET".equalsIgnoreCase(method)) {
+            // Return current algorithm
+            if (executor instanceof HybridQueryExecutor hybrid) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("algorithm", hybrid.getAlgorithm().name());
+                response.put("available", List.of("SAMPLE_SCAN", "SPAN_COUNT"));
+                response.put("min_candidate_frequency", hybrid.getMinCandidateFrequency());
+                sendJson(exchange, 200, response);
+            } else {
+                sendError(exchange, 400, "Algorithm selection requires HybridQueryExecutor");
+            }
+            return;
+        }
+
+        if (!"POST".equalsIgnoreCase(method)) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        if (!(executor instanceof HybridQueryExecutor hybrid)) {
+            sendError(exchange, 400, "Algorithm selection requires HybridQueryExecutor");
+            return;
+        }
+
+        // Parse request body
+        String body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        JSONObject request = JSON.parseObject(body);
+        
+        String algorithmName = request.getString("algorithm");
+        if (algorithmName == null || algorithmName.isEmpty()) {
+            sendError(exchange, 400, "Missing 'algorithm' field. Use 'SAMPLE_SCAN' or 'SPAN_COUNT'");
+            return;
+        }
+
+        try {
+            HybridQueryExecutor.Algorithm algo = HybridQueryExecutor.Algorithm.valueOf(algorithmName.toUpperCase());
+            hybrid.setAlgorithm(algo);
+
+            // Optionally set min candidate frequency
+            Integer minFreq = request.getInteger("min_candidate_frequency");
+            if (minFreq != null) {
+                hybrid.setMinCandidateFrequency(minFreq);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "ok");
+            response.put("algorithm", algo.name());
+            response.put("min_candidate_frequency", hybrid.getMinCandidateFrequency());
+            sendJson(exchange, 200, response);
+
+        } catch (IllegalArgumentException e) {
+            sendError(exchange, 400, "Invalid algorithm: " + algorithmName + ". Use 'SAMPLE_SCAN' or 'SPAN_COUNT'");
         }
     }
 

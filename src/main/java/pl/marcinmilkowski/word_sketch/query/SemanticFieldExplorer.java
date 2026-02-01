@@ -37,17 +37,21 @@ import java.util.stream.Collectors;
  */
 public class SemanticFieldExplorer implements AutoCloseable {
 
-    private final QueryExecutor executor;
+    private final WordSketchQueryExecutor executor;
     
     // Simple adjective pattern - find adjectives modifying nouns within a small window
     private static final String ADJECTIVE_PATTERN = "[tag=\"JJ.*\"]";
 
     public SemanticFieldExplorer(String indexPath) throws IOException {
-        this.executor = QueryExecutorFactory.createAutoDetect(indexPath);
+        QueryExecutor exec = QueryExecutorFactory.createAutoDetect(indexPath);
+        if (!(exec instanceof WordSketchQueryExecutor)) {
+            throw new IllegalStateException("Expected WordSketchQueryExecutor, got: " + exec.getClass());
+        }
+        this.executor = (WordSketchQueryExecutor) exec;
     }
     
     // Constructor for testing with mock executor
-    SemanticFieldExplorer(QueryExecutor executor) {
+    SemanticFieldExplorer(WordSketchQueryExecutor executor) {
         this.executor = executor;
     }
 
@@ -179,6 +183,31 @@ public class SemanticFieldExplorer implements AutoCloseable {
         System.out.println("-".repeat(60));
         
         return new ComparisonResult(nounList, profiles);
+    }
+
+    /**
+     * Fetch example sentences for an adjective-noun pair.
+     * 
+     * @param adjective The adjective lemma
+     * @param noun The noun lemma
+     * @param maxExamples Maximum number of examples to fetch
+     * @return List of example sentences showing the adjective-noun combination
+     */
+    public List<String> fetchExamples(String adjective, String noun, int maxExamples) throws IOException {
+        // Build CQL query: adjective near noun
+        // e.g., [lemma="good" & tag="JJ.*"] []{0,3} [lemma="theory" & tag="N.*"]
+        String cqlQuery = String.format(
+            "[lemma=\"%s\" & tag=\"JJ.*\"] []{0,3} [lemma=\"%s\" & tag=\"N.*\"]",
+            adjective, noun
+        );
+        
+        List<WordSketchQueryExecutor.ConcordanceResult> results = executor.executeQuery(cqlQuery, maxExamples);
+        
+        return results.stream()
+            .map(WordSketchQueryExecutor.ConcordanceResult::getSentence)
+            .distinct()
+            .limit(maxExamples)
+            .collect(Collectors.toList());
     }
 
     @Override

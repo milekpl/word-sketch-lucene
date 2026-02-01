@@ -100,6 +100,42 @@ public class StatisticsReader implements Closeable {
     }
 
     /**
+     * Gets all lemmas in the statistics.
+     * Used for candidate iteration in span-based queries.
+     * 
+     * @return Collection of all lemmas (read-only view)
+     */
+    public java.util.Collection<String> getAllLemmas() {
+        return java.util.Collections.unmodifiableSet(statisticsMap.keySet());
+    }
+
+    /**
+     * Gets all statistics entries, sorted by frequency descending.
+     * Useful for iterating candidates by frequency.
+     * 
+     * @return List of all TermStatistics sorted by frequency
+     */
+    public java.util.List<TermStatistics> getAllStatisticsByFrequency() {
+        return statisticsMap.values().stream()
+            .sorted((a, b) -> Long.compare(b.totalFrequency(), a.totalFrequency()))
+            .toList();
+    }
+
+    /**
+     * Gets lemmas filtered by minimum frequency.
+     * Useful for pruning rare candidates.
+     * 
+     * @param minFrequency Minimum total frequency
+     * @return List of lemmas with frequency >= minFrequency
+     */
+    public java.util.List<String> getLemmasByMinFrequency(long minFrequency) {
+        return statisticsMap.entrySet().stream()
+            .filter(e -> e.getValue().totalFrequency() >= minFrequency)
+            .map(java.util.Map.Entry::getKey)
+            .toList();
+    }
+
+    /**
      * Gets the total number of tokens in the corpus.
      */
     public long getTotalTokens() {

@@ -223,6 +223,82 @@
             font-weight: bold;
             color: #4a90d9;
         }
+        .radial-button {
+            margin-left: auto;
+            padding: 6px 10px;
+            font-size: 12px;
+            background: #f0f5ff;
+            color: #357abd;
+            border: 1px solid #cfe0ff;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .radial-button:hover { background: #e4efff; }
+        .radial-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .radial-modal.active { display: flex; }
+        .radial-content {
+            background: white;
+            border-radius: 12px;
+            width: 880px;
+            max-width: 95vw;
+            padding: 20px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        }
+        .radial-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .radial-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+        .radial-subtitle {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .radial-close {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #666;
+        }
+        .radial-legend {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+        }
+        .radial-legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .radial-legend .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .adj-row { cursor: pointer; }
+        .adj-row:hover { background: #f7fbff; }
     </style>
 </head>
 <body>
@@ -272,6 +348,12 @@
         
         <div id="semanticGraph"></div>
         
+        <!-- Examples panel (hidden by default) -->
+        <div id="examplesPanel" style="display: none; margin-top: 20px; padding: 15px; background: white; border: 2px solid #3498db; border-radius: 8px;">
+            <h3 id="examplesPanelTitle" style="margin-top: 0;">Examples</h3>
+            <div id="examplesList"></div>
+        </div>
+        
         <div class="snowball-stats">
             <div class="stat-card">
                 <h4>Fully Shared</h4>
@@ -288,6 +370,18 @@
         </div>
         
         <div id="semanticDetails" class="results" style="margin-top: 20px;"></div>
+    </div>
+
+    <div id="radialModal" class="radial-modal" onclick="closeRadial(event)">
+        <div class="radial-content" onclick="event.stopPropagation()">
+            <div class="radial-header">
+                <div class="radial-title" id="radialTitle">Radial Plot</div>
+                <button class="radial-close" onclick="closeRadial(event)">✕</button>
+            </div>
+            <div class="radial-subtitle" id="radialSubtitle"></div>
+            <svg id="radialSvg" width="840" height="520"></svg>
+            <div class="radial-legend" id="radialLegend"></div>
+        </div>
     </div>
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -360,8 +454,13 @@
             }
         }
 
+        let currentSketchData = null;
+        let currentSemanticData = null;
+        let currentSemanticAdjMap = {};
+
         function renderResults(data) {
             const resultsDiv = document.getElementById('results');
+            currentSketchData = data;
 
             if (!data || !data.patterns || Object.keys(data.patterns).length === 0) {
                 resultsDiv.innerHTML = `
@@ -400,6 +499,7 @@
                         <h3>
                             ${patternData.name}
                             <span class="pos-tag">${posGroup.toUpperCase()}</span>
+                            <button class="radial-button" onclick="openRadialSketch('${patternId}')">Radial view</button>
                         </h3>
                         <div class="collocation-list">
                 `;
@@ -456,6 +556,151 @@
 
         function escapeRegExp(str) {
             return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function escapeJs(str) {
+            return String(str)
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'");
+        }
+
+        function openRadialSketch(patternId) {
+            if (!currentSketchData || !currentSketchData.patterns) return;
+            const pattern = currentSketchData.patterns[patternId];
+            if (!pattern || !pattern.collocations) return;
+
+            const items = pattern.collocations.slice(0, 28).map(c => ({
+                label: c.lemma,
+                score: c.logDice || 0,
+                meta: `freq ${c.frequency || 0}`,
+                color: '#4a90d9'
+            }));
+
+            showRadialPlot({
+                title: `${currentWord || 'Word'} • ${pattern.name}`,
+                subtitle: `Pattern: ${pattern.cql}`,
+                centerLabel: currentWord || 'word',
+                items
+            });
+        }
+
+        function openRadialAdjective(adjWord) {
+            if (!adjWord) return;
+            const adj = currentSemanticAdjMap[adjWord.toLowerCase()];
+            if (!adj || !currentSemanticData) return;
+
+            const nouns = currentSemanticData.nouns || [];
+            const scores = adj.noun_scores || {};
+            const items = nouns.map(noun => ({
+                label: noun,
+                score: scores[noun] || 0,
+                meta: scores[noun] ? `logDice ${scores[noun].toFixed(2)}` : 'no match',
+                color: '#d94a4a'
+            }));
+
+            showRadialPlot({
+                title: `${adj.word} • noun profile`,
+                subtitle: `Category: ${adj.category} • present in ${adj.present_in}/${adj.total_nouns}`,
+                centerLabel: adj.word,
+                items
+            });
+        }
+
+        function showRadialPlot({ title, subtitle, centerLabel, items }) {
+            const modal = document.getElementById('radialModal');
+            const svg = document.getElementById('radialSvg');
+            const legend = document.getElementById('radialLegend');
+
+            document.getElementById('radialTitle').textContent = title || 'Radial Plot';
+            document.getElementById('radialSubtitle').textContent = subtitle || '';
+
+            const width = svg.clientWidth || 840;
+            const height = svg.clientHeight || 520;
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
+            svg.innerHTML = '';
+            legend.innerHTML = '';
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const baseRadius = 80;
+            const maxRadius = Math.min(width, height) / 2 - 60;
+
+            const maxScore = Math.max(1, ...items.map(i => i.score || 0));
+            const angleStep = (Math.PI * 2) / Math.max(1, items.length);
+
+            const ns = 'http://www.w3.org/2000/svg';
+
+            // Center node
+            const centerCircle = document.createElementNS(ns, 'circle');
+            centerCircle.setAttribute('cx', centerX);
+            centerCircle.setAttribute('cy', centerY);
+            centerCircle.setAttribute('r', 26);
+            centerCircle.setAttribute('fill', '#4a90d9');
+            svg.appendChild(centerCircle);
+
+            const centerText = document.createElementNS(ns, 'text');
+            centerText.setAttribute('x', centerX);
+            centerText.setAttribute('y', centerY + 5);
+            centerText.setAttribute('text-anchor', 'middle');
+            centerText.setAttribute('font-size', '12');
+            centerText.setAttribute('fill', '#fff');
+            centerText.textContent = centerLabel || 'center';
+            svg.appendChild(centerText);
+
+            items.forEach((item, idx) => {
+                const angle = idx * angleStep - Math.PI / 2;
+                const strength = (item.score || 0) / maxScore;
+                const radius = baseRadius + strength * (maxRadius - baseRadius);
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+
+                const line = document.createElementNS(ns, 'line');
+                line.setAttribute('x1', centerX);
+                line.setAttribute('y1', centerY);
+                line.setAttribute('x2', x);
+                line.setAttribute('y2', y);
+                line.setAttribute('stroke', '#cbd5e1');
+                line.setAttribute('stroke-width', Math.max(1, 1 + strength * 3));
+                svg.appendChild(line);
+
+                const dot = document.createElementNS(ns, 'circle');
+                dot.setAttribute('cx', x);
+                dot.setAttribute('cy', y);
+                dot.setAttribute('r', 6 + strength * 6);
+                dot.setAttribute('fill', item.color || '#4a90d9');
+                svg.appendChild(dot);
+
+                const label = document.createElementNS(ns, 'text');
+                label.setAttribute('x', x + (x > centerX ? 10 : -10));
+                label.setAttribute('y', y + 4);
+                label.setAttribute('text-anchor', x > centerX ? 'start' : 'end');
+                label.setAttribute('font-size', '12');
+                label.textContent = item.label;
+                svg.appendChild(label);
+            });
+
+            const legendItems = [
+                { label: `max logDice ${maxScore.toFixed(2)}`, color: '#4a90d9' }
+            ];
+            legendItems.forEach(item => {
+                const span = document.createElement('span');
+                const dot = document.createElement('span');
+                dot.className = 'dot';
+                dot.style.background = item.color;
+                span.appendChild(dot);
+                span.appendChild(document.createTextNode(item.label));
+                legend.appendChild(span);
+            });
+
+            modal.classList.add('active');
+        }
+
+        function closeRadial(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            document.getElementById('radialModal').classList.remove('active');
         }
 
         function switchTab(tabName) {
@@ -523,6 +768,14 @@
         function renderSemanticDetails(data) {
             const detailsDiv = document.getElementById('semanticDetails');
             const nouns = data.nouns || [];
+
+            currentSemanticData = data;
+            currentSemanticAdjMap = {};
+            (data.adjectives || []).forEach(adj => {
+                if (adj.word) {
+                    currentSemanticAdjMap[adj.word.toLowerCase()] = adj;
+                }
+            });
             
             let html = '';
             
@@ -588,7 +841,8 @@
             html += '</tr>';
             
             adjectives.slice(0, 20).forEach(adj => {
-                html += '<tr style="border-bottom: 1px solid #eee;">';
+                const adjSafe = escapeJs(adj.word || '');
+                html += `<tr class="adj-row" onclick="openRadialAdjective('${adjSafe}')" style="border-bottom: 1px solid #eee;">`;
                 html += `<td style="padding: 8px; font-weight: 500;">${escapeHtml(adj.word)}</td>`;
                 
                 const scores = adj.noun_scores || {};
@@ -607,6 +861,60 @@
             
             html += '</table>';
             return html;
+        }
+
+        async function fetchExamples(adjective, noun) {
+            // Ensure we have valid adjective and noun (not objects)
+            const adj = typeof adjective === 'object' ? adjective.id : adjective;
+            const n = typeof noun === 'object' ? noun.id : noun;
+            
+            // Hide panel during loading
+            const panel = document.getElementById('examplesPanel');
+            const titleEl = document.getElementById('examplesPanelTitle');
+            const listEl = document.getElementById('examplesList');
+            
+            titleEl.textContent = `Examples: "${adj}" + "${n}" (loading...)`;
+            listEl.innerHTML = '<div class="loading">Fetching examples...</div>';
+            panel.style.display = 'block';
+            
+            try {
+                const url = `${apiUrl}/api/semantic-field/examples?adjective=${encodeURIComponent(adj)}&noun=${encodeURIComponent(n)}&max=10`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Update title
+                titleEl.textContent = `Examples: "${adj}" + "${n}" (${data.count} found)`;
+                
+                // Display examples
+                if (data.examples && data.examples.length > 0) {
+                    listEl.innerHTML = data.examples.map((ex, i) => 
+                        `<div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                            <strong>${i + 1}.</strong> ${highlightWords(ex, adj, n)}
+                        </div>`
+                    ).join('');
+                } else {
+                    listEl.innerHTML = '<div style="color: #999;">No examples found for this combination.</div>';
+                }
+                
+            } catch (error) {
+                titleEl.textContent = `Examples: "${adj}" + "${n}" (error)`;
+                listEl.innerHTML = `<div class="error">Failed to fetch examples: ${error.message}</div>`;
+            }
+        }
+
+        function highlightWords(sentence, word1, word2) {
+            // Simple highlighting - case-insensitive
+            const regex1 = new RegExp(`\\b${word1}\\w*`, 'gi');
+            const regex2 = new RegExp(`\\b${word2}\\w*`, 'gi');
+            
+            return sentence
+                .replace(regex1, '<mark style="background: #3498db; color: white; padding: 2px 4px; border-radius: 2px;">$&</mark>')
+                .replace(regex2, '<mark style="background: #d94a4a; color: white; padding: 2px 4px; border-radius: 2px;">$&</mark>');
         }
 
         function visualizeSemanticField(data) {
@@ -671,7 +979,12 @@
                 .join('line')
                 .attr('stroke', '#999')
                 .attr('stroke-opacity', d => Math.min(1, d.logDice / 10))
-                .attr('stroke-width', d => Math.max(1, d.logDice / 3));
+                .attr('stroke-width', d => Math.max(1, d.logDice / 3))
+                .attr('cursor', 'pointer')
+                .on('click', function(event, d) {
+                    // Fetch examples when clicking on an edge
+                    fetchExamples(d.source.id, d.target.id);
+                });
             
             // Draw nodes - color by category
             const node = svg.append('g')
@@ -694,6 +1007,7 @@
                 })
                 .attr('stroke', '#fff')
                 .attr('stroke-width', 2)
+                .attr('cursor', 'pointer')
                 .call(d3.drag()
                     .on('start', dragstarted)
                     .on('drag', dragged)

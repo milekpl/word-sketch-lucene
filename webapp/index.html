@@ -336,12 +336,6 @@
         </div>
 
         <div id="results" class="results"></div>
-        
-        <!-- Examples panel for Word Sketch tab -->
-        <div id="sketchExamplesPanel" style="display: none; margin-top: 20px; padding: 15px; background: white; border: 2px solid #e74c3c; border-radius: 8px;">
-            <h3 id="sketchExamplesPanelTitle" style="margin-top: 0;">Examples</h3>
-            <div id="sketchExamplesList"></div>
-        </div>
     </div>
 
     <div id="semanticTab" class="tab-content">
@@ -548,18 +542,21 @@
                         <div class="collocation-list">
                 `;
                 
-                collocations.slice(0, 15).forEach(c => {
+                collocations.slice(0, 15).forEach((c, idx) => {
                     const score = c.logDice ? c.logDice.toFixed(2) : '-';
                     const freq = c.frequency || '-';
                     const word = c.lemma || '-';
+                    const uniqueId = `example-${patternId}-${idx}`;
                     html += `
-                        <div class="collocation" style="cursor: pointer; position: relative;" onclick="fetchSketchExamples('${escapeJs(currentWord)}', '${escapeJs(word)}')">
-                            <span class="word">${escapeHtml(word)}</span>
-                            <span>
-                                <span class="score">logDice: ${score}</span>
-                                <span class="freq">(${freq})</span>
-                            </span>
-                            <span style="position: absolute; right: 10px; top: 8px; color: #999; font-size: 12px;">Click for examples →</span>
+                        <div style="margin-bottom: 10px;">
+                            <div class="collocation" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f9f9f9; border-radius: 4px; border: 1px solid #ddd;">
+                                <span class="word" style="cursor: pointer; text-decoration: underline; color: #2980b9; font-weight: 500;" onclick="toggleSketchExamples('${uniqueId}', '${escapeJs(currentWord)}', '${escapeJs(word)}')">${escapeHtml(word)}</span>
+                                <span>
+                                    <span class="score">logDice: ${score}</span>
+                                    <span class="freq">(${freq})</span>
+                                </span>
+                            </div>
+                            <div id="${uniqueId}" style="display: none; margin-top: 8px; margin-left: 10px; padding: 10px; background: #fef5e7; border-left: 3px solid #e74c3c; border-radius: 4px;"></div>
                         </div>
                     `;
                 });
@@ -1468,16 +1465,29 @@
             return html;
         }
 
-        async function fetchSketchExamples(word1, word2) {
-            // Fetch examples for Word Sketch tab
-            const apiUrl = document.getElementById('apiUrl').value.trim();
-            const panel = document.getElementById('sketchExamplesPanel');
-            const titleEl = document.getElementById('sketchExamplesPanelTitle');
-            const listEl = document.getElementById('sketchExamplesList');
+        async function toggleSketchExamples(uniqueId, word1, word2) {
+            const container = document.getElementById(uniqueId);
+            if (!container) return;
             
-            titleEl.textContent = `Examples: "${word1}" + "${word2}" (loading...)`;
-            listEl.innerHTML = '<div class="loading">Fetching examples...</div>';
-            panel.style.display = 'block';
+            // If already showing, toggle off
+            if (container.style.display !== 'none') {
+                container.style.display = 'none';
+                return;
+            }
+            
+            // Show loading
+            container.innerHTML = '<div class="loading">Fetching examples...</div>';
+            container.style.display = 'block';
+            
+            await fetchSketchExamples(uniqueId, word1, word2);
+        }
+
+        async function fetchSketchExamples(containerId, word1, word2) {
+            // Fetch examples for Word Sketch tab (inline)
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const container = document.getElementById(containerId);
+            
+            if (!container) return;
             
             try {
                 const url = `${apiUrl}/api/concordance/examples?word1=${encodeURIComponent(word1)}&word2=${encodeURIComponent(word2)}&limit=10`;
@@ -1489,30 +1499,27 @@
                 
                 const data = await response.json();
                 
-                titleEl.textContent = `Examples: "${word1}" + "${word2}" (${data.count} found)`;
-                
                 if (data.examples && data.examples.length > 0) {
-                    listEl.innerHTML = data.examples.map((ex, i) => {
+                    let html = `<div style="font-size: 12px; color: #555; margin-bottom: 8px;"><strong>${data.count} examples found</strong></div>`;
+                    html += data.examples.map((ex, i) => {
                         const displayText = ex.highlighted || ex.raw || ex.sentence;
-                        return `<div style="margin: 8px 0; padding: 8px; background: #fef5e7; border-radius: 4px; font-family: monospace; font-size: 13px; line-height: 1.5;">
-                            <strong>${i + 1}.</strong> <span style="margin-left: 6px;">${displayText}</span>
+                        return `<div style="margin: 6px 0; padding: 6px; background: white; border-radius: 3px; font-family: monospace; font-size: 12px; line-height: 1.4;">
+                            ${displayText}
                         </div>`;
                     }).join('');
                     
                     if (data.count >= 10) {
-                        listEl.innerHTML += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-                            <button onclick="fetchSketchExamples('${escapeJs(word1)}', '${escapeJs(word2)}'); document.getElementById('sketchExamplesList').setAttribute('data-limit', '20');" style="width: 100%; padding: 8px;">
-                                Load More Examples
-                            </button>
+                        html += `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+                            <button onclick="alert('Load more not yet implemented')" style="width: 100%; padding: 6px; font-size: 12px;">Load More (${data.count} total)</button>
                         </div>`;
                     }
+                    container.innerHTML = html;
                 } else {
-                    listEl.innerHTML = '<div style="color: #999;">No examples found for this combination.</div>';
+                    container.innerHTML = '<div style="color: #999; font-size: 12px;">No examples found for this combination.</div>';
                 }
                 
             } catch (error) {
-                titleEl.textContent = `Examples: "${word1}" + "${word2}" (error)`;
-                listEl.innerHTML = `<div class="error">Failed to fetch examples: ${error.message}</div>`;
+                container.innerHTML = `<div class="error" style="font-size: 12px;">Failed to fetch examples: ${error.message}</div>`;
             }
         }
 

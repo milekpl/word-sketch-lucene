@@ -884,16 +884,36 @@ public class WordSketchApiServer {
                 return;
             }
 
+            // Create explorer and fetch examples using SpanQuery + DocValues
+            pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer explorer = 
+                new pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer(indexPath);
+            
+            List<pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample> examples = 
+                explorer.fetchExamples(word1, word2, relation, limit);
+            explorer.close();
+
             // Format response
             Map<String, Object> response = new HashMap<>();
-            response.put("status", "not_available");
-            response.put("message", "Concordance examples are not available in HYBRID index. The lemma and word fields are not stored individually - only the sentence text is available.");
+            response.put("status", "ok");
             response.put("word1", word1);
             response.put("word2", word2);
             response.put("relation", relation);
             response.put("limit_requested", limit);
-            response.put("count", 0);
-            response.put("examples", new ArrayList<>());
+            response.put("count", examples.size());
+
+            // Convert examples to response format
+            List<Map<String, Object>> examplesList = new ArrayList<>();
+            for (pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample ex : examples) {
+                Map<String, Object> exMap = new HashMap<>();
+                exMap.put("sentence", ex.sentence);
+                exMap.put("highlighted", ex.getHighlightedSentence());
+                exMap.put("raw", ex.getRawSentence());
+                exMap.put("word1_positions", ex.positions1);
+                exMap.put("word2_positions", ex.positions2);
+                examplesList.add(exMap);
+            }
+
+            response.put("examples", examplesList);
 
             sendJson(exchange, 200, response);
 

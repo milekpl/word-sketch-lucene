@@ -212,22 +212,29 @@ curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,
 curl "http://localhost:8080/api/concordance/examples?word1=house&word2=big&limit=10"
 ```
 
-**⚠️ NOT AVAILABLE in HYBRID Index**: The HYBRID index does not store individual lemma/word/tag fields. Only sentence text is stored. To enable concordance examples, the index would need to be modified to store token-level annotations.
+Get actual example sentences from the corpus containing both words (lemmas). Uses SpanQueries to efficiently find sentences where both lemmas appear within 10 words of each other, then decodes token data from DocValues for highlighting.
 
 **Parameters:**
 - `word1` (required) - First word (lemma)
 - `word2` (required) - Second word (lemma)
-- `limit` (optional) - Number of examples to return (default: 10, max: 100)
+- `limit` (optional) - Number of examples to return (default: 10)
 
-**Response (Not Available):**
+**Response:**
 ```json
 {
-  "status": "not_available",
-  "count": 0,
+  "status": "ok",
+  "count": 3,
   "word1": "house",
   "word2": "big",
-  "message": "Concordance examples are not available in HYBRID index. The lemma and word fields are not stored individually - only the sentence text is available.",
-  "examples": []
+  "examples": [
+    {
+      "sentence": "The big house! - The big house.",
+      "highlighted": "The <mark>big</mark> <mark>house</mark> ! - The <mark>big</mark> <mark>house</mark> .",
+      "raw": "The big house ! - The big house .",
+      "word1_positions": [2, 7],
+      "word2_positions": [1, 6]
+    }
+  ]
 }
   ]
 }
@@ -472,30 +479,24 @@ This is a **functional v1.0 release** with the following limitations:
 
 ### Known Limitations
 
-1. **No Concordance Examples**: The HYBRID index does not store individual lemma/word/tag fields
-   - Only sentence text is stored, not token-level annotations
-   - Concordance examples endpoint (`/api/concordance/examples`) is not available
-   - Word Sketch tab in web UI displays this limitation message
-
-2. **No Agreement Rules**: Patterns don't enforce grammatical agreement
+1. **No Agreement Rules**: Patterns don't enforce grammatical agreement
    - "big house" and "the big house" are treated the same
    - Consider this for interpretation of results
 
-3. **Fixed Grammatical Relations**: Only 4 relation types implemented
+2. **Fixed Grammatical Relations**: Only 4 relation types implemented
    - `ADJ_PREDICATE`, `ADJ_MODIFIER`, `SUBJECT_OF`, `OBJECT_OF`
    - Custom patterns require CQL specification
 
-4. **Limited Lemma Coverage**: Depends on the input corpus
+3. **Limited Lemma Coverage**: Depends on the input corpus
    - Low-frequency words may have insufficient data
    - Compounds and rare morphological forms may not be covered
 
-5. **No Morphological Analysis**: Simple POS tag matching
+4. **No Morphological Analysis**: Simple POS tag matching
    - Plural/singular not distinguished
    - Verb tense merged into single lemma
 
 ### Planned for v2.0
 
-- Concordance examples (requires storing token-level annotations)
 - Agreement rules (noun-adjective gender/number matching)
 - Additional grammatical relations (possessive, comparative, etc.)
 - Morphological decomposition

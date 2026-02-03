@@ -4,15 +4,24 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.*;
+import org.apache.lucene.queries.spans.*;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.store.MMapDirectory;
+import org.apache.lucene.util.BytesRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.TokenSequenceCodec;
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.SentenceDocument;
+
 /**
- * Fetch concordance examples for word pairs.
+ * Fetch concordance examples for word pairs using SpanQueries.
+ * 
+ * Uses the indexed lemma field (with positions) to find sentences containing
+ * both words, then decodes the tokens BinaryDocValues to get actual word forms.
  */
 public class ConcordanceExplorer {
     private static final Logger logger = LoggerFactory.getLogger(ConcordanceExplorer.class);
@@ -28,11 +37,11 @@ public class ConcordanceExplorer {
 
     /**
      * Fetch concordance examples for a word pair using SpanQueries.
-     * Searches for sentences containing both word1 and word2.
+     * Searches for sentences containing both word1 and word2 within a window.
      * 
-     * @param word1 First word (e.g., "house")
-     * @param word2 Second word (e.g., "big")
-     * @param relation Grammatical relation (unused for now, just metadata)
+     * @param word1 First word (lemma)
+     * @param word2 Second word (lemma)
+     * @param relation Grammatical relation (metadata, not used for query)
      * @param limit Max examples to return
      * @return List of concordance examples with highlighted words
      */
@@ -43,33 +52,119 @@ public class ConcordanceExplorer {
         try {
             String w1Lower = word1.toLowerCase();
             String w2Lower = word2.toLowerCase();
-            int maxDocs = Math.min(reader.numDocs(), 100000);
-            int docsScanned = 0;
             
-            for (int docId = 0; docId < maxDocs && examples.size() < limit; docId++) {
+            // Build SpanNearQuery: both lemmas within 10 words of each other
+            SpanTermQuery span1 = new SpanTermQuery(new Term("lemma", w1Lower));
+            SpanTermQuery span2 = new SpanTermQuery(new Term("lemma", w2Lower));
+            
+            // Allow either order, within 10 words
+            SpanNearQuery nearQuery = SpanNearQuery.newUnorderedNearQuery("lemma")
+                .addClause(span1)
+                .addClause(span2)
+                .setSlop(10)
+                .build();
+            
+            // Search for matching documents
+            TopDocs topDocs = searcher.search(nearQuery, limit * 2); // Get extra in case some fail
+            
+            logger.debug("SpanNearQuery for '{}' + '{}' found {} hits", w1Lower, w2Lower, topDocs.totalHits.value());
+            
+            for (ScoreDoc hit : topDocs.scoreDocs) {
+                if (examples.size() >= limit) break;
+                
                 try {
-                    Document doc = searcher.storedFields().document(docId);
-                    String sentence = doc.get("text");
-                    if (sentence == null) continue;
-                    
-                    // The lemma/word/tag fields are NOT stored in HybridIndexer,
-                    // only indexed. They need to be reconstructed from stored sentence text.
-                    // For now, we'll use a simple tokenization approach or skip this query.
-                    // Return no results since we can't reliably extract lemmas without stored fields.
-                    docsScanned++;
+                    ConcordanceExample example = extractExample(hit.doc, w1Lower, w2Lower, word1, word2);
+                    if (example != null) {
+                        examples.add(example);
+                    }
                 } catch (Exception e) {
-                    logger.debug("Error processing doc {}: {}", docId, e.getMessage());
+                    logger.debug("Error extracting example from doc {}: {}", hit.doc, e.getMessage());
                 }
             }
             
-            logger.info("Fetched {} concordance examples for '{}' + '{}' (scanned {} docs out of {} total)", 
-                examples.size(), word1, word2, docsScanned, maxDocs);
-            logger.warn("ConcordanceExplorer: Lemma/word fields are not stored in HybridIndexer. Concordance examples require a different approach.");
+            logger.info("Fetched {} concordance examples for '{}' + '{}'", examples.size(), word1, word2);
+            
         } catch (Exception e) {
-            logger.error("Error fetching concordance examples: {}", e.getMessage());
+            logger.error("Error fetching concordance examples: {}", e.getMessage(), e);
         }
 
         return examples;
+    }
+
+    /**
+     * Extract a concordance example from a document.
+     */
+    private ConcordanceExample extractExample(int docId, String lemma1Lower, String lemma2Lower, 
+                                               String word1, String word2) throws IOException {
+        // Get stored sentence text
+        Document doc = searcher.storedFields().document(docId);
+        String sentenceText = doc.get("text");
+        if (sentenceText == null) return null;
+        
+        // Decode tokens from BinaryDocValues
+        List<SentenceDocument.Token> tokens = getTokens(docId);
+        if (tokens == null || tokens.isEmpty()) return null;
+        
+        // Find positions of both lemmas
+        List<Integer> pos1 = new ArrayList<>();
+        List<Integer> pos2 = new ArrayList<>();
+        String[] words = new String[tokens.size()];
+        String[] lemmas = new String[tokens.size()];
+        String[] tags = new String[tokens.size()];
+        
+        for (int i = 0; i < tokens.size(); i++) {
+            SentenceDocument.Token token = tokens.get(i);
+            words[i] = token.word();
+            lemmas[i] = token.lemma();
+            tags[i] = token.tag();
+            
+            if (token.lemma() != null && token.lemma().toLowerCase().equals(lemma1Lower)) {
+                pos1.add(i);
+            }
+            if (token.lemma() != null && token.lemma().toLowerCase().equals(lemma2Lower)) {
+                pos2.add(i);
+            }
+        }
+        
+        // Must have both words
+        if (pos1.isEmpty() || pos2.isEmpty()) {
+            return null;
+        }
+        
+        ConcordanceExample example = new ConcordanceExample();
+        example.sentence = sentenceText;
+        example.words = words;
+        example.lemmas = lemmas;
+        example.tags = tags;
+        example.word1 = word1;
+        example.word2 = word2;
+        example.positions1 = pos1;
+        example.positions2 = pos2;
+        
+        return example;
+    }
+
+    /**
+     * Get tokens from BinaryDocValues for a document.
+     */
+    private List<SentenceDocument.Token> getTokens(int docId) throws IOException {
+        // Find the leaf reader containing this doc
+        for (LeafReaderContext ctx : reader.leaves()) {
+            int base = ctx.docBase;
+            int maxDoc = ctx.reader().maxDoc();
+            
+            if (docId >= base && docId < base + maxDoc) {
+                int localDocId = docId - base;
+                BinaryDocValues tokensDV = ctx.reader().getBinaryDocValues("tokens");
+                
+                if (tokensDV != null && tokensDV.advanceExact(localDocId)) {
+                    BytesRef bytesRef = tokensDV.binaryValue();
+                    return TokenSequenceCodec.decode(bytesRef);
+                }
+                break;
+            }
+        }
+        return null;
     }
 
     /**

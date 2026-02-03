@@ -44,59 +44,27 @@ public class ConcordanceExplorer {
             String w1Lower = word1.toLowerCase();
             String w2Lower = word2.toLowerCase();
             int maxDocs = Math.min(reader.numDocs(), 100000);
+            int docsScanned = 0;
             
             for (int docId = 0; docId < maxDocs && examples.size() < limit; docId++) {
                 try {
                     Document doc = searcher.storedFields().document(docId);
-                    String sentence = doc.get("sentence");
+                    String sentence = doc.get("text");
                     if (sentence == null) continue;
                     
-                    String lemmas = doc.get("lemma");
-                    String words = doc.get("word");
-                    String tags = doc.get("tag");
-                    
-                    if (lemmas == null || words == null || tags == null) continue;
-
-                    String[] lemmaArray = lemmas.split("\\|");
-                    String[] wordArray = words.split("\\|");
-                    String[] tagArray = tags.split("\\|");
-
-                    if (lemmaArray.length != wordArray.length || wordArray.length != tagArray.length) {
-                        continue;
-                    }
-
-                    List<Integer> pos1 = new ArrayList<>();
-                    List<Integer> pos2 = new ArrayList<>();
-
-                    for (int i = 0; i < lemmaArray.length; i++) {
-                        String lemma = lemmaArray[i].toLowerCase();
-                        if (lemma.equals(w1Lower)) {
-                            pos1.add(i);
-                        }
-                        if (lemma.equals(w2Lower)) {
-                            pos2.add(i);
-                        }
-                    }
-
-                    if (!pos1.isEmpty() && !pos2.isEmpty()) {
-                        ConcordanceExample ex = new ConcordanceExample();
-                        ex.sentence = sentence;
-                        ex.words = wordArray;
-                        ex.lemmas = lemmaArray;
-                        ex.tags = tagArray;
-                        ex.word1 = word1;
-                        ex.word2 = word2;
-                        ex.positions1 = pos1;
-                        ex.positions2 = pos2;
-                        examples.add(ex);
-                    }
+                    // The lemma/word/tag fields are NOT stored in HybridIndexer,
+                    // only indexed. They need to be reconstructed from stored sentence text.
+                    // For now, we'll use a simple tokenization approach or skip this query.
+                    // Return no results since we can't reliably extract lemmas without stored fields.
+                    docsScanned++;
                 } catch (Exception e) {
                     logger.debug("Error processing doc {}: {}", docId, e.getMessage());
                 }
             }
             
-            logger.info("Fetched {} concordance examples for '{}' + '{}' (scanned {} docs)", 
-                examples.size(), word1, word2, maxDocs);
+            logger.info("Fetched {} concordance examples for '{}' + '{}' (scanned {} docs out of {} total)", 
+                examples.size(), word1, word2, docsScanned, maxDocs);
+            logger.warn("ConcordanceExplorer: Lemma/word fields are not stored in HybridIndexer. Concordance examples require a different approach.");
         } catch (Exception e) {
             logger.error("Error fetching concordance examples: {}", e.getMessage());
         }

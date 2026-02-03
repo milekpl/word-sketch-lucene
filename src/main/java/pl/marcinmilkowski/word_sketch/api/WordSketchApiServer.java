@@ -141,6 +141,7 @@ public class WordSketchApiServer {
         server.createContext("/api/semantic-field/explore-multi", wrapHandler(this::handleSemanticFieldExploreMulti));
         server.createContext("/api/semantic-field", wrapHandler(this::handleSemanticField));
         server.createContext("/api/semantic-field/examples", wrapHandler(this::handleSemanticFieldExamples));
+        server.createContext("/api/concordance/examples", wrapHandler(this::handleConcordanceExamples));
         server.createContext("/api/algorithm", wrapHandler(this::handleAlgorithm));
 
         // Legacy endpoints (for backward compatibility)
@@ -161,6 +162,7 @@ public class WordSketchApiServer {
         System.out.println("  GET  /api/semantic-field/explore - Explore semantic class from seed word");
         System.out.println("  GET  /api/semantic-field     - Compare adjective profiles across nouns");
         System.out.println("  GET  /api/semantic-field/examples - Get examples for adjective-noun pair");
+        System.out.println("  GET  /api/concordance/examples - Get concordance examples for word pair");
         System.out.println("  GET/POST /api/algorithm      - Get/set algorithm (SAMPLE_SCAN, SPAN_COUNT, PRECOMPUTED)");
     }
 
@@ -855,6 +857,71 @@ public class WordSketchApiServer {
         } catch (Exception e) {
             e.printStackTrace();
             sendError(exchange, 500, "Failed to fetch examples: " + e.getMessage());
+        }
+    }
+
+    /**
+     * GET /api/concordance/examples?word1=house&word2=big&limit=10
+     * Fetch concordance examples for a word pair.
+     */
+    private void handleConcordanceExamples(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        try {
+            String query = exchange.getRequestURI().getQuery();
+            Map<String, String> params = parseQueryParams(query);
+
+            String word1 = params.get("word1");
+            String word2 = params.get("word2");
+            String relation = params.getOrDefault("relation", "");
+            int limit = Integer.parseInt(params.getOrDefault("limit", "10"));
+
+            if (word1 == null || word1.isEmpty() || word2 == null || word2.isEmpty()) {
+                sendError(exchange, 400, "Missing required parameters: word1 and word2");
+                return;
+            }
+
+            // Create explorer and fetch examples
+            pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer explorer = 
+                new pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer(indexPath);
+            
+            List<pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample> examples = 
+                explorer.fetchExamples(word1, word2, relation, limit);
+            explorer.close();
+
+            // Format response
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "ok");
+            response.put("word1", word1);
+            response.put("word2", word2);
+            response.put("relation", relation);
+            response.put("limit_requested", limit);
+            response.put("count", examples.size());
+
+            // Convert examples to response format
+            List<Map<String, Object>> examplesList = new ArrayList<>();
+            for (pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample ex : examples) {
+                Map<String, Object> exMap = new HashMap<>();
+                exMap.put("sentence", ex.sentence);
+                exMap.put("highlighted", ex.getHighlightedSentence());
+                exMap.put("raw", ex.getRawSentence());
+                exMap.put("word1_positions", ex.positions1);
+                exMap.put("word2_positions", ex.positions2);
+                examplesList.add(exMap);
+            }
+
+            response.put("examples", examplesList);
+
+            sendJson(exchange, 200, response);
+
+        } catch (NumberFormatException e) {
+            sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendError(exchange, 500, "Failed to fetch concordance examples: " + e.getMessage());
         }
     }
 

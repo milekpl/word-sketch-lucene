@@ -1461,22 +1461,23 @@
             return html;
         }
 
-        async function fetchExamples(adjective, noun) {
-            // Ensure we have valid adjective and noun (not objects)
-            const adj = typeof adjective === 'object' ? adjective.id : adjective;
-            const n = typeof noun === 'object' ? noun.id : noun;
+        async function fetchExamples(word1, word2) {
+            // Ensure we have valid words (not objects)
+            const w1 = typeof word1 === 'object' ? word1.id : word1;
+            const w2 = typeof word2 === 'object' ? word2.id : word2;
             
             // Hide panel during loading
             const panel = document.getElementById('examplesPanel');
             const titleEl = document.getElementById('examplesPanelTitle');
             const listEl = document.getElementById('examplesList');
             
-            titleEl.textContent = `Examples: "${adj}" + "${n}" (loading...)`;
+            titleEl.textContent = `Examples: "${w1}" + "${w2}" (loading...)`;
             listEl.innerHTML = '<div class="loading">Fetching examples...</div>';
             panel.style.display = 'block';
             
             try {
-                const url = `${apiUrl}/api/semantic-field/examples?adjective=${encodeURIComponent(adj)}&noun=${encodeURIComponent(n)}&max=10`;
+                // Try concordance endpoint first (general case)
+                const url = `${apiUrl}/api/concordance/examples?word1=${encodeURIComponent(w1)}&word2=${encodeURIComponent(w2)}&limit=10`;
                 const response = await fetch(url);
                 
                 if (!response.ok) {
@@ -1486,21 +1487,32 @@
                 const data = await response.json();
                 
                 // Update title
-                titleEl.textContent = `Examples: "${adj}" + "${n}" (${data.count} found)`;
+                titleEl.textContent = `Concordance: "${w1}" + "${w2}" (${data.count} found)`;
                 
                 // Display examples
                 if (data.examples && data.examples.length > 0) {
-                    listEl.innerHTML = data.examples.map((ex, i) => 
-                        `<div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 4px;">
-                            <strong>${i + 1}.</strong> ${highlightWords(ex, adj, n)}
-                        </div>`
-                    ).join('');
+                    listEl.innerHTML = data.examples.map((ex, i) => {
+                        // Use highlighted version if available, otherwise use raw sentence
+                        const displayText = ex.highlighted || ex.raw || ex.sentence;
+                        return `<div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; font-family: monospace; font-size: 13px; line-height: 1.5;">
+                            <strong>${i + 1}.</strong> <span style="margin-left: 6px;">${displayText}</span>
+                        </div>`;
+                    }).join('');
+                    
+                    // Add "Load more" button if there are more examples available
+                    if (data.count >= 10) {
+                        listEl.innerHTML += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                            <button onclick="fetchExamples('${w1}', '${w2}'); document.getElementById('examplesList').setAttribute('data-limit', '20');" style="width: 100%; padding: 8px;">
+                                Load More Examples
+                            </button>
+                        </div>`;
+                    }
                 } else {
                     listEl.innerHTML = '<div style="color: #999;">No examples found for this combination.</div>';
                 }
                 
             } catch (error) {
-                titleEl.textContent = `Examples: "${adj}" + "${n}" (error)`;
+                titleEl.textContent = `Examples: "${w1}" + "${w2}" (error)`;
                 listEl.innerHTML = `<div class="error">Failed to fetch examples: ${error.message}</div>`;
             }
         }

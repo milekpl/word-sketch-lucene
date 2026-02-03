@@ -10,6 +10,7 @@ A high-performance corpus-based collocation analysis tool built on Apache Lucene
 - **CQL Support**: Full Corpus Query Language with distance modifiers and constraints
 - **logDice Scoring**: Association strength metric (0-14 scale)
 - **Multiple Grammatical Relations**: ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF
+- **Concordance Examples**: View real corpus sentences for any word pair with highlighting
 - **REST API**: HTTP server with semantic field exploration endpoints
 - **Web Interface**: Interactive Semantic Field Explorer with D3.js visualization
 - **Multi-Seed Exploration**: Explore semantic fields using multiple seed words
@@ -73,6 +74,9 @@ Open browser to: **http://localhost:3000**
 ```bash
 # Find adjectives describing "house"
 curl "http://localhost:8080/api/sketch/house?pos=noun"
+
+# Get example sentences for "house" + "big"
+curl "http://localhost:8080/api/concordance/examples?word1=house&word2=big&limit=5"
 
 # Explore semantic field from "theory" (ADJ_PREDICATE relation)
 curl "http://localhost:8080/api/semantic-field/explore?seed=theory&relation=adj_predicate"
@@ -212,12 +216,25 @@ curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,
 curl "http://localhost:8080/api/concordance/examples?word1=house&word2=big&limit=10"
 ```
 
-Get actual example sentences from the corpus containing both words (lemmas). Uses SpanQueries to efficiently find sentences where both lemmas appear within 10 words of each other, then decodes token data from DocValues for highlighting.
+Get actual example sentences from the corpus containing both words (lemmas). This feature validates collocations by showing real usage contexts.
+
+**How It Works:**
+1. Uses **SpanNearQuery** to efficiently find sentences where both lemmas appear within 10 words
+2. Decodes token data (word, lemma, tag, position) from **BinaryDocValues** (`tokens` field)
+3. Generates HTML with `<mark>` tags highlighting both target words
+4. Returns sentence text, highlighted HTML, and position arrays
+
+**Technical Details:**
+- The HYBRID index stores tokens as BinaryDocValues, decoded via `TokenSequenceCodec`
+- Lemma field is indexed with positions, enabling fast SpanQueries
+- No need to store lemma/word/tag as separate StoredFields - DocValues provide O(1) lookup
+- Query complexity: O(log N) for SpanQuery + O(k) for decoding k matching documents
 
 **Parameters:**
 - `word1` (required) - First word (lemma)
 - `word2` (required) - Second word (lemma)
 - `limit` (optional) - Number of examples to return (default: 10)
+- `relation` (optional) - Grammatical relation metadata (not used in query)
 
 **Response:**
 ```json
@@ -226,6 +243,8 @@ Get actual example sentences from the corpus containing both words (lemmas). Use
   "count": 3,
   "word1": "house",
   "word2": "big",
+  "relation": "",
+  "limit_requested": 10,
   "examples": [
     {
       "sentence": "The big house! - The big house.",
@@ -233,17 +252,36 @@ Get actual example sentences from the corpus containing both words (lemmas). Use
       "raw": "The big house ! - The big house .",
       "word1_positions": [2, 7],
       "word2_positions": [1, 6]
+    },
+    {
+      "sentence": "Houses Big and beautiful house with 4 bedrooms Houses big...",
+      "highlighted": "<mark>Houses</mark> <mark>Big</mark> and beautiful <mark>house</mark> with 4 bedrooms <mark>Houses</mark> <mark>big</mark> ...",
+      "raw": "Houses Big and beautiful house with 4 bedrooms Houses big ...",
+      "word1_positions": [0, 4, 8],
+      "word2_positions": [1, 9]
     }
-  ]
-}
   ]
 }
 ```
 
+**Response Fields:**
+- `sentence` - Raw sentence text from the corpus
+- `highlighted` - HTML with `<mark>` tags around matching words
+- `raw` - Tokenized sentence (space-separated)
+- `word1_positions` - Array of token positions where word1 appears (0-indexed)
+- `word2_positions` - Array of token positions where word2 appears (0-indexed)
+
+**Use Cases:**
+- Validate collocations before citing in research
+- Understand usage contexts and frequency patterns
+- Discover idiomatic expressions and multi-word units
+- Quality check corpus tagging and lemmatization
+
 **Integration with Web UI:**
-- In the "Word Sketch" tab: Click any collocation to see example sentences
-- In the "Semantic Field Explorer" tab: Click any edge in the graph to see examples
-- Examples panel shows up to 10 sentences with target words highlighted
+- **Word Sketch tab**: Click any collocation word to see inline examples
+- **Semantic Field Explorer**: Click graph edges to see example sentences
+- Examples appear in expandable panels below the visualization
+- Up to 10 examples shown with "Load More" option for additional contexts
 
 ---
 
@@ -387,10 +425,16 @@ word-sketch-lucene/
 │   │   ├── CQLParser.java           # CQL pattern parsing
 │   │   └── CQLPattern.java          # Pattern representation
 │   ├── indexer/
-│   │   └── HybridLuceneIndexer.java # Lucene index creation
+│   │   ├── hybrid/
+│   │   │   ├── HybridIndexer.java   # HYBRID index creation
+│   │   │   ├── TokenSequenceCodec.java # Token encoding/decoding
+│   │   │   ├── CollocationsBuilder.java # Precomputed collocations
+│   │   │   └── SentenceDocument.java # Document model
+│   │   └── LuceneIndexer.java       # Legacy indexer
 │   ├── query/
 │   │   ├── CQLToLuceneCompiler.java # CQL → Lucene translation
-│   │   ├── HybridQueryExecutor.java # Query execution
+│   │   ├── HybridQueryExecutor.java # Query execution (PRECOMPUTED)
+│   │   ├── ConcordanceExplorer.java # Concordance examples (SpanQuery)
 │   │   ├── SemanticFieldExplorer.java # Single-seed exploration
 │   │   ├── SnowballCollocations.java # Multi-seed exploration
 │   │   └── WordSketchQueryExecutor.java # Legacy executor
@@ -401,7 +445,7 @@ word-sketch-lucene/
 │   └── utils/
 │       └── LogDiceCalculator.java   # logDice scoring
 ├── webapp/
-│   ├── index.html                   # Web UI
+│   ├── index.html                   # Web UI (D3.js visualization)
 │   └── assets/                      # CSS, D3.js
 ├── src/test/java/                   # Unit tests
 ├── pom.xml                          # Maven config
@@ -409,6 +453,70 @@ word-sketch-lucene/
 ```
 
 ---
+
+## Technical Deep Dive
+
+### Concordance Examples Implementation
+
+The concordance feature efficiently retrieves example sentences containing word pairs using a two-stage approach:
+
+**Stage 1: SpanQuery for Fast Document Retrieval**
+```java
+// Build SpanNearQuery: both lemmas within 10 words
+SpanTermQuery span1 = new SpanTermQuery(new Term("lemma", "house"));
+SpanTermQuery span2 = new SpanTermQuery(new Term("lemma", "big"));
+
+SpanNearQuery nearQuery = SpanNearQuery.newUnorderedNearQuery("lemma")
+    .addClause(span1)
+    .addClause(span2)
+    .setSlop(10)  // Max distance: 10 tokens
+    .build();
+
+TopDocs results = searcher.search(nearQuery, limit);
+```
+
+**Stage 2: DocValues Decoding for Token Details**
+```java
+// For each matching document, decode tokens from BinaryDocValues
+BinaryDocValues tokensDV = reader.getBinaryDocValues("tokens");
+tokensDV.advanceExact(docId);
+BytesRef tokensBytes = tokensDV.binaryValue();
+
+// Decode using TokenSequenceCodec
+List<Token> tokens = TokenSequenceCodec.decode(tokensBytes);
+
+// Each token contains: position, word, lemma, tag, startOffset, endOffset
+```
+
+**Why This Design?**
+
+1. **Compact Storage**: Tokens stored as binary (varint encoding) instead of separate fields
+   - Typical sentence (~20 tokens): 400-600 bytes vs 1-2KB for separate fields
+   - 62M sentence corpus: ~30GB vs ~80GB storage
+
+2. **Fast Retrieval**: 
+   - SpanQuery uses inverted index with positions → O(log N) lookup
+   - DocValues provide O(1) document access (memory-mapped)
+   - No need to reconstruct from stored text
+
+3. **Position Accuracy**: 
+   - Positions preserved from tagging pipeline
+   - Support for multi-word tokens and contractions
+   - Exact alignment with original text offsets
+
+**Binary Encoding Format** (TokenSequenceCodec):
+```
+[token_count: varint]
+For each token:
+  [position: varint]
+  [word_length: varint][word: UTF-8]
+  [lemma_length: varint][lemma: UTF-8]
+  [tag_length: varint][tag: UTF-8]
+  [start_offset: varint]
+  [end_offset: varint]
+```
+
+Varint encoding saves space for common cases (positions < 128 = 1 byte).
 
 ## Examples
 

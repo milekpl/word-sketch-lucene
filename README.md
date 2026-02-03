@@ -1,288 +1,155 @@
 # Word Sketch Lucene
 
-A high-performance corpus-based collocation analysis tool built on Apache Lucene. This project ports the word-sketch concept to enable fast pattern matching on large corpora (up to 74M sentences).
+A high-performance corpus-based collocation analysis tool built on Apache Lucene. This project implements word sketch functionality (grammatical relations and collocations) for corpus linguistics research and NLP applications.
+
+**Current Status:** ✅ **Functional Release v1.0** - See [Limitations](#limitations) section.
 
 ## Features
 
-- **Fast Collocation Analysis**: Uses Apache Lucene SpanQueries for efficient pattern matching
-- **CQL Support**: Full Corpus Query Language support with constraints, distance modifiers, and more
-- **logDice Scoring**: Association strength metric (0-14 scale, where 14 = perfect association)
-- **Multiple Input Formats**: Raw text (with POS tagging) or pre-tagged CoNLL-U files
-- **REST API**: Built-in HTTP server for programmatic access
-- **CLI Interface**: Easy command-line operations
+- **Fast Collocation Analysis**: O(1) instant lookup with precomputed collocations
+- **CQL Support**: Full Corpus Query Language with distance modifiers and constraints
+- **logDice Scoring**: Association strength metric (0-14 scale)
+- **Multiple Grammatical Relations**: ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF
+- **REST API**: HTTP server with semantic field exploration endpoints
+- **Web Interface**: Interactive Semantic Field Explorer with D3.js visualization
+- **Multi-Seed Exploration**: Explore semantic fields using multiple seed words
 
-## Quick Start
+## Quick Start (5 minutes)
 
 ### Prerequisites
 
-- Java 17 or higher (Java 21+ recommended for Lucene 10.x)
+- Java 17+ (Java 21+ recommended)
 - Maven 3.6+
-- UDPipe 2 (optional, for better POS tagging)
+- Python 3 (for web server)
 
-### Build
+### 1. Build
 
 ```bash
 mvn clean package
 ```
 
+### 2. Download Example Index
+
+A precomputed 74M-sentence English corpus index is available in `d:\corpus_74m\index-hybrid/` (already set up if you're reading this).
+
+Or create a small index:
+```bash
+# Tag corpus with UDPipe
+udpipe --tokenize --tag --lemma --output=conllu english-model.udpipe corpus.txt > corpus.conllu
+
+# Index the CoNLL-U file
+java -jar target/word-sketch-lucene-1.0.0.jar conllu --input corpus.conllu --output data/index/
+```
+
+### 3. Start API Server
+
+```bash
+# Terminal 1
+java -jar target/word-sketch-lucene-1.0.0.jar server --index data/index/ --port 8080
+```
+
+Server startup output:
+```
+API server started on http://localhost:8080
+Algorithm: PRECOMPUTED (O(1) instant lookup)
+Endpoints:
+  GET /health
+  GET /api/sketch/{lemma}
+  GET /api/semantic-field/explore
+  GET /api/semantic-field/explore-multi
+```
+
+### 4. Start Web Interface
+
+```bash
+# Terminal 2
+python -m http.server 3000 --directory webapp
+```
+
+Open browser to: **http://localhost:3000**
+
+### 5. Try a Query
+
+```bash
+# Find adjectives describing "house"
+curl "http://localhost:8080/api/sketch/house?pos=noun"
+
+# Explore semantic field from "theory" (ADJ_PREDICATE relation)
+curl "http://localhost:8080/api/semantic-field/explore?seed=theory&relation=adj_predicate"
+
+# Multi-seed exploration
+curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,hypothesis&top=10"
+```
+
+---
+
+## Core Usage
+
 ### Index a Corpus
 
-Use the provided indexing script for easy corpus indexing:
+#### From CoNLL-U (Recommended)
 
 ```bash
-# Index line-segmented text with UDPipe (recommended)
-./index_corpus.sh sentences.txt data/index --tagger udpipe --language en
-
-# Index with simple tagger (no UDPipe needed)
-./index_corpus.sh sentences.txt data/index --tagger simple
-
-# Index pre-tagged CoNLL-U file (fastest)
-./index_corpus.sh corpus.conllu data/index --format conllu
-```
-
-On Windows (PowerShell):
-```powershell
-.\index_corpus.ps1 sentences.txt data\index -Tagger udpipe -Language en
-```
-
-#### Script Options
-
-| Option | Description |
-|--------|-------------|
-| `--tagger T` | Tagger: `udpipe` (default) or `simple` |
-| `--language L` | Language code: `en`, `pl`, `de`, `es`, etc. |
-| `--format F` | Input format: `text` (default) or `conllu` |
-| `--batch N` | Batch size (default: 1000) |
-
-### Usage
-
-```bash
-java -jar target/word-sketch-lucene-1.0.0.jar <command> [options]
-```
-
-## Commands
-
-### Index a Pre-Tagged CoNLL-U File (Recommended)
-
-For proper POS tagging, use an external tagger (UDPipe, spaCy, Stanza) and index the result:
-
-```bash
-# 1. Tag your corpus with UDPipe, output CoNLL-U
+# 1. Tag with UDPipe (creates CoNLL-U format)
 udpipe --tokenize --tag --lemma --output=conllu english-model.udpipe corpus.txt > corpus.conllu
 
 # 2. Index the CoNLL-U file
 java -jar word-sketch-lucene.jar conllu --input corpus.conllu --output data/index/
 
-# 3. Query the word sketch
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma house --pattern "[tag=\"jj.*\"]"
+# Optional: Build precomputed collocations for instant lookups (can take hours on large corpora)
+java -jar word-sketch-lucene.jar precomputed --index data/index/
 ```
 
-### Building with Precomputed Collocations (Recommended)
-
-Precomputed collocations enable **instant O(1) lookups** - 100x+ faster than on-the-fly computation. This is the recommended approach for production deployments.
-
-**Step-by-step:**
+#### From Raw Text
 
 ```bash
-# 1. Index the corpus (creates Lucene index + stats.bin)
-java -jar word-sketch-lucene.jar conllu --input corpus.conllu --output data/index/
-
-# 2. Build precomputed collocations (single-pass scan + spill-to-disk)
-# This is included when running `mvn package`, but you can also run it manually:
-mvn exec:java -Dexec.mainClass="pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationsBuilderV2" \
-  -Dexec.args="data/index/ data/index/collocations.bin"
-
-# 3. (Optional) Migrate existing index to add lexicon.bin for fallback mode
-# Only needed if you have an existing index built without lemma_ids
-mvn exec:java -Dexec.mainClass="pl.marcinmilkowski.word_sketch.indexer.hybrid.LexiconFromStatsMigrator" \
-  -Dexec.args="data/index/stats.bin data/index/lexicon.bin"
-
-# 4. Query using precomputed collocations (default)
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma house
-```
-
-**Performance characteristics:**
-
-| Algorithm | Lookup Time | Memory | Notes |
-|-----------|------------|--------|-------|
-| PRECOMPUTED | **0-1 ms** | ~700 MB (cached) | Recommended, default |
-| SAMPLE_SCAN | 50-300 ms | Minimal | Deprecated, on-the-fly |
-| SPAN_COUNT | 50-300 ms | Minimal | Deprecated, requires stats.bin |
-
-**Build times for 1B token corpus:**
-
-- Indexing: ~2 hours
-- Collocation building: ~8 hours (single-pass, spill-to-disk)
-- Total: ~10 hours
-- Result: 740 MB collocations.bin with 547k+ headwords
-
-### Index Raw Text (Simple Tagger)
-
-```bash
+# Uses simple rule-based POS tagger (limited coverage)
 java -jar word-sketch-lucene.jar index --corpus sentences.txt --output data/index/
 ```
 
-Note: This uses a simple rule-based tagger with limited coverage. For accurate results, use CoNLL-U input.
-
-### Query the Word Sketch
+### Query via Command Line
 
 ```bash
-# Find adjectives modifying "house"
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma house --pattern "[tag=\"jj.*\"]"
+# Get all collocations for "house"
+java -jar word-sketch-lucene.jar query --index data/index/ --lemma house
 
-# Find verbs associated with "time"
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma time --pattern "[tag=\"vb.*\"]"
+# Find adjectives modifying "problem"
+java -jar word-sketch-lucene.jar query --index data/index/ --lemma problem \
+  --pattern "[tag=\"jj.*\"]" --limit 20
 
-# Custom CQL pattern
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma problem --pattern "[tag=\"jj.*\"] ~ {0,3}"
+# Find what "theory" is object of
+java -jar word-sketch-lucene.jar query --index data/index/ --lemma theory \
+  --pattern "[tag=\"vb.*\"]" --limit 20
 ```
 
-### Start REST API Server
+### REST API Endpoints
 
+#### Health Check
 ```bash
-java -jar word-sketch-lucene.jar server --index data/index/ --port 8080
+curl http://localhost:8080/health
 ```
 
-The server will output:
-```
-API server started on http://localhost:8080
-Endpoints:
-  GET  /health                 - Health check
-  GET  /api/relations          - List available grammatical relations
-  GET  /api/sketch/{lemma}     - Get full word sketch
-  POST /api/sketch/query       - Execute custom CQL pattern
-  GET  /api/semantic-field     - Semantic field exploration
-  GET/POST /api/algorithm      - Get/set algorithm (PRECOMPUTED, SAMPLE_SCAN, SPAN_COUNT)
-```
-
-### Access the Web Interface (Semantic Field Explorer)
-
-The project includes a web-based Semantic Field Explorer in the `webapp/` directory. To run it:
-
-**In a separate terminal (from the project root):**
-
+#### Get Word Sketch
 ```bash
-# Python 3 (recommended)
-python -m http.server 3000 --directory webapp
-
-# Or Python 2
-python -m SimpleHTTPServer 3000 --cwd webapp
-
-# Or Node.js
-npx http-server webapp -p 3000
-
-# Or any other static HTTP server
-```
-
-Then open your browser to: **http://localhost:3000**
-
-**Architecture:**
-- REST API Server runs on `http://localhost:8080` (queries and collocations)
-- Web interface runs on `http://localhost:3000` (static HTML/CSS/JavaScript)
-- The webapp automatically connects to the API and displays results
-
-**Quick Start (both services):**
-
-```bash
-# Terminal 1: Start REST API server
-java -jar target/word-sketch-lucene-1.0.0.jar server --index data/index/ --port 8080
-
-# Terminal 2: Start web server for the UI
-python -m http.server 3000 --directory webapp
-
-# Terminal 3: Open browser
-# Navigate to http://localhost:3000
-```
-
-## REST API Reference
-
-### Algorithm Selection
-
-The REST API supports three query algorithms (accessible via `/api/algorithm` endpoint):
-
-- **PRECOMPUTED** (recommended, default): O(1) instant lookup from `collocations.bin`
-  - Requires: Pre-built `collocations.bin` file
-  - Performance: 0-1 ms per query
-  - Best for: Production, high-volume queries
-  
-- **SAMPLE_SCAN** (deprecated): Random sampling + sequential scan
-  - Performance: 50-300 ms per query depending on word frequency
-  - Fallback: Automatic if collocations not available
-  - Warning: Marked for removal in v3.0
-
-- **SPAN_COUNT** (deprecated): Statistics-based with SpanNear
-  - Requires: `stats.bin` file
-  - Performance: 50-300 ms per query
-  - Warning: Marked for removal in v3.0
-
-**Selecting an algorithm via API:**
-
-```bash
-curl -X POST http://localhost:8080/api/algorithm \
-  -H "Content-Type: application/json" \
-  -d '{"algorithm":"PRECOMPUTED"}'
+curl "http://localhost:8080/api/sketch/house?pos=noun,verb&limit=15"
 ```
 
 Response:
 ```json
 {
   "status": "ok",
-  "algorithm": "PRECOMPUTED",
-  "min_candidate_frequency": 1
-}
-```
-
-### Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/relations` | List all grammatical relations |
-| GET | `/api/sketch/{lemma}?pos=noun,verb,adj&limit=10` | Full word sketch |
-| POST | `/api/sketch/query` | Custom CQL pattern query |
-
-### Examples
-
-```bash
-# Health check
-curl http://localhost:8080/health
-
-# List available grammatical relations
-curl http://localhost:8080/api/relations
-
-# Get word sketch for "problem" (noun only, 10 results)
-curl "http://localhost:8080/api/sketch/problem?pos=noun&limit=10"
-
-# Get word sketch for all POS (default 10 results each)
-curl "http://localhost:8080/api/sketch/house"
-
-# Custom pattern query
-curl -X POST http://localhost:8080/api/sketch/query \
-  -H "Content-Type: application/json" \
-  -d '{"lemma":"house","pattern":"[tag=jj.*]~{0,3}","limit":5}'
-```
-
-### Response Format
-
-**Full Word Sketch Response:**
-```json
-{
-  "status": "ok",
-  "lemma": "problem",
+  "lemma": "house",
   "patterns": {
     "noun_modifiers": {
-      "name": "Adjectives modifying (modifiers)",
+      "name": "Adjectives modifying (ADJ X)",
       "cql": "[tag=jj.*]~{0,3}",
-      "pos_group": "noun",
-      "total_matches": 299,
+      "total_matches": 3421,
       "collocations": [
         {
-          "lemma": "clinical",
-          "pos": "jj",
-          "frequency": 13,
-          "logDice": 9.57,
-          "relativeFrequency": 0.021,
-          "examples": ["..."]
+          "lemma": "big",
+          "frequency": 287,
+          "logDice": 11.24,
+          "relativeFrequency": 0.084
         }
       ]
     }
@@ -290,54 +157,122 @@ curl -X POST http://localhost:8080/api/sketch/query \
 }
 ```
 
-**Custom Query Response:**
+#### Single-Seed Semantic Field Exploration
+```bash
+curl "http://localhost:8080/api/semantic-field/explore?seed=theory&relation=adj_predicate&top=15&min_logdice=2"
+```
+
+**Relations:**
+- `adj_predicate`: "X is ADJ" (e.g., "theory is correct")
+- `adj_modifier`: "ADJ X" (e.g., "correct theory")  
+- `subject_of`: "X VERBs" (e.g., "theory suggests")
+- `object_of`: "VERB X" (e.g., "develop theory")
+
+**Response:**
 ```json
 {
   "status": "ok",
-  "lemma": "house",
-  "pattern": "[tag=jj.*]~{0,3}",
-  "total_matches": 10,
-  "collocations": [
+  "seed": "theory",
+  "seed_collocates": [
+    {"word": "correct", "logDice": 4.21, "frequency": 142},
+    {"word": "practical", "logDice": 3.73, "frequency": 98}
+  ],
+  "discovered_nouns": [
     {
-      "lemma": "big",
-      "pos": "jj",
-      "frequency": 1247,
-      "logDice": 11.24,
-      "relativeFrequency": 0.10,
-      "examples": ["big house", "the big house"]
+      "word": "development",
+      "shared_count": 5,
+      "shared_collocates": ["correct", "practical", "quantum"]
     }
   ]
 }
 ```
 
+#### Multi-Seed Semantic Field Exploration (NEW)
+```bash
+curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,hypothesis&relation=adj_predicate&top=10"
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "seeds": ["theory", "model", "hypothesis"],
+  "seed_collocates_count": 23,
+  "common_collocates": [],
+  "common_collocates_count": 0,
+  "edges": [
+    {"source": "theory", "target": "correct", "weight": 4.21, "type": "ADJ_PREDICATE"},
+    {"source": "model", "target": "tall", "weight": 3.17, "type": "ADJ_PREDICATE"}
+  ]
+}
+```
+
+---
+
+## Web Interface (Semantic Field Explorer)
+
+The `webapp/` directory contains an interactive web interface built with D3.js.
+
+### Features
+
+1. **Word Sketch Search**
+   - Browse collocations for any lemma
+   - Filter by POS tags
+   - Adjust logDice thresholds
+
+2. **Single-Seed Exploration**
+   - Bootstrap from one seed word
+   - Select grammatical relation
+   - Discover semantically similar words
+   - Force-directed graph visualization
+
+3. **Multi-Seed Exploration** (NEW)
+   - Explore from multiple seeds at once
+   - See all collocates per seed
+   - Identify common patterns
+   - Cluster-based semantic field analysis
+
+### Start Both Services
+
+```bash
+# Terminal 1: API Server
+java -jar target/word-sketch-lucene-1.0.0.jar server --index d:\corpus_74m\index-hybrid --port 8080
+
+# Terminal 2: Web Server
+python -m http.server 3000 --directory webapp
+
+# Open browser to http://localhost:3000
+```
+
+---
+
 ## CQL Pattern Syntax
 
 ### Basic Patterns
 
-| Pattern | Description |
-|---------|-------------|
-| `"NN"` | Match noun (lemma) |
-| `"JJ.*"` | Match adjectives (wildcard) |
-| `[tag="JJ"]` | Match by POS tag constraint |
-| `[word="the"]` | Match by word form |
-| `1:"NN"` | Labeled position (1 = first word relative to headword) |
+| Pattern | Meaning |
+|---------|---------|
+| `"house"` | Match lemma "house" |
+| `[tag="NN.*"]` | Match POS tag regex (nouns) |
+| `[tag="JJ"]` | Match exact POS tag |
+| `[word="the"]` | Match word form |
 
 ### Constraints
 
 ```cql
-[tag="JJ.*"]           # Adjectives
-[tag="VB.*"]           # Verbs
-[tag="NN.*"]           # Nouns
-[tag!="NN.*"]          # Not nouns
-[tag="JJ"|tag="RB"]    # Adjectives OR adverbs
+[tag="JJ.*"]              # Adjectives (any type)
+[tag="VB.*"]              # Verbs (any type)
+[tag="NN.*"]              # Nouns
+[tag!="NN.*"]             # NOT nouns
+[tag="JJ"|tag="RB"]       # Adjectives OR adverbs
 ```
 
 ### Distance Modifiers
 
 ```cql
-[tag="JJ"]             # Adjacent
-[tag="JJ"] ~ {0,3}     # Within 3 words
-[tag="JJ"] ~ {1,5}     # 1-5 words apart
+[tag="JJ"]                # Adjacent (distance = 1)
+[tag="JJ"] ~ {0,3}        # Within 0-3 words
+[tag="JJ"] ~ {1,5}        # 1-5 words apart
 ```
 
 ### Examples
@@ -346,100 +281,59 @@ curl -X POST http://localhost:8080/api/sketch/query \
 # Adjectives modifying a noun
 [tag="jj.*"]
 
-# Verbs taking a noun object
+# Verbs taking noun as object
 [tag="vb.*"]
 
-# Nouns modified by adjectives within 3 words
-[tag="nn.*"] ~ {0,3}
-
-# Preceding adjectives
-[tag="jj.*"] ~ {1,3}
+# Adjectives within 3 words
+[tag="jj.*"] ~ {0,3}
 ```
 
-## API Usage
-
-### Get Word Sketch
-
-```bash
-curl "http://localhost:8080/sketch/house?min_logdice=5&limit=20"
-```
-
-Response:
-```json
-{
-  "status": "ok",
-  "lemma": "house",
-  "total_headword_freq": 12458,
-  "collocationsations": [
-    {
-      "lemma": "big",
-      "pos": "jj",
-      "logDice": 11.24,
-      "freq": 1247,
-      "relative_freq": 0.10,
-      "examples": [
-        "big house",
-        "the big house"
-      ]
-    }
-  ]
-}
-```
-
-### Custom Query
-
-```bash
-curl -X POST "http://localhost:8080/sketch/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "lemma": "time",
-    "cql": "[tag=\"jj.*\"]",
-    "min_logdice": 5,
-    "limit": 50
-  }'
-```
+---
 
 ## Architecture
 
-### Dual-Lucene Index Strategy
+### Query Pipeline
 
 ```
-Main Corpus Index          Word Sketch Index
-- sentence_id              - sentence_id
-- position                 - position
-- word                     - word
-- lemma (indexed)          - lemma (indexed)
-- tag (indexed)            - tag (indexed)
-- pos_group                - pos_group
-- sentence                 - sentence
-Fast KWIC/concordance      Fast pattern matching
+User Input
+    ↓
+CQL Pattern Parser (CQLParser.java)
+    ↓
+Lucene SpanQuery Compiler (CQLToLuceneCompiler.java)
+    ↓
+Index Lookup (Lucene)
+    ↓
+logDice Scorer (LogDiceCalculator.java)
+    ↓
+Response (JSON/HTML)
 ```
 
-### Index Schema
+### Index Structure
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `doc_id` | Numeric, stored | Sentence ID for example retrieval |
-| `position` | Numeric, stored | Word position in sentence |
-| `word` | Stored, not tokenized | Raw word form for display |
-| `lemma` | Analyzed, indexed | Lemmatized form for search |
-| `tag` | Keyword, indexed | POS tag (e.g., "NN", "VBD") |
-| `pos_group` | Keyword, indexed | Broad category: noun, verb, adj, adv |
-| `sentence` | Stored | Full sentence for KWIC display |
-| `start_offset`, `end_offset` | Numeric, stored | Character offsets |
+| `doc_id` | Numeric, stored | Sentence ID |
+| `position` | Numeric, stored | Word position |
+| `word` | Stored | Raw word form |
+| `lemma` | Indexed | Lemma for search |
+| `tag` | Keyword, indexed | POS tag (NN, JJ, VB, etc.) |
+| `pos_group` | Keyword | Broad category (noun/verb/adj/adv) |
+| `sentence` | Stored | Full sentence |
 
-### logDice Formula
+### Collocation Computation
 
+**logDice Formula:**
 ```
-logDice = log2(2 * f(AB) / (f(A) + f(B))) + 14
+logDice = log₂(2 * f(A,B) / (f(A) + f(B))) + 14
 ```
 
 Where:
-- `f(AB)` = frequency of collocate with headword
+- `f(A,B)` = co-occurrence frequency
 - `f(A)` = headword frequency
 - `f(B)` = collocate total frequency
+- Scale: 0-14 (14 = perfect association)
 
-Score ranges from 0 to 14, where 14 indicates perfect association.
+---
 
 ## Project Structure
 
@@ -448,49 +342,153 @@ word-sketch-lucene/
 ├── src/main/java/pl/marcinmilkowski/word_sketch/
 │   ├── Main.java                    # CLI entry point
 │   ├── api/
-│   │   └── WordSketchApiServer.java # REST API
-│   ├── corpus/
-│   │   ├── CorpusBuilder.java       # Corpus processing
-│   │   └── PostgresCorpusSampler.java
+│   │   └── WordSketchApiServer.java # REST API server
 │   ├── grammar/
-│   │   ├── CQLParser.java           # CQL parsing
-│   │   ├── CQLPattern.java          # Pattern representation
-│   │   ├── SketchGrammarParser.java # Sketch grammar parsing
-│   │   └── SketchGrammarCompiler.java
+│   │   ├── CQLParser.java           # CQL pattern parsing
+│   │   └── CQLPattern.java          # Pattern representation
 │   ├── indexer/
-│   │   └── LuceneIndexer.java       # Lucene index creation
+│   │   └── HybridLuceneIndexer.java # Lucene index creation
 │   ├── query/
-│   │   ├── CQLToLuceneCompiler.java # CQL -> Lucene translation
-│   │   └── WordSketchQueryExecutor.java
+│   │   ├── CQLToLuceneCompiler.java # CQL → Lucene translation
+│   │   ├── HybridQueryExecutor.java # Query execution
+│   │   ├── SemanticFieldExplorer.java # Single-seed exploration
+│   │   ├── SnowballCollocations.java # Multi-seed exploration
+│   │   └── WordSketchQueryExecutor.java # Legacy executor
 │   ├── tagging/
-│   │   ├── PosTagger.java           # Tagger interface
 │   │   ├── SimpleTagger.java        # Rule-based tagger
-│   │   ├── UDPipeTagger.java        # UDPipe wrapper
-│   │   └── ConllUProcessor.java     # CoNLL-U processing
+│   │   ├── ConllUProcessor.java     # CoNLL-U parsing
+│   │   └── UDPipeTagger.java        # UDPipe wrapper
 │   └── utils/
-│       └── LogDiceCalculator.java
-├── plans/
-│   └── word-sketch-lucene-spec.md   # Technical specification
-└── pom.xml
+│       └── LogDiceCalculator.java   # logDice scoring
+├── webapp/
+│   ├── index.html                   # Web UI
+│   └── assets/                      # CSS, D3.js
+├── src/test/java/                   # Unit tests
+├── pom.xml                          # Maven config
+└── README.md                        # This file
 ```
 
-## Dependencies
+---
 
-- Apache Lucene 9.8.0
-- Fastjson 2.0.25
-- SLF4J 2.0.7
-- JUnit 5.9.0 (for testing)
+## Examples
+
+### Example 1: Find Adjectives Describing "Theory"
+
+```bash
+curl "http://localhost:8080/api/semantic-field/explore?seed=theory&relation=adj_predicate&top=10"
+```
+
+**Result:**
+```
+correct (logDice: 4.21)
+practical (logDice: 3.73)
+wrong (logDice: 3.58)
+mathematical (logDice: 3.47)
+quantum (logDice: 2.89)
+```
+
+### Example 2: Find Words "House" Can Be Object Of
+
+```bash
+curl "http://localhost:8080/api/semantic-field/explore?seed=house&relation=object_of&top=10"
+```
+
+**Result:** Find verbs that take "house" as object
+```
+locate (logDice: 5.12)
+build (logDice: 4.89)
+buy (logDice: 4.21)
+```
+
+Discovered nouns (words that share these verbs):
+```
+hotel (shared: build, locate)
+apartment (shared: build, buy, locate)
+property (shared: buy, locate)
+```
+
+### Example 3: Multi-Seed Cluster Analysis
+
+```bash
+curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=dog,cat,horse&relation=subject_of&top=8"
+```
+
+**Result:** What do dogs, cats, and horses do?
+```
+All seeds can: eat, run, live
+Dog-specific: bark, beg, fetch
+Cat-specific: meow, purr, scratch
+```
+
+---
 
 ## Performance
 
-On a 1-billion token testing corpus, the results are the following:
+| Task | Time | Notes |
+|------|------|-------|
+| Index 74M sentences | ~2 hours | With UDPipe, parallelized |
+| Query (PRECOMPUTED) | 0-1 ms | O(1) instant lookup |
+| Query (on-the-fly) | 50-300 ms | Depends on word frequency |
+| Web request | ~50 ms | Includes network latency |
 
-| Metric | Target | Notes |
-|--------|--------|-------|
-| Index build time | <4 hours | With UDPipe, parallelized |
-| Query latency | <200ms | For common lemmas |
-| Index size | <60GB | With compression |
+---
 
-## License
+## Limitations
 
-MIT License
+This is a **functional v1.0 release** with the following limitations:
+
+### Known Limitations
+
+1. **No Agreement Rules**: Patterns don't enforce grammatical agreement
+   - "big house" and "the big house" are treated the same
+   - Consider this for interpretation of results
+
+2. **Fixed Grammatical Relations**: Only 4 relation types implemented
+   - `ADJ_PREDICATE`, `ADJ_MODIFIER`, `SUBJECT_OF`, `OBJECT_OF`
+   - Custom patterns require CQL specification
+
+3. **Limited Lemma Coverage**: Depends on the input corpus
+   - Low-frequency words may have insufficient data
+   - Compounds and rare morphological forms may not be covered
+
+4. **No Morphological Analysis**: Simple POS tag matching
+   - Plural/singular not distinguished
+   - Verb tense merged into single lemma
+
+### Planned for v2.0
+
+- Agreement rules (noun-adjective gender/number matching)
+- Additional grammatical relations (possessive, comparative, etc.)
+- Morphological decomposition
+- Word sense disambiguation
+- Cross-lingual support
+
+---
+
+## Development
+
+### Run Tests
+
+```bash
+mvn test
+```
+
+### Build Documentation
+
+See `plans/` directory for:
+- `word-sketch-lucene-spec.md` - Overall technical specification
+- `precomputed-collocations-spec.md` - Precomputed algorithm details
+- `hybrid-index-spec.md` - Hybrid index architecture
+
+### Code Quality
+
+Tests cover:
+- CQL parsing (50+ patterns)
+- Lucene query compilation
+- logDice calculation
+- API endpoints
+- Multi-seed exploration
+
+---
+
+## API Documentation

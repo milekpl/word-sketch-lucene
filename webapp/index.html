@@ -339,12 +339,50 @@
     </div>
 
     <div id="semanticTab" class="tab-content">
-        <div class="snowball-controls">
-            <input type="text" id="semanticNouns" placeholder="Nouns to compare (comma-separated, e.g., theory,model,hypothesis)">
-            <input type="number" id="semanticMinLogDice" value="3.0" step="0.5" min="0" placeholder="Min LogDice">
-            <input type="number" id="semanticMaxPerNoun" value="50" min="10" max="100" placeholder="Max per noun" title="Maximum adjectives per noun">
+        <!-- Mode selector -->
+        <div class="pos-filters" style="margin-bottom: 15px;">
+            <label><input type="radio" name="semanticMode" value="explore" checked onchange="switchSemanticMode('explore')"> <span>Explore (bootstrap from seed)</span></label>
+            <label><input type="radio" name="semanticMode" value="multiexplore" onchange="switchSemanticMode('multiexplore')"> <span>Multi-Seed Explore (cluster of seeds)</span></label>
+            <label><input type="radio" name="semanticMode" value="compare" onchange="switchSemanticMode('compare')"> <span>Compare (analyze given nouns)</span></label>
         </div>
-        <button onclick="runSemanticField()" style="width: 100%; margin-bottom: 20px;">Compare Noun Profiles</button>
+
+        <!-- Explore mode (single seed) -->
+        <div id="exploreMode" class="snowball-controls" style="grid-template-columns: 2fr 1.5fr 0.7fr 0.7fr 0.7fr 0.5fr;">
+            <input type="text" id="exploreSeed" placeholder="Seed word (e.g., house, car, theory)">
+            <select id="exploreRelation" title="Grammatical relation">
+                <option value="adj_predicate">X is ADJ (predicate)</option>
+                <option value="adj_modifier">ADJ X (modifier)</option>
+                <option value="subject_of">X VERBs (subject)</option>
+                <option value="object_of">VERB X (object)</option>
+            </select>
+            <input type="number" id="exploreTopAdj" value="15" min="5" max="30" title="Top collocates to use">
+            <input type="number" id="exploreMinShared" value="2" min="1" max="5" title="Min shared collocates">
+            <input type="number" id="exploreMinLogDice" value="2.0" step="0.5" min="0" title="Min LogDice">
+            <button onclick="runExplore()">Explore</button>
+        </div>
+
+        <!-- Multi-Seed Explore mode (hidden by default) -->
+        <div id="multiexploreMode" class="snowball-controls" style="display: none; grid-template-columns: 2fr 1.5fr 0.7fr 0.7fr 0.7fr 0.5fr;">
+            <input type="text" id="multiExploreSeed" placeholder="Seeds (comma-separated, e.g., theory,model,hypothesis)">
+            <select id="multiExploreRelation" title="Grammatical relation">
+                <option value="adj_predicate">X is ADJ (predicate)</option>
+                <option value="adj_modifier">ADJ X (modifier)</option>
+                <option value="subject_of">X VERBs (subject)</option>
+                <option value="object_of">VERB X (object)</option>
+            </select>
+            <input type="number" id="multiExploreTopAdj" value="15" min="5" max="30" title="Top collocates per seed">
+            <input type="number" id="multiExploreMinShared" value="2" min="1" max="5" title="Min shared collocates">
+            <input type="number" id="multiExploreMinLogDice" value="2.0" step="0.5" min="0" title="Min LogDice">
+            <button onclick="runMultiExplore()">Explore</button>
+        </div>
+
+        <!-- Compare mode (hidden by default) -->
+        <div id="compareMode" class="snowball-controls" style="display: none; grid-template-columns: 2fr 0.8fr 0.8fr 0.5fr;">
+            <input type="text" id="semanticNouns" placeholder="Nouns to compare (comma-separated, e.g., theory,model,hypothesis)">
+            <input type="number" id="semanticMinLogDice" value="2.0" step="0.5" min="0" placeholder="Min LogDice" title="Minimum LogDice threshold">
+            <input type="number" id="semanticMaxPerNoun" value="50" min="10" max="100" placeholder="Max per noun" title="Maximum collocates per noun">
+            <button onclick="runSemanticField()">Compare</button>
+        </div>
         
         <div id="semanticGraph"></div>
         
@@ -356,15 +394,15 @@
         
         <div class="snowball-stats">
             <div class="stat-card">
-                <h4>Fully Shared</h4>
+                <h4 id="statLabel1">Seed Adjectives</h4>
                 <div class="value" id="statFullyShared">-</div>
             </div>
             <div class="stat-card">
-                <h4>Partially Shared</h4>
+                <h4 id="statLabel2">Discovered Nouns</h4>
                 <div class="value" id="statPartiallyShared">-</div>
             </div>
             <div class="stat-card">
-                <h4>Specific</h4>
+                <h4 id="statLabel3">Core Adjectives</h4>
                 <div class="value" id="statSpecific">-</div>
             </div>
         </div>
@@ -719,18 +757,576 @@
             document.getElementById(tabName + 'Tab').classList.add('active');
         }
 
-        async function runSemanticField() {
-            const nouns = document.getElementById('semanticNouns').value.trim();
-            const minLogDice = document.getElementById('semanticMinLogDice').value;
-            const maxPerNoun = document.getElementById('semanticMaxPerNoun').value;
+        function switchSemanticMode(mode) {
+            document.getElementById('exploreMode').style.display = mode === 'explore' ? 'flex' : 'none';
+            document.getElementById('multiexploreMode').style.display = mode === 'multiexplore' ? 'flex' : 'none';
+            document.getElementById('compareMode').style.display = mode === 'compare' ? 'flex' : 'none';
+            
+            // Update stat labels based on mode
+            if (mode === 'explore' || mode === 'multiexplore') {
+                document.getElementById('statLabel1').textContent = 'Seed Adjectives';
+                document.getElementById('statLabel2').textContent = 'Discovered Nouns';
+                document.getElementById('statLabel3').textContent = 'Core Adjectives';
+            } else {
+                document.getElementById('statLabel1').textContent = 'Fully Shared';
+                document.getElementById('statLabel2').textContent = 'Partially Shared';
+                document.getElementById('statLabel3').textContent = 'Specific';
+            }
+        }
+
+        async function runExplore() {
+            const seed = document.getElementById('exploreSeed').value.trim();
+            const relation = document.getElementById('exploreRelation')?.value || 'adj_predicate';
+            const topAdj = document.getElementById('exploreTopAdj')?.value || 15;
+            const minShared = document.getElementById('exploreMinShared')?.value || 2;
+            const minLogDice = document.getElementById('exploreMinLogDice')?.value || 2;
             const apiUrl = document.getElementById('apiUrl').value.trim();
             
-            if (!nouns) {
-                alert('Please enter nouns to compare (e.g., theory, model, hypothesis)');
+            if (!seed) {
+                alert('Please enter a seed word (e.g., house, car, theory)');
                 return;
             }
             
-            document.getElementById('semanticGraph').innerHTML = '<div class="loading">Comparing noun profiles...</div>';
+            console.log('Exploring:', {seed, relation, topAdj, minShared, minLogDice});
+            
+            const relationLabels = {
+                'adj_predicate': 'X is ADJ',
+                'adj_modifier': 'ADJ X',
+                'subject_of': 'X VERBs',
+                'object_of': 'VERB X'
+            };
+            const relLabel = relationLabels[relation] || relation;
+            document.getElementById('semanticGraph').innerHTML = '<div class="loading">Exploring semantic field from "' + seed + '" (' + relLabel + ')...</div>';
+            document.getElementById('semanticDetails').innerHTML = '';
+            
+            try {
+                const url = `${apiUrl}/api/semantic-field/explore?seed=${encodeURIComponent(seed)}&relation=${relation}&top=${topAdj}&min_shared=${minShared}&min_logdice=${minLogDice}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`API returned ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Update stat labels based on relation type
+                const collocateLabel = (relation === 'subject_of' || relation === 'object_of') ? 'Verbs' : 'Adjectives';
+                document.getElementById('statLabel1').textContent = `Seed ${collocateLabel}`;
+                document.getElementById('statLabel3').textContent = `Core ${collocateLabel}`;
+                
+                // Update stats
+                document.getElementById('statFullyShared').textContent = data.seed_collocates_count || data.seed_adjectives_count || 0;
+                document.getElementById('statPartiallyShared').textContent = data.discovered_nouns_count || 0;
+                document.getElementById('statSpecific').textContent = data.core_collocates_count || data.core_adjectives_count || 0;
+                
+                // Visualize exploration results
+                visualizeExploration(data, relation);
+                
+                // Show details panel
+                renderExplorationDetails(data);
+                
+            } catch (e) {
+                console.error('Exploration error:', e);
+                document.getElementById('semanticGraph').innerHTML = `
+                    <div class="error">
+                        <strong>Semantic field exploration failed</strong><br>
+                        ${e.message}<br>
+                        <small>Make sure the API server is running at: ${apiUrl}</small>
+                        <small style="display:block; margin-top:5px; color:#999;">Check browser console for details.</small>
+                    </div>
+                `;
+            }
+        }
+
+        async function runMultiExplore() {
+            const seedsInput = document.getElementById('multiExploreSeed').value.trim();
+            const relation = document.getElementById('multiExploreRelation')?.value || 'adj_predicate';
+            const topAdj = document.getElementById('multiExploreTopAdj')?.value || 15;
+            const minShared = document.getElementById('multiExploreMinShared')?.value || 2;
+            const minLogDice = document.getElementById('multiExploreMinLogDice')?.value || 2;
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            
+            if (!seedsInput) {
+                alert('Please enter seed words (comma-separated, e.g., theory,model,hypothesis)');
+                return;
+            }
+            
+            const seeds = seedsInput.split(',').map(s => s.trim().toLowerCase()).filter(s => s);
+            if (seeds.length < 2) {
+                alert('Please enter at least 2 seed words');
+                return;
+            }
+            
+            console.log('Multi-exploring:', {seeds, relation, topAdj, minShared, minLogDice});
+            
+            const relationLabels = {
+                'adj_predicate': 'X is ADJ',
+                'adj_modifier': 'ADJ X',
+                'subject_of': 'X VERBs',
+                'object_of': 'VERB X'
+            };
+            const relLabel = relationLabels[relation] || relation;
+            document.getElementById('semanticGraph').innerHTML = '<div class="loading">Exploring semantic field from ' + seeds.length + ' seeds (' + relLabel + ')...</div>';
+            document.getElementById('semanticDetails').innerHTML = '';
+            
+            try {
+                const seedsParam = seeds.join(',');
+                const url = `${apiUrl}/api/semantic-field/explore-multi?seeds=${encodeURIComponent(seedsParam)}&relation=${relation}&top=${topAdj}&min_shared=${minShared}&min_logdice=${minLogDice}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`API returned ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Update stat labels based on relation type
+                const collocateLabel = (relation === 'subject_of' || relation === 'object_of') ? 'Verbs' : 'Adjectives';
+                document.getElementById('statLabel1').textContent = `Seed ${collocateLabel}`;
+                document.getElementById('statLabel3').textContent = `Core ${collocateLabel}`;
+                
+                // Update stats
+                document.getElementById('statFullyShared').textContent = data.common_collocates_count || 0;
+                document.getElementById('statPartiallyShared').textContent = data.seed_collocates_count || 0;
+                document.getElementById('statSpecific').textContent = data.discovered_nouns_count || 0;
+                
+                // Visualize multi-seed results
+                visualizeMultiExploration(data, relation, seeds);
+                
+                // Show details panel
+                renderMultiExplorationDetails(data, seeds);
+                
+            } catch (e) {
+                console.error('Multi-exploration error:', e);
+                document.getElementById('semanticGraph').innerHTML = `
+                    <div class="error">
+                        <strong>Multi-seed exploration failed</strong><br>
+                        ${e.message}<br>
+                        <small>Make sure the API server is running at: ${apiUrl}</small>
+                        <small style="display:block; margin-top:5px; color:#999;">Check browser console for details.</small>
+                    </div>
+                `;
+            }
+        }
+
+        function visualizeExploration(data, relation) {
+            const graphDiv = document.getElementById('semanticGraph');
+            const isVerb = relation === 'subject_of' || relation === 'object_of';
+            const collocateType = isVerb ? 'verb' : 'adjective';
+            
+            // Build nodes and links for force-directed graph
+            const nodes = [];
+            const links = [];
+            const nodeMap = {};
+            
+            // Seed node (center)
+            const seedNode = { id: data.seed, type: 'seed', group: 0 };
+            nodes.push(seedNode);
+            nodeMap[data.seed] = seedNode;
+            
+            // Collocate nodes (from seed) - use seed_collocates or fallback to seed_adjectives
+            const seedCollocates = data.seed_collocates || data.seed_adjectives || [];
+            seedCollocates.slice(0, 12).forEach((coll, i) => {
+                const node = { id: coll.word, type: collocateType, group: 1, logDice: coll.logDice };
+                nodes.push(node);
+                nodeMap[coll.word] = node;
+                links.push({ source: data.seed, target: coll.word, weight: Math.log(coll.logDice) / 5 });
+            });
+            
+            // Discovered noun nodes
+            (data.discovered_nouns || []).slice(0, 15).forEach((noun, i) => {
+                const node = { id: noun.word, type: 'discovered', group: 2, shared: noun.shared_count, score: noun.similarity_score };
+                nodes.push(node);
+                nodeMap[noun.word] = node;
+                
+                // Link to shared collocates
+                const sharedCollocates = noun.shared_collocates || noun.shared_adjectives || [];
+                sharedCollocates.forEach(coll => {
+                    if (nodeMap[coll]) {
+                        links.push({ source: coll, target: noun.word, weight: 0.5, dashed: true });
+                    }
+                });
+            });
+            
+            // Core collocate highlighting
+            const coreCollocates = new Set((data.core_collocates || data.core_adjectives || []).map(a => a.word));
+            
+            // Create SVG
+            const width = 840;
+            const height = 400;
+            
+            graphDiv.innerHTML = '';
+            const svg = d3.select(graphDiv).append('svg')
+                .attr('width', width)
+                .attr('height', height)
+                .style('background', '#fafafa')
+                .style('border-radius', '8px');
+            
+            // Force simulation
+            const simulation = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(links).id(d => d.id).distance(d => 80 - d.weight * 10))
+                .force('charge', d3.forceManyBody().strength(-200))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(30));
+            
+            // Draw links
+            const link = svg.append('g')
+                .selectAll('line')
+                .data(links)
+                .join('line')
+                .attr('stroke', d => d.dashed ? '#ccc' : '#999')
+                .attr('stroke-opacity', d => d.dashed ? 0.4 : 0.6)
+                .attr('stroke-width', d => d.weight + 1)
+                .attr('stroke-dasharray', d => d.dashed ? '4,4' : null);
+            
+            // Draw nodes
+            const node = svg.append('g')
+                .selectAll('g')
+                .data(nodes)
+                .join('g')
+                .call(d3.drag()
+                    .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+                    .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+                    .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+            
+            // Node circles
+            node.append('circle')
+                .attr('r', d => d.type === 'seed' ? 20 : (d.type === 'adjective' || d.type === 'verb') ? 12 : 15)
+                .attr('fill', d => {
+                    if (d.type === 'seed') return '#e74c3c';
+                    if (d.type === 'adjective' || d.type === 'verb') return coreCollocates.has(d.id) ? '#27ae60' : '#9b59b6';
+                    return '#3498db';
+                })
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2);
+            
+            // Node labels
+            node.append('text')
+                .text(d => d.id)
+                .attr('dy', d => d.type === 'seed' ? 35 : 25)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', d => d.type === 'seed' ? '14px' : '11px')
+                .attr('font-weight', d => d.type === 'seed' ? 'bold' : 'normal')
+                .attr('fill', '#333');
+            
+            // Shared count badge for discovered nouns
+            node.filter(d => d.type === 'discovered')
+                .append('text')
+                .text(d => d.shared)
+                .attr('dy', 4)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', '10px')
+                .attr('font-weight', 'bold')
+                .attr('fill', '#fff');
+            
+            // Simulation tick
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+            
+            // Legend - dynamic based on relation type
+            const collocateLabel = isVerb ? 'verb' : 'adjective';
+            const legend = document.createElement('div');
+            legend.className = 'radial-legend';
+            legend.innerHTML = `
+                <span><span class="dot" style="background:#e74c3c"></span>Seed word</span>
+                <span><span class="dot" style="background:#27ae60"></span>Core ${collocateLabel}</span>
+                <span><span class="dot" style="background:#9b59b6"></span>Seed ${collocateLabel}</span>
+                <span><span class="dot" style="background:#3498db"></span>Discovered noun</span>
+            `;
+            graphDiv.appendChild(legend);
+        }
+
+        function renderExplorationDetails(data) {
+            const detailsDiv = document.getElementById('semanticDetails');
+            const relation = data.relation_type || 'ADJ_PREDICATE';
+            const isVerb = relation === 'SUBJECT_OF' || relation === 'OBJECT_OF';
+            const collocateLabel = isVerb ? 'verbs' : 'adjectives';
+            const collocateLabelCap = isVerb ? 'Verbs' : 'Adjectives';
+            const collocateLabelSingular = isVerb ? 'verb' : 'adjective';
+            
+            // Get collocates - use generic keys or fallback to adjective-specific keys
+            const seedCollocates = data.seed_collocates || data.seed_adjectives || [];
+            const coreCollocates = data.core_collocates || data.core_adjectives || [];
+            const seedCount = data.seed_collocates_count || data.seed_adjectives_count || 0;
+            const coreCount = data.core_collocates_count || data.core_adjectives_count || 0;
+            
+            const relationLabels = {
+                'ADJ_PREDICATE': 'X is ADJ',
+                'ADJ_MODIFIER': 'ADJ X',
+                'SUBJECT_OF': 'X VERBs',
+                'OBJECT_OF': 'VERB X'
+            };
+            const relLabel = relationLabels[relation] || relation;
+            
+            let html = `
+                <div class="sketch-section">
+                    <h3>🔍 Exploration from "${data.seed}" <span style="font-size:12px; color:#666; font-weight:normal;">(${relLabel})</span></h3>
+                    <p style="color:#666; margin-bottom:15px;">
+                        Found <strong>${data.discovered_nouns_count}</strong> similar nouns using 
+                        <strong>${seedCount}</strong> ${collocateLabel}.
+                        <strong>${coreCount}</strong> ${collocateLabel} define the semantic class.
+                    </p>
+                    
+                    <h4 style="margin-top:20px;">Discovered Semantic Class</h4>
+                    <p style="color:#888; font-size:13px;">Nouns that share ${collocateLabelSingular} ${relation === 'ADJ_PREDICATE' ? 'predicates' : 'collocations'} with "${data.seed}"</p>
+                    <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+                        <tr style="background:#f0f0f0;">
+                            <th style="text-align:left; padding:8px;">Noun</th>
+                            <th style="text-align:center; padding:8px;">Shared</th>
+                            <th style="text-align:right; padding:8px;">Score</th>
+                            <th style="text-align:left; padding:8px;">Shared ${collocateLabelCap}</th>
+                        </tr>
+            `;
+            
+            (data.discovered_nouns || []).slice(0, 20).forEach(noun => {
+                const sharedCollocates = noun.shared_collocates || noun.shared_adjectives || [];
+                html += `
+                    <tr class="collocation" style="cursor:pointer;" onclick="document.getElementById('exploreSeed').value='${noun.word}'; runExplore();">
+                        <td style="padding:8px; font-weight:500;">${noun.word}</td>
+                        <td style="text-align:center; padding:8px;">
+                            <span style="background:#3498db; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">${noun.shared_count}</span>
+                        </td>
+                        <td style="text-align:right; padding:8px; color:#666;">${noun.similarity_score.toFixed(1)}</td>
+                        <td style="padding:8px; font-size:12px; color:#888;">${sharedCollocates.slice(0, 5).join(', ')}${sharedCollocates.length > 5 ? '...' : ''}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `</table>`;
+            
+            // Core collocates section
+            html += `
+                <h4 style="margin-top:25px;">Core ${collocateLabelCap} (Class Definers)</h4>
+                <p style="color:#888; font-size:13px;">${collocateLabelCap} shared by many nouns in this semantic class</p>
+                <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;">
+            `;
+            
+            coreCollocates.forEach(coll => {
+                const coverage = Math.round(coll.coverage * 100);
+                html += `
+                    <div style="background:#e8f8f5; border:1px solid #27ae60; border-radius:20px; padding:6px 12px; font-size:13px;">
+                        <strong>${coll.word}</strong>
+                        <span style="color:#27ae60; margin-left:5px;">${coverage}%</span>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`;
+            
+            // Seed collocates section
+            html += `
+                <h4 style="margin-top:25px;">Seed ${collocateLabelCap} (from "${data.seed}")</h4>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+            `;
+            
+            seedCollocates.forEach(coll => {
+                const isCore = coreCollocates.some(c => c.word === coll.word);
+                html += `
+                    <span style="background:${isCore ? '#27ae60' : '#9b59b6'}; color:white; padding:4px 10px; border-radius:15px; font-size:12px;">
+                        ${coll.word}
+                    </span>
+                `;
+            });
+            
+            html += `</div></div>`;
+            
+            detailsDiv.innerHTML = html;
+        }
+
+        function visualizeMultiExploration(data, relation, seeds) {
+            const graphDiv = document.getElementById('semanticGraph');
+            const isVerb = relation === 'subject_of' || relation === 'object_of';
+            const collocateType = isVerb ? 'verb' : 'adjective';
+            
+            // Build nodes and links for force-directed graph
+            const nodes = [];
+            const links = [];
+            const nodeMap = {};
+            
+            // Seed nodes (cluster in center)
+            seeds.forEach((seed, i) => {
+                const seedNode = { id: seed, type: 'seed', group: 0 };
+                nodes.push(seedNode);
+                nodeMap[seed] = seedNode;
+            });
+            
+            // Collocate nodes (adjectives/verbs around seeds)
+            if (data.edges) {
+                data.edges.forEach(edge => {
+                    // Source is seed, target is collocate
+                    if (!nodeMap[edge.target]) {
+                        const collocNode = { id: edge.target, type: 'collocate', group: 1 };
+                        nodes.push(collocNode);
+                        nodeMap[edge.target] = collocNode;
+                    }
+                    links.push({
+                        source: edge.source,
+                        target: edge.target,
+                        value: edge.weight,
+                        type: edge.type
+                    });
+                });
+            }
+            
+            // Create SVG graph (force-directed)
+            const width = graphDiv.offsetWidth;
+            const height = 600;
+            
+            graphDiv.innerHTML = `<svg id="graphSvg" width="${width}" height="${height}" style="border: 1px solid #ddd; border-radius: 8px;"></svg>`;
+            
+            const svg = d3.select('#graphSvg');
+            const simulation = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(links).id(d => d.id).distance(60).strength(0.1))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collide', d3.forceCollide(25));
+            
+            const link = svg.selectAll('line')
+                .data(links)
+                .enter()
+                .append('line')
+                .style('stroke', '#999')
+                .style('stroke-opacity', 0.6)
+                .style('stroke-width', d => Math.log(d.value + 1) * 2);
+            
+            const node = svg.selectAll('circle')
+                .data(nodes)
+                .enter()
+                .append('circle')
+                .attr('r', d => d.type === 'seed' ? 12 : 7)
+                .style('fill', d => d.type === 'seed' ? '#FF6B6B' : '#4a90d9')
+                .style('stroke', '#fff')
+                .style('stroke-width', 2)
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+            
+            const text = svg.selectAll('text')
+                .data(nodes)
+                .enter()
+                .append('text')
+                .attr('dy', '0.31em')
+                .attr('text-anchor', 'middle')
+                .text(d => d.id)
+                .style('font-size', d => d.type === 'seed' ? '12px' : '10px')
+                .style('pointer-events', 'none')
+                .style('font-weight', d => d.type === 'seed' ? 'bold' : 'normal');
+            
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                
+                node
+                    .attr('cx', d => d.x)
+                    .attr('cy', d => d.y);
+                
+                text
+                    .attr('x', d => d.x)
+                    .attr('y', d => d.y);
+            });
+            
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        function renderMultiExplorationDetails(data, seeds) {
+            const detailsDiv = document.getElementById('semanticDetails');
+            const relation = data.relation_type || 'ADJ_PREDICATE';
+            const isVerb = relation === 'SUBJECT_OF' || relation === 'OBJECT_OF';
+            const collocateLabel = isVerb ? 'verbs' : 'adjectives';
+            const collocateLabelCap = isVerb ? 'Verbs' : 'Adjectives';
+            
+            const relationLabels = {
+                'ADJ_PREDICATE': 'X is ADJ',
+                'ADJ_MODIFIER': 'ADJ X',
+                'SUBJECT_OF': 'X VERBs',
+                'OBJECT_OF': 'VERB X'
+            };
+            const relLabel = relationLabels[relation] || relation;
+            
+            let html = `
+                <div class="sketch-section">
+                    <h3>🔍 Multi-Seed Exploration <span style="font-size:12px; color:#666; font-weight:normal;">(${relLabel})</span></h3>
+                    <p style="color:#666; margin-bottom:15px;">
+                        <strong>Seeds:</strong> ${seeds.join(', ')} <br>
+                        <strong>${collocateLabelCap} found:</strong> ${data.seed_collocates_count || 0} | 
+                        <strong>Common across all:</strong> ${data.common_collocates_count || 0}
+                    </p>
+            `;
+            
+            // List seed collocates
+            if (data.seed_collocates && data.seed_collocates.length > 0) {
+                html += `<div style="margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 10px 0; color: #333;">Seed ${collocateLabelCap}:</h4>
+                    <div>`;
+                
+                data.seed_collocates.forEach(item => {
+                    html += `<div class="collocation">
+                        <strong>${item.word}</strong>
+                        <span style="color: #666; font-size: 12px;">logDice: ${item.logDice?.toFixed(2) || 'N/A'}</span>
+                    </div>`;
+                });
+                
+                html += `</div></div>`;
+            }
+            
+            // List common collocates if any
+            if (data.common_collocates && data.common_collocates.length > 0) {
+                html += `<div style="margin-bottom: 15px; background: #f0f8ff; padding: 10px; border-radius: 6px; border-left: 4px solid #4a90d9;">
+                    <h4 style="margin: 0 0 10px 0; color: #4a90d9;">Common ${collocateLabelCap} (shared by all seeds):</h4>
+                    <div>`;
+                
+                data.common_collocates.forEach(word => {
+                    html += `<div class="collocation" style="background: white; margin-bottom: 5px; border-radius: 3px;">
+                        <strong>${word}</strong>
+                    </div>`;
+                });
+                
+                html += `</div></div>`;
+            }
+            
+            html += `</div>`;
+            
+            detailsDiv.innerHTML = html;
+        }
+
+        async function runSemanticField() {
+            const nouns = document.getElementById('semanticNouns')?.value?.trim() || '';
+            const minLogDice = document.getElementById('semanticMinLogDice')?.value || 2.0;
+            const maxPerNoun = document.getElementById('semanticMaxPerNoun')?.value || 50;
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            
+            if (!nouns) {
+                alert('Please enter nouns to compare (comma-separated, e.g., theory, model, hypothesis)');
+                return;
+            }
+            
+            console.log('Comparing nouns:', {nouns, minLogDice, maxPerNoun});
+            document.getElementById('semanticGraph').innerHTML = '<div class="loading">Comparing noun profiles: ' + nouns.split(',').map(n => '"' + n.trim() + '"').join(', ') + '...</div>';
             document.getElementById('semanticDetails').innerHTML = '';
             
             try {
@@ -755,11 +1351,13 @@
                 renderSemanticDetails(data);
                 
             } catch (e) {
+                console.error('Comparison error:', e);
                 document.getElementById('semanticGraph').innerHTML = `
                     <div class="error">
                         <strong>Semantic field comparison failed</strong><br>
                         ${e.message}<br>
                         <small>Make sure the API server is running at: ${apiUrl}</small>
+                        <small style="display:block; margin-top:5px; color:#999;">Check browser console for details.</small>
                     </div>
                 `;
             }

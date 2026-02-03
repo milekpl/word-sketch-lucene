@@ -199,6 +199,137 @@ public class HybridQueryExecutor implements QueryExecutor {
     }
 
     @Override
+    public List<WordSketchQueryExecutor.WordSketchResult> findGrammaticalRelation(
+            String headword, RelationType relType, double minLogDice, int maxResults) throws IOException {
+        // For grammatical relations, always use SAMPLE_SCAN to handle multi-token patterns
+        return findGrammaticalRelationScan(headword, relType, minLogDice, maxResults);
+    }
+
+    /**
+     * Find grammatical relations by scanning sentences matching a multi-token pattern.
+     * Extracts the target token (last token in pattern) and calculates logDice.
+     */
+    private List<WordSketchQueryExecutor.WordSketchResult> findGrammaticalRelationScan(
+            String headword, RelationType relType, double minLogDice, int maxResults) throws IOException {
+        
+        if (headword == null || headword.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        headword = headword.toLowerCase();
+        long headwordFreq = getTotalFrequency(headword);
+        if (headwordFreq == 0) {
+            logger.debug("Headword '{}' not found", headword);
+            return Collections.emptyList();
+        }
+        
+        String cqlPattern = relType.getFullPattern(headword);
+        logger.info("findGrammaticalRelation({}, {}): pattern={}", headword, relType, cqlPattern);
+        
+        // Parse the full CQL pattern
+        CQLPattern pattern = new CQLParser().parse(cqlPattern);
+        
+        // Extract target constraints (the collocate we're looking for - typically last token)
+        List<CQLPattern.Constraint> targetConstraints = extractLastTokenConstraints(pattern);
+        if (targetConstraints.isEmpty()) {
+            logger.warn("Could not extract target constraints from pattern: {}", cqlPattern);
+            return Collections.emptyList();
+        }
+        
+        // Compile and search
+        SpanQuery query = compiler.compile(pattern);
+        
+        int sampleSize = Math.min(maxSampleSize, 50_000);
+        TopDocs topDocs = searcher.search(query, sampleSize);
+        
+        // Use scoreDocs.length as a proxy for total hits in sample
+        int totalHits = topDocs.scoreDocs.length;
+        double scaleFactor = 1.0; // No scaling for now since we search directly by pattern
+        
+        logger.info("Pattern matched {} sentences", totalHits);
+        
+        // Process matches: extract target tokens
+        Map<String, Long> lemmaFreqs = new HashMap<>();
+        Map<String, String> lemmaPos = new HashMap<>();
+        
+        for (ScoreDoc hit : topDocs.scoreDocs) {
+            List<SentenceDocument.Token> tokens = loadTokensFromDoc(hit.doc);
+            if (tokens.isEmpty()) continue;
+            
+            // Find headword positions
+            List<Integer> headwordPositions = new ArrayList<>();
+            for (SentenceDocument.Token token : tokens) {
+                if (headword.equalsIgnoreCase(token.lemma())) {
+                    headwordPositions.add(token.position());
+                }
+            }
+            
+            // For each headword, look for copula + adjective pattern
+            for (int hwPos : headwordPositions) {
+                // Scan forward for copula verbs, then adjective
+                for (int i = hwPos + 1; i < tokens.size() && i < hwPos + 8; i++) {
+                    SentenceDocument.Token tok = tokens.get(i);
+                    String lemma = tok.lemma() != null ? tok.lemma().toLowerCase() : "";
+                    String tag = tok.tag() != null ? tok.tag() : "";
+                    
+                    // Check if this token matches target constraints
+                    if (matchesConstraints(lemma, tag, targetConstraints)) {
+                        lemmaFreqs.merge(lemma, 1L, Long::sum);
+                        lemmaPos.putIfAbsent(lemma, tag.toUpperCase());
+                    }
+                }
+            }
+        }
+        
+        // Calculate logDice and filter
+        List<WordSketchQueryExecutor.WordSketchResult> results = new ArrayList<>();
+        
+        for (Map.Entry<String, Long> entry : lemmaFreqs.entrySet()) {
+            String lemma = entry.getKey();
+            long cooccur = (long) (entry.getValue() * scaleFactor);
+            long collocFreq = getTotalFrequency(lemma);
+            if (collocFreq == 0) collocFreq = 1;
+            
+            double logDice = calculateLogDice(cooccur, headwordFreq, collocFreq);
+            
+            if (logDice >= minLogDice) {
+                String pos = lemmaPos.getOrDefault(lemma, "");
+                results.add(new WordSketchQueryExecutor.WordSketchResult(
+                    lemma, pos, cooccur, logDice, 0.0, List.of()
+                ));
+            }
+        }
+        
+        // Sort by logDice and limit
+        results.sort((a, b) -> Double.compare(b.getLogDice(), a.getLogDice()));
+        if (results.size() > maxResults) {
+            results = results.subList(0, maxResults);
+        }
+        
+        logger.info("findGrammaticalRelation: found {} collocates (filtered to {})", 
+            lemmaFreqs.size(), results.size());
+        
+        return results;
+    }
+
+    /**
+     * Extract constraints from the last token in a CQL pattern.
+     */
+    private List<CQLPattern.Constraint> extractLastTokenConstraints(CQLPattern pattern) {
+        List<CQLPattern.PatternElement> elements = pattern.getElements();
+        if (elements == null || elements.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // Get the last element's constraint
+        CQLPattern.PatternElement lastElement = elements.get(elements.size() - 1);
+        CQLPattern.Constraint constraint = lastElement.getConstraint();
+        if (constraint == null) {
+            return Collections.emptyList();
+        }
+        return List.of(constraint);
+    }
+
+    @Override
     public List<WordSketchQueryExecutor.ConcordanceResult> executeQuery(String cqlPattern, int maxResults) throws IOException {
         CQLPattern pattern = new CQLParser().parse(cqlPattern);
         SpanQuery query = compiler.compile(pattern);
@@ -806,6 +937,7 @@ public class HybridQueryExecutor implements QueryExecutor {
     private String getFieldValue(String lemma, String tag, String field) {
         return switch (field.toLowerCase()) {
             case "lemma" -> lemma != null ? lemma.toLowerCase() : "";
+            case "word" -> lemma != null ? lemma.toLowerCase() : "";  // PRECOMPUTED: use lemma as proxy for word
             case "tag", "pos" -> tag != null ? tag.toLowerCase() : "";
             case "pos_group" -> tag != null ? getPosGroup(tag) : "";
             default -> "";
@@ -873,9 +1005,9 @@ public class HybridQueryExecutor implements QueryExecutor {
             results.add(new WordSketchQueryExecutor.WordSketchResult(
                 coll.lemma(),
                 coll.pos(),
-                coll.cooccurrence(),
-                coll.frequency(),
-                coll.logDice(),
+                coll.cooccurrence(),  // Use cooccurrence as the frequency for display
+                coll.logDice(),       // logDice score
+                0.0,                  // relativeFrequency (not used in precomputed)
                 Collections.emptyList()  // No examples in precomputed mode
             ));
             

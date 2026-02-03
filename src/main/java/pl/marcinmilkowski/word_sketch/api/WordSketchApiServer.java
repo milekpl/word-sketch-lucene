@@ -6,10 +6,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.WordSketchQueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.WordSketchQueryExecutor.WordSketchResult;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ExplorationResult;
+import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.DiscoveredNoun;
+import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.CoreAdjective;
 import pl.marcinmilkowski.word_sketch.query.HybridQueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.SnowballCollocations;
+import pl.marcinmilkowski.word_sketch.query.SnowballCollocations.SnowballResult;
+import pl.marcinmilkowski.word_sketch.query.SnowballCollocations.Edge;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -25,6 +32,7 @@ import java.util.*;
  * - GET /api/sketch/{lemma}/{relation} - Get specific grammatical relation
  * - POST /api/sketch/query - Execute custom CQL pattern
  * - GET /api/relations - List available grammatical relations
+ * - GET /api/semantic-field/explore?seed=house - Explore semantic class from seed word
  * - GET /api/snowball?seeds=word1,word2&depth=2 - Run snowball collocation exploration
  */
 public class WordSketchApiServer {
@@ -87,7 +95,7 @@ public class WordSketchApiServer {
             "[tag=jj.*]", "verb"),
         // Infinitive marker (e.g., "want to", "need to")
         new RelationDefinition("verb_to", "Infinitive 'to'",
-            "[word=to]", "verb"),
+            "[tag=to]", "verb"),
         // Other verbs (chains, e.g., "try to make")
         new RelationDefinition("verb_verbs", "Other verbs",
             "[tag=vb.*]", "verb"),
@@ -129,6 +137,8 @@ public class WordSketchApiServer {
         server.createContext("/api/relations", wrapHandler(this::handleRelations));
         server.createContext("/api/sketch", wrapHandler(this::handleFullSketch));
         server.createContext("/api/sketch/query", wrapHandler(this::handleQuery));
+        server.createContext("/api/semantic-field/explore", wrapHandler(this::handleSemanticFieldExplore));
+        server.createContext("/api/semantic-field/explore-multi", wrapHandler(this::handleSemanticFieldExploreMulti));
         server.createContext("/api/semantic-field", wrapHandler(this::handleSemanticField));
         server.createContext("/api/semantic-field/examples", wrapHandler(this::handleSemanticFieldExamples));
         server.createContext("/api/algorithm", wrapHandler(this::handleAlgorithm));
@@ -148,7 +158,8 @@ public class WordSketchApiServer {
         System.out.println("  GET  /api/relations          - List available grammatical relations");
         System.out.println("  GET  /api/sketch/{lemma}     - Get full word sketch");
         System.out.println("  POST /api/sketch/query       - Execute custom CQL pattern");
-        System.out.println("  GET  /api/semantic-field     - Semantic field exploration (shared adjective predicates)");
+        System.out.println("  GET  /api/semantic-field/explore - Explore semantic class from seed word");
+        System.out.println("  GET  /api/semantic-field     - Compare adjective profiles across nouns");
         System.out.println("  GET  /api/semantic-field/examples - Get examples for adjective-noun pair");
         System.out.println("  GET/POST /api/algorithm      - Get/set algorithm (SAMPLE_SCAN, SPAN_COUNT, PRECOMPUTED)");
     }
@@ -416,6 +427,290 @@ public class WordSketchApiServer {
         response.put("executor", buildExecutorReport(true));
 
         sendJson(exchange, 200, response);
+    }
+
+    /**
+     * Handle semantic field exploration (bootstrapping from a seed word).
+     * Discovers related nouns by finding words that share adjective predicates with the seed.
+     * 
+     * GET /api/semantic-field/explore?seed=house&relation=adj_predicate&top=15&nouns_per=30&min_shared=2&min_logdice=5.0
+     * 
+     * Parameters:
+     * - seed: The seed word to explore from (required)
+     * - relation: Grammatical relation type: adj_modifier, adj_predicate, subject_of, object_of (default: adj_predicate)
+     * - top: Max collocates to use for expansion (default: 15)
+     * - nouns_per: Max nouns to fetch per collocate (default: 30)
+     * - min_shared: Min collocates a noun must share with seed (default: 2)
+     * - min_logdice: Min logDice threshold for collocations (default: 3.0)
+     */
+    private void handleSemanticFieldExplore(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        try {
+            String query = exchange.getRequestURI().getQuery();
+            Map<String, String> params = parseQueryParams(query);
+
+            // Parse parameters
+            String seed = params.getOrDefault("seed", "");
+            if (seed.isEmpty()) {
+                sendError(exchange, 400, "Missing required parameter: seed");
+                return;
+            }
+
+            // Parse relation type
+            String relationStr = params.getOrDefault("relation", "adj_predicate").toLowerCase();
+            QueryExecutor.RelationType relationType = switch (relationStr) {
+                case "adj_modifier", "modifier" -> QueryExecutor.RelationType.ADJ_MODIFIER;
+                case "adj_predicate", "predicate" -> QueryExecutor.RelationType.ADJ_PREDICATE;
+                case "subject_of", "subject" -> QueryExecutor.RelationType.SUBJECT_OF;
+                case "object_of", "object" -> QueryExecutor.RelationType.OBJECT_OF;
+                default -> QueryExecutor.RelationType.ADJ_PREDICATE;
+            };
+
+            int topCollocates = Integer.parseInt(params.getOrDefault("top", 
+                params.getOrDefault("top_adj", "15")));
+            int nounsPerCollocate = Integer.parseInt(params.getOrDefault("nouns_per", 
+                params.getOrDefault("nouns_per_adj", "30")));
+            int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
+            double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
+
+            // Run semantic field exploration with specified relation
+            SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+            ExplorationResult result = explorer.exploreByRelation(
+                seed, topCollocates, nounsPerCollocate, minShared, minLogDice, relationType);
+            explorer.close();
+
+            // Format response
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "ok");
+            response.put("seed", result.seed);
+            response.put("relation_type", relationType.name());
+            
+            // Parameters used
+            Map<String, Object> paramsUsed = new HashMap<>();
+            paramsUsed.put("relation", relationType.name());
+            paramsUsed.put("top", topCollocates);
+            paramsUsed.put("nouns_per", nounsPerCollocate);
+            paramsUsed.put("min_shared", minShared);
+            paramsUsed.put("min_logdice", minLogDice);
+            response.put("parameters", paramsUsed);
+
+            // Seed collocates (adjectives, verbs, etc. depending on relation type)
+            List<Map<String, Object>> seedCollocs = new ArrayList<>();
+            for (Map.Entry<String, Double> colloc : result.seedAdjectives.entrySet()) {
+                Map<String, Object> collocMap = new HashMap<>();
+                collocMap.put("word", colloc.getKey());
+                collocMap.put("logDice", Math.round(colloc.getValue() * 100.0) / 100.0);
+                seedCollocs.add(collocMap);
+            }
+            response.put("seed_collocates", seedCollocs);
+            response.put("seed_collocates_count", seedCollocs.size());
+            // Keep old key for backward compatibility
+            response.put("seed_adjectives", seedCollocs);
+            response.put("seed_adjectives_count", seedCollocs.size());
+
+            // Discovered nouns (semantic class)
+            List<Map<String, Object>> nouns = new ArrayList<>();
+            for (DiscoveredNoun dn : result.discoveredNouns) {
+                Map<String, Object> nounMap = new HashMap<>();
+                nounMap.put("word", dn.noun);
+                nounMap.put("shared_count", dn.sharedCount);
+                nounMap.put("similarity_score", Math.round(dn.similarityScore * 100.0) / 100.0);
+                nounMap.put("avg_logdice", Math.round(dn.avgLogDice * 100.0) / 100.0);
+                nounMap.put("shared_collocates", dn.getSharedAdjectiveList());
+                // Keep old key for backward compatibility
+                nounMap.put("shared_adjectives", dn.getSharedAdjectiveList());
+                nouns.add(nounMap);
+            }
+            response.put("discovered_nouns", nouns);
+            response.put("discovered_nouns_count", nouns.size());
+
+            // Core collocates (define the semantic class)
+            List<Map<String, Object>> coreCollocs = new ArrayList<>();
+            for (CoreAdjective ca : result.coreAdjectives) {
+                Map<String, Object> collocMap = new HashMap<>();
+                collocMap.put("word", ca.adjective);
+                collocMap.put("shared_by_count", ca.sharedByCount);
+                collocMap.put("total_nouns", ca.totalNouns);
+                collocMap.put("coverage", Math.round(ca.getCoverage() * 100.0) / 100.0);
+                collocMap.put("seed_logdice", Math.round(ca.seedLogDice * 100.0) / 100.0);
+                collocMap.put("avg_logdice", Math.round(ca.avgLogDice * 100.0) / 100.0);
+                coreCollocs.add(collocMap);
+            }
+            response.put("core_collocates", coreCollocs);
+            response.put("core_collocates_count", coreCollocs.size());
+            // Keep old keys for backward compatibility
+            response.put("core_adjectives", coreCollocs);
+            response.put("core_adjectives_count", coreCollocs.size());
+
+            // Edges for visualization
+            List<Map<String, Object>> edges = new ArrayList<>();
+            for (SemanticFieldExplorer.Edge edge : result.getEdges()) {
+                Map<String, Object> edgeMap = new HashMap<>();
+                edgeMap.put("source", edge.source);
+                edgeMap.put("target", edge.target);
+                edgeMap.put("weight", Math.round(edge.weight * 100.0) / 100.0);
+                edgeMap.put("type", edge.type);
+                edges.add(edgeMap);
+            }
+            response.put("edges", edges);
+
+            response.put("executor", buildExecutorReport(true));
+
+            sendJson(exchange, 200, response);
+
+        } catch (NumberFormatException e) {
+            sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendError(exchange, 500, "Semantic field exploration failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle multi-seed semantic field exploration.
+     * Given multiple seed nouns, finds their common collocates and then other nouns that share those collocates.
+     * GET /api/semantic-field/explore-multi?seeds=theory,model,hypothesis&relation=adj_predicate&top=15&min_shared=2&min_logdice=2
+     */
+    private void handleSemanticFieldExploreMulti(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        try {
+            String query = exchange.getRequestURI().getQuery();
+            Map<String, String> params = parseQueryParams(query);
+
+            // Parse parameters
+            String seedsStr = params.getOrDefault("seeds", "");
+            if (seedsStr.isEmpty()) {
+                sendError(exchange, 400, "Missing required parameter: seeds (comma-separated)");
+                return;
+            }
+
+            // Parse seeds
+            String[] seedArray = seedsStr.split(",");
+            Set<String> seeds = new java.util.LinkedHashSet<>();
+            for (String s : seedArray) {
+                String cleaned = s.trim().toLowerCase();
+                if (!cleaned.isEmpty()) {
+                    seeds.add(cleaned);
+                }
+            }
+
+            if (seeds.size() < 2) {
+                sendError(exchange, 400, "Need at least 2 seeds for multi-seed exploration");
+                return;
+            }
+
+            // Parse relation type
+            String relationStr = params.getOrDefault("relation", "adj_predicate").toLowerCase();
+            QueryExecutor.RelationType relationType = switch (relationStr) {
+                case "adj_modifier", "modifier" -> QueryExecutor.RelationType.ADJ_MODIFIER;
+                case "adj_predicate", "predicate" -> QueryExecutor.RelationType.ADJ_PREDICATE;
+                case "subject_of", "subject" -> QueryExecutor.RelationType.SUBJECT_OF;
+                case "object_of", "object" -> QueryExecutor.RelationType.OBJECT_OF;
+                default -> QueryExecutor.RelationType.ADJ_PREDICATE;
+            };
+
+            int topCollocates = Integer.parseInt(params.getOrDefault("top", 
+                params.getOrDefault("top_adj", "15")));
+            int nounsPerCollocate = Integer.parseInt(params.getOrDefault("nouns_per", 
+                params.getOrDefault("nouns_per_adj", "30")));
+            int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
+            double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "2.0"));
+
+            // Run multi-seed exploration manually using SemanticFieldExplorer for each seed, then merge
+            SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+            
+            // Step 1: For each seed, find its collocates using the specified relation
+            Map<String, List<WordSketchResult>> seedToCollocates = new HashMap<>();
+            Set<String> commonCollocates = null;
+            
+            for (String seed : seeds) {
+                List<WordSketchResult> collocates = executor.findGrammaticalRelation(
+                    seed, relationType, minLogDice, topCollocates);
+                seedToCollocates.put(seed, collocates);
+                
+                // Track common collocates (intersection across all seeds)
+                Set<String> seedCollocates = new HashSet<>();
+                for (WordSketchResult wsr : collocates) {
+                    seedCollocates.add(wsr.getLemma());
+                }
+                
+                if (commonCollocates == null) {
+                    commonCollocates = seedCollocates;
+                } else {
+                    commonCollocates.retainAll(seedCollocates);
+                }
+            }
+            
+            if (commonCollocates == null) {
+                commonCollocates = new HashSet<>();
+            }
+            
+            explorer.close();
+
+            // Format response similar to single-seed exploration
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "ok");
+            response.put("seeds", new ArrayList<>(seeds));
+            response.put("seed_count", seeds.size());
+            response.put("relation_type", relationType.name());
+
+            // Parameters used
+            Map<String, Object> paramsUsed = new HashMap<>();
+            paramsUsed.put("relation", relationType.name());
+            paramsUsed.put("top", topCollocates);
+            paramsUsed.put("min_shared", minShared);
+            paramsUsed.put("min_logdice", minLogDice);
+            response.put("parameters", paramsUsed);
+
+            // Discovered collocates (adjectives/verbs/nouns) from the seeds
+            List<Map<String, Object>> discoveredCollocs = new ArrayList<>();
+            for (Map.Entry<String, List<WordSketchResult>> entry : seedToCollocates.entrySet()) {
+                for (WordSketchResult wsr : entry.getValue()) {
+                    Map<String, Object> collocMap = new HashMap<>();
+                    collocMap.put("word", wsr.getLemma());
+                    collocMap.put("logDice", wsr.getLogDice());
+                    collocMap.put("frequency", wsr.getFrequency());
+                    discoveredCollocs.add(collocMap);
+                }
+            }
+            response.put("seed_collocates", discoveredCollocs);
+            response.put("seed_collocates_count", discoveredCollocs.size());
+            response.put("common_collocates", new ArrayList<>(commonCollocates));
+            response.put("common_collocates_count", commonCollocates.size());
+
+            // For now, discovered_nouns is empty (we're just finding collocates of the seeds)
+            response.put("discovered_nouns", new ArrayList<>());
+            response.put("discovered_nouns_count", 0);
+
+            // Simple edges for visualization: seed -> collocate
+            List<Map<String, Object>> edges = new ArrayList<>();
+            for (Map.Entry<String, List<WordSketchResult>> entry : seedToCollocates.entrySet()) {
+                String seed = entry.getKey();
+                for (WordSketchResult wsr : entry.getValue()) {
+                    Map<String, Object> edgeMap = new HashMap<>();
+                    edgeMap.put("source", seed);
+                    edgeMap.put("target", wsr.getLemma());
+                    edgeMap.put("weight", wsr.getLogDice());
+                    edgeMap.put("type", relationType.name());
+                    edges.add(edgeMap);
+                }
+            }
+            response.put("edges", edges);
+
+            sendJson(exchange, 200, response);
+
+        } catch (Exception e) {
+            logger.error("Error in multi-seed exploration", e);
+            sendError(exchange, 500, "Error: " + e.getMessage());
+        }
     }
 
     /**

@@ -1,53 +1,219 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file documents the Word Sketch Lucene project for future development.
 
-## Project Overview
+## Current Status
 
-Word Sketch Lucene is a computational linguistics tool that provides fast corpus-based collocation analysis using Apache Lucene. It ports the word-sketch concept (finding typical words that co-occur with a given word) to enable pattern matching on large corpora (up to 74M sentences).
+✅ **v1.0 Functional Release**
 
-**Key terminology:**
-- **Word sketch**: A summary of typical collocations for a word (e.g., adjectives modifying "house", verbs associated with "house")
-- **CQL (Corpus Query Language)**: Pattern syntax for defining grammatical relations
-- **logDice**: Association score (0-14, where 14 = perfect association) for ranking collocations
+### What Works
+- Corpus indexing with CoNLL-U format (POS tagging via UDPipe)
+- Fast precomputed collocation lookups (O(1), ~0-1ms)
+- CQL pattern matching with SpanQueries
+- logDice scoring for collocation ranking
+- 4 grammatical relations: ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF
+- REST API with semantic field exploration
+- Web UI with D3.js force-directed graphs
+- **Single-seed and multi-seed semantic field exploration**
 
-## Build Commands
+### Limitations (See README.md)
+- ❌ No agreement rules (no noun-adjective gender/number matching)
+- ❌ Only 4 grammatical relations
+- ❌ Limited morphological analysis
+- ⚠️ Depends on input corpus quality
+
+---
+
+## Build & Deployment
+
+### Prerequisites
+```bash
+Java 21+
+Maven 3.6+
+Python 3 (for web server)
+UDPipe 2 (optional, for corpus tagging)
+```
+
+### Build
+```bash
+mvn clean package
+```
+
+### Deploy (3 services)
+```bash
+# Terminal 1: API Server
+java -jar target/word-sketch-lucene-1.0.0.jar server --index d:\corpus_74m\index-hybrid --port 8080
+
+# Terminal 2: Web UI (static server)
+python -m http.server 3000 --directory webapp
+
+# Terminal 3: Browser
+# Open http://localhost:3000
+```
+
+### CLI Commands
+
+See `src/main/java/pl/marcinmilkowski/word_sketch/Main.java`:
 
 ```bash
-# NOTE: Requires Java 21+ (Lucene 10.3.2 requires Java 21+)
-# On Windows with Java 22 installed at C:\Program Files\Java\jdk-22:
-powershell -Command "Set-Item -Path Env:JAVA_HOME -Value 'C:\Program Files\Java\jdk-22'; Set-Item -Path Env:MAVEN_OPTS -Value '-Xmx512m'; Set-Location -Path 'd:\git\word-sketch-lucene'; mvn clean compile"
+java -jar word-sketch-lucene.jar index --corpus text.txt --output data/index/
+java -jar word-sketch-lucene.jar conllu --input corpus.conllu --output data/index/
+java -jar word-sketch-lucene.jar query --index data/index/ --lemma house
+java -jar word-sketch-lucene.jar server --index data/index/ --port 8080
+```
 
-# Run tests
+---
+
+## API Endpoints
+
+### REST API (Port 8080)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Server health |
+| `GET /api/sketch/{lemma}` | Word sketch for lemma |
+| `GET /api/semantic-field/explore` | Single-seed exploration |
+| `GET /api/semantic-field/explore-multi` | **Multi-seed exploration (NEW)** |
+
+### Multi-Seed Endpoint
+
+```bash
+curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,hypothesis&relation=adj_predicate&top=10"
+```
+
+Requires:
+- `seeds`: Comma-separated nouns (min 2)
+- `relation`: adj_predicate, adj_modifier, subject_of, object_of
+- `top`, `min_logdice`, `min_shared`: Optional parameters
+
+---
+
+## Code Structure
+
+```
+src/main/java/pl/marcinmilkowski/word_sketch/
+├── Main.java                           # CLI entry
+├── api/
+│   └── WordSketchApiServer.java        # REST API server
+├── grammar/
+│   ├── CQLParser.java                  # CQL parsing
+│   └── CQLPattern.java                 # Pattern repr.
+├── indexer/
+│   ├── HybridLuceneIndexer.java        # Indexing
+│   └── hybrid/
+│       ├── CollocationsBuilderV2.java  # Precomputed building
+│       └── HybridIndex.java            # Index wrapper
+├── query/
+│   ├── CQLToLuceneCompiler.java        # CQL -> Lucene
+│   ├── HybridQueryExecutor.java        # Query exec.
+│   ├── SemanticFieldExplorer.java      # Single-seed (bootstrap)
+│   ├── SnowballCollocations.java       # Multi-seed
+│   └── WordSketchQueryExecutor.java    # Legacy (fallback)
+├── tagging/
+│   ├── SimpleTagger.java               # Rule-based
+│   └── ConllUProcessor.java            # CoNLL-U parsing
+└── utils/
+    └── LogDiceCalculator.java          # logDice scoring
+```
+
+---
+
+## Key Implementation Details
+
+### Grammatical Relations
+
+| Relation | Pattern | Example |
+|----------|---------|---------|
+| ADJ_PREDICATE | X is ADJ | "theory is correct" |
+| ADJ_MODIFIER | ADJ X | "correct theory" |
+| SUBJECT_OF | X VERBs | "theory suggests" |
+| OBJECT_OF | VERB X | "develop theory" |
+
+### Multi-Seed Exploration (SemanticFieldExplorer.java + SnowballCollocations.java)
+
+1. For each seed, find collocates using specified relation
+2. Calculate intersection (common collocates)
+3. Return all edges with sources/targets for visualization
+
+### Precomputed Collocations
+
+- Built during `mvn package` automatically
+- File: `collocations.bin` (700MB for 74M sentences)
+- Format: Spill-to-disk single-pass algorithm
+- Performance: O(1) lookup, ~0-1ms per query
+
+### logDice Scoring
+
+```
+logDice = log₂(2 * f(A,B) / (f(A) + f(B))) + 14
+```
+
+Range: 0-14 (14 = perfect association)
+
+---
+
+## Testing
+
+```bash
+# All tests
 mvn test
 
-# Run a single test class
-mvn test -Dtest=ClassName
+# Specific test class
+mvn test -Dtest=CQLParserTest
 
-# Package as JAR
-mvn package
-
-# Run the application
-java -jar target/word-sketch-lucene-1.0.0.jar <command>
-
-# Run with Maven exec plugin
-mvn exec:java -Dexec.mainClass="pl.marcinmilkowski.word_sketch.Main"
+# With output
+mvn test -X
 ```
 
-## CLI Commands
+Test coverage:
+- CQL parsing (50+ patterns)
+- Lucene query compilation
+- logDice calculation
+- API endpoints
+- Multi-seed exploration
 
-Available commands in [Main.java](src/main/java/pl/marcinmilkowski/word_sketch/Main.java):
-- `index` - Index a corpus for word sketch analysis
-- `query` - Query the word sketch index
-- `server` - Start the REST API server
-- `tag` - Tag a corpus with POS tags
-- `help` - Show help message
+---
 
-## Architecture
+## Development Notes
 
-### Dual-Lucene Index Strategy
+### Common Debugging
 
-```
+**Index location:** `d:\corpus_74m\index-hybrid/`
+- `segments.gen`, `segments_*` - Lucene index
+- `stats.bin` - Frequency statistics
+- `collocations.bin` - Precomputed collocations
+- `lexicon.bin` - Lemma-to-ID mapping (fallback)
+
+**Server logs:** Run with `--debug` or check console output
+
+**API testing:** Use curl or Postman
+
+### Performance Tuning
+
+- Max heap: `-Xmx2g` in MAVEN_OPTS for large builds
+- Worker threads: `NUM_WORKERS` in CollocationsBuilderV2
+- Batch size: `BATCH_SIZE` in HybridLuceneIndexer
+
+---
+
+## For v2.0
+
+Planned improvements:
+- ✅ Multi-seed exploration
+- ❌ Agreement rules (noun-adj matching)
+- ❌ Additional relations (possessive, comparative)
+- ❌ Morphological decomposition
+- ❌ Word sense disambiguation
+
+---
+
+## Documentation
+
+- **README.md** - User guide (indexing, querying, API, examples)
+- **MULTI_SEED_EXPLORATION.md** - Multi-seed feature details
+- **plans/word-sketch-lucene-spec.md** - Technical specification
+- **plans/precomputed-collocations-spec.md** - Algorithm details
+- **plans/hybrid-index-spec.md** - Index architecture
 Main Corpus Index          Word Sketch Index
 - sentence_id              - sentence_id
 - position                 - position

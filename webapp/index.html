@@ -305,6 +305,16 @@
     <h1>Word Sketch Lucene</h1>
     <p class="subtitle">Corpus-based collocation analysis powered by Apache Lucene</p>
 
+    <div style="background: #ecf0f1; padding: 12px; border-radius: 4px; margin: 15px 0; font-size: 13px;">
+        <strong>API Quick Reference:</strong>
+        <ul style="margin: 8px 0; padding-left: 20px;">
+            <li><code>GET /api/sketch/{lemma}</code> - Get word sketch with collocations</li>
+            <li><code>GET /api/concordance/examples?word1=X&word2=Y</code> - Get example sentences for a word pair</li>
+            <li><code>GET /api/semantic-field/explore?seed=X&relation=adj_predicate</code> - Explore semantic field</li>
+        </ul>
+        <small>👉 <strong>Tip:</strong> Click on any collocation in the Word Sketch tab to see example sentences from the corpus!</small>
+    </div>
+
     <div class="api-config">
         <label>API URL:</label>
         <input type="text" id="apiUrl" value="http://localhost:8080" placeholder="http://localhost:8080">
@@ -336,6 +346,12 @@
         </div>
 
         <div id="results" class="results"></div>
+        
+        <!-- Examples panel for Word Sketch tab -->
+        <div id="sketchExamplesPanel" style="display: none; margin-top: 20px; padding: 15px; background: white; border: 2px solid #e74c3c; border-radius: 8px;">
+            <h3 id="sketchExamplesPanelTitle" style="margin-top: 0;">Examples</h3>
+            <div id="sketchExamplesList"></div>
+        </div>
     </div>
 
     <div id="semanticTab" class="tab-content">
@@ -547,12 +563,13 @@
                     const freq = c.frequency || '-';
                     const word = c.lemma || '-';
                     html += `
-                        <div class="collocation">
+                        <div class="collocation" style="cursor: pointer; position: relative;" onclick="fetchSketchExamples('${escapeJs(currentWord)}', '${escapeJs(word)}')">
                             <span class="word">${escapeHtml(word)}</span>
                             <span>
                                 <span class="score">logDice: ${score}</span>
                                 <span class="freq">(${freq})</span>
                             </span>
+                            <span style="position: absolute; right: 10px; top: 8px; color: #999; font-size: 12px;">Click for examples →</span>
                         </div>
                     `;
                 });
@@ -1459,6 +1476,54 @@
             
             html += '</table>';
             return html;
+        }
+
+        async function fetchSketchExamples(word1, word2) {
+            // Fetch examples for Word Sketch tab
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const panel = document.getElementById('sketchExamplesPanel');
+            const titleEl = document.getElementById('sketchExamplesPanelTitle');
+            const listEl = document.getElementById('sketchExamplesList');
+            
+            titleEl.textContent = `Examples: "${word1}" + "${word2}" (loading...)`;
+            listEl.innerHTML = '<div class="loading">Fetching examples...</div>';
+            panel.style.display = 'block';
+            
+            try {
+                const url = `${apiUrl}/api/concordance/examples?word1=${encodeURIComponent(word1)}&word2=${encodeURIComponent(word2)}&limit=10`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                titleEl.textContent = `Examples: "${word1}" + "${word2}" (${data.count} found)`;
+                
+                if (data.examples && data.examples.length > 0) {
+                    listEl.innerHTML = data.examples.map((ex, i) => {
+                        const displayText = ex.highlighted || ex.raw || ex.sentence;
+                        return `<div style="margin: 8px 0; padding: 8px; background: #fef5e7; border-radius: 4px; font-family: monospace; font-size: 13px; line-height: 1.5;">
+                            <strong>${i + 1}.</strong> <span style="margin-left: 6px;">${displayText}</span>
+                        </div>`;
+                    }).join('');
+                    
+                    if (data.count >= 10) {
+                        listEl.innerHTML += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                            <button onclick="fetchSketchExamples('${escapeJs(word1)}', '${escapeJs(word2)}'); document.getElementById('sketchExamplesList').setAttribute('data-limit', '20');" style="width: 100%; padding: 8px;">
+                                Load More Examples
+                            </button>
+                        </div>`;
+                    }
+                } else {
+                    listEl.innerHTML = '<div style="color: #999;">No examples found for this combination.</div>';
+                }
+                
+            } catch (error) {
+                titleEl.textContent = `Examples: "${word1}" + "${word2}" (error)`;
+                listEl.innerHTML = `<div class="error">Failed to fetch examples: ${error.message}</div>`;
+            }
         }
 
         async function fetchExamples(word1, word2) {

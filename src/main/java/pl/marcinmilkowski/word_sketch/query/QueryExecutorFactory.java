@@ -106,14 +106,32 @@ public class QueryExecutorFactory {
     }
 
     /**
-     * Create a QueryExecutor with auto-detected index type.
+     * Create a QueryExecutor with auto-detection and optional collocations file
+     * 
+     * @param indexPath Path to the Lucene index directory
+     * @param collocationPath Optional path to collocations.bin (can be null)
+     * @return QueryExecutor instance for the detected index type
+     * @throws IOException if index cannot be opened
+     */
+    public static QueryExecutor createAutoDetect(String indexPath, String collocationPath) throws IOException {
+        IndexType type = detectIndexType(indexPath);
+        QueryExecutor executor = create(indexPath, type);
+        
+        if (collocationPath != null && executor instanceof HybridQueryExecutor) {
+            ((HybridQueryExecutor) executor).setCollocationPath(collocationPath);
+        }
+        
+        return executor;
+    }
+
+    /**
+     * Create a QueryExecutor with auto-detection
      * 
      * @param indexPath Path to the Lucene index directory
      * @return QueryExecutor instance for the detected index type
      * @throws IOException if index cannot be opened
      */
     public static QueryExecutor createAutoDetect(String indexPath) throws IOException {
-        IndexType type = detectIndexType(indexPath);
-        return create(indexPath, type);
+        return createAutoDetect(indexPath, null);
     }
 }

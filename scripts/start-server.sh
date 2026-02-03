@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start Word Sketch Lucene API Server
-# Usage: ./start-server.sh [--port 8080] [--index /path/to/index]
+# Usage: ./start-server.sh [--port 8080] [--index /path/to/index] [--collocations /path/to/collocations.bin]
 
 PORT=8080
 INDEX="d:\corpus_74m\index-hybrid"
@@ -41,6 +41,14 @@ if [ ! -d "$INDEX" ]; then
     exit 1
 fi
 
+# Auto-detect collocations file (optional parameter)
+COLLOCATIONS=""
+COLLOCATIONS_SRC="$INDEX/collocations_v2.bin"
+if [ -f "$COLLOCATIONS_SRC" ]; then
+    COLLOCATIONS="$COLLOCATIONS_SRC"
+fi
+
+echo ""
 echo "================================"
 echo "Word Sketch Lucene API Server"
 echo "================================"
@@ -48,9 +56,18 @@ echo ""
 echo "Configuration:"
 echo "  Port:  $PORT"
 echo "  Index: $INDEX"
+if [ -n "$COLLOCATIONS" ]; then
+    echo "  Algorithm: PRECOMPUTED (O(1) instant lookup)"
+else
+    echo "  Algorithm: SPAN_COUNT (on-the-fly queries)"
+fi
 echo ""
 echo "Starting server..."
 echo ""
 
 # Start server
-java -jar "$JAR_FILE" server --index "$INDEX" --port "$PORT"
+if [ -n "$COLLOCATIONS" ]; then
+    java -jar "$JAR_FILE" server --index "$INDEX" --port "$PORT" --collocations "$COLLOCATIONS"
+else
+    java -jar "$JAR_FILE" server --index "$INDEX" --port "$PORT"
+fi

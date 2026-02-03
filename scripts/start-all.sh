@@ -43,16 +43,37 @@ if [ ! -d "$INDEX" ]; then
     exit 1
 fi
 
+# Auto-detect collocations file
+COLLOCATIONS=""
+COLLOCATIONS_SRC="$INDEX/collocations_v2.bin"
+if [ -f "$COLLOCATIONS_SRC" ]; then
+    COLLOCATIONS="$COLLOCATIONS_SRC"
+fi
+
+echo ""
 echo "================================"
 echo "Word Sketch Lucene - Full Stack"
 echo "================================"
+echo ""
+echo "Configuration:"
+echo "  API Port:  $PORT"
+echo "  Web Port:  $WEB_PORT"
+if [ -n "$COLLOCATIONS" ]; then
+    echo "  Algorithm: PRECOMPUTED (O(1) instant lookup)"
+else
+    echo "  Algorithm: SPAN_COUNT (on-the-fly queries)"
+fi
 echo ""
 echo "Starting API Server (port $PORT)..."
 echo "Starting Web Server (port $WEB_PORT)..."
 echo ""
 
 # Start API server in background
-java -jar "$JAR_FILE" server --index "$INDEX" --port "$PORT" &
+if [ -n "$COLLOCATIONS" ]; then
+    java -jar "$JAR_FILE" server --index "$INDEX" --port "$PORT" --collocations "$COLLOCATIONS" &
+else
+    java -jar "$JAR_FILE" server --index "$INDEX" --port "$PORT" &
+fi
 API_PID=$!
 
 # Give server time to start

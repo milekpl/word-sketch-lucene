@@ -2,6 +2,14 @@
 
 Quick-start scripts for running Word Sketch Lucene.
 
+## Features
+
+- **Auto-Detection**: Scripts automatically detect `collocations_v2.bin` for PRECOMPUTED queries
+- **No File Copies**: Directly opens collocations files without copying
+- **Cross-Platform**: PowerShell (Windows) and Bash (Linux/Mac)
+- **Full Stack Option**: Start both API and web UI with one command
+- **Customizable**: Override ports, index location, and other parameters
+
 ## Quick Start
 
 ### Windows (PowerShell)
@@ -30,6 +38,18 @@ chmod +x scripts/start-all.sh
 ./scripts/start-all.sh
 ```
 
+## Automatic Collocations Setup
+
+The scripts automatically detect collocations for fast PRECOMPUTED queries:
+
+1. **Detection**: Scripts look for `collocations_v2.bin` in the index directory
+2. **Passing**: If found, passed to server via `--collocations` parameter
+3. **Algorithm Selection**:
+   - ✓ Collocations file detected → **PRECOMPUTED** (O(1) instant lookup)
+   - ✗ No collocations file → **SPAN_COUNT** (slower on-the-fly queries)
+
+This means you can run the scripts with no additional configuration - the server opens the file directly from its location using the `--collocations` parameter.
+
 ## Customization
 
 ### Change Port
@@ -45,7 +65,7 @@ chmod +x scripts/start-all.sh
 
 ## Configuration
 
-Edit the default `$Index` path in the script files:
+Edit the default `$Index` path in the script files to change the default index:
 - `start-server.ps1` (line 10)
 - `start-server.sh` (line 5)
 - `start-all.ps1` (line 10)

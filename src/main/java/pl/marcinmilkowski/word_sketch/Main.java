@@ -222,6 +222,7 @@ public class Main {
 
     private static void handleServerCommand(String[] args) throws IOException {
         String indexPath = null;
+        String collocationPath = null;
         int port = 8080;
 
         for (int i = 1; i < args.length; i++) {
@@ -234,6 +235,9 @@ public class Main {
                 case "-p":
                     port = Integer.parseInt(args[++i]);
                     break;
+                case "--collocations":
+                    collocationPath = args[++i];
+                    break;
                 default:
                     System.err.println("Unknown option: " + args[i]);
             }
@@ -241,12 +245,15 @@ public class Main {
 
         if (indexPath == null) {
             System.err.println("Error: --index is required");
-            System.err.println("Usage: java -jar word-sketch-lucene.jar server --index <path> [--port <port>]");
+            System.err.println("Usage: java -jar word-sketch-lucene.jar server --index <path> [--port <port>] [--collocations <path>]");
             return;
         }
 
         System.out.println("Starting API server...");
         System.out.println("Index: " + indexPath);
+        if (collocationPath != null) {
+            System.out.println("Collocations: " + collocationPath);
+        }
         System.out.println("Port: " + port);
         System.out.println();
         System.out.println("Endpoints:");
@@ -257,7 +264,7 @@ public class Main {
         System.out.println("Press Ctrl+C to stop the server.");
         System.out.println();
 
-        QueryExecutor executor = QueryExecutorFactory.createAutoDetect(indexPath);
+        QueryExecutor executor = QueryExecutorFactory.createAutoDetect(indexPath, collocationPath);
         WordSketchApiServer server = WordSketchApiServer.builder()
             .withExecutor(executor)
             .withIndexPath(indexPath)

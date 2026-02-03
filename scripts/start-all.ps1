@@ -1,5 +1,5 @@
 # Start both API Server and Web UI
-# Usage: .\start-all.ps1 [--port 8080] [--web-port 3000] [--index path/to/index]
+# Usage: .\start-all.ps1 [--port 8080] [--web-port 3000] [--index path/to/index] [--collocations path/to/collocations.bin]
 
 param(
     [int]$Port = 8080,
@@ -23,19 +23,43 @@ if (-not (Test-Path $Index)) {
     exit 1
 }
 
+# Auto-detect collocations file
+$Collocations = ""
+$collocationsSrc = Join-Path $Index "collocations_v2.bin"
+if (Test-Path $collocationsSrc) {
+    $Collocations = $collocationsSrc
+}
+
+Write-Host ""
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host "Word Sketch Lucene - Full Stack" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Configuration:" -ForegroundColor Green
+Write-Host "  API Port:  $Port"
+Write-Host "  Web Port:  $WebPort"
+if ($Collocations) {
+    Write-Host "  Algorithm: PRECOMPUTED (O(1) instant lookup)" -ForegroundColor Cyan
+} else {
+    Write-Host "  Algorithm: SPAN_COUNT (on-the-fly queries)" -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "Starting API Server (port $Port)..." -ForegroundColor Green
 Write-Host "Starting Web Server (port $WebPort)..." -ForegroundColor Green
 Write-Host ""
 
 # Start API server in background
-$apiJob = Start-Job -ScriptBlock {
-    param($jar, $idx, $p)
-    & java -jar $jar server --index $idx --port $p
-} -ArgumentList $jarFile, $Index, $Port
+if ($Collocations) {
+    $apiJob = Start-Job -ScriptBlock {
+        param($jar, $idx, $p, $coll)
+        & java -jar $jar server --index $idx --port $p --collocations $coll
+    } -ArgumentList $jarFile, $Index, $Port, $Collocations
+} else {
+    $apiJob = Start-Job -ScriptBlock {
+        param($jar, $idx, $p)
+        & java -jar $jar server --index $idx --port $p
+    } -ArgumentList $jarFile, $Index, $Port
+}
 
 # Give server time to start
 Start-Sleep -Seconds 3

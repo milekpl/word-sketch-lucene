@@ -69,7 +69,7 @@ public class HybridQueryExecutor implements QueryExecutor {
     private final StatisticsReader statsReader;
     private final String statsPath;
     private final String statsSource;
-    private final CollocationsReader collocationsReader;
+    private CollocationsReader collocationsReader;
 
     private final LongAdder statsLookups = new LongAdder();
     private final LongAdder statsMisses = new LongAdder();
@@ -1058,6 +1058,24 @@ public class HybridQueryExecutor implements QueryExecutor {
         } catch (java.util.regex.PatternSyntaxException e) {
             // If pattern isn't valid regex, try exact match
             return value.equals(pattern);
+        }
+    }
+
+    /**
+     * Set a custom collocations file path (allows overriding default lookup location)
+     */
+    public void setCollocationPath(String collocationPath) throws IOException {
+        if (java.nio.file.Files.exists(java.nio.file.Paths.get(collocationPath))) {
+            CollocationsReader newReader = new CollocationsReader(collocationPath);
+            // Close old reader if exists
+            if (this.collocationsReader != null) {
+                this.collocationsReader.close();
+            }
+            this.collocationsReader = newReader;
+            logger.info("Loaded precomputed collocations from: {} ({} entries)", 
+                collocationPath, newReader.getEntryCount());
+        } else {
+            logger.warn("Collocations file not found: {}", collocationPath);
         }
     }
 

@@ -12,10 +12,7 @@ import java.nio.file.Paths;
 /**
  * Factory for creating QueryExecutor instances.
  * 
- * Supports different index types:
- * - LEGACY: Token-per-document index
- * - HYBRID: Sentence-per-document index
- * - DUAL: Runs both and compares results (for verification)
+ * Supports HYBRID index type only.
  */
 public class QueryExecutorFactory {
 
@@ -23,14 +20,8 @@ public class QueryExecutorFactory {
      * Index type enumeration.
      */
     public enum IndexType {
-        /** Token-per-document index (legacy) */
-        LEGACY,
-        
         /** Sentence-per-document index (hybrid) */
-        HYBRID,
-        
-        /** Dual mode: runs both implementations and compares */
-        DUAL
+        HYBRID
     }
 
     /**
@@ -43,23 +34,10 @@ public class QueryExecutorFactory {
      * @throws UnsupportedOperationException if type is not yet implemented
      */
     public static QueryExecutor create(String indexPath, IndexType type) throws IOException {
-        return switch (type) {
-            case LEGACY -> new WordSketchQueryExecutor(indexPath);
-            case HYBRID -> new HybridQueryExecutor(indexPath);
-            case DUAL -> throw new UnsupportedOperationException(
-                "Dual mode executor not yet implemented");
-        };
-    }
-
-    /**
-     * Create a legacy QueryExecutor (convenience method).
-     * 
-     * @param indexPath Path to the Lucene index directory
-     * @return QueryExecutor instance
-     * @throws IOException if index cannot be opened
-     */
-    public static QueryExecutor createLegacy(String indexPath) throws IOException {
-        return create(indexPath, IndexType.LEGACY);
+        if (type != IndexType.HYBRID) {
+            throw new UnsupportedOperationException("Only HYBRID executor is supported");
+        }
+        return new HybridQueryExecutor(indexPath);
     }
 
     /**
@@ -74,9 +52,9 @@ public class QueryExecutorFactory {
     }
 
     /**
-     * Detect the index type from the index directory.
-     * 
-     * Checks for the presence of "sentence_id" field to identify hybrid indexes.
+    * Detect the index type from the index directory.
+    *
+    * Checks for the presence of "sentence_id" field required by hybrid indexes.
      * 
      * @param indexPath Path to the Lucene index directory
      * @return Detected index type
@@ -100,9 +78,9 @@ public class QueryExecutorFactory {
         } catch (Exception e) {
             System.err.println("Error detecting index type: " + e.getMessage());
         }
-        
-        System.out.println("Detected LEGACY index at: " + indexPath);
-        return IndexType.LEGACY;
+
+        throw new IllegalArgumentException(
+            "Index at '" + indexPath + "' is not HYBRID (missing sentence_id field). Legacy indexes are no longer supported.");
     }
 
     /**

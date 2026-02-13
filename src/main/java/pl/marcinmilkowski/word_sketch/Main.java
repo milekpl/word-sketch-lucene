@@ -3,14 +3,14 @@ package pl.marcinmilkowski.word_sketch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.api.WordSketchApiServer;
+    import pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationsBuilderV2;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.HybridConllUProcessor;
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.SinglePassConlluProcessor;
 import pl.marcinmilkowski.word_sketch.query.HybridQueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutorFactory;
 import pl.marcinmilkowski.word_sketch.query.SnowballCollocations;
-import pl.marcinmilkowski.word_sketch.query.WordSketchQueryExecutor;
 import pl.marcinmilkowski.word_sketch.tagging.ConllUProcessor;
-import pl.marcinmilkowski.word_sketch.tagging.CorpusProcessor;
 import pl.marcinmilkowski.word_sketch.tagging.SimpleTagger;
 import pl.marcinmilkowski.word_sketch.tagging.UDPipeTagger;
 import pl.marcinmilkowski.word_sketch.viz.SnowballVisualizer;
@@ -58,9 +58,6 @@ public class Main {
                 case "tag":
                     handleTagCommand(args);
                     break;
-                case "conllu":
-                    handleConllUCommand(args);
-                    break;
                 case "convert":
                     handleConvertCommand(args);
                     break;
@@ -72,6 +69,12 @@ public class Main {
                     break;
                 case "hybrid-query":
                     handleHybridQueryCommand(args);
+                    break;
+                case "single-pass":
+                    handleSinglePassCommand(args);
+                    break;
+                case "precompute-collocations":
+                    handlePrecomputeCollocationsCommand(args);
                     break;
                 case "help":
                     showUsage();
@@ -88,48 +91,8 @@ public class Main {
     }
 
     private static void handleIndexCommand(String[] args) throws IOException {
-        String corpusFile = null;
-        String indexPath = null;
-        String language = "english";
-        int batchSize = 1000;
-
-        for (int i = 1; i < args.length; i++) {
-            switch (args[i]) {
-                case "--corpus":
-                case "-c":
-                    corpusFile = args[++i];
-                    break;
-                case "--output":
-                case "-o":
-                    indexPath = args[++i];
-                    break;
-                case "--language":
-                case "-l":
-                    language = args[++i];
-                    break;
-                case "--batch":
-                    batchSize = Integer.parseInt(args[++i]);
-                    break;
-                default:
-                    System.err.println("Unknown option: " + args[i]);
-            }
-        }
-
-        if (corpusFile == null || indexPath == null) {
-            System.err.println("Error: --corpus and --output are required");
-            System.err.println("Usage: java -jar word-sketch-lucene.jar index --corpus <file> --output <path>");
-            return;
-        }
-
-        System.out.println("Indexing corpus: " + corpusFile);
-        System.out.println("Output index: " + indexPath);
-        System.out.println("Language: " + language);
-        System.out.println();
-
-        CorpusProcessor processor = CorpusProcessor.create(indexPath, language);
-        processor.processCorpus(corpusFile, indexPath, batchSize);
-
-        System.out.println("Indexing complete!");
+        throw new UnsupportedOperationException(
+            "Legacy 'index' command has been removed. Use 'hybrid-index', 'single-pass', or 'precompute-collocations'.");
     }
 
     private static void handleQueryCommand(String[] args) throws IOException {
@@ -189,8 +152,7 @@ public class Main {
         }
 
         if (cqlPattern == null) {
-            // Default pattern: find nouns modified by the lemma
-            cqlPattern = "1:NOUN [tag=\"JJ\"|tag=\"RB\"] 2:" + lemma;
+            cqlPattern = "[lemma=\".*\"]";
         }
 
         System.out.println("Querying index: " + indexPath);
@@ -201,23 +163,22 @@ public class Main {
         System.out.println("Sample size: " + (sampleSize == 0 ? "unlimited" : sampleSize));
         System.out.println();
 
-        WordSketchQueryExecutor executor = new WordSketchQueryExecutor(indexPath);
-        executor.setMaxSampleSize(sampleSize);
-        var results = executor.findCollocations(lemma, cqlPattern, minLogDice, limit);
+        try (HybridQueryExecutor executor = new HybridQueryExecutor(indexPath)) {
+            executor.setMaxSampleSize(sampleSize);
+            var results = executor.findCollocations(lemma, cqlPattern, minLogDice, limit);
 
-        System.out.println("Results:");
-        System.out.println("--------");
-        for (var result : results) {
-            System.out.printf("  %s (%s): freq=%d, logDice=%.2f, relFreq=%.4f%n",
-                result.getLemma(),
-                result.getPos(),
-                result.getFrequency(),
-                result.getLogDice(),
-                result.getRelativeFrequency()
-            );
+            System.out.println("Results:");
+            System.out.println("--------");
+            for (var result : results) {
+                System.out.printf("  %s (%s): freq=%d, logDice=%.2f, relFreq=%.4f%n",
+                    result.getLemma(),
+                    result.getPos(),
+                    result.getFrequency(),
+                    result.getLogDice(),
+                    result.getRelativeFrequency()
+                );
+            }
         }
-
-        executor.close();
     }
 
     private static void handleServerCommand(String[] args) throws IOException {
@@ -258,8 +219,8 @@ public class Main {
         System.out.println();
         System.out.println("Endpoints:");
         System.out.println("  GET  /health - Health check");
-        System.out.println("  GET  /sketch/{lemma} - Get word sketch");
-        System.out.println("  POST /sketch/query - Custom CQL query");
+        System.out.println("  GET  /api/sketch/{lemma} - Get word sketch");
+        System.out.println("  POST /api/sketch/query - Custom CQL query");
         System.out.println();
         System.out.println("Press Ctrl+C to stop the server.");
         System.out.println();
@@ -367,74 +328,6 @@ public class Main {
         }
 
         System.out.println("Tagging complete!");
-    }
-
-    private static void handleConllUCommand(String[] args) throws IOException {
-        java.util.List<String> inputFiles = new java.util.ArrayList<>();
-        String indexPath = null;
-        int commitInterval = 100000;
-        int numThreads = 1;
-
-        for (int i = 1; i < args.length; i++) {
-            switch (args[i]) {
-                case "--input":
-                case "-i":
-                    inputFiles.add(args[++i]);
-                    break;
-                case "--output":
-                case "-o":
-                    indexPath = args[++i];
-                    break;
-                case "--commit":
-                    commitInterval = Integer.parseInt(args[++i]);
-                    break;
-                case "--threads":
-                    numThreads = Integer.parseInt(args[++i]);
-                    break;
-                default:
-                    System.err.println("Unknown option: " + args[i]);
-            }
-        }
-
-        if (inputFiles.isEmpty() || indexPath == null) {
-            System.err.println("Error: --input (one or more) and --output are required");
-            System.err.println("Usage: java -jar word-sketch-lucene.jar conllu -i <file1> -i <file2> ... --output <path> [--threads <n>]");
-            System.err.println("  Or use glob pattern: java -jar word-sketch-lucene.jar conllu -i 'D:/corpus_74m/temp/udpipe_*.conllu' --output <path>");
-            return;
-        }
-
-        System.out.println("Processing " + inputFiles.size() + " CoNLL-U file(s)...");
-        System.out.println("Output index: " + indexPath);
-        System.out.println("Threads: " + numThreads);
-        System.out.println("Commit interval: " + commitInterval);
-        System.out.println();
-
-        // Create processor once, reuse for all files (keeps index open)
-        ConllUProcessor processor = ConllUProcessor.create(indexPath, numThreads);
-
-        long totalSentences = 0;
-        long startTime = System.currentTimeMillis();
-
-        for (String inputFile : inputFiles) {
-            java.io.File f = new java.io.File(inputFile);
-            if (!f.exists()) {
-                System.err.println("Warning: File not found, skipping: " + inputFile);
-                continue;
-            }
-
-            System.out.println("Processing: " + inputFile + " (" + (f.length() / (1024*1024)) + " MB)");
-            long fileStart = System.currentTimeMillis();
-
-            processor.processFile(inputFile, commitInterval);
-
-            long fileTime = System.currentTimeMillis() - fileStart;
-            System.out.println("  Done in " + (fileTime / 1000) + "s");
-        }
-
-        processor.close();
-        long totalTime = System.currentTimeMillis() - startTime;
-        System.out.println();
-        System.out.println("Indexing complete! Total time: " + (totalTime / 1000) + "s");
     }
 
     private static void handleConvertCommand(String[] args) throws IOException {
@@ -728,27 +621,237 @@ public class Main {
         }
     }
 
+    private static void handleSinglePassCommand(String[] args) throws IOException {
+        String input = null;
+        String outputIndex = null;
+        String collocationsPath = null;
+        int commitInterval = 50_000;
+        int memoryThreshold = 10_000_000;  // 10M entries total before spill
+        Integer numShards = null;
+        Integer spillThreshold = null;
+        int windowSize = 5;
+        int topK = 100;
+        int minFreq = 10;
+        int minCooc = 2;
+
+        for (int i = 1; i < args.length; i++) {
+            switch (args[i]) {
+                case "--input":
+                case "-i":
+                    input = args[++i];
+                    break;
+                case "--output":
+                case "-o":
+                    outputIndex = args[++i];
+                    break;
+                case "--collocations":
+                case "-c":
+                    collocationsPath = args[++i];
+                    break;
+                case "--commit":
+                    commitInterval = Integer.parseInt(args[++i]);
+                    break;
+                case "--memory":
+                    memoryThreshold = Integer.parseInt(args[++i]);
+                    break;
+                case "--shards":
+                    numShards = Integer.parseInt(args[++i]);
+                    break;
+                case "--spill":
+                    spillThreshold = Integer.parseInt(args[++i]);
+                    break;
+                case "--window":
+                    windowSize = Integer.parseInt(args[++i]);
+                    break;
+                case "--top-k":
+                    topK = Integer.parseInt(args[++i]);
+                    break;
+                case "--min-freq":
+                    minFreq = Integer.parseInt(args[++i]);
+                    break;
+                case "--min-cooc":
+                    minCooc = Integer.parseInt(args[++i]);
+                    break;
+                default:
+                    System.err.println("Unknown option: " + args[i]);
+            }
+        }
+
+        if (input == null || outputIndex == null) {
+            System.err.println("Error: --input and --output are required");
+            System.err.println("Usage: single-pass --input <conllu-file-or-dir> --output <index-path> [options]");
+            System.err.println("  --collocations, -c <path>  Output collocations.bin file path");
+            System.err.println("  --commit <n>               Commit interval (default: 50000)");
+            System.err.println("  --memory <n>               Max in-memory collocation entries before spill (default: 10M)");
+            System.err.println("  --shards <n>               Number of shards (power of 2, default: 64)");
+            System.err.println("  --spill <n>                Spill threshold per shard (overrides --memory)");
+            return;
+        }
+
+        if (collocationsPath == null) {
+            collocationsPath = outputIndex + "/collocations.bin";
+        }
+
+        // Compute sharding parameters
+        if (numShards == null) {
+            numShards = 64;
+        }
+        if (Integer.bitCount(numShards) != 1) {
+            throw new IllegalArgumentException("--shards must be a power of 2");
+        }
+        if (spillThreshold == null) {
+            spillThreshold = Math.max(100_000, memoryThreshold / numShards);
+        }
+
+        System.out.println("=== Single-Pass Index + Collocations Builder ===");
+        System.out.println("Input: " + input);
+        System.out.println("Output index: " + outputIndex);
+        System.out.println("Collocations: " + collocationsPath);
+        System.out.println("Commit interval: " + commitInterval);
+        System.out.println("Memory threshold: " + memoryThreshold + " entries");
+        System.out.println("Shards: " + numShards);
+        System.out.println("Spill threshold/shard: " + spillThreshold);
+        System.out.println("Window: " + windowSize);
+        System.out.println("Top-K: " + topK);
+        System.out.println("Min freq: " + minFreq);
+        System.out.println("Min cooc: " + minCooc);
+        System.out.println();
+
+        long startTime = System.currentTimeMillis();
+
+        try (SinglePassConlluProcessor processor = new SinglePassConlluProcessor(
+            outputIndex, collocationsPath, numShards, spillThreshold)) {
+            
+            processor.setCommitInterval(commitInterval);
+            processor.setWindowSize(windowSize);
+            processor.setTopK(topK);
+            processor.setMinHeadwordFrequency(minFreq);
+            processor.setMinCooccurrence(minCooc);
+            
+            java.nio.file.Path inputPath = java.nio.file.Paths.get(input);
+            
+            if (java.nio.file.Files.isDirectory(inputPath)) {
+                processor.processDirectory(input, "*.conllu");
+            } else {
+                processor.processFile(input);
+            }
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            System.out.println();
+            System.out.println("=== Complete ===");
+            System.out.println("Sentences: " + processor.getSentenceCount());
+            System.out.println("Tokens: " + processor.getTokenCount());
+            System.out.println("Time: " + (elapsed / 1000) + "s");
+            System.out.println("Rate: " + String.format("%.0f", processor.getTokenCount() / (elapsed / 1000.0)) + " tokens/s");
+            System.out.println();
+            System.out.println("Output files:");
+            System.out.println("  Index:         " + outputIndex);
+            System.out.println("  Collocations:  " + collocationsPath);
+            System.out.println("  Statistics:    " + outputIndex + "/stats.bin");
+            System.out.println("  Lexicon:       " + outputIndex + "/lexicon.bin");
+        }
+    }
+
+    private static void handlePrecomputeCollocationsCommand(String[] args) throws IOException {
+        String indexPath = null;
+        String outputPath = null;
+        int windowSize = 5;
+        int topK = 100;
+        int minFreq = 10;
+        int minCooc = 2;
+        int numShards = 64;
+        int spillThreshold = 2_000_000;
+
+        for (int i = 1; i < args.length; i++) {
+            switch (args[i]) {
+                case "--index":
+                case "-i":
+                    indexPath = args[++i];
+                    break;
+                case "--output":
+                case "-o":
+                    outputPath = args[++i];
+                    break;
+                case "--window":
+                    windowSize = Integer.parseInt(args[++i]);
+                    break;
+                case "--top-k":
+                    topK = Integer.parseInt(args[++i]);
+                    break;
+                case "--min-freq":
+                    minFreq = Integer.parseInt(args[++i]);
+                    break;
+                case "--min-cooc":
+                    minCooc = Integer.parseInt(args[++i]);
+                    break;
+                case "--shards":
+                    numShards = Integer.parseInt(args[++i]);
+                    break;
+                case "--spill":
+                    spillThreshold = Integer.parseInt(args[++i]);
+                    break;
+                default:
+                    System.err.println("Unknown option: " + args[i]);
+            }
+        }
+
+        if (indexPath == null) {
+            System.err.println("Error: --index is required");
+            System.err.println("Usage: precompute-collocations --index <hybrid-index-path> [--output <collocations.bin>] [options]");
+            return;
+        }
+
+        if (outputPath == null) {
+            outputPath = indexPath + "/collocations.bin";
+        }
+
+        if (Integer.bitCount(numShards) != 1) {
+            throw new IllegalArgumentException("--shards must be a power of 2");
+        }
+
+        System.out.println("=== Precompute Collocations (V2) ===");
+        System.out.println("Index: " + indexPath);
+        System.out.println("Output: " + outputPath);
+        System.out.println("Window: " + windowSize);
+        System.out.println("Top-K: " + topK);
+        System.out.println("Min freq: " + minFreq);
+        System.out.println("Min cooc: " + minCooc);
+        System.out.println("Shards: " + numShards);
+        System.out.println("Spill threshold/shard: " + spillThreshold);
+        System.out.println();
+
+        long startTime = System.currentTimeMillis();
+        CollocationsBuilderV2 builder = new CollocationsBuilderV2(indexPath);
+        builder.setWindowSize(windowSize);
+        builder.setTopK(topK);
+        builder.setMinHeadwordFrequency(minFreq);
+        builder.setMinCooccurrence(minCooc);
+        builder.setNumShards(numShards);
+        builder.setSpillThresholdPerShard(spillThreshold);
+        builder.build(outputPath);
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        System.out.println("Collocations precompute complete in " + (elapsed / 1000) + "s");
+    }
+
     private static void showUsage() {
         System.out.println("Usage: java -jar word-sketch-lucene.jar <command> [options]");
         System.out.println();
         System.out.println("Available commands:");
-        System.out.println("  index        - Index a corpus for word sketch analysis");
-        System.out.println("  conllu       - Index a pre-tagged CoNLL-U file");
+        System.out.println("  index        - (removed) legacy text indexing command");
         System.out.println("  convert      - Convert simple tagged format to CoNLL-U");
         System.out.println("  query        - Query the word sketch index");
         System.out.println("  server       - Start the REST API server");
         System.out.println("  snowball     - Explore collocations recursively (snowball method)");
         System.out.println("  tag          - Tag a corpus with POS tags (uses simple tagger)");
-        System.out.println("  hybrid-index - Build hybrid sentence-per-document index (faster queries)");
+        System.out.println("  hybrid-index - Build hybrid sentence-per-document index from CoNLL-U");
+        System.out.println("  precompute-collocations - Build collocations.bin from existing hybrid index");
         System.out.println("  hybrid-query - Query a hybrid index");
+        System.out.println("  single-pass  - Build index AND collocations in one pass");
         System.out.println("  help         - Show this help message");
         System.out.println();
-        System.out.println("Index command (for raw text):");
-        System.out.println("  java -jar word-sketch-lucene.jar index --corpus <file> --output <path> [--language <lang>]");
-        System.out.println();
-        System.out.println("CoNLL-U command (for pre-tagged files, supports multiple files):");
-        System.out.println("  java -jar word-sketch-lucene.jar conllu -i <file1> -i <file2> ... --output <path> [--threads <n>]");
-        System.out.println("  java -jar word-sketch-lucene.jar conllu -i 'D:/corpus_74m/temp/udpipe_*.conllu' --output <path>");
+        System.out.println("Index command (legacy):");
+        System.out.println("  java -jar word-sketch-lucene.jar index ...   # removed");
         System.out.println();
         System.out.println("Convert command (tagged -> CoNLL-U):");
         System.out.println("  java -jar word-sketch-lucene.jar convert --input <file> --output <conllu-file>");
@@ -778,11 +881,12 @@ public class Main {
         System.out.println("  java -jar word-sketch-lucene.jar tag --input <file> --output <file>");
         System.out.println();
         System.out.println("Examples:");
-        System.out.println("  # Index raw text using UDPipe (if available) or simple tagger:");
-        System.out.println("  java -jar word-sketch-lucene.jar index --corpus sentences.txt --output data/index/");
+        System.out.println("  # Build hybrid index from CoNLL-U file or directory:");
+        System.out.println("  java -jar word-sketch-lucene.jar hybrid-index --input corpus.conllu --output data/index/");
+        System.out.println("  java -jar word-sketch-lucene.jar hybrid-index --input corpus_dir/ --output data/index/");
         System.out.println();
-        System.out.println("  # Index pre-tagged CoNLL-U file (recommended for large corpora):");
-        System.out.println("  java -jar word-sketch-lucene.jar conllu --input corpus.conllu --output data/index/");
+        System.out.println("  # Precompute collocations from existing index with explicit sharding:");
+        System.out.println("  java -jar word-sketch-lucene.jar precompute-collocations --index data/index/ --output data/index/collocations.bin --shards 64 --spill 2000000");
         System.out.println();
         System.out.println("  # Query the word sketch:");
         System.out.println("  java -jar word-sketch-lucene.jar query --index data/index/ --lemma house");
@@ -794,13 +898,18 @@ public class Main {
         System.out.println("  java -jar word-sketch-lucene.jar snowball --index data/index/ --seeds big,small,important");
         System.out.println("  java -jar word-sketch-lucene.jar snowball --index data/index/ --seeds problem,solution --mode linking --output viz/");
         System.out.println();
-        System.out.println("Hybrid index commands (sentence-per-document, faster queries):");
-        System.out.println("  # Build hybrid index from CoNLL-U files:");
-        System.out.println("  java -jar word-sketch-lucene.jar hybrid-index --input corpus.conllu --output data/hybrid/");
-        System.out.println("  java -jar word-sketch-lucene.jar hybrid-index --input corpus_dir/ --output data/hybrid/");
-        System.out.println();
+        System.out.println("Hybrid query commands:");
         System.out.println("  # Query hybrid index:");
         System.out.println("  java -jar word-sketch-lucene.jar hybrid-query --index data/hybrid/ --lemma house");
         System.out.println("  java -jar word-sketch-lucene.jar hybrid-query --index data/hybrid/ --lemma house --pattern '[tag=\"JJ.*\"]'");
+        System.out.println();
+        System.out.println("Single-pass command (build index + collocations in one pass, recommended):");
+        System.out.println("  # Build index and collocations from CoNLL-U files:");
+        System.out.println("  java -jar word-sketch-lucene.jar single-pass --input corpus.conllu --output data/index/");
+        System.out.println("  java -jar word-sketch-lucene.jar single-pass -i corpus_dir/ -o data/index/ -c data/index/collocations.bin");
+        System.out.println();
+        System.out.println("  # With custom options:");
+        System.out.println("  java -jar word-sketch-lucene.jar single-pass -i corpus.conllu -o data/index/ \\");
+        System.out.println("      --shards 64 --spill 2000000 --window 5 --top-k 100 --min-freq 10 --min-cooc 2");
     }
 }

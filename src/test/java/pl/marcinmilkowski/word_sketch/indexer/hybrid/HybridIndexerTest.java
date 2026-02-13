@@ -306,6 +306,35 @@ class HybridIndexerTest {
     }
 
     @Test
+    @DisplayName("Lemma field is normalized to lowercase")
+    void lemmaFieldIsLowercased() throws IOException {
+        Path indexPath = tempDir.resolve("index");
+
+        try (HybridIndexer indexer = new HybridIndexer(indexPath.toString())) {
+            indexer.indexSentence(SentenceDocument.builder()
+                .sentenceId(1)
+                .text("NASA launches rockets.")
+                .addToken(0, "NASA", "NASA", "PROPN", 0, 4)
+                .addToken(1, "launches", "launch", "VERB", 5, 13)
+                .addToken(2, "rockets", "rocket", "NOUN", 14, 21)
+                .addToken(3, ".", ".", "PUNCT", 21, 22)
+                .build());
+
+            indexer.commit();
+        }
+
+        try (IndexReader reader = DirectoryReader.open(FSDirectory.open(indexPath))) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            TopDocs lower = searcher.search(new TermQuery(new Term("lemma", "nasa")), 10);
+            assertEquals(1, lower.totalHits.value());
+
+            TopDocs upper = searcher.search(new TermQuery(new Term("lemma", "NASA")), 10);
+            assertEquals(0, upper.totalHits.value());
+        }
+    }
+
+    @Test
     @DisplayName("Empty sentence is handled")
     void emptyTokenList() throws IOException {
         Path indexPath = tempDir.resolve("index");

@@ -3,6 +3,9 @@ package pl.marcinmilkowski.word_sketch.indexer.hybrid;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.BinaryDocValues;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.util.Bits;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.BytesRef;
 import org.slf4j.Logger;
@@ -15,8 +18,8 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.PriorityQueue;
+import java.util.Locale;
 
 /**
  * Single-pass (over sentences) collocations builder.
@@ -97,7 +100,7 @@ public class CollocationsBuilderV2 {
             int runId = scanAndSpill(reader.leaves(), lexicon, pairsDir);
 
             // Reduce + write final output
-            reduceAndWrite(pairsDir, lexicon, outputPath);
+            reduceAndWrite(pairsDir, lexicon, reader, outputPath);
 
             log.info("Build completed (runs written: {}). Output: {}", runId, outputPath);
         }
@@ -109,15 +112,6 @@ public class CollocationsBuilderV2 {
             shardMaps[i] = new LongIntHashMap(1024 * 1024);
         }
 
-        // Build reverse map: lemma string -> lemmaId for fallback mode
-        java.util.Map<String, Integer> lemmaToId = new java.util.HashMap<>(lexicon.size());
-        for (int id = 0; id < lexicon.size(); id++) {
-            String lemma = lexicon.getLemma(id);
-            if (lemma != null && !lemma.isEmpty()) {
-                lemmaToId.put(lemma.toLowerCase(Locale.ROOT), id);
-            }
-        }
-
         IntArrayBuffer idsBuf = new IntArrayBuffer(64);
 
         long docsProcessed = 0;
@@ -127,41 +121,26 @@ public class CollocationsBuilderV2 {
         for (int leafOrd = 0; leafOrd < leaves.size(); leafOrd++) {
             LeafReaderContext leaf = leaves.get(leafOrd);
             BinaryDocValues lemmaIdsDv = leaf.reader().getBinaryDocValues("lemma_ids");
-            BinaryDocValues tokensDv = (lemmaIdsDv == null) ? leaf.reader().getBinaryDocValues("tokens") : null;
-            boolean useFallback = (lemmaIdsDv == null);
-
-            if (useFallback && tokensDv == null) {
-                throw new IOException("Index is missing both 'lemma_ids' and 'tokens' BinaryDocValues");
+            if (lemmaIdsDv == null) {
+                throw new IOException("Index segment is missing required 'lemma_ids' BinaryDocValues (leaf="
+                    + leafOrd + "). Rebuild index with hybrid single-pass pipeline.");
             }
 
-            if (useFallback && leafOrd == 0) {
-                log.warn("Index lacks 'lemma_ids' field; falling back to decoding 'tokens' (slower)");
-            }
-
+            Bits liveDocs = leaf.reader().getLiveDocs();
             int maxDoc = leaf.reader().maxDoc();
             for (int doc = 0; doc < maxDoc; doc++) {
-                int[] ids;
-                int len;
-
-                if (useFallback) {
-                    if (!tokensDv.advanceExact(doc)) continue;
-                    BytesRef bytes = tokensDv.binaryValue();
-                    List<SentenceDocument.Token> tokens = TokenSequenceCodec.decode(bytes);
-                    len = tokens.size();
-                    idsBuf.ensureCapacity(len);
-                    ids = idsBuf.array();
-                    for (int i = 0; i < len; i++) {
-                        String lemma = tokens.get(i).lemma();
-                        String normalized = (lemma != null) ? lemma.toLowerCase(Locale.ROOT) : "";
-                        Integer lid = lemmaToId.get(normalized);
-                        ids[i] = (lid != null) ? lid : 0;
-                    }
-                } else {
-                    if (!lemmaIdsDv.advanceExact(doc)) continue;
-                    BytesRef bytes = lemmaIdsDv.binaryValue();
-                    len = LemmaIdsCodec.decodeTo(bytes, idsBuf);
-                    ids = idsBuf.array();
+                if (liveDocs != null && !liveDocs.get(doc)) {
+                    continue;
                 }
+
+                if (!lemmaIdsDv.advanceExact(doc)) {
+                    throw new IOException("Live document is missing required 'lemma_ids' BinaryDocValues (leaf="
+                        + leafOrd + ", doc=" + doc + ")");
+                }
+
+                BytesRef bytes = lemmaIdsDv.binaryValue();
+                int len = LemmaIdsCodec.decodeTo(bytes, idsBuf);
+                int[] ids = idsBuf.array();
 
                 tokensProcessed += len;
 
@@ -252,7 +231,10 @@ public class CollocationsBuilderV2 {
         log.info("Spilled run {}", runId);
     }
 
-    private void reduceAndWrite(Path pairsDir, LemmaLexiconReader lexicon, String outputPath) throws IOException {
+    private void reduceAndWrite(Path pairsDir, LemmaLexiconReader lexicon, IndexReader reader, String outputPath) throws IOException {
+        long droppedMissingHead = 0;
+        long droppedMissingColl = 0;
+        byte[] lemmaIndexedCache = new byte[Math.max(1, lexicon.size())];
         try (CollocationsBinWriter writer = new CollocationsBinWriter(outputPath, windowSize, topK, lexicon.getTotalTokens())) {
             for (int shard = 0; shard < numShards; shard++) {
                 Path shardDir = pairsDir.resolve(String.format(Locale.ROOT, "shard-%03d", shard));
@@ -268,15 +250,24 @@ public class CollocationsBuilderV2 {
                 if (runFiles.isEmpty()) continue;
 
                 log.info("Reducing shard {} ({} runs)", shard, runFiles.size());
-                reduceShard(runFiles, lexicon, writer);
+                long[] dropped = reduceShard(runFiles, lexicon, reader, lemmaIndexedCache, writer);
+                droppedMissingHead += dropped[0];
+                droppedMissingColl += dropped[1];
             }
 
             writer.finalizeFile();
             log.info("collocations.bin entries: {}", writer.getEntryCount());
+            log.info("Dropped candidates due to index lemma absence: heads={}, collocates={}", droppedMissingHead, droppedMissingColl);
         }
     }
 
-    private void reduceShard(List<Path> runFiles, LemmaLexiconReader lexicon, CollocationsBinWriter writer) throws IOException {
+    private long[] reduceShard(List<Path> runFiles,
+                               LemmaLexiconReader lexicon,
+                               IndexReader reader,
+                               byte[] lemmaIndexedCache,
+                               CollocationsBinWriter writer) throws IOException {
+        long droppedMissingHead = 0;
+        long droppedMissingColl = 0;
         // Open cursors and prime them
         List<PairRunIO.RunCursor> cursors = new ArrayList<>(runFiles.size());
         try {
@@ -351,6 +342,16 @@ public class CollocationsBuilderV2 {
                     continue;
                 }
 
+                if (!isLemmaIndexed(headId, lexicon, reader, lemmaIndexedCache)) {
+                    droppedMissingHead++;
+                    continue;
+                }
+
+                if (!isLemmaIndexed(collId, lexicon, reader, lemmaIndexedCache)) {
+                    droppedMissingColl++;
+                    continue;
+                }
+
                 long collFreq = lexicon.getFrequency(collId);
                 if (collFreq <= 0) {
                     continue;
@@ -382,6 +383,23 @@ public class CollocationsBuilderV2 {
                 }
             }
         }
+
+        return new long[] { droppedMissingHead, droppedMissingColl };
+    }
+
+    private boolean isLemmaIndexed(int lemmaId, LemmaLexiconReader lexicon, IndexReader reader, byte[] cache) throws IOException {
+        if (lemmaId < 0 || lemmaId >= cache.length) {
+            return false;
+        }
+
+        byte state = cache[lemmaId];
+        if (state == 1) return true;
+        if (state == 2) return false;
+
+        String lemma = lexicon.getLemma(lemmaId);
+        boolean present = lemma != null && !lemma.isEmpty() && reader.docFreq(new Term("lemma", lemma)) > 0;
+        cache[lemmaId] = present ? (byte) 1 : (byte) 2;
+        return present;
     }
 
     private double calculateLogDice(long cooccurrence, long freq1, long freq2) {

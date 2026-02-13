@@ -24,6 +24,7 @@ import pl.marcinmilkowski.word_sketch.query.SnowballCollocations.Edge;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -113,7 +114,7 @@ public class WordSketchApiServer {
         // Verbs (e.g., "be happy", "become sad")
         new RelationDefinition("adj_verbs", "Verbs",
             "[tag=vb.*]", "adj"),
-        // Prepositions (e.g., "afraid of", "good at")  
+        // Prepositions (e.g., "afraid of", "good at")
         new RelationDefinition("adj_prepositions", "Prepositions",
             "[tag=in]", "adj"),
         // Coordinated adjectives (e.g., "big and red")
@@ -132,7 +133,6 @@ public class WordSketchApiServer {
      */
     public void start() throws IOException {
         server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(port), 0);
-
         // Health check endpoint
         server.createContext("/health", wrapHandler(this::handleHealth));
 
@@ -144,14 +144,10 @@ public class WordSketchApiServer {
         server.createContext("/api/semantic-field/explore-multi", wrapHandler(this::handleSemanticFieldExploreMulti));
         server.createContext("/api/semantic-field", wrapHandler(this::handleSemanticField));
         server.createContext("/api/semantic-field/examples", wrapHandler(this::handleSemanticFieldExamples));
-        // Visualizations (SVG)
         server.createContext("/api/visual/radial", wrapHandler(this::handleVisualRadial));
         server.createContext("/api/concordance/examples", wrapHandler(this::handleConcordanceExamples));
         server.createContext("/api/algorithm", wrapHandler(this::handleAlgorithm));
-
-        // Legacy endpoints (for backward compatibility)
-        server.createContext("/sketch", wrapHandler(this::handleLegacySketch));
-        server.createContext("/sketch/query", wrapHandler(this::handleLegacyQuery));
+        server.createContext("/api/diagnostics/collocation-integrity", wrapHandler(this::handleCollocationIntegrity));
 
         // CORS preflight handler
         server.createContext("/api/sketch/options", wrapHandler(this::handleCorsOptions));
@@ -170,6 +166,7 @@ public class WordSketchApiServer {
         System.out.println("  POST /api/visual/radial      - Render radial plot SVG (JSON body)");
         System.out.println("  GET  /api/concordance/examples - Get concordance examples for word pair");
         System.out.println("  GET/POST /api/algorithm      - Get/set algorithm (SAMPLE_SCAN, SPAN_COUNT, PRECOMPUTED)");
+        System.out.println("  GET  /api/diagnostics/collocation-integrity - Integrity diagnostics");
     }
 
     /**
@@ -190,23 +187,60 @@ public class WordSketchApiServer {
                 addCorsHeaders(exchange);
                 handler.handle(exchange);
             } catch (Throwable t) {
+                if (isClientConnectionIssue(t)) {
+                    System.err.println("Client disconnected: " + t.getMessage());
+                    closeQuietly(exchange);
+                    return;
+                }
+
                 System.err.println("Unhandled exception: " + t.getMessage());
                 t.printStackTrace();
                 try {
-                    Map<String, Object> error = new HashMap<>();
-                    error.put("status", "error");
-                    error.put("message", t.getMessage());
-                    error.put("type", t.getClass().getSimpleName());
-                    String json = JSON.toJSONString(error);
-                    exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(500, json.getBytes("UTF-8").length);
-                    exchange.getResponseBody().write(json.getBytes("UTF-8"));
+                    if (exchange.getResponseCode() != -1) {
+                        System.err.println("Cannot send error response: headers already sent");
+                        closeQuietly(exchange);
+                        return;
+                    }
+
+                    sendError(exchange, 500, t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
                 } catch (Exception e) {
-                    System.err.println("Failed to send error response: " + e.getMessage());
+                    if (isClientConnectionIssue(e)) {
+                        System.err.println("Failed to send error response (client disconnected): " + e.getMessage());
+                    } else {
+                        System.err.println("Failed to send error response: " + e.getMessage());
+                    }
+                } finally {
+                    closeQuietly(exchange);
                 }
             }
         };
+    }
+
+    private boolean isClientConnectionIssue(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            String msg = current.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("broken pipe")
+                    || lower.contains("connection reset")
+                    || lower.contains("forcibly closed")
+                    || lower.contains("headers already sent")
+                    || lower.contains("przerwane przez oprogramowanie zainstalowane w komputerze-hoście")
+                    || lower.contains("insufficient bytes written to stream")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void closeQuietly(com.sun.net.httpserver.HttpExchange exchange) {
+        try {
+            exchange.close();
+        } catch (Exception ignored) {
+        }
     }
 
     /**
@@ -873,6 +907,7 @@ public class WordSketchApiServer {
             e.printStackTrace();
             sendError(exchange, 500, "Failed to fetch examples: " + e.getMessage());
         }
+    }
 
     /**
      * POST /api/visual/radial
@@ -1079,6 +1114,55 @@ public class WordSketchApiServer {
     }
 
     /**
+     * Diagnostics endpoint: collocation integrity check.
+     * GET /api/diagnostics/collocation-integrity?top=10&headwords=a,b,c
+     * Returns top-N headwords with the largest number of suspicious precomputed collocates.
+     */
+    private void handleCollocationIntegrity(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+        String method = exchange.getRequestMethod();
+        if ("OPTIONS".equalsIgnoreCase(method)) {
+            handleOptions(exchange);
+            return;
+        }
+        if (!"GET".equalsIgnoreCase(method)) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        if (!(executor instanceof HybridQueryExecutor hybrid)) {
+            sendError(exchange, 400, "Diagnostics supported only for HybridQueryExecutor");
+            return;
+        }
+
+        Map<String, String> params = parseQueryParams(exchange.getRequestURI().getQuery());
+        int top = Integer.parseInt(params.getOrDefault("top", "10"));
+        String headwordsParam = params.getOrDefault("headwords", "");
+
+        try {
+            List<Map<String, Object>> report;
+            if (headwordsParam != null && !headwordsParam.isBlank()) {
+                List<String> heads = Arrays.stream(headwordsParam.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+                report = hybrid.collocationsIntegrityReportFor(heads, top);
+            } else {
+                report = hybrid.collocationsIntegrityTopN(top);
+            }
+
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("status", "ok");
+            resp.put("top", top);
+            resp.put("report_count", report.size());
+            resp.put("report", report);
+            sendJson(exchange, 200, resp);
+        } catch (Exception e) {
+            sendError(exchange, 500, "Diagnostics failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * Legacy sketch handler for backward compatibility.
      */
     private void handleLegacySketch(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
@@ -1186,12 +1270,16 @@ public class WordSketchApiServer {
     private void sendJson(com.sun.net.httpserver.HttpExchange exchange, int status, Map<String, Object> data)
             throws IOException {
         String json = JSON.toJSONString(data, com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue);
+        byte[] body = json.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.sendResponseHeaders(status, json.getBytes("UTF-8").length);
+        exchange.getResponseHeaders().set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        exchange.getResponseHeaders().set("Pragma", "no-cache");
+        exchange.getResponseHeaders().set("Expires", "0");
+        exchange.sendResponseHeaders(status, 0);
 
         try (OutputStream os = exchange.getResponseBody()) {
-            os.write(json.getBytes("UTF-8"));
+            os.write(body);
         }
     }
 

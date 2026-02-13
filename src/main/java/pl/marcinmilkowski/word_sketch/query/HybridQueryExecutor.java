@@ -1001,7 +1001,41 @@ public class HybridQueryExecutor implements QueryExecutor {
             if (!matchesConstraints(coll.lemma(), coll.pos(), collocateConstraints)) {
                 continue;
             }
-            
+
+            // Quick validation: ensure the collocate actually appears in the *current* index
+            // (precomputed data can be out-of-sync with the served index). First try statsReader
+            // (fast); fall back to index docFreq. If the collocate never appears, skip it.
+            long collocateFreq = 0L;
+            if (statsReader != null) {
+                collocateFreq = statsReader.getFrequency(coll.lemma());
+            } else {
+                collocateFreq = reader.docFreq(new Term("lemma", coll.lemma()));
+            }
+
+            if (collocateFreq == 0L) {
+                logger.debug("Skipping stale precomputed collocate '{}' for headword '{}' (not found in index)", coll.lemma(), headword);
+                continue;
+            }
+
+            // Optional stricter check: ensure at least one sentence contains both lemmas within window
+            try {
+                SpanTermQuery s1 = new SpanTermQuery(new Term("lemma", headword));
+                SpanTermQuery s2 = new SpanTermQuery(new Term("lemma", coll.lemma()));
+                SpanNearQuery near = SpanNearQuery.newUnorderedNearQuery("lemma")
+                    .addClause(s1)
+                    .addClause(s2)
+                    .setSlop(collocationsReader != null ? collocationsReader.getWindowSize() : 5)
+                    .build();
+                TopDocs td = searcher.search(near, 1);
+                if (td.totalHits.value() == 0) {
+                    logger.debug("Skipping stale precomputed collocate '{}' for headword '{}' (no span match)", coll.lemma(), headword);
+                    continue;
+                }
+            } catch (Exception e) {
+                // If validation throws for any reason, don't block returning the collocate — just log
+                logger.debug("Collocate validation error for '{}'+'{}': {}", headword, coll.lemma(), e.getMessage());
+            }
+
             results.add(new WordSketchQueryExecutor.WordSketchResult(
                 coll.lemma(),
                 coll.pos(),
@@ -1010,7 +1044,7 @@ public class HybridQueryExecutor implements QueryExecutor {
                 0.0,                  // relativeFrequency (not used in precomputed)
                 Collections.emptyList()  // No examples in precomputed mode
             ));
-            
+
             if (results.size() >= maxResults) {
                 break;
             }
@@ -1077,6 +1111,188 @@ public class HybridQueryExecutor implements QueryExecutor {
         } else {
             logger.warn("Collocations file not found: {}", collocationPath);
         }
+    }
+
+    /**
+     * Run a collocations integrity scan and return top-N headwords with most suspicious collocates.
+     * A collocate is considered suspicious if either:
+     *  - it does not occur in the current index/statistics; or
+     *  - there is no sentence with both lemmas within the configured window.
+     *
+     * This is intentionally best-effort and uses the same validation performed at query-time.
+     */
+    public List<Map<String, Object>> collocationsIntegrityTopN(int topN) throws IOException {
+        if (collocationsReader == null) {
+            return Collections.emptyList();
+        }
+
+        Map<String, Integer> mismatchCounts = new HashMap<>();
+        Map<String, List<Map<String, Object>>> details = new HashMap<>();
+
+        for (String head : collocationsReader.getAllHeadwords()) {
+            CollocationEntry entry = collocationsReader.getCollocations(head);
+            if (entry == null) continue;
+
+            String normalizedHead = head.toLowerCase(Locale.ROOT);
+            long headIndexDf = getLemmaFrequencyForIntegrity(normalizedHead);
+            long headStatsFreq = statsReader != null ? statsReader.getFrequency(normalizedHead) : -1L;
+            boolean missingHeadword = headIndexDf == 0L;
+
+            int mismatches = 0;
+            List<Map<String, Object>> bads = new ArrayList<>();
+
+            for (Collocation coll : entry.collocates()) {
+                String normalizedColl = coll.lemma().toLowerCase(Locale.ROOT);
+                long collIndexDf = getLemmaFrequencyForIntegrity(normalizedColl);
+                long collStatsFreq = statsReader != null ? statsReader.getFrequency(normalizedColl) : -1L;
+                boolean missingCollocate = collIndexDf == 0L;
+                boolean noSpanMatch = false;
+
+                // span check only when both lemmas are present
+                if (!missingHeadword && !missingCollocate) {
+                    try {
+                        SpanTermQuery s1 = new SpanTermQuery(new Term("lemma", normalizedHead));
+                        SpanTermQuery s2 = new SpanTermQuery(new Term("lemma", normalizedColl));
+                        SpanNearQuery near = SpanNearQuery.newUnorderedNearQuery("lemma")
+                                .addClause(s1)
+                                .addClause(s2)
+                                .setSlop(collocationsReader != null ? collocationsReader.getWindowSize() : 5)
+                                .build();
+                        TopDocs td = searcher.search(near, 1);
+                        if (td.totalHits.value() == 0) {
+                            noSpanMatch = true;
+                        }
+                    } catch (Exception e) {
+                        // ignore and treat as noSpanMatch = false (best-effort)
+                    }
+                }
+
+                if (missingHeadword || missingCollocate || noSpanMatch) {
+                    mismatches++;
+                    Map<String, Object> problem = new HashMap<>();
+                    problem.put("lemma", coll.lemma());
+                    problem.put("pos", coll.pos());
+                    problem.put("logDice", coll.logDice());
+                    problem.put("head_index_df", headIndexDf);
+                    problem.put("collocate_index_df", collIndexDf);
+                    if (headStatsFreq >= 0) problem.put("head_stats_freq", headStatsFreq);
+                    if (collStatsFreq >= 0) problem.put("collocate_stats_freq", collStatsFreq);
+                    if (missingHeadword && missingCollocate) {
+                        problem.put("reason", "missing_both_lemmas");
+                    } else if (missingHeadword) {
+                        problem.put("reason", "missing_headword");
+                    } else if (missingCollocate) {
+                        problem.put("reason", "missing_collocate");
+                    } else {
+                        problem.put("reason", "both_present_but_no_span");
+                    }
+                    bads.add(problem);
+                }
+            }
+
+            if (mismatches > 0) {
+                mismatchCounts.put(head, mismatches);
+                details.put(head, bads);
+            }
+        }
+
+        // Convert to list sorted by mismatch count desc
+        List<Map<String, Object>> report = new ArrayList<>();
+        for (var e : mismatchCounts.entrySet()) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("headword", e.getKey());
+            CollocationEntry entry = collocationsReader.getCollocations(e.getKey());
+            item.put("collocate_count", entry != null ? entry.collocates().size() : 0);
+            item.put("mismatch_count", e.getValue());
+            item.put("problems", details.getOrDefault(e.getKey(), Collections.emptyList()));
+            report.add(item);
+        }
+
+        report.sort((a, b) -> Integer.compare((int)b.get("mismatch_count"), (int)a.get("mismatch_count")));
+        if (report.size() > topN) return report.subList(0, topN);
+        return report;
+    }
+
+    /**
+     * Run collocations integrity check only for a provided headword list (limit problems per head).
+     */
+    public List<Map<String, Object>> collocationsIntegrityReportFor(List<String> heads, int perHeadLimit) throws IOException {
+        if (collocationsReader == null) {
+            return Collections.emptyList();
+        }
+
+        List<Map<String, Object>> report = new ArrayList<>();
+        for (String head : heads) {
+            CollocationEntry entry = collocationsReader.getCollocations(head);
+            if (entry == null) continue;
+
+            String normalizedHead = head.toLowerCase(Locale.ROOT);
+            long headIndexDf = getLemmaFrequencyForIntegrity(normalizedHead);
+            long headStatsFreq = statsReader != null ? statsReader.getFrequency(normalizedHead) : -1L;
+            boolean missingHeadword = headIndexDf == 0L;
+
+            List<Map<String, Object>> problems = new ArrayList<>();
+            for (Collocation coll : entry.collocates()) {
+                String normalizedColl = coll.lemma().toLowerCase(Locale.ROOT);
+                long collIndexDf = getLemmaFrequencyForIntegrity(normalizedColl);
+                long collStatsFreq = statsReader != null ? statsReader.getFrequency(normalizedColl) : -1L;
+                boolean missingCollocate = collIndexDf == 0L;
+                boolean noSpanMatch = false;
+
+                if (!missingHeadword && !missingCollocate) {
+                    try {
+                        SpanTermQuery s1 = new SpanTermQuery(new Term("lemma", normalizedHead));
+                        SpanTermQuery s2 = new SpanTermQuery(new Term("lemma", normalizedColl));
+                        SpanNearQuery near = SpanNearQuery.newUnorderedNearQuery("lemma")
+                                .addClause(s1)
+                                .addClause(s2)
+                                .setSlop(collocationsReader != null ? collocationsReader.getWindowSize() : 5)
+                                .build();
+                        TopDocs td = searcher.search(near, 1);
+                        if (td.totalHits.value() == 0) noSpanMatch = true;
+                    } catch (Exception e) {
+                        // best-effort
+                    }
+                }
+
+                if (missingHeadword || missingCollocate || noSpanMatch) {
+                    Map<String, Object> problem = new HashMap<>();
+                    problem.put("lemma", coll.lemma());
+                    problem.put("pos", coll.pos());
+                    problem.put("logDice", coll.logDice());
+                    problem.put("head_index_df", headIndexDf);
+                    problem.put("collocate_index_df", collIndexDf);
+                    if (headStatsFreq >= 0) problem.put("head_stats_freq", headStatsFreq);
+                    if (collStatsFreq >= 0) problem.put("collocate_stats_freq", collStatsFreq);
+                    if (missingHeadword && missingCollocate) {
+                        problem.put("reason", "missing_both_lemmas");
+                    } else if (missingHeadword) {
+                        problem.put("reason", "missing_headword");
+                    } else if (missingCollocate) {
+                        problem.put("reason", "missing_collocate");
+                    } else {
+                        problem.put("reason", "both_present_but_no_span");
+                    }
+                    problems.add(problem);
+                    if (problems.size() >= perHeadLimit) break;
+                }
+            }
+
+            if (!problems.isEmpty()) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("headword", head);
+                item.put("collocate_count", entry.collocates().size());
+                item.put("mismatch_count", problems.size());
+                item.put("problems", problems);
+                report.add(item);
+            }
+        }
+
+        return report;
+    }
+
+    private long getLemmaFrequencyForIntegrity(String normalizedLemma) throws IOException {
+        return reader.docFreq(new Term("lemma", normalizedLemma));
     }
 
     @Override

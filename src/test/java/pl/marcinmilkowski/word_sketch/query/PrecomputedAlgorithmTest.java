@@ -6,7 +6,16 @@ import pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationsBuilder;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.queries.spans.SpanTermQuery;
+import org.apache.lucene.queries.spans.SpanNearQuery;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.TopDocs;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -216,6 +225,31 @@ class PrecomputedAlgorithmTest {
     }
 
     @Test
+    @DisplayName("PRECOMPUTED collocates must have at least one span example in index")
+    void precomputedResultsHaveSpanExamples() throws IOException {
+        if (!Files.exists(Path.of(TEST_INDEX))) {
+            return;
+        }
+
+        executor.setAlgorithm(HybridQueryExecutor.Algorithm.PRECOMPUTED);
+        List<WordSketchQueryExecutor.WordSketchResult> results = executor.findCollocations("house", "[lemma=\".*\"]", 0.0, 50);
+        assertFalse(results.isEmpty(), "PRECOMPUTED should return some collocates for 'house'");
+
+        // Verify each returned collocate has at least one sentence with both lemmas within window
+        try (var dir = FSDirectory.open(Paths.get(TEST_INDEX));
+             var reader = DirectoryReader.open(dir)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+            for (var r : results) {
+                SpanTermQuery s1 = new SpanTermQuery(new Term("lemma", "house"));
+                SpanTermQuery s2 = new SpanTermQuery(new Term("lemma", r.getLemma()));
+                SpanNearQuery near = SpanNearQuery.newUnorderedNearQuery("lemma").addClause(s1).addClause(s2).setSlop(5).build();
+                TopDocs td = searcher.search(near, 1);
+                assertTrue(td.scoreDocs.length > 0, "PRECOMPUTED returned collocate '" + r.getLemma() + "' with no span examples");
+            }
+        }
+    }
+
+    @Test
     @DisplayName("PRECOMPUTED should be much faster than SAMPLE_SCAN")
     void testPerformanceComparison() throws IOException {
         if (!Files.exists(Path.of(TEST_INDEX))) {
@@ -254,5 +288,43 @@ class PrecomputedAlgorithmTest {
 
         // Reset
         executor.setAlgorithm(HybridQueryExecutor.Algorithm.PRECOMPUTED);
+    }
+
+    @Test
+    @DisplayName("Diagnostics: collocations-integrity top-N scan")
+    void testCollocationsIntegrityTopN() throws IOException {
+        if (!Files.exists(Path.of(TEST_INDEX))) {
+            return;
+        }
+
+        // Ensure PRECOMPUTED loaded
+        executor.setAlgorithm(HybridQueryExecutor.Algorithm.PRECOMPUTED);
+
+        List<java.util.Map<String, Object>> report = executor.collocationsIntegrityTopN(10);
+        assertNotNull(report);
+
+        // Report items (if any) must contain expected fields
+        for (var item : report) {
+            assertTrue(item.containsKey("headword"));
+            assertTrue(item.containsKey("collocate_count"));
+            assertTrue(item.containsKey("mismatch_count"));
+            assertTrue(item.containsKey("problems"));
+
+            var problems = (java.util.List<?>) item.get("problems");
+            for (Object p : problems) {
+                assertTrue(((java.util.Map<?,?>)p).containsKey("lemma"));
+                assertTrue(((java.util.Map<?,?>)p).containsKey("reason"));
+            }
+        }
+
+        // Also test per-head report API (single head)
+        if (!report.isEmpty()) {
+            String head = (String) report.get(0).get("headword");
+            List<java.util.Map<String, Object>> perHead = executor.collocationsIntegrityReportFor(List.of(head), 5);
+            assertNotNull(perHead);
+            if (!perHead.isEmpty()) {
+                assertEquals(head, perHead.get(0).get("headword"));
+            }
+        }
     }
 }

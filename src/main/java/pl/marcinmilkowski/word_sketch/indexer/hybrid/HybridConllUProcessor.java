@@ -94,8 +94,8 @@ public class HybridConllUProcessor implements Closeable {
                             indexer.commit();
                             long elapsed = System.currentTimeMillis() - fileStartTime;
                             double rate = tokenCount.get() / (elapsed / 1000.0);
-                            logger.info("Progress: {} sentences, {} tokens ({:.0f} tok/s)",
-                                totalSentences, tokenCount.get(), rate);
+                            logger.info("Progress: {} sentences, {} tokens ({} tok/s)",
+                                totalSentences, tokenCount.get(), String.format("%.0f", rate));
                         }
 
                         currentTokens.clear();

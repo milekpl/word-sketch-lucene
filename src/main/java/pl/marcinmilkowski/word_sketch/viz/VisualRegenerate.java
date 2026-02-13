@@ -3,6 +3,7 @@ package pl.marcinmilkowski.word_sketch.viz;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import pl.marcinmilkowski.word_sketch.query.SnowballCollocations;
 
 import java.io.IOException;
 import java.nio.file.Files;

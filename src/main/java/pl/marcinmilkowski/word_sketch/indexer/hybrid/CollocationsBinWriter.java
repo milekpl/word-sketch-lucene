@@ -5,6 +5,9 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -21,6 +24,8 @@ public final class CollocationsBinWriter implements AutoCloseable {
     private static final int MAGIC_NUMBER = 0x434F4C4C; // "COLL"
     private static final int VERSION = 1;
     private static final long HEADER_SIZE = 64;
+
+    private static final Logger log = LoggerFactory.getLogger(CollocationsBinWriter.class);
 
     private final int windowSize;
     private final int topK;
@@ -81,23 +86,34 @@ public final class CollocationsBinWriter implements AutoCloseable {
 
         buffer.putLong(headFreq);
 
-        if (collocateCount > 0xFFFF) {
-            throw new IOException("Too many collocates for headId=" + headId + ": " + collocateCount);
+        // Count how many collocates actually fit the format (lemma/POS must be <=255 bytes)
+        int validCollocates = 0;
+        for (int i = 0; i < collocateCount; i++) {
+            var c = collocates[i];
+            byte[] lemmaBytes = lexicon.getLemmaUtf8(c.collId);
+            byte[] posBytes = lexicon.getMostFrequentPos(c.collId).getBytes(StandardCharsets.UTF_8);
+            if (lemmaBytes.length <= 255 && posBytes.length <= 255) validCollocates++;
         }
-        buffer.putShort((short) collocateCount);
 
+        if (validCollocates > 0xFFFF) {
+            throw new IOException("Too many valid collocates for headId=" + headId + ": " + validCollocates);
+        }
+
+        if (validCollocates < collocateCount) {
+            log.warn("Skipping {} collocates for headId={} because lemma/POS length > 255 bytes", (collocateCount - validCollocates), headId);
+        }
+
+        buffer.putShort((short) validCollocates);
+
+        // Write only valid collocates (skip those with too-long lemma/POS)
         for (int i = 0; i < collocateCount; i++) {
             var c = collocates[i];
             byte[] lemmaBytes = lexicon.getLemmaUtf8(c.collId);
             byte[] posBytes = lexicon.getMostFrequentPos(c.collId).getBytes(StandardCharsets.UTF_8);
 
-            if (lemmaBytes.length > 255) {
-                // Keep consistent with existing format: lemma length stored as unsigned byte
-                // (Real corpora should not have lemmas this long, but guard just in case.)
-                throw new IOException("Collocate lemma too long (>255 bytes): id=" + c.collId);
-            }
-            if (posBytes.length > 255) {
-                throw new IOException("POS too long (>255 bytes): collId=" + c.collId);
+            if (lemmaBytes.length > 255 || posBytes.length > 255) {
+                // skip this collocate (already counted above)
+                continue;
             }
 
             buffer.put((byte) lemmaBytes.length);

@@ -24,6 +24,17 @@ Start API server + web UI (recommended):
 .\scripts\start-all.ps1
 ```
 
+Stop stale API server processes:
+
+- No PowerShell (Windows CMD):
+```cmd
+scripts\kill-server.cmd
+```
+- PowerShell (recommended — shows command line, supports -Force and -WhatIf):
+```powershell
+scripts\kill-server.ps1  # defaults to port 8080
+scripts\kill-server.ps1 -Port 8080 -Force
+```
 ### Linux/Mac (Bash)
 
 Start just the API server:
@@ -76,6 +87,29 @@ Edit the default `$Index` path in the script files to change the default index:
 Before running, ensure the JAR is built:
 ```bash
 mvn clean package
+```
+
+## Diagnostics Scripts
+
+The `scripts/diagnostics` directory provides Phase-1 integrity tooling:
+
+- `fingerprint.ps1` – creates `diagnostics/fingerprint.json` with index field fingerprint, stats, and collocations metadata.
+- `integrity_snapshot.ps1` – captures API integrity baseline into:
+   - `diagnostics/integrity_report.raw.json`
+   - `diagnostics/integrity_summary.tsv`
+   - `diagnostics/integrity_systemic_flag.json`
+- `witness_pairs.ps1` – analyzes suspicious headword/collocate pairs from integrity report and writes `diagnostics/witness_<timestamp>.tsv`.
+
+Example:
+```powershell
+# 1) fingerprint
+.\scripts\diagnostics\fingerprint.ps1 -IndexPath "data/index"
+
+# 2) integrity snapshot (server must be running)
+.\scripts\diagnostics\integrity_snapshot.ps1 -ApiBase "http://localhost:8080" -Top 50
+
+# 3) witness drill-down
+.\scripts\diagnostics\witness_pairs.ps1 -IndexPath "data/index"
 ```
 
 ## What Gets Ignored

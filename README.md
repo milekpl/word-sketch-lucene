@@ -36,8 +36,19 @@ To create an index:
 # Tag corpus with UDPipe
 udpipe --tokenize --tag --lemma --output=conllu english-model.udpipe corpus.txt > corpus.conllu
 
-# Index the CoNLL-U file
-java -jar target/word-sketch-lucene-1.0.0.jar conllu --input corpus.conllu --output data/index/
+# Build HYBRID index + precomputed collocations (recommended)
+java -jar target/word-sketch-lucene-1.0.0.jar single-pass --input corpus.conllu --output data/index/
+```
+
+For large corpora (recommended for 10GB+ CoNLL-U), run in two steps so shard/spill can be tuned explicitly:
+```bash
+# 1) Build hybrid index only
+java -jar target/word-sketch-lucene-1.0.0.jar hybrid-index --input corpus.conllu --output data/index/
+
+# 2) Precompute collocations with explicit sharding
+java -jar target/word-sketch-lucene-1.0.0.jar precompute-collocations \
+  --index data/index/ --output data/index/collocations.bin \
+  --shards 64 --spill 2000000 --top-k 100 --min-freq 10 --min-cooc 2
 ```
 
 ### 3. Start API Server
@@ -105,32 +116,39 @@ curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,
 # 1. Tag with UDPipe (creates CoNLL-U format)
 udpipe --tokenize --tag --lemma --output=conllu english-model.udpipe corpus.txt > corpus.conllu
 
-# 2. Index the CoNLL-U file
-java -jar word-sketch-lucene.jar conllu --input corpus.conllu --output data/index/
+# 2. Build HYBRID index + precomputed collocations
+java -jar word-sketch-lucene.jar single-pass --input corpus.conllu --output data/index/
+```
 
-# Optional: Build precomputed collocations for instant lookups (can take hours on large corpora)
-java -jar word-sketch-lucene.jar precomputed --index data/index/
+#### Large CoNLL-U (Two-Step, Tunable)
+
+```bash
+# Stage 1: index only
+java -jar word-sketch-lucene.jar hybrid-index --input corpus.conllu --output data/index/
+
+# Stage 2: collocations only (explicit shard/spill controls)
+java -jar word-sketch-lucene.jar precompute-collocations --index data/index/ \
+  --output data/index/collocations.bin --shards 64 --spill 2000000 --top-k 100 --min-freq 10
 ```
 
 #### From Raw Text
 
 ```bash
-# Uses simple rule-based POS tagger (very limited coverage)
-java -jar word-sketch-lucene.jar index --corpus sentences.txt --output data/index/
+# Not supported in hybrid-only mode. Convert to CoNLL-U first and use `single-pass`.
 ```
 
 ### Query via Command Line
 
 ```bash
 # Get all collocations for "house"
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma house
+java -jar word-sketch-lucene.jar hybrid-query --index data/index/ --lemma house
 
 # Find adjectives modifying "problem"
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma problem \
+java -jar word-sketch-lucene.jar hybrid-query --index data/index/ --lemma problem \
   --pattern "[tag=\"jj.*\"]" --limit 20
 
 # Find what "theory" is object of
-java -jar word-sketch-lucene.jar query --index data/index/ --lemma theory \
+java -jar word-sketch-lucene.jar hybrid-query --index data/index/ --lemma theory \
   --pattern "[tag=\"vb.*\"]" --limit 20
 ```
 
@@ -225,6 +243,13 @@ curl "http://localhost:8080/api/concordance/examples?word1=house&word2=big&limit
 ```
 
 Get actual example sentences from the corpus containing both words (lemmas). This feature validates collocations by showing real usage contexts.
+
+#### Diagnostics — collocation integrity
+```bash
+curl "http://localhost:8080/api/diagnostics/collocation-integrity?top=10"
+```
+
+Compares `collocations.bin` entries with the active index and reports suspicious headwords where precomputed collocates are missing from the index or have no supporting span examples. Useful to detect stale or incorrect precomputed data.
 
 **How It Works:**
 1. Uses **SpanNearQuery** to efficiently find sentences where both lemmas appear within 10 words

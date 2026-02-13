@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -190,7 +191,7 @@ public class HybridIndexer implements Closeable {
             int[] lemmaIds = new int[tokens.size()];
             for (int i = 0; i < tokens.size(); i++) {
                 String lemma = tokens.get(i).lemma();
-                String normalized = lemma != null ? lemma.toLowerCase() : "";
+                String normalized = lemma != null ? lemma.toLowerCase(Locale.ROOT) : "";
                 lemmaIds[i] = lemmaIdAssigner.getOrAssignId(normalized);
             }
             BytesRef lemmaIdBytes = LemmaIdsCodec.encode(lemmaIds);
@@ -306,7 +307,7 @@ public class HybridIndexer implements Closeable {
             for (SentenceDocument.Token token : sentence.tokens()) {
                 totalTokens.incrementAndGet();
                 
-                String lemma = token.lemma() != null ? token.lemma().toLowerCase() : "";
+                String lemma = token.lemma() != null ? token.lemma().toLowerCase(Locale.ROOT) : "";
                 String tag = token.tag() != null ? token.tag().toUpperCase() : "";
                 
                 if (!lemma.isEmpty()) {
@@ -331,7 +332,7 @@ public class HybridIndexer implements Closeable {
          * Gets the frequency of a lemma.
          */
         public long getLemmaFrequency(String lemma) {
-            AtomicLong freq = lemmaFrequencies.get(lemma.toLowerCase());
+            AtomicLong freq = lemmaFrequencies.get(lemma.toLowerCase(Locale.ROOT));
             return freq != null ? freq.get() : 0;
         }
 
@@ -349,7 +350,7 @@ public class HybridIndexer implements Closeable {
          */
         public String getMostFrequentPos(String lemma) {
             if (lemma == null) return "";
-            ConcurrentHashMap<String, AtomicLong> tagDist = lemmaTagDistribution.get(lemma.toLowerCase());
+            ConcurrentHashMap<String, AtomicLong> tagDist = lemmaTagDistribution.get(lemma.toLowerCase(Locale.ROOT));
             if (tagDist == null || tagDist.isEmpty()) return "";
             return tagDist.entrySet().stream()
                 .max(java.util.Map.Entry.comparingByValue(java.util.Comparator.comparingLong(AtomicLong::get)))

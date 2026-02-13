@@ -9,6 +9,7 @@ import org.apache.lucene.util.BytesRef;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * A TokenStream that emits tokens from a SentenceDocument with proper positions.
@@ -70,7 +71,7 @@ public final class PositionalTokenStream extends TokenStream {
         // Set the term based on field type
         String termValue = switch (fieldType) {
             case "word" -> token.word();
-            case "lemma" -> token.lemma();
+            case "lemma" -> token.lemma() != null ? token.lemma().toLowerCase(Locale.ROOT) : null;
             case "tag" -> token.tag();
             case "pos_group" -> token.getPosGroup();
             default -> token.word();

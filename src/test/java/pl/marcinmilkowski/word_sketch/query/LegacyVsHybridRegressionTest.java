@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.query;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -97,12 +96,9 @@ public class LegacyVsHybridRegressionTest {
         LuceneIndexer indexer = new LuceneIndexer(legacyIndexPath.toString());
         try {
             int sentenceId = 1;
-            int tokenPosition = 0;
-
             for (String[] token : TEST_SENTENCES) {
                 if (token[0] == null) {
                     sentenceId++;
-                    tokenPosition = 0;
                     continue;
                 }
 
@@ -131,7 +127,6 @@ public class LegacyVsHybridRegressionTest {
                 
                 indexer.addWord(sentenceId, position, word, lemma, tag, posGroup, 
                     sentenceText.toString(), offset, offset + word.length());
-                tokenPosition++;
             }
             indexer.commit();
         } finally {

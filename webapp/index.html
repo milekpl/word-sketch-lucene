@@ -348,6 +348,8 @@
             <label><input type="checkbox" checked onchange="filterPos('verb')"> <span>Verbs (v)</span></label>
             <label><input type="checkbox" checked onchange="filterPos('adj')"> <span>Adjectives (adj)</span></label>
             <label><input type="checkbox" checked onchange="filterPos('adv')"> <span>Adverbs (adv)</span></label>
+            <label><input type="checkbox" checked onchange="filterPos('prep')"> <span>Prepositions (prep)</span></label>
+            <label><input type="checkbox" checked onchange="filterPos('part')"> <span>Particles (part)</span></label>
         </div>
 
         <div id="results" class="results"></div>
@@ -443,7 +445,7 @@
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-        let activeFilters = { noun: true, verb: true, adj: true, adv: true };
+        let activeFilters = { noun: true, verb: true, adj: true, adv: true, prep: true, part: true, other: true };
         let currentWord = '';
         let currentTab = 'sketch';
 
@@ -464,9 +466,12 @@
                 let data = null;
                 let errorMsg = '';
 
+                const selectedPos = document.getElementById('posFilter')?.value || '';
+                const posParam = selectedPos ? `?pos=${encodeURIComponent(selectedPos)}` : '';
+
                 // Try the sketch API
                 try {
-                    const response = await fetch(`${apiUrl}/api/sketch/${word}`);
+                    const response = await fetch(`${apiUrl}/api/sketch/${word}${posParam}`);
                     if (response.ok) {
                         data = await response.json();
                     } else {
@@ -479,7 +484,8 @@
                 // Fallback: try the problem endpoint
                 if (!data) {
                     try {
-                        const response = await fetch(`${apiUrl}/api/sketch/problem?pos=noun`);
+                        const fallbackPos = selectedPos || 'noun';
+                        const response = await fetch(`${apiUrl}/api/sketch/problem?pos=${encodeURIComponent(fallbackPos)}`);
                         if (response.ok) {
                             data = await response.json();
                         }
@@ -545,8 +551,8 @@
                 }
                 
                 // Determine POS from pattern
-                const posGroup = patternData.pos_group || '';
-                if (!activeFilters[posGroup]) {
+                const collocatePosGroup = patternData.collocate_pos_group || patternData.pos_group || 'other';
+                if (Object.prototype.hasOwnProperty.call(activeFilters, collocatePosGroup) && !activeFilters[collocatePosGroup]) {
                     continue;
                 }
                 
@@ -555,7 +561,7 @@
                     <div class="sketch-section">
                         <h3>
                             ${patternData.name}
-                            <span class="pos-tag">${posGroup.toUpperCase()}</span>
+                            <span class="pos-tag">${collocatePosGroup.toUpperCase()}</span>
                             <button class="radial-button" onclick="openRadialSketch('${patternId}')">Radial view</button>
                         </h3>
                         <div class="collocation-list">
@@ -569,7 +575,7 @@
                     html += `
                         <div style="margin-bottom: 10px;">
                             <div class="collocation" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f9f9f9; border-radius: 4px; border: 1px solid #ddd;">
-                                <span class="word" style="cursor: pointer; text-decoration: underline; color: #2980b9; font-weight: 500;" onclick="toggleSketchExamples('${uniqueId}', '${escapeJs(currentWord)}', '${escapeJs(word)}')">${escapeHtml(word)}</span>
+                                <span class="word" style="cursor: pointer; text-decoration: underline; color: #2980b9; font-weight: 500;" onclick="toggleSketchExamples('${uniqueId}', '${escapeJs(currentWord)}', '${escapeJs(word)}', '${escapeJs(patternId)}', '${escapeJs(c.pos || '')}')">${escapeHtml(word)}</span>
                                 <span>
                                     <span class="score">logDice: ${score}</span>
                                     <span class="freq">(${freq})</span>
@@ -1477,7 +1483,7 @@
             return html;
         }
 
-        async function toggleSketchExamples(uniqueId, word1, word2) {
+        async function toggleSketchExamples(uniqueId, word1, word2, relation, collocatePos) {
             const container = document.getElementById(uniqueId);
             if (!container) return;
             
@@ -1491,10 +1497,10 @@
             container.innerHTML = '<div class="loading">Fetching examples...</div>';
             container.style.display = 'block';
             
-            await fetchSketchExamples(uniqueId, word1, word2);
+            await fetchSketchExamples(uniqueId, word1, word2, relation, collocatePos);
         }
 
-        async function fetchSketchExamples(containerId, word1, word2) {
+        async function fetchSketchExamples(containerId, word1, word2, relation, collocatePos) {
             // Fetch examples for Word Sketch tab (inline)
             const apiUrl = document.getElementById('apiUrl').value.trim();
             const container = document.getElementById(containerId);
@@ -1502,7 +1508,9 @@
             if (!container) return;
             
             try {
-                const url = `${apiUrl}/api/concordance/examples?word1=${encodeURIComponent(word1)}&word2=${encodeURIComponent(word2)}&limit=10`;
+                const relationParam = relation ? `&relation=${encodeURIComponent(relation)}` : '';
+                const posParam = collocatePos ? `&collocate_pos=${encodeURIComponent(collocatePos)}` : '';
+                const url = `${apiUrl}/api/concordance/examples?word1=${encodeURIComponent(word1)}&word2=${encodeURIComponent(word2)}&limit=10${relationParam}${posParam}`;
                 const response = await fetch(url);
                 
                 if (!response.ok) {

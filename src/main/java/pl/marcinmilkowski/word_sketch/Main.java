@@ -3,6 +3,8 @@ package pl.marcinmilkowski.word_sketch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.api.WordSketchApiServer;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
+    import pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationsBuilder;
     import pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationsBuilderV2;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.HybridConllUProcessor;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.SinglePassConlluProcessor;
@@ -75,6 +77,9 @@ public class Main {
                     break;
                 case "precompute-collocations":
                     handlePrecomputeCollocationsCommand(args);
+                    break;
+                case "precompute-relations":
+                    handlePrecomputeRelationsCommand(args);
                     break;
                 case "help":
                     showUsage();
@@ -226,10 +231,23 @@ public class Main {
         System.out.println();
 
         QueryExecutor executor = QueryExecutorFactory.createAutoDetect(indexPath, collocationPath);
+
+        // Load grammar configuration
+        GrammarConfigLoader grammarConfig = null;
+        try {
+            var grammarPath = Paths.get("grammars/relations.json");
+            grammarConfig = new GrammarConfigLoader(grammarPath);
+            System.out.println("Loaded grammar config: " + grammarConfig.getVersion());
+        } catch (IOException e) {
+            System.err.println("Warning: Failed to load grammar config: " + e.getMessage());
+            System.err.println("Using default hardcoded relations and copulas.");
+        }
+
         WordSketchApiServer server = WordSketchApiServer.builder()
             .withExecutor(executor)
             .withIndexPath(indexPath)
             .withPort(port)
+            .withGrammarConfig(grammarConfig)
             .build();
 
         server.start();
@@ -834,6 +852,86 @@ public class Main {
         System.out.println("Collocations precompute complete in " + (elapsed / 1000) + "s");
     }
 
+    private static void handlePrecomputeRelationsCommand(String[] args) throws IOException, InterruptedException {
+        String indexPath = null;
+        String outputPath = null;
+        String grammarPath = "grammars/relations.json";
+        int windowSize = 5;
+        int topK = 100;
+        int minFreq = 10;
+
+        for (int i = 1; i < args.length; i++) {
+            switch (args[i]) {
+                case "--index":
+                case "-i":
+                    indexPath = args[++i];
+                    break;
+                case "--output":
+                case "-o":
+                    outputPath = args[++i];
+                    break;
+                case "--grammar":
+                case "-g":
+                    grammarPath = args[++i];
+                    break;
+                case "--window":
+                    windowSize = Integer.parseInt(args[++i]);
+                    break;
+                case "--top-k":
+                    topK = Integer.parseInt(args[++i]);
+                    break;
+                case "--min-freq":
+                    minFreq = Integer.parseInt(args[++i]);
+                    break;
+                default:
+                    System.err.println("Unknown option: " + args[i]);
+            }
+        }
+
+        if (indexPath == null) {
+            System.err.println("Error: --index is required");
+            System.err.println("Usage: precompute-relations --index <hybrid-index-path> [--output <relation_collocations.bin>] [options]");
+            System.err.println("Options:");
+            System.err.println("  --output <path>  Output file (default: <index>/relation_collocations.bin)");
+            System.err.println("  --grammar <path> Grammar config (default: grammars/relations.json)");
+            System.err.println("  --window N       Window size (default: 5)");
+            System.err.println("  --top-k N        Top-K collocates (default: 100)");
+            System.err.println("  --min-freq N     Minimum headword frequency (default: 10)");
+            return;
+        }
+
+        if (outputPath == null) {
+            outputPath = indexPath + "/relation_collocations.bin";
+        }
+
+        System.out.println("=== Precompute Relation Collocations ===");
+        System.out.println("Index: " + indexPath);
+        System.out.println("Output: " + outputPath);
+        System.out.println("Grammar: " + grammarPath);
+        System.out.println("Window: " + windowSize);
+        System.out.println("Top-K: " + topK);
+        System.out.println("Min freq: " + minFreq);
+        System.out.println();
+
+        long startTime = System.currentTimeMillis();
+
+        // Load grammar config
+        GrammarConfigLoader grammarConfig = new GrammarConfigLoader(java.nio.file.Paths.get(grammarPath));
+
+        // Build relation collocations
+        CollocationsBuilder builder = new CollocationsBuilder(indexPath, indexPath + "/stats.bin");
+        builder.setWindowSize(windowSize);
+        builder.setTopK(topK);
+        builder.setMinFrequency(minFreq);
+
+        builder.buildRelationCollocations(outputPath, grammarConfig);
+
+        builder.close();
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        System.out.println("Relation collocations precompute complete in " + (elapsed / 1000) + "s");
+    }
+
     private static void showUsage() {
         System.out.println("Usage: java -jar word-sketch-lucene.jar <command> [options]");
         System.out.println();
@@ -846,6 +944,7 @@ public class Main {
         System.out.println("  tag          - Tag a corpus with POS tags (uses simple tagger)");
         System.out.println("  hybrid-index - Build hybrid sentence-per-document index from CoNLL-U");
         System.out.println("  precompute-collocations - Build collocations.bin from existing hybrid index");
+        System.out.println("  precompute-relations   - Build relation_collocations.bin (per-relation precomputed collocations)");
         System.out.println("  hybrid-query - Query a hybrid index");
         System.out.println("  single-pass  - Build index AND collocations in one pass");
         System.out.println("  help         - Show this help message");

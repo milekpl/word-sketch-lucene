@@ -16,9 +16,13 @@ import pl.marcinmilkowski.word_sketch.indexer.hybrid.SentenceDocument;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.StatisticsReader;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.TermStatistics;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.TokenSequenceCodec;
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.RelationCollocationsReader;
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.RelationCollocationsReader.RelationCollocations;
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.RelationCollocationsReader.RelationCollocation;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationEntry;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.Collocation;
 import pl.marcinmilkowski.word_sketch.indexer.hybrid.CollocationsReader;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -70,27 +74,51 @@ public class HybridQueryExecutor implements QueryExecutor {
     private final String statsPath;
     private final String statsSource;
     private CollocationsReader collocationsReader;
+    private RelationCollocationsReader relationCollocationsReader;
+    private final GrammarConfigLoader grammarConfig;
 
     private final LongAdder statsLookups = new LongAdder();
     private final LongAdder statsMisses = new LongAdder();
     private final LongAdder indexLookups = new LongAdder();
 
     private final ThreadLocal<QueryReport> lastQueryReport = new ThreadLocal<>();
-    
+
+    // Cache for compiled CQL patterns - avoids parsing at query time
+    // Key: CQL pattern string, Value: compiled CQLPattern object
+    private final Map<String, CQLPattern> cqlPatternCache = new HashMap<>();
+
+    // Cache for compiled Lucene SpanQueries - avoids compilation at query time
+    // Key: CQL pattern string, Value: compiled SpanQuery
+    private final Map<String, SpanQuery> compiledQueryCache = new HashMap<>();
+
     private int maxSampleSize = 10_000;
     private Algorithm algorithm = Algorithm.PRECOMPUTED;
     private int minCandidateFrequency = 2;  // Minimum frequency for span-based candidates
 
     /**
      * Create a HybridQueryExecutor for a hybrid index.
-     * 
+     *
      * @param indexPath Path to the hybrid index directory
+     * @param grammarConfig Grammar configuration for copula detection (required)
      * @throws IOException if index cannot be opened
      */
-    public HybridQueryExecutor(String indexPath) throws IOException {
-        this(indexPath, resolveStatsPath(indexPath));
+    public HybridQueryExecutor(String indexPath, GrammarConfigLoader grammarConfig) throws IOException {
+        this(indexPath, resolveStatsPath(indexPath), grammarConfig);
     }
-    
+
+    /**
+     * Create a HybridQueryExecutor with default English grammar config.
+     * Explicitly loads grammars/relations.json - not a fallback.
+     *
+     * @param indexPath Path to the hybrid index directory
+     * @throws IOException if index cannot be opened
+     * @deprecated Use constructor with explicit GrammarConfigLoader instead
+     */
+    @Deprecated
+    public HybridQueryExecutor(String indexPath) throws IOException {
+        this(indexPath, GrammarConfigLoader.createDefaultEnglish());
+    }
+
     private static String resolveStatsPath(String indexPath) {
         String binPath = indexPath + "/stats.bin";
         if (java.nio.file.Files.exists(java.nio.file.Paths.get(binPath))) {
@@ -118,12 +146,28 @@ public class HybridQueryExecutor implements QueryExecutor {
 
     /**
      * Create a HybridQueryExecutor with explicit statistics file path.
-     * 
+     *
      * @param indexPath Path to the hybrid index directory
      * @param statsPath Path to the statistics file (.bin or .tsv)
      * @throws IOException if index or stats cannot be opened
      */
     public HybridQueryExecutor(String indexPath, String statsPath) throws IOException {
+        this(indexPath, statsPath, GrammarConfigLoader.createDefaultEnglish());
+    }
+
+    /**
+     * Create a HybridQueryExecutor with explicit statistics file path and grammar config.
+     *
+     * @param indexPath Path to the hybrid index directory
+     * @param statsPath Path to the statistics file (.bin or .tsv)
+     * @param grammarConfig Grammar configuration for copula detection
+     * @throws IOException if index or stats cannot be opened
+     */
+    public HybridQueryExecutor(String indexPath, String statsPath, GrammarConfigLoader grammarConfig) throws IOException {
+        if (grammarConfig == null) {
+            throw new IllegalArgumentException("GrammarConfigLoader is required");
+        }
+        this.grammarConfig = grammarConfig;
         Path path = Paths.get(indexPath);
         this.reader = DirectoryReader.open(MMapDirectory.open(path));
         this.searcher = new IndexSearcher(reader);
@@ -153,7 +197,20 @@ public class HybridQueryExecutor implements QueryExecutor {
             logger.warn("Failed to load precomputed collocations: {}", e.getMessage());
         }
         this.collocationsReader = tempCollocations;
-        
+
+        // Try to load precomputed relation collocations
+        String relationCollocationsPath = indexPath + "/relation_collocations.bin";
+        RelationCollocationsReader tempRelationCollocations = null;
+        try {
+            if (java.nio.file.Files.exists(java.nio.file.Paths.get(relationCollocationsPath))) {
+                tempRelationCollocations = new RelationCollocationsReader(relationCollocationsPath);
+                logger.info("Loaded relation collocations: {} entries", tempRelationCollocations.getEntryCount());
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to load relation collocations: {}", e.getMessage());
+        }
+        this.relationCollocationsReader = tempRelationCollocations;
+
         logger.info("HybridQueryExecutor initialized with {} sentences", reader.numDocs());
     }
 
@@ -187,6 +244,32 @@ public class HybridQueryExecutor implements QueryExecutor {
         return minCandidateFrequency;
     }
 
+    /**
+     * Get or parse a CQL pattern with caching.
+     * Parses the pattern once and caches for subsequent calls.
+     */
+    private CQLPattern getOrParseCQL(String cqlPattern) {
+        return cqlPatternCache.computeIfAbsent(cqlPattern, pattern -> {
+            try {
+                return new CQLParser().parse(pattern);
+            } catch (Exception e) {
+                logger.warn("Failed to parse CQL pattern '{}': {}", pattern, e.getMessage());
+                throw new IllegalArgumentException("Invalid CQL pattern: " + pattern, e);
+            }
+        });
+    }
+
+    /**
+     * Get or compile a CQL pattern to Lucene SpanQuery with caching.
+     * Compiles the pattern once and caches for subsequent calls.
+     */
+    private SpanQuery getOrCompileQuery(String cqlPattern) {
+        return compiledQueryCache.computeIfAbsent(cqlPattern, pattern -> {
+            CQLPattern cql = getOrParseCQL(pattern);
+            return compiler.compile(cql);
+        });
+    }
+
     @Override
     public List<WordSketchQueryExecutor.WordSketchResult> findCollocations(
             String headword, String cqlPattern, double minLogDice, int maxResults) throws IOException {
@@ -201,7 +284,26 @@ public class HybridQueryExecutor implements QueryExecutor {
     @Override
     public List<WordSketchQueryExecutor.WordSketchResult> findGrammaticalRelation(
             String headword, RelationType relType, double minLogDice, int maxResults) throws IOException {
-        // For grammatical relations, always use SAMPLE_SCAN to handle multi-token patterns
+        // First try O(1) lookup from precomputed relation collocations
+        if (relationCollocationsReader != null) {
+            // Look up relation ID from grammar config using the relationType string
+            String relTypeName = relType.name(); // e.g., "ADJ_PREDICATE"
+            String relationId = (grammarConfig != null)
+                ? grammarConfig.findRelationIdByType(relTypeName)
+                : null;
+            if (relationId == null) {
+                // Fallback to lowercase enum name if grammar config not available
+                relationId = relTypeName.toLowerCase();
+            }
+            RelationCollocations entry = relationCollocationsReader.getCollocations(headword, relationId);
+            if (entry != null && !entry.collocations().isEmpty()) {
+                logger.debug("Using precomputed collocations for '{}' + '{}' ({} items)",
+                    headword, relationId, entry.collocations().size());
+                return convertToResults(entry, minLogDice, maxResults);
+            }
+        }
+
+        // Fallback to SAMPLE_SCAN for complex patterns or missing data
         return findGrammaticalRelationScan(headword, relType, minLogDice, maxResults);
     }
 
@@ -211,6 +313,10 @@ public class HybridQueryExecutor implements QueryExecutor {
      */
     private List<WordSketchQueryExecutor.WordSketchResult> findGrammaticalRelationScan(
             String headword, RelationType relType, double minLogDice, int maxResults) throws IOException {
+
+        if (relType == RelationType.ADJ_PREDICATE) {
+            return findAdjectivePredicatesByCopula(headword, minLogDice, maxResults);
+        }
         
         if (headword == null || headword.isEmpty()) {
             return Collections.emptyList();
@@ -226,8 +332,8 @@ public class HybridQueryExecutor implements QueryExecutor {
         String cqlPattern = relType.getFullPattern(headword);
         logger.info("findGrammaticalRelation({}, {}): pattern={}", headword, relType, cqlPattern);
         
-        // Parse the full CQL pattern
-        CQLPattern pattern = new CQLParser().parse(cqlPattern);
+        // Parse the full CQL pattern (cached)
+        CQLPattern pattern = getOrParseCQL(cqlPattern);
         
         // Extract target constraints (the collocate we're looking for - typically last token)
         List<CQLPattern.Constraint> targetConstraints = extractLastTokenConstraints(pattern);
@@ -306,10 +412,207 @@ public class HybridQueryExecutor implements QueryExecutor {
             results = results.subList(0, maxResults);
         }
         
-        logger.info("findGrammaticalRelation: found {} collocates (filtered to {})", 
+        logger.info("findGrammaticalRelation: found {} collocates (filtered to {})",
             lemmaFreqs.size(), results.size());
-        
+
         return results;
+    }
+
+    /**
+     * Find collocations for a specific relation using precomputed data.
+     * O(1) lookup when relation collocations are available.
+     *
+     * @param headword The headword lemma
+     * @param relationId The relation identifier (e.g., "adj_predicate", "adj_modifier")
+     * @param minLogDice Minimum logDice score to include
+     * @param maxResults Maximum number of results to return
+     * @return List of word sketch results
+     * @throws IOException if an I/O error occurs
+     */
+    public List<WordSketchQueryExecutor.WordSketchResult> findRelation(
+            String headword, String relationId, double minLogDice, int maxResults) throws IOException {
+
+        // If relation collocations available, use O(1) lookup
+        if (relationCollocationsReader != null) {
+            RelationCollocations entry = relationCollocationsReader.getCollocations(headword, relationId);
+            if (entry != null) {
+                logger.debug("Found {} precomputed collocations for '{}' + '{}'",
+                    entry.collocations().size(), headword, relationId);
+                return convertToResults(entry, minLogDice, maxResults);
+            }
+        }
+
+        // Fallback to SAMPLE_SCAN
+        logger.info("Relation collocations not available for '{}'+'{}', falling back to SAMPLE_SCAN",
+            headword, relationId);
+        return findCollocationsSampleScan(headword, "[tag=jj.*]", minLogDice, maxResults);
+    }
+
+    /**
+     * Convert RelationCollocations to WordSketchResult list with filtering.
+     */
+    private List<WordSketchQueryExecutor.WordSketchResult> convertToResults(
+            RelationCollocations entry, double minLogDice, int maxResults) {
+        List<WordSketchQueryExecutor.WordSketchResult> results = new ArrayList<>();
+
+        for (RelationCollocation coll : entry.collocations()) {
+            if (coll.logDice() < minLogDice) {
+                continue;
+            }
+
+            results.add(new WordSketchQueryExecutor.WordSketchResult(
+                coll.collocate(),
+                coll.pos(),
+                coll.cooccurrence(),
+                coll.logDice(),
+                0.0,
+                Collections.emptyList()
+            ));
+
+            if (results.size() >= maxResults) {
+                break;
+            }
+        }
+
+        return results;
+    }
+
+    private List<WordSketchQueryExecutor.WordSketchResult> findAdjectivePredicatesByCopula(
+            String headword,
+            double minLogDice,
+            int maxResults) throws IOException {
+
+        if (headword == null || headword.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String normalizedHeadword = headword.toLowerCase(Locale.ROOT);
+        long headwordFreq = getTotalFrequency(normalizedHeadword);
+        if (headwordFreq == 0) {
+            return Collections.emptyList();
+        }
+
+        Query headwordQuery = new TermQuery(new Term("lemma", normalizedHeadword));
+        int sampleSize = Math.min(maxSampleSize, 50_000);
+        TopDocs topDocs = searcher.search(headwordQuery, sampleSize);
+
+        Map<String, Long> adjectiveFreqs = new HashMap<>();
+        Map<String, String> adjectivePos = new HashMap<>();
+
+        for (ScoreDoc hit : topDocs.scoreDocs) {
+            List<SentenceDocument.Token> tokens = loadTokensFromDoc(hit.doc);
+            if (tokens.isEmpty()) {
+                continue;
+            }
+
+            for (int nounPos = 0; nounPos < tokens.size(); nounPos++) {
+                SentenceDocument.Token nounToken = tokens.get(nounPos);
+                if (nounToken.lemma() == null || !normalizedHeadword.equalsIgnoreCase(nounToken.lemma())) {
+                    continue;
+                }
+
+                collectPredicateAdjectives(tokens, nounPos, adjectiveFreqs, adjectivePos, normalizedHeadword);
+            }
+        }
+
+        List<WordSketchQueryExecutor.WordSketchResult> results = new ArrayList<>();
+        for (Map.Entry<String, Long> entry : adjectiveFreqs.entrySet()) {
+            String adjective = entry.getKey();
+            long cooccur = entry.getValue();
+            long adjectiveFreq = getTotalFrequency(adjective);
+            if (adjectiveFreq == 0) {
+                adjectiveFreq = 1;
+            }
+
+            double logDice = calculateLogDice(cooccur, headwordFreq, adjectiveFreq);
+            if (logDice < minLogDice) {
+                continue;
+            }
+
+            results.add(new WordSketchQueryExecutor.WordSketchResult(
+                adjective,
+                adjectivePos.getOrDefault(adjective, "JJ"),
+                cooccur,
+                logDice,
+                0.0,
+                List.of()
+            ));
+        }
+
+        results.sort((a, b) -> Double.compare(b.getLogDice(), a.getLogDice()));
+        if (results.size() > maxResults) {
+            return results.subList(0, maxResults);
+        }
+        return results;
+    }
+
+    private void collectPredicateAdjectives(List<SentenceDocument.Token> tokens,
+                                            int nounPos,
+                                            Map<String, Long> adjectiveFreqs,
+                                            Map<String, String> adjectivePos,
+                                            String normalizedHeadword) {
+        int maxVerbDistance = 4;
+        int maxAdjDistance = 4;
+
+        // noun ... copula ... adjective
+        for (int verbPos = nounPos + 1; verbPos < tokens.size() && verbPos <= nounPos + maxVerbDistance; verbPos++) {
+            SentenceDocument.Token verbToken = tokens.get(verbPos);
+            if (!isCopularVerbToken(verbToken)) {
+                continue;
+            }
+
+            for (int adjPos = verbPos + 1; adjPos < tokens.size() && adjPos <= verbPos + maxAdjDistance; adjPos++) {
+                collectIfAdjective(tokens.get(adjPos), adjectiveFreqs, adjectivePos, normalizedHeadword);
+            }
+        }
+
+        // adjective ... copula ... noun
+        for (int verbPos = nounPos - 1; verbPos >= 0 && verbPos >= nounPos - maxVerbDistance; verbPos--) {
+            SentenceDocument.Token verbToken = tokens.get(verbPos);
+            if (!isCopularVerbToken(verbToken)) {
+                continue;
+            }
+
+            for (int adjPos = verbPos - 1; adjPos >= 0 && adjPos >= verbPos - maxAdjDistance; adjPos--) {
+                collectIfAdjective(tokens.get(adjPos), adjectiveFreqs, adjectivePos, normalizedHeadword);
+            }
+        }
+    }
+
+    private void collectIfAdjective(SentenceDocument.Token token,
+                                    Map<String, Long> adjectiveFreqs,
+                                    Map<String, String> adjectivePos,
+                                    String normalizedHeadword) {
+        if (token.lemma() == null || token.tag() == null) {
+            return;
+        }
+
+        String tag = token.tag().toUpperCase(Locale.ROOT);
+        if (!tag.startsWith("JJ")) {
+            return;
+        }
+
+        String lemma = token.lemma().toLowerCase(Locale.ROOT);
+        if (lemma.equals(normalizedHeadword)) {
+            return;
+        }
+
+        adjectiveFreqs.merge(lemma, 1L, Long::sum);
+        adjectivePos.putIfAbsent(lemma, tag);
+    }
+
+    private boolean isCopularVerbToken(SentenceDocument.Token token) {
+        if (token == null || token.tag() == null || token.lemma() == null) {
+            return false;
+        }
+
+        String tag = token.tag().toUpperCase(Locale.ROOT);
+        if (!tag.startsWith("VB")) {
+            return false;
+        }
+
+        String lemma = token.lemma().toLowerCase(Locale.ROOT);
+        return grammarConfig.isCopularVerb(lemma);
     }
 
     /**
@@ -331,8 +634,8 @@ public class HybridQueryExecutor implements QueryExecutor {
 
     @Override
     public List<WordSketchQueryExecutor.ConcordanceResult> executeQuery(String cqlPattern, int maxResults) throws IOException {
-        CQLPattern pattern = new CQLParser().parse(cqlPattern);
-        SpanQuery query = compiler.compile(pattern);
+        CQLPattern pattern = getOrParseCQL(cqlPattern);
+        SpanQuery query = getOrCompileQuery(cqlPattern);
 
         TopDocs topDocs = searcher.search(query, maxResults);
         ScoreDoc[] hits = topDocs.scoreDocs;
@@ -375,8 +678,8 @@ public class HybridQueryExecutor implements QueryExecutor {
             return Collections.emptyList();
         }
 
-        // Parse CQL pattern
-        CQLPattern collocatePattern = new CQLParser().parse(cqlPattern);
+        // Parse CQL pattern (cached)
+        CQLPattern collocatePattern = getOrParseCQL(cqlPattern);
         List<CQLPattern.Constraint> collocateConstraints = extractConstraints(collocatePattern);
         int maxDist = extractMaxDistance(collocatePattern);
         if (maxDist <= 0) maxDist = 3;
@@ -587,8 +890,8 @@ public class HybridQueryExecutor implements QueryExecutor {
             return Collections.emptyList();
         }
 
-        // Parse CQL pattern to get max distance
-        CQLPattern collocatePattern = new CQLParser().parse(cqlPattern);
+        // Parse CQL pattern to get max distance (cached)
+        CQLPattern collocatePattern = getOrParseCQL(cqlPattern);
         int maxDist = extractMaxDistanceFromPattern(collocatePattern);
         if (maxDist <= 0) maxDist = 5;  // Default window
 
@@ -984,8 +1287,8 @@ public class HybridQueryExecutor implements QueryExecutor {
             return Collections.emptyList();
         }
         
-        // Parse CQL pattern for filtering
-        CQLPattern collocatePattern = new CQLParser().parse(cqlPattern);
+        // Parse CQL pattern for filtering (cached)
+        CQLPattern collocatePattern = getOrParseCQL(cqlPattern);
         List<CQLPattern.Constraint> collocateConstraints = extractConstraints(collocatePattern);
         
         // Build results
@@ -1300,6 +1603,9 @@ public class HybridQueryExecutor implements QueryExecutor {
         reader.close();
         if (collocationsReader != null) {
             collocationsReader.close();
+        }
+        if (relationCollocationsReader != null) {
+            relationCollocationsReader.close();
         }
         logger.info("HybridQueryExecutor closed");
     }

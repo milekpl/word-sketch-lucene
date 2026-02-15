@@ -17,14 +17,12 @@ import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ExplorationRes
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.CoreAdjective;
 import pl.marcinmilkowski.word_sketch.query.HybridQueryExecutor;
-import pl.marcinmilkowski.word_sketch.query.SnowballCollocations;
-import pl.marcinmilkowski.word_sketch.query.SnowballCollocations.SnowballResult;
-import pl.marcinmilkowski.word_sketch.query.SnowballCollocations.Edge;
+import pl.marcinmilkowski.word_sketch.indexer.hybrid.TermStatistics;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -45,6 +43,7 @@ public class WordSketchApiServer {
     private final QueryExecutor executor;
     private final String indexPath;
     private final int port;
+    private final GrammarConfigLoader grammarConfig;
     private com.sun.net.httpserver.HttpServer server;
 
     /**
@@ -60,72 +59,15 @@ public class WordSketchApiServer {
      *            adverbs (modifiers), etc.
      * For adjectives: we find nouns, adverbs (intensifiers), verbs, etc.
      */
-    private static final List<RelationDefinition> RELATIONS = Arrays.asList(
-        // ====== NOUN relations ======
-        // Adjectives modifying the noun (e.g., "big house", "red car")
-        new RelationDefinition("noun_modifiers", "Modifiers (adjectives)",
-            "[tag=jj.*]", "noun"),
-        // Verbs appearing near the noun (subjects/objects)
-        new RelationDefinition("noun_verbs", "Verbs (subject/object of)",
-            "[tag=vb.*]", "noun"),
-        // Other nouns (compounds like "coffee house", "house party")
-        new RelationDefinition("noun_compounds", "Nouns in compound",
-            "[tag=nn.*]", "noun"),
-        // Prepositions (e.g., "house of", "at the house")
-        new RelationDefinition("noun_prepositions", "Prepositions",
-            "[tag=in]", "noun"),
-        // Adverbs (rare, e.g., "almost home")
-        new RelationDefinition("noun_adverbs", "Adverbs",
-            "[tag=rb.*]", "noun"),
-        // Possessives ("house's")
-        new RelationDefinition("noun_possessives", "Possessive nouns",
-            "[tag=pos]", "noun"),
-
-        // ====== VERB relations ======
-        // Nouns appearing near verbs (objects/subjects)
-        new RelationDefinition("verb_nouns", "Nouns (objects/subjects)",
-            "[tag=nn.*]", "verb"),
-        // Particles (e.g., "give up", "break down")
-        new RelationDefinition("verb_particles", "Particles",
-            "[tag=rp]", "verb"),
-        // Prepositions (e.g., "depend on", "look at")
-        new RelationDefinition("verb_prepositions", "Prepositions",
-            "[tag=in]", "verb"),
-        // Adverbs modifying verbs
-        new RelationDefinition("verb_adverbs", "Adverbs",
-            "[tag=rb.*]", "verb"),
-        // Adjectives (predicative, e.g., "become happy")
-        new RelationDefinition("verb_adjectives", "Adjectives (predicative)",
-            "[tag=jj.*]", "verb"),
-        // Infinitive marker (e.g., "want to", "need to")
-        new RelationDefinition("verb_to", "Infinitive 'to'",
-            "[tag=to]", "verb"),
-        // Other verbs (chains, e.g., "try to make")
-        new RelationDefinition("verb_verbs", "Other verbs",
-            "[tag=vb.*]", "verb"),
-
-        // ====== ADJECTIVE relations ======
-        // Nouns modified by the adjective
-        new RelationDefinition("adj_nouns", "Nouns modified",
-            "[tag=nn.*]", "adj"),
-        // Adverbs modifying the adjective (e.g., "very big")
-        new RelationDefinition("adj_adverbs", "Adverbs (intensifiers)",
-            "[tag=rb.*]", "adj"),
-        // Verbs (e.g., "be happy", "become sad")
-        new RelationDefinition("adj_verbs", "Verbs",
-            "[tag=vb.*]", "adj"),
-        // Prepositions (e.g., "afraid of", "good at")
-        new RelationDefinition("adj_prepositions", "Prepositions",
-            "[tag=in]", "adj"),
-        // Coordinated adjectives (e.g., "big and red")
-        new RelationDefinition("adj_coordinated", "Coordinated adjectives (and/or)",
-            "[tag=jj.*]", "adj")
-    );
-
     public WordSketchApiServer(QueryExecutor executor, String indexPath, int port) {
+        this(executor, indexPath, port, null);
+    }
+
+    public WordSketchApiServer(QueryExecutor executor, String indexPath, int port, GrammarConfigLoader grammarConfig) {
         this.executor = executor;
         this.indexPath = indexPath;
         this.port = port;
+        this.grammarConfig = grammarConfig;
     }
 
     /**
@@ -148,25 +90,27 @@ public class WordSketchApiServer {
         server.createContext("/api/concordance/examples", wrapHandler(this::handleConcordanceExamples));
         server.createContext("/api/algorithm", wrapHandler(this::handleAlgorithm));
         server.createContext("/api/diagnostics/collocation-integrity", wrapHandler(this::handleCollocationIntegrity));
+        server.createContext("/api/grammar/active", wrapHandler(this::handleGrammarActive));
 
         // CORS preflight handler
         server.createContext("/api/sketch/options", wrapHandler(this::handleCorsOptions));
 
         server.setExecutor(null);
         server.start();
-        System.out.println("API server started on http://localhost:" + port);
-        System.out.println("Endpoints:");
-        System.out.println("  GET  /health                 - Health check");
-        System.out.println("  GET  /api/relations          - List available grammatical relations");
-        System.out.println("  GET  /api/sketch/{lemma}     - Get full word sketch");
-        System.out.println("  POST /api/sketch/query       - Execute custom CQL pattern");
-        System.out.println("  GET  /api/semantic-field/explore - Explore semantic class from seed word");
-        System.out.println("  GET  /api/semantic-field     - Compare adjective profiles across nouns");
-        System.out.println("  GET  /api/semantic-field/examples - Get examples for adjective-noun pair");
-        System.out.println("  POST /api/visual/radial      - Render radial plot SVG (JSON body)");
-        System.out.println("  GET  /api/concordance/examples - Get concordance examples for word pair");
-        System.out.println("  GET/POST /api/algorithm      - Get/set algorithm (SAMPLE_SCAN, SPAN_COUNT, PRECOMPUTED)");
-        System.out.println("  GET  /api/diagnostics/collocation-integrity - Integrity diagnostics");
+        logger.info("API server started on http://localhost:{}", port);
+        logger.info("Endpoints:");
+        logger.info("  GET  /health                 - Health check");
+        logger.info("  GET  /api/relations          - List available grammatical relations");
+        logger.info("  GET  /api/sketch/{{lemma}}     - Get full word sketch");
+        logger.info("  POST /api/sketch/query       - Execute custom CQL pattern");
+        logger.info("  GET  /api/semantic-field/explore - Explore semantic class from seed word");
+        logger.info("  GET  /api/semantic-field     - Compare adjective profiles across nouns");
+        logger.info("  GET  /api/semantic-field/examples - Get examples for adjective-noun pair");
+        logger.info("  POST /api/visual/radial      - Render radial plot SVG (JSON body)");
+        logger.info("  GET  /api/concordance/examples - Get concordance examples for word pair");
+        logger.info("  GET/POST /api/algorithm      - Get/set algorithm (PRECOMPUTED recommended; SAMPLE_SCAN & SPAN_COUNT are legacy)");
+        logger.info("  GET  /api/diagnostics/collocation-integrity - Integrity diagnostics");
+        logger.info("  GET  /api/grammar/active         - Get active grammar configuration");
     }
 
     /**
@@ -188,16 +132,16 @@ public class WordSketchApiServer {
                 handler.handle(exchange);
             } catch (Throwable t) {
                 if (isClientConnectionIssue(t)) {
-                    System.err.println("Client disconnected: " + t.getMessage());
+                    logger.debug("Client disconnected: {}", t.getMessage());
                     closeQuietly(exchange);
                     return;
                 }
 
-                System.err.println("Unhandled exception: " + t.getMessage());
+                logger.error("Unhandled exception: {}", t.getMessage());
                 t.printStackTrace();
                 try {
                     if (exchange.getResponseCode() != -1) {
-                        System.err.println("Cannot send error response: headers already sent");
+                        logger.warn("Cannot send error response: headers already sent");
                         closeQuietly(exchange);
                         return;
                     }
@@ -205,9 +149,9 @@ public class WordSketchApiServer {
                     sendError(exchange, 500, t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
                 } catch (Exception e) {
                     if (isClientConnectionIssue(e)) {
-                        System.err.println("Failed to send error response (client disconnected): " + e.getMessage());
+                        logger.debug("Failed to send error response (client disconnected): {}", e.getMessage());
                     } else {
-                        System.err.println("Failed to send error response: " + e.getMessage());
+                        logger.error("Failed to send error response: {}", e.getMessage());
                     }
                 } finally {
                     closeQuietly(exchange);
@@ -266,7 +210,7 @@ public class WordSketchApiServer {
     public void stop() {
         if (server != null) {
             server.stop(0);
-            System.out.println("API server stopped");
+            logger.info("API server stopped");
         }
     }
 
@@ -297,6 +241,29 @@ public class WordSketchApiServer {
     }
 
     /**
+     * Return active grammar configuration.
+     */
+    private void handleGrammarActive(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        String method = exchange.getRequestMethod();
+        if (!"GET".equalsIgnoreCase(method)) {
+            sendError(exchange, 405, "Method not allowed");
+            return;
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
+
+        if (grammarConfig != null) {
+            response.put("config", grammarConfig.toJson());
+        } else {
+            response.put("config", null);
+            response.put("message", "No grammar config loaded");
+        }
+
+        sendJson(exchange, 200, response);
+    }
+
+    /**
      * List available grammatical relations.
      */
     private void handleRelations(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
@@ -305,9 +272,19 @@ public class WordSketchApiServer {
             return;
         }
 
-        // Group relations by POS
+        // Group relations by POS - grammarConfig is required
         Map<String, List<Map<String, Object>>> relationsByPos = new HashMap<>();
-        for (RelationDefinition rel : RELATIONS) {
+
+        if (grammarConfig == null) {
+            sendError(exchange, 500, "Grammar configuration not loaded");
+            return;
+        }
+
+        List<RelationDefinition> relationsToUse = grammarConfig.getRelations().stream()
+            .map(RelationDefinition::fromConfig)
+            .toList();
+
+        for (RelationDefinition rel : relationsToUse) {
             relationsByPos.computeIfAbsent(rel.posGroup(), k -> new ArrayList<>())
                 .add(rel.toMap());
         }
@@ -352,8 +329,13 @@ public class WordSketchApiServer {
             Map<String, String> params = parseQueryParams(query);
 
             // Filter relations by POS
-            String posFilter = params.getOrDefault("pos", "noun,verb,adj");
-            Set<String> allowedPos = new HashSet<>(Arrays.asList(posFilter.toLowerCase().split(",")));
+            String posFilter = params.getOrDefault("pos", "");
+            Set<String> allowedPos;
+            if (posFilter == null || posFilter.isBlank()) {
+                allowedPos = inferHeadwordPosGroups(lemma);
+            } else {
+                allowedPos = new HashSet<>(Arrays.asList(posFilter.toLowerCase(Locale.ROOT).split(",")));
+            }
             int limit = Integer.parseInt(params.getOrDefault("limit", "20"));
             double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "0"));
 
@@ -363,19 +345,46 @@ public class WordSketchApiServer {
 
             Map<String, Object> patterns = new HashMap<>();
 
-            for (RelationDefinition rel : RELATIONS) {
+            // Use grammarConfig - it is required
+            if (grammarConfig == null) {
+                sendError(exchange, 500, "Grammar configuration not loaded");
+                return;
+            }
+
+            List<RelationDefinition> relationsToUse = grammarConfig.getRelations().stream()
+                .map(RelationDefinition::fromConfig)
+                .toList();
+
+            for (RelationDefinition rel : relationsToUse) {
                 if (!allowedPos.contains(rel.posGroup())) {
                     continue;
                 }
 
                 try {
-                List<WordSketchQueryExecutor.WordSketchResult> results =
-                    executor.findCollocations(lemma, rel.pattern(), minLogDice, limit);
+                int relationLimit = limit;
+                if ("noun_compounds".equals(rel.id())) {
+                    relationLimit = Math.max(limit * 5, 50);
+                }
+
+                List<WordSketchQueryExecutor.WordSketchResult> results;
+                if (rel.grammaticalRelationType() != null) {
+                    results = executor.findGrammaticalRelation(
+                        lemma,
+                        rel.grammaticalRelationType(),
+                        minLogDice,
+                        relationLimit
+                    );
+                } else {
+                    results = executor.findCollocations(lemma, rel.pattern(), minLogDice, relationLimit);
+                }
+
+                results = enforceStrictRelationEvidence(lemma, rel, results, limit);
 
                 Map<String, Object> patternData = new HashMap<>();
                 patternData.put("name", rel.name());
                 patternData.put("cql", rel.pattern());
                 patternData.put("pos_group", rel.posGroup());
+                patternData.put("collocate_pos_group", rel.collocatePosGroup());
                 patternData.put("total_matches", results.size());
 
                 List<Map<String, Object>> collocations = new ArrayList<>();
@@ -413,6 +422,102 @@ public class WordSketchApiServer {
             sendJson(exchange, 500, error);
             e.printStackTrace();
         }
+    }
+
+    private Set<String> inferHeadwordPosGroups(String lemma) {
+        Set<String> fallback = new HashSet<>(Arrays.asList("noun", "verb", "adj"));
+
+        if (!(executor instanceof HybridQueryExecutor hybrid)) {
+            return fallback;
+        }
+
+        if (hybrid.getStatsReader() == null) {
+            return fallback;
+        }
+
+        try {
+            TermStatistics stats = hybrid.getStatsReader().getStatistics(lemma.toLowerCase(Locale.ROOT));
+            if (stats == null || stats.posDistribution() == null || stats.posDistribution().isEmpty()) {
+                return fallback;
+            }
+
+            Map<String, Long> grouped = new HashMap<>();
+            for (Map.Entry<String, Long> entry : stats.posDistribution().entrySet()) {
+                String group = mapTagToPosGroup(entry.getKey());
+                if (group != null) {
+                    grouped.merge(group, entry.getValue(), Long::sum);
+                }
+            }
+
+            if (grouped.isEmpty()) {
+                return fallback;
+            }
+
+            String dominant = grouped.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+
+            if (dominant == null) {
+                return fallback;
+            }
+
+            return new HashSet<>(Collections.singletonList(dominant));
+        } catch (Exception e) {
+            logger.debug("Failed to infer headword POS group for '{}': {}", lemma, e.getMessage());
+            return fallback;
+        }
+    }
+
+    private String mapTagToPosGroup(String tag) {
+        if (tag == null || tag.isBlank()) {
+            return null;
+        }
+        String upper = tag.toUpperCase(Locale.ROOT);
+        if (upper.startsWith("NN")) return "noun";
+        if (upper.startsWith("VB")) return "verb";
+        if (upper.startsWith("JJ")) return "adj";
+        return null;
+    }
+
+    private List<WordSketchQueryExecutor.WordSketchResult> enforceStrictRelationEvidence(
+            String lemma,
+            RelationDefinition rel,
+            List<WordSketchQueryExecutor.WordSketchResult> results,
+            int limit) {
+        if (results == null || results.isEmpty()) {
+            return results;
+        }
+
+        if (!"noun_compounds".equals(rel.id())) {
+            return results.subList(0, Math.min(limit, results.size()));
+        }
+
+        List<WordSketchQueryExecutor.WordSketchResult> filtered = new ArrayList<>();
+        try {
+            pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer explorer =
+                new pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer(indexPath, grammarConfig);
+            try {
+                for (WordSketchQueryExecutor.WordSketchResult result : results) {
+                    List<pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample> examples =
+                        explorer.fetchExamples(lemma, result.getLemma(), rel.id(), result.getPos(), 1);
+                    if (!examples.isEmpty()) {
+                        filtered.add(result);
+                    }
+                    if (filtered.size() >= limit) {
+                        break;
+                    }
+                }
+            } finally {
+                explorer.close();
+            }
+        } catch (Exception e) {
+            logger.warn("Strict relation evidence check failed for relation {} and lemma {}: {}",
+                rel.id(), lemma, e.getMessage());
+            return results.subList(0, Math.min(limit, results.size()));
+        }
+
+        return filtered;
     }
 
     /**
@@ -511,15 +616,29 @@ public class WordSketchApiServer {
                 return;
             }
 
-            // Parse relation type
-            String relationStr = params.getOrDefault("relation", "adj_predicate").toLowerCase();
-            QueryExecutor.RelationType relationType = switch (relationStr) {
-                case "adj_modifier", "modifier" -> QueryExecutor.RelationType.ADJ_MODIFIER;
-                case "adj_predicate", "predicate" -> QueryExecutor.RelationType.ADJ_PREDICATE;
-                case "subject_of", "subject" -> QueryExecutor.RelationType.SUBJECT_OF;
-                case "object_of", "object" -> QueryExecutor.RelationType.OBJECT_OF;
-                default -> QueryExecutor.RelationType.ADJ_PREDICATE;
+            // Parse relation - look up from grammar config
+            String relationId = params.getOrDefault("relation", "noun_adj_predicates").toLowerCase();
+            // Map legacy names to grammar config IDs
+            relationId = switch (relationId) {
+                case "adj_modifier", "modifier" -> "noun_modifiers";
+                case "adj_predicate", "predicate" -> "noun_adj_predicates";
+                case "subject_of", "subject" -> "noun_verbs";
+                case "object_of", "object" -> "verb_nouns";
+                default -> relationId;
             };
+
+            if (grammarConfig == null) {
+                sendError(exchange, 500, "Grammar configuration not loaded");
+                return;
+            }
+
+            var relationConfig = grammarConfig.getRelation(relationId);
+            if (relationConfig.isEmpty()) {
+                sendError(exchange, 400, "Unknown relation: " + relationId);
+                return;
+            }
+
+            String relationType = relationConfig.get().relationType();
 
             int topCollocates = Integer.parseInt(params.getOrDefault("top", 
                 params.getOrDefault("top_adj", "15")));
@@ -530,19 +649,20 @@ public class WordSketchApiServer {
 
             // Run semantic field exploration with specified relation
             SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+            QueryExecutor.RelationType legacyRelationType = toLegacyRelationType(relationType);
             ExplorationResult result = explorer.exploreByRelation(
-                seed, topCollocates, nounsPerCollocate, minShared, minLogDice, relationType);
+                seed, topCollocates, nounsPerCollocate, minShared, minLogDice, legacyRelationType);
             explorer.close();
 
             // Format response
             Map<String, Object> response = new HashMap<>();
             response.put("status", "ok");
             response.put("seed", result.seed);
-            response.put("relation_type", relationType.name());
+            response.put("relation_type", relationType);
             
             // Parameters used
             Map<String, Object> paramsUsed = new HashMap<>();
-            paramsUsed.put("relation", relationType.name());
+            paramsUsed.put("relation", relationType);
             paramsUsed.put("top", topCollocates);
             paramsUsed.put("nouns_per", nounsPerCollocate);
             paramsUsed.put("min_shared", minShared);
@@ -658,15 +778,29 @@ public class WordSketchApiServer {
                 return;
             }
 
-            // Parse relation type
-            String relationStr = params.getOrDefault("relation", "adj_predicate").toLowerCase();
-            QueryExecutor.RelationType relationType = switch (relationStr) {
-                case "adj_modifier", "modifier" -> QueryExecutor.RelationType.ADJ_MODIFIER;
-                case "adj_predicate", "predicate" -> QueryExecutor.RelationType.ADJ_PREDICATE;
-                case "subject_of", "subject" -> QueryExecutor.RelationType.SUBJECT_OF;
-                case "object_of", "object" -> QueryExecutor.RelationType.OBJECT_OF;
-                default -> QueryExecutor.RelationType.ADJ_PREDICATE;
+            // Parse relation - look up from grammar config
+            String relationId = params.getOrDefault("relation", "noun_adj_predicates").toLowerCase();
+            // Map legacy names to grammar config IDs
+            relationId = switch (relationId) {
+                case "adj_modifier", "modifier" -> "noun_modifiers";
+                case "adj_predicate", "predicate" -> "noun_adj_predicates";
+                case "subject_of", "subject" -> "noun_verbs";
+                case "object_of", "object" -> "verb_nouns";
+                default -> relationId;
             };
+
+            if (grammarConfig == null) {
+                sendError(exchange, 500, "Grammar configuration not loaded");
+                return;
+            }
+
+            var relationConfig = grammarConfig.getRelation(relationId);
+            if (relationConfig.isEmpty()) {
+                sendError(exchange, 400, "Unknown relation: " + relationId);
+                return;
+            }
+
+            String relationType = relationConfig.get().relationType();
 
             int topCollocates = Integer.parseInt(params.getOrDefault("top", 
                 params.getOrDefault("top_adj", "15")));
@@ -682,9 +816,12 @@ public class WordSketchApiServer {
             Map<String, List<WordSketchResult>> seedToCollocates = new HashMap<>();
             Set<String> commonCollocates = null;
             
+            // Convert to legacy enum for executor
+            QueryExecutor.RelationType legacyRelationType = toLegacyRelationType(relationType);
+
             for (String seed : seeds) {
                 List<WordSketchResult> collocates = executor.findGrammaticalRelation(
-                    seed, relationType, minLogDice, topCollocates);
+                    seed, legacyRelationType, minLogDice, topCollocates);
                 seedToCollocates.put(seed, collocates);
                 
                 // Track common collocates (intersection across all seeds)
@@ -711,11 +848,11 @@ public class WordSketchApiServer {
             response.put("status", "ok");
             response.put("seeds", new ArrayList<>(seeds));
             response.put("seed_count", seeds.size());
-            response.put("relation_type", relationType.name());
+            response.put("relation_type", relationType);
 
             // Parameters used
             Map<String, Object> paramsUsed = new HashMap<>();
-            paramsUsed.put("relation", relationType.name());
+            paramsUsed.put("relation", relationType);
             paramsUsed.put("top", topCollocates);
             paramsUsed.put("min_shared", minShared);
             paramsUsed.put("min_logdice", minLogDice);
@@ -750,7 +887,7 @@ public class WordSketchApiServer {
                     edgeMap.put("source", seed);
                     edgeMap.put("target", wsr.getLemma());
                     edgeMap.put("weight", wsr.getLogDice());
-                    edgeMap.put("type", relationType.name());
+                    edgeMap.put("type", relationType);
                     edges.add(edgeMap);
                 }
             }
@@ -971,6 +1108,7 @@ public class WordSketchApiServer {
             String word1 = params.get("word1");
             String word2 = params.get("word2");
             String relation = params.getOrDefault("relation", "");
+            String collocatePos = params.getOrDefault("collocate_pos", "");
             int limit = Integer.parseInt(params.getOrDefault("limit", "10"));
 
             if (word1 == null || word1.isEmpty() || word2 == null || word2.isEmpty()) {
@@ -979,11 +1117,11 @@ public class WordSketchApiServer {
             }
 
             // Create explorer and fetch examples using SpanQuery + DocValues
-            pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer explorer = 
-                new pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer(indexPath);
+            pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer explorer =
+                new pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer(indexPath, grammarConfig);
             
             List<pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample> examples = 
-                explorer.fetchExamples(word1, word2, relation, limit);
+                explorer.fetchExamples(word1, word2, relation, collocatePos, limit);
             explorer.close();
 
             // Format response
@@ -992,6 +1130,7 @@ public class WordSketchApiServer {
             response.put("word1", word1);
             response.put("word2", word2);
             response.put("relation", relation);
+            response.put("collocate_pos", collocatePos);
             response.put("limit_requested", limit);
             response.put("count", examples.size());
 
@@ -999,11 +1138,11 @@ public class WordSketchApiServer {
             List<Map<String, Object>> examplesList = new ArrayList<>();
             for (pl.marcinmilkowski.word_sketch.query.ConcordanceExplorer.ConcordanceExample ex : examples) {
                 Map<String, Object> exMap = new HashMap<>();
-                exMap.put("sentence", ex.sentence);
+                exMap.put("sentence", ex.getSentence());
                 exMap.put("highlighted", ex.getHighlightedSentence());
                 exMap.put("raw", ex.getRawSentence());
-                exMap.put("word1_positions", ex.positions1);
-                exMap.put("word2_positions", ex.positions2);
+                exMap.put("word1_positions", ex.getPositions1());
+                exMap.put("word2_positions", ex.getPositions2());
                 examplesList.add(exMap);
             }
 
@@ -1040,8 +1179,20 @@ public class WordSketchApiServer {
     }
 
     /**
-     * POST /api/algorithm - Set the algorithm for HybridQueryExecutor.
-     * Body: { "algorithm": "SPAN_COUNT" | "SAMPLE_SCAN" }
+     * POST /api/algorithm - Get or set the algorithm for HybridQueryExecutor.
+     *
+     * Supported algorithms (summary):
+     * - PRECOMPUTED — Use precomputed collocations (fast, recommended; requires collocations.bin).
+     * - SAMPLE_SCAN — Legacy sample‑scan algorithm (deprecated; samples sentences and scans tokens).
+     * - SPAN_COUNT  — Legacy span‑count algorithm: iterate candidate lemmas (from stats)
+     *                 and count matches using SpanNear queries against the index. Accurate
+     *                 for on‑the‑fly counting but significantly slower than PRECOMPUTED.
+     *                 Kept for compatibility and debugging; deprecated and scheduled for
+     *                 removal in a future major release.
+     *
+     * GET returns current algorithm and available options. POST body example:
+     *   { "algorithm": "PRECOMPUTED" | "SAMPLE_SCAN" | "SPAN_COUNT",
+     *     "min_candidate_frequency": 5 }
      */
     private void handleAlgorithm(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         addCorsHeaders(exchange);
@@ -1057,7 +1208,17 @@ public class WordSketchApiServer {
             if (executor instanceof HybridQueryExecutor hybrid) {
                 Map<String, Object> response = new HashMap<>();
                 response.put("algorithm", hybrid.getAlgorithm().name());
-                response.put("available", List.of("SAMPLE_SCAN", "SPAN_COUNT"));
+                // Keep the simple available list for backwards compatibility
+                response.put("available", List.of("PRECOMPUTED", "SAMPLE_SCAN", "SPAN_COUNT"));
+
+                // Provide human-readable descriptions for each algorithm (non-breaking addition)
+                Map<String, String> availableInfo = Map.of(
+                    "PRECOMPUTED", "Precomputed collocations (fast, requires collocations.bin)",
+                    "SAMPLE_SCAN", "Legacy sample-scan algorithm (deprecated)",
+                    "SPAN_COUNT", "Legacy span-count algorithm: iterate candidates and count using SpanNear (deprecated; slower but accurate)"
+                );
+                response.put("available_info", availableInfo);
+
                 response.put("min_candidate_frequency", hybrid.getMinCandidateFrequency());
                 sendJson(exchange, 200, response);
             } else {
@@ -1162,76 +1323,6 @@ public class WordSketchApiServer {
         }
     }
 
-    /**
-     * Legacy sketch handler for backward compatibility.
-     */
-    private void handleLegacySketch(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendError(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        String path = exchange.getRequestURI().getPath();
-        String[] parts = path.split("/");
-        if (parts.length < 3) {
-            sendError(exchange, 400, "Missing lemma parameter");
-            return;
-        }
-
-        String lemma = parts[parts.length - 1];
-
-        // Parse query parameters
-        String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = parseQueryParams(query);
-
-        double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "0"));
-        int limit = Integer.parseInt(params.getOrDefault("limit", "50"));
-
-        List<WordSketchQueryExecutor.WordSketchResult> results =
-            executor.findCollocations(lemma, "[tag=nn.*]~{0,3}", minLogDice, limit);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "ok");
-        response.put("lemma", lemma);
-        response.put("patterns", results);
-
-        sendJson(exchange, 200, response);
-    }
-
-    /**
-     * Legacy query handler for backward compatibility.
-     */
-    private void handleLegacyQuery(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
-        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendError(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        String body = readRequestBody(exchange);
-        JSONObject request = JSON.parseObject(body);
-
-        String lemma = request.getString("lemma");
-        String cql = request.getString("cql");
-        double minLogDice = request.getDoubleValue("min_logdice");
-        int limit = request.getIntValue("limit");
-
-        if (lemma == null || cql == null) {
-            sendError(exchange, 400, "Missing required fields: lemma, cql");
-            return;
-        }
-
-        List<WordSketchQueryExecutor.WordSketchResult> results =
-            executor.findCollocations(lemma, cql, minLogDice, limit);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "ok");
-        response.put("lemma", lemma);
-        response.put("cql", cql);
-        response.put("results", results);
-
-        sendJson(exchange, 200, response);
-    }
-
     private Map<String, String> parseQueryParams(String query) {
         Map<String, String> params = new HashMap<>();
         if (query == null || query.isEmpty()) {
@@ -1264,7 +1355,7 @@ public class WordSketchApiServer {
         while ((len = is.read(buffer)) != -1) {
             baos.write(buffer, 0, len);
         }
-        return baos.toString("UTF-8");
+        return baos.toString(StandardCharsets.UTF_8);
     }
 
     private void sendJson(com.sun.net.httpserver.HttpExchange exchange, int status, Map<String, Object> data)
@@ -1294,15 +1385,73 @@ public class WordSketchApiServer {
     }
 
     /**
+     * Convert grammar relation_type string to QueryExecutor.RelationType enum.
+     * This is a temporary bridge until exploration is fully grammar-driven.
+     */
+    private QueryExecutor.RelationType toLegacyRelationType(String relationType) {
+        if (relationType == null) {
+            return QueryExecutor.RelationType.ADJ_PREDICATE;
+        }
+        return switch (relationType.toUpperCase()) {
+            case "ADJ_MODIFIER" -> QueryExecutor.RelationType.ADJ_MODIFIER;
+            case "ADJ_PREDICATE" -> QueryExecutor.RelationType.ADJ_PREDICATE;
+            case "SUBJECT_OF" -> QueryExecutor.RelationType.SUBJECT_OF;
+            case "OBJECT_OF" -> QueryExecutor.RelationType.OBJECT_OF;
+            default -> QueryExecutor.RelationType.ADJ_PREDICATE;
+        };
+    }
+
+    /**
      * Relation definition record.
      */
-    private record RelationDefinition(String id, String name, String pattern, String posGroup) {
+    private record RelationDefinition(String id,
+                                      String name,
+                                      String pattern,
+                                      String posGroup,
+                                      QueryExecutor.RelationType grammaticalRelationType) {
+        RelationDefinition(String id, String name, String pattern, String posGroup) {
+            this(id, name, pattern, posGroup, null);
+        }
+
+        /**
+         * Create RelationDefinition from GrammarConfigLoader.RelationConfig.
+         */
+        static RelationDefinition fromConfig(GrammarConfigLoader.RelationConfig cfg) {
+            QueryExecutor.RelationType relType = null;
+            if (cfg.relationType() != null) {
+                try {
+                    relType = QueryExecutor.RelationType.valueOf(cfg.relationType());
+                } catch (IllegalArgumentException ignored) {
+                    // Not a special relation type
+                }
+            }
+            return new RelationDefinition(
+                cfg.id(),
+                cfg.name(),
+                cfg.cqlPattern(),
+                cfg.headPos(),
+                relType
+            );
+        }
+
+        String collocatePosGroup() {
+            String normalized = pattern.toLowerCase(Locale.ROOT);
+            if (normalized.contains("tag=in")) return "prep";
+            if (normalized.contains("tag=rp") || normalized.contains("tag=to")) return "part";
+            if (normalized.contains("tag=jj")) return "adj";
+            if (normalized.contains("tag=vb")) return "verb";
+            if (normalized.contains("tag=nn") || normalized.contains("tag=pos")) return "noun";
+            if (normalized.contains("tag=rb")) return "adv";
+            return "other";
+        }
+
         Map<String, Object> toMap() {
             Map<String, Object> map = new HashMap<>();
             map.put("id", id);
             map.put("name", name);
             map.put("pattern", pattern);
             map.put("pos_group", posGroup);
+            map.put("collocate_pos_group", collocatePosGroup());
             return map;
         }
     }
@@ -1314,6 +1463,7 @@ public class WordSketchApiServer {
         private QueryExecutor executor;
         private String indexPath;
         private int port = 8080;
+        private GrammarConfigLoader grammarConfig;
 
         public Builder withExecutor(QueryExecutor executor) {
             this.executor = executor;
@@ -1330,8 +1480,13 @@ public class WordSketchApiServer {
             return this;
         }
 
+        public Builder withGrammarConfig(GrammarConfigLoader grammarConfig) {
+            this.grammarConfig = grammarConfig;
+            return this;
+        }
+
         public WordSketchApiServer build() {
-            return new WordSketchApiServer(executor, indexPath, port);
+            return new WordSketchApiServer(executor, indexPath, port, grammarConfig);
         }
     }
 

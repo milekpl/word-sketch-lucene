@@ -71,19 +71,19 @@ public interface QueryExecutor extends Closeable {
      */
     enum RelationType {
         /** Adjective modifiers: "good theory" */
-        ADJ_MODIFIER("[tag=jj.*]", 
+        ADJ_MODIFIER("[tag=jj.*]",
             "[lemma=\"%s\"] [tag=\"JJ.*\"]"),
-        
+
         /** Adjectival predicates: "the theory is valid" - using copula be */
-        ADJ_PREDICATE("[tag=jj.*]", 
+        ADJ_PREDICATE("[tag=jj.*]",
             "[lemma=\"%s\"] [tag=\"VB.*\"] [tag=\"JJ.*\"]"),
-        
+
         /** Verbs with noun as subject: "the theory explains..." */
-        SUBJECT_OF("[tag=vb.*]", 
+        SUBJECT_OF("[tag=vb.*]",
             "[lemma=\"%s\"] [tag=\"VB.*\"]"),
-        
+
         /** Verbs with noun as object: "develop the theory" */
-        OBJECT_OF("[tag=vb.*]", 
+        OBJECT_OF("[tag=vb.*]",
             "[tag=\"VB.*\"] [lemma=\"%s\"]");
 
         private final String simplePattern;
@@ -95,8 +95,8 @@ public interface QueryExecutor extends Closeable {
         }
 
         public String getSimplePattern() { return simplePattern; }
-        public String getFullPattern(String headword) { 
-            return String.format(fullPattern, headword.toLowerCase()); 
+        public String getFullPattern(String headword) {
+            return String.format(fullPattern, headword.toLowerCase());
         }
     }
 

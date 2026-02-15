@@ -152,6 +152,52 @@ java -jar word-sketch-lucene.jar hybrid-query --index data/index/ --lemma theory
   --pattern "[tag=\"vb.*\"]" --limit 20
 ```
 
+### Grammar Configuration
+
+The grammar configuration (relations, copulas, CQL patterns) is externalized in JSON:
+
+**Config file:** `grammars/relations.json`
+
+```json
+{
+  "version": "1.0",
+  "copulas": ["be", "appear", "seem", "become", ...],
+  "relations": [
+    {
+      "id": "noun_adj_predicates",
+      "name": "Adjectives (predicative)",
+      "head_pos": "noun",
+      "collocate_pos": "adj",
+      "cql_pattern": "[tag=jj.*]",
+      "uses_copula": true,
+      "default_slop": 8,
+      "relation_type": "ADJ_PREDICATE",
+      "exploration_enabled": true
+    },
+    ...
+  ]
+}
+```
+
+**Fields:**
+- `id` - Unique relation identifier
+- `name` - Human-readable name
+- `head_pos` - POS group of the head word (noun, verb, adj)
+- `collocate_pos` - POS group of the collocate
+- `cql_pattern` - CQL pattern to match
+- `uses_copula` - Whether this relation uses copula verbs
+- `default_slop` - Default distance window
+- `relation_type` - Semantic relation type
+- `exploration_enabled` - Whether usable for semantic field exploration
+
+**API endpoint:**
+```bash
+# Get active grammar configuration
+curl http://localhost:8080/api/grammar/active
+```
+
+To modify relations or add new ones, edit `grammars/relations.json` and restart the server.
+
 ### REST API Endpoints
 
 #### Health Check

@@ -1,15 +1,12 @@
 package pl.marcinmilkowski.word_sketch.query;
 
 import org.apache.lucene.index.Term;
-import org.apache.lucene.search.BooleanClause;
-import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.queries.spans.SpanContainingQuery;
 import org.apache.lucene.queries.spans.SpanFirstQuery;
 import org.apache.lucene.queries.spans.SpanMultiTermQueryWrapper;
 import org.apache.lucene.queries.spans.SpanNearQuery;
-import org.apache.lucene.queries.spans.SpanNotQuery;
 import org.apache.lucene.queries.spans.SpanOrQuery;
 import org.apache.lucene.queries.spans.SpanQuery;
 import org.apache.lucene.queries.spans.SpanTermQuery;
@@ -93,19 +90,18 @@ public class CQLToLuceneCompiler {
      * Get the field name from a SpanQuery.
      */
     private String getQueryField(SpanQuery query) {
-        if (query instanceof SpanTermQuery) {
-            return ((SpanTermQuery) query).getTerm().field();
-        } else if (query instanceof SpanMultiTermQueryWrapper) {
-            var mtqw = (SpanMultiTermQueryWrapper<?>) query;
-            if (mtqw.getWrappedQuery() instanceof WildcardQuery) {
-                return ((WildcardQuery) mtqw.getWrappedQuery()).getTerm().field();
+        if (query instanceof SpanTermQuery spanTermQuery) {
+            return spanTermQuery.getTerm().field();
+        } else if (query instanceof SpanMultiTermQueryWrapper<?> mtqw) {
+            if (mtqw.getWrappedQuery() instanceof WildcardQuery wildcardQuery) {
+                return wildcardQuery.getTerm().field();
             }
-        } else if (query instanceof SpanContainingQuery) {
+        } else if (query instanceof SpanContainingQuery spanContainingQuery) {
             // Recursively check inner query
-            return getQueryField(((SpanContainingQuery) query).getBig());
-        } else if (query instanceof SpanNearQuery) {
+            return getQueryField(spanContainingQuery.getBig());
+        } else if (query instanceof SpanNearQuery spanNearQuery) {
             // For SpanNearQuery, return the field of the first clause
-            SpanQuery[] clauses = ((SpanNearQuery) query).getClauses();
+            SpanQuery[] clauses = spanNearQuery.getClauses();
             if (clauses.length > 0) {
                 return getQueryField(clauses[0]);
             }
@@ -159,10 +155,7 @@ public class CQLToLuceneCompiler {
 
         // If target is empty, use constraint as the primary query
         if (target.isEmpty() && constraint != null) {
-            query = buildConstraintQuery(constraint);
-            if (element.isLabeled()) {
-                query = new SpanFirstQuery(query, element.getPosition());
-            }
+            query = applyLabeledWrapper(buildConstraintQuery(constraint), element);
         } else if (target.isEmpty() && constraint == null) {
             // Match all tokens - use wildcard query on lemma field
             MultiTermQuery mtq = new WildcardQuery(new Term(FIELD_LEMMA, "*"));
@@ -170,10 +163,7 @@ public class CQLToLuceneCompiler {
         } else if (constraint != null && isGenericTarget(target)) {
             // Target is generic (like .*), use constraint as the primary query
             // This handles cross-field constraints like target=.* with lemma=problem
-            query = buildConstraintQuery(constraint);
-            if (element.isLabeled()) {
-                query = new SpanFirstQuery(query, element.getPosition());
-            }
+            query = applyLabeledWrapper(buildConstraintQuery(constraint), element);
         } else {
             if (element.isLabeled()) {
                 SpanQuery baseQuery = buildTermQuery(target, field);
@@ -351,6 +341,16 @@ public class CQLToLuceneCompiler {
             // Post-filtering in application code will check the constraint
             return baseQuery;
         }
+    }
+
+    /**
+     * Apply labeled wrapper (SpanFirstQuery) if element is labeled.
+     */
+    private SpanQuery applyLabeledWrapper(SpanQuery query, CQLPattern.PatternElement element) {
+        if (element.isLabeled()) {
+            return new SpanFirstQuery(query, element.getPosition());
+        }
+        return query;
     }
 
     private SpanQuery buildConstraintQuery(CQLPattern.Constraint constraint) {

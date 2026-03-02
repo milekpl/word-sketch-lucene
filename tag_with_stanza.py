@@ -13,6 +13,7 @@ Requirements:
 """
 
 import argparse
+import gc
 import stanza
 import sys
 from pathlib import Path
@@ -99,8 +100,8 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=32,
-        help='Internal token batch size for the NLP model (GPU throughput tuning, default: 32)'
+        default=5000,
+        help='Internal sentence batch size for the NLP model (GPU throughput tuning, default: 5000)'
     )
     parser.add_argument(
         '--progress',
@@ -112,6 +113,18 @@ def main():
         '--paragraph-mode',
         action='store_true',
         help='Input uses blank-line-separated paragraphs instead of one sentence per line'
+    )
+    parser.add_argument(
+        '--chunk-size',
+        type=int,
+        default=5000,
+        help='Number of lines/paragraphs to batch together per nlp() call (default: 5000)'
+    )
+    parser.add_argument(
+        '--heartbeat',
+        type=int,
+        default=20,
+        help='Force gc.collect() + VRAM flush every N chunks (default: 20)'
     )
     
     args = parser.parse_args()
@@ -144,11 +157,14 @@ def main():
             lang=args.lang,
             processors='tokenize,pos,lemma,depparse',
             verbose=False,
-            # GPU settings
             use_gpu=use_cuda and not args.cpu,
-            gpu_memory_fraction=0.9,  # Use 90% of available GPU memory
-            # Batch processing for GPU efficiency
+            gpu_memory_fraction=0.9,
+            # Global default + per-processor overrides (depparse is the bottleneck)
             batch_size=args.batch_size,
+            tokenize_batch_size=args.batch_size,
+            pos_batch_size=args.batch_size,
+            lemma_batch_size=args.batch_size,
+            depparse_batch_size=args.batch_size,
         )
     except Exception as e:
         print(f"Error initializing Stanza: {e}", file=sys.stderr)
@@ -166,50 +182,87 @@ def main():
                 print(f"Error initializing Stanza on CPU: {e2}", file=sys.stderr)
                 print("Try running with --download flag to download the model first.", file=sys.stderr)
                 sys.exit(1)
+            use_cuda = False
         else:
             print("Try running with --download flag to download the model first.", file=sys.stderr)
             sys.exit(1)
-    
-    # Process and write output (streaming)
+
+    if use_cuda:
+        print(f"✓ Stanza pipeline active on GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        print("✓ Stanza pipeline active on CPU")
+
+    # Process and write output (chunked batching to prevent handle exhaustion)
     print(f"Streaming input: {args.input}")
-    print(f"Processing paragraphs one-by-one (model token batch={args.batch_size})...")
+    print(f"Chunk size: {args.chunk_size} units per nlp() call, heartbeat every {args.heartbeat} chunks")
+
+    def write_doc(doc, f, start_sent_id):
+        """Write a processed Stanza doc to CoNLL-U output, return (sentences, tokens) counts."""
+        sc = tc = 0
+        for sentence in doc.sentences:
+            sc += 1
+            tc += len(sentence.words)
+            sent_id = start_sent_id + sc
+            print(f"# sent_id = {sent_id}", file=f)
+            print(f"# text = {sentence.text}", file=f)
+            for word in sentence.words:
+                misc = f"Text={word.text}" if word.text else ""
+                print(
+                    word.id,
+                    word.text,
+                    word.lemma if word.lemma else '_',
+                    word.upos if word.upos else '_',
+                    word.xpos if word.xpos else '_',
+                    word.feats if word.feats else '_',
+                    word.head,
+                    word.deprel if word.deprel else '_',
+                    '_',
+                    misc,
+                    sep='\t',
+                    file=f
+                )
+            print(file=f)  # blank line after each sentence
+        return sc, tc
+
+    accumulated_lines = []
     with open(args.output, 'w', encoding='utf-8') as f:
         sentence_count = 0
         token_count = 0
         para_count = 0
+        chunk_count = 0
+
+        def flush_chunk(chunk, f):
+            nonlocal sentence_count, token_count, chunk_count
+            combined_text = "\n\n".join(chunk)
+            doc = nlp(combined_text)
+            sc, tc = write_doc(doc, f, sentence_count)
+            sentence_count += sc
+            token_count += tc
+            chunk_count += 1
+            del doc
+
+            if chunk_count % args.heartbeat == 0:
+                if use_cuda:
+                    torch.cuda.empty_cache()
+                gc.collect()
+                f.flush()
+                print(f"  ✓ Heartbeat: {para_count:,} units | {sentence_count:,} sentences | {token_count:,} tokens")
 
         for para in stream_units(args.input, args.paragraph_mode):
-            doc = nlp(para)
+            accumulated_lines.append(para)
             para_count += 1
+
+            if len(accumulated_lines) >= args.chunk_size:
+                flush_chunk(accumulated_lines, f)
+                accumulated_lines = []
+
             if para_count % args.progress == 0:
-                print(f"  Processed {para_count:,} paragraphs ({sentence_count:,} sentences, {token_count:,} tokens)...")
+                print(f"  Processed {para_count:,} units ({sentence_count:,} sentences, {token_count:,} tokens)...")
 
-            # Write in CoNLL-U format
-            for sentence in doc.sentences:
-                sentence_count += 1
-                token_count += len(sentence.words)
-
-                # Write CoNLL-U format
-                for word in sentence.words:
-                    # CoNLL-U columns:
-                    # ID FORM LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC
-                    misc = f"Text={word.text}" if word.text else ""
-                    print(
-                        word.id,
-                        word.text,
-                        word.lemma if word.lemma else '_',
-                        word.upos if word.upos else '_',
-                        word.xpos if word.xpos else '_',
-                        word.feats if word.feats else '_',
-                        word.head,
-                        word.deprel if word.deprel else '_',
-                        '_',
-                        misc,
-                        sep='\t',
-                        file=f
-                    )
-                # Empty line after each sentence
-                print(file=f)
+        # Flush any remaining units
+        if accumulated_lines:
+            flush_chunk(accumulated_lines, f)
+            accumulated_lines = []
 
         print(f"\nComplete!")
         print(f"  Paragraphs: {para_count:,}")

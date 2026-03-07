@@ -28,7 +28,7 @@ public class RadialPlot {
 
     // Spiral layout parameters (at baseline 800px canvas)
     private static final double SPIRAL_START_RADIUS  = 120.0; // first collocate distance from center
-    private static final double SPIRAL_RADIUS_STEP   = 7.93;  // outward step per item; keeps 30 items within ~250px radius
+    private static final double SPIRAL_RADIUS_STEP   = 7.93;  // outward step per item; keeps 30 items within ~350px radius
     private static final double CENTER_CIRCLE_RADIUS = 40.0;  // keyword circle radius
     private static final double MIN_COLLOCATE_RADIUS = 8.0;   // minimum collocate circle radius
     // Guide circle radii

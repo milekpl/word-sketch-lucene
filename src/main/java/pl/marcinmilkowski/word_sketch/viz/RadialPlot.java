@@ -22,6 +22,34 @@ public class RadialPlot {
     private static final DecimalFormat df = new DecimalFormat("0.00", dfs);
     private static final DecimalFormat dfInt = new DecimalFormat("0", dfs);
 
+    // Baseline canvas size (px) used to derive all spiral/layout constants.
+    // All pixel values are multiplied by scale = min(width, height) / BASELINE_CANVAS_SIZE.
+    private static final double BASELINE_CANVAS_SIZE = 800.0;
+
+    // Spiral layout parameters (at baseline 800px canvas)
+    private static final double SPIRAL_START_RADIUS  = 120.0; // first collocate distance from center
+    private static final double SPIRAL_RADIUS_STEP   = 7.93;  // outward step per item; keeps 30 items within ~350px radius
+    private static final double CENTER_CIRCLE_RADIUS = 40.0;  // keyword circle radius
+    private static final double MIN_COLLOCATE_RADIUS = 8.0;   // minimum collocate circle radius
+    // Guide circle radii
+    private static final double GUIDE_RADIUS_1 = 100.0;
+    private static final double GUIDE_RADIUS_2 = 200.0;
+    private static final double GUIDE_RADIUS_3 = 300.0;
+
+    // Stroke-width and font-size values (at baseline 800px canvas)
+    private static final double GUIDE_STROKE_WIDTH     = 0.5;
+    private static final double CONNECTOR_STROKE_WIDTH = 0.8;
+    private static final double CENTER_STROKE_WIDTH    = 2.0;
+    private static final double COLLOCATE_STROKE_WIDTH = 1.5;
+    private static final double LABEL_FONT_SIZE        = 11.0;
+    private static final double CENTER_FONT_SIZE       = 14.0;
+    // Label offset from collocate circle edge (above/below center)
+    private static final double LABEL_ABOVE_OFFSET     = 5.0;
+    private static final double LABEL_BELOW_OFFSET     = 12.0;
+    // Legend circle radius
+    private static final double LEGEND_CIRCLE_RADIUS   = 6.0;
+    private static final double LEGEND_CIRCLE_Y_OFFSET = -4.0; // vertical offset of legend circles from baseline
+
     private static String fmt(double value) {
         return df.format(value);
     }
@@ -71,6 +99,9 @@ public class RadialPlot {
         double centerX = width / 2.0;
         double centerY = height / 2.0;
 
+        // Scale factor: normalize all pixel values relative to an 800px baseline
+        double scale = Math.min(width, height) / BASELINE_CANVAS_SIZE;
+
         // Extract and sort collocates by absolute score (descending)
         collocates = new ArrayList<>();
         for (Item item : items) {
@@ -88,9 +119,9 @@ public class RadialPlot {
         if (!collocates.isEmpty()) {
             int n = collocates.size();
 
-            // Spiral parameters (matching expected format)
-            double startRadius = 100.0;
-            double radiusStep = 100.0; // Each item increases radius by ~100px
+            // Spiral parameters scaled to canvas size (baseline: 800px reference)
+            double startRadius = SPIRAL_START_RADIUS * scale;
+            double radiusStep = SPIRAL_RADIUS_STEP * scale;
 
             for (int i = 0; i < n; i++) {
                 Collocate c = collocates.get(i);
@@ -105,8 +136,8 @@ public class RadialPlot {
                 c.x = centerX + c.radius * Math.cos(c.angle);
                 c.y = centerY + c.radius * Math.sin(c.angle);
 
-                // Circle radius equals score value (as per test)
-                c.circleRadius = c.score;
+                // Circle radius based on absolute score magnitude, scaled to canvas
+                c.circleRadius = Math.abs(c.score) * scale;
             }
         }
     }
@@ -124,30 +155,30 @@ public class RadialPlot {
 
         double centerX = width / 2.0;
         double centerY = height / 2.0;
+        double scale = Math.min(width, height) / BASELINE_CANVAS_SIZE;
 
         svg.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + width + "\" height=\"" + height + "\" viewBox=\"0 0 " + width + " " + height + "\">\n");
 
-        // CSS styles
+        // CSS styles - stroke-width and font-size values scaled to canvas
         svg.append("  <style>\n");
         svg.append("    .background { fill: #fafafa; }\n");
-        svg.append("    .guide-circle { fill: none; stroke: #ddd; stroke-width: 1; }\n");
-        svg.append("    .connector { stroke: #888; stroke-width: 1; }\n");
-        svg.append("    .center-circle { fill: #2C3E50; }\n");
-        svg.append("    .collocate-circle { stroke: #333; stroke-width: 1; }\n");
-        svg.append("    .label { font-family: Arial, sans-serif; font-size: 11px; fill: #333; }\n");
-        svg.append("    .center-label { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: white; }\n");
+        svg.append(String.format("    .guide-circle { fill: none; stroke: #ddd; stroke-width: %s; }\n", fmt(GUIDE_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .connector { stroke: #888; stroke-width: %s; opacity: 0.4; }\n", fmt(CONNECTOR_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .center-circle { fill: #2C3E50; stroke: white; stroke-width: %s; }\n", fmt(CENTER_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .collocate-circle { stroke: white; stroke-width: %s; opacity: 0.9; }\n", fmt(COLLOCATE_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .label { font-family: Arial, sans-serif; font-size: %spx; fill: #333; }\n", fmt(LABEL_FONT_SIZE * scale)));
+        svg.append(String.format("    .center-label { font-family: Arial, sans-serif; font-size: %spx; font-weight: bold; fill: white; }\n", fmt(CENTER_FONT_SIZE * scale)));
         svg.append("  </style>\n");
 
         // Background
         svg.append("  <rect width=\"" + width + "\" height=\"" + height + "\" class=\"background\"/>\n");
 
-        // Guides group
+        // Guides group - radii scaled to canvas
         svg.append("  <g id=\"guides\">\n");
-        // Guide circles at 100, 200, 300
-        svg.append(String.format("    <circle class=\"guide-circle\" cx=\"%s\" cy=\"%s\" r=\"100.00\"/>\n", fmt(centerX), fmt(centerY)));
-        svg.append(String.format("    <circle class=\"guide-circle\" cx=\"%s\" cy=\"%s\" r=\"200.00\"/>\n", fmt(centerX), fmt(centerY)));
-        svg.append(String.format("    <circle class=\"guide-circle\" cx=\"%s\" cy=\"%s\" r=\"300.00\"/>\n", fmt(centerX), fmt(centerY)));
+        svg.append(String.format("    <circle class=\"guide-circle\" cx=\"%s\" cy=\"%s\" r=\"%s\"/>\n", fmt(centerX), fmt(centerY), fmt(GUIDE_RADIUS_1 * scale)));
+        svg.append(String.format("    <circle class=\"guide-circle\" cx=\"%s\" cy=\"%s\" r=\"%s\"/>\n", fmt(centerX), fmt(centerY), fmt(GUIDE_RADIUS_2 * scale)));
+        svg.append(String.format("    <circle class=\"guide-circle\" cx=\"%s\" cy=\"%s\" r=\"%s\"/>\n", fmt(centerX), fmt(centerY), fmt(GUIDE_RADIUS_3 * scale)));
         svg.append("  </g>\n");
 
         // Connectors group
@@ -174,21 +205,21 @@ public class RadialPlot {
                 fillColor = String.format("rgb(%d,%d,%d)", gray, gray, gray);
             }
 
-            // Draw collocate circle (radius = score, min 8)
-            double r = Math.max(8, c.circleRadius);
+            // Draw collocate circle (scaled radius, min 8*scale)
+            double r = Math.max(MIN_COLLOCATE_RADIUS * scale, c.circleRadius);
             svg.append(String.format("    <circle class=\"collocate-circle\" cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"%s\"/>\n",
                 fmt(c.x), fmt(c.y), fmt(r), fillColor));
 
             // Draw label - position above or below circle
-            double labelY = c.y < centerY ? c.y - r - 5 : c.y + r + 12;
+            double labelY = c.y < centerY ? c.y - r - LABEL_ABOVE_OFFSET * scale : c.y + r + LABEL_BELOW_OFFSET * scale;
             svg.append(String.format("    <text class=\"label\" x=\"%s\" y=\"%s\" text-anchor=\"middle\">%s</text>\n",
                 fmt(c.x), fmt(labelY), escapeXml(c.word)));
         }
         svg.append("  </g>\n");
 
-        // Center circle and label
+        // Center circle and label - scaled to canvas
         svg.append("  <g id=\"center\">\n");
-        svg.append(String.format("    <circle class=\"center-circle\" cx=\"%s\" cy=\"%s\" r=\"40.00\"/>\n", fmt(centerX), fmt(centerY)));
+        svg.append(String.format("    <circle class=\"center-circle\" cx=\"%s\" cy=\"%s\" r=\"%s\"/>\n", fmt(centerX), fmt(centerY), fmt(CENTER_CIRCLE_RADIUS * scale)));
         svg.append(String.format("    <text class=\"center-label\" x=\"%s\" y=\"%s\" text-anchor=\"middle\" dominant-baseline=\"middle\">%s</text>\n",
             fmt(centerX), fmt(centerY), escapeXml(centerWord)));
         svg.append("  </g>\n");
@@ -197,9 +228,9 @@ public class RadialPlot {
         if ("signed".equals(mode)) {
             svg.append("  <g id=\"legend\" transform=\"translate(20, " + (height - 40) + ")\">\n");
             svg.append("    <text class=\"label\" x=\"0\" y=\"0\">Positive (A&gt;B)</text>\n");
-            svg.append("    <circle cx=\"-15\" cy=\"-4\" r=\"6\" fill=\"rgb(43,131,186)\"/>\n");
+            svg.append(String.format("    <circle cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"rgb(43,131,186)\"/>\n", fmt(-15.0 * scale), fmt(LEGEND_CIRCLE_Y_OFFSET * scale), fmt(LEGEND_CIRCLE_RADIUS * scale)));
             svg.append("    <text class=\"label\" x=\"120\" y=\"0\">Negative (B&gt;A)</text>\n");
-            svg.append("    <circle cx=\"105\" cy=\"-4\" r=\"6\" fill=\"rgb(215,25,28)\"/>\n");
+            svg.append(String.format("    <circle cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"rgb(215,25,28)\"/>\n", fmt(105.0 * scale), fmt(LEGEND_CIRCLE_Y_OFFSET * scale), fmt(LEGEND_CIRCLE_RADIUS * scale)));
             svg.append("  </g>\n");
         }
 

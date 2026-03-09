@@ -56,9 +56,8 @@ python -m http.server 3000 --directory webapp
 See `src/main/java/pl/marcinmilkowski/word_sketch/Main.java`:
 
 ```bash
-java -jar concept-sketch.jar index --corpus text.txt --output data/index/
-java -jar concept-sketch.jar conllu --input corpus.conllu --output data/index/
-java -jar concept-sketch.jar query --index data/index/ --lemma house
+java -jar concept-sketch.jar blacklab-index --input corpus.conllu --output data/index/
+java -jar concept-sketch.jar blacklab-query --index data/index/ --lemma house
 java -jar concept-sketch.jar server --index data/index/ --port 8080
 ```
 
@@ -259,12 +258,10 @@ Where `f(AB)` = collocate frequency, `f(A)` = headword frequency, `f(B)` = collo
 ## Key Components
 
 - **[Main.java](src/main/java/pl/marcinmilkowski/word_sketch/Main.java)**: CLI entry point
-- **[LuceneIndexer.java](src/main/java/pl/marcinmilkowski/word_sketch/indexer/LuceneIndexer.java)**: Index creation with 256MB RAM buffer
 - **[grammar/CQLParser.java](src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java)**: CQL pattern parser
 - **[query/CQLToLuceneCompiler.java](src/main/java/pl/marcinmilkowski/word_sketch/query/CQLToLuceneCompiler.java)**: Compiles CQL to Lucene SpanQueries
 - **[query/WordSketchQueryExecutor.java](src/main/java/pl/marcinmilkowski/word_sketch/query/WordSketchQueryExecutor.java)**: Query executor with logDice scoring
 - **[tagging/SimpleTagger.java](src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java)**: Rule-based POS tagger
-- **[tagging/UDPipeTagger.java](src/main/java/pl/marcinmilkowski/word_sketch/tagging/UDPipeTagger.java)**: UDPipe 2 integration for POS tagging
 - **[api/WordSketchApiServer.java](src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java)**: REST API endpoints
 - **[sketchgrammar.wsdef.m4](sketchgrammar.wsdef.m4)**: English Penn Treebank 3.3 grammar in m4 macro format
 

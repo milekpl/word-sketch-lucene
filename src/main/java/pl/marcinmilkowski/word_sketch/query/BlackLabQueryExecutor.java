@@ -29,14 +29,7 @@ import java.util.*;
 public class BlackLabQueryExecutor implements QueryExecutor {
     private static final Logger logger = LoggerFactory.getLogger(BlackLabQueryExecutor.class);
 
-    private static final java.util.regex.Pattern LEMMA_ATTR      = java.util.regex.Pattern.compile("lemma=\"([^\"]+)\"");
-    private static final java.util.regex.Pattern LEMMA_ATTR_ANY  = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE);
-    private static final java.util.regex.Pattern XPOS_ATTR       = java.util.regex.Pattern.compile("xpos=\"([^\"]+)\"");
-    private static final java.util.regex.Pattern UPOS_ATTR       = java.util.regex.Pattern.compile("upos=\"([^\"]+)\"");
-    private static final java.util.regex.Pattern SENT_BOUND_LEFT  = java.util.regex.Pattern.compile("[.!?]\\s+(?=[A-Z]|$)");
-    private static final java.util.regex.Pattern SENT_BOUND_RIGHT = java.util.regex.Pattern.compile("[.!?](?=\\s+[A-Z]|\\s*$)");
-    private static final java.util.regex.Pattern XML_SENT_OPEN   = java.util.regex.Pattern.compile("<s(?:\\s[^>]*)?>", java.util.regex.Pattern.CASE_INSENSITIVE);
-    private static final java.util.regex.Pattern XML_SENT_CLOSE  = java.util.regex.Pattern.compile("</s>", java.util.regex.Pattern.CASE_INSENSITIVE);
+
 
     private final BlackLabIndex blackLabIndex;
     private final String indexPath;
@@ -103,7 +96,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 }
 
                 // Extract lemma from the matched text (XML format first, plain text fallback)
-                String collocateLemma = extractLemmaFromMatch(identity);
+                String collocateLemma = BlackLabSnippetParser.extractLemmaFromMatch(identity);
                 if (collocateLemma == null || collocateLemma.isEmpty()) {
                     // HitPropertyHitText returns plain text (e.g. "empirical test"), not XML.
                     // The collocate is the last whitespace-separated token.
@@ -122,7 +115,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
                 if (logDice >= minLogDice) {
                     double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
-                    String pos = extractPosFromMatch(identity);
+                    String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
                     results.add(new QueryResults.WordSketchResult(
                         collocateLemma, pos, f_xy, logDice, relFreq, Collections.emptyList()));
                 }
@@ -139,42 +132,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             logger.warn("BCQL parse error for pattern: {}. Error: {}", cqlPattern, e.getMessage());
             return Collections.emptyList();
         }
-    }
-
-    /**
-     * Extract lemma from matched text (XML format).
-     */
-    private String extractLemmaFromMatch(String matchText) {
-        if (matchText == null || matchText.isEmpty()) {
-            return null;
-        }
-        // Find all lemma="xxx" patterns and get the last one (the collocate)
-        java.util.regex.Matcher m = LEMMA_ATTR.matcher(matchText);
-        String lastLemma = null;
-        while (m.find()) {
-            lastLemma = m.group(1);
-        }
-        return lastLemma != null ? lastLemma.toLowerCase() : null;
-    }
-
-    /**
-     * Extract POS tag from matched text (XML format).
-     */
-    private String extractPosFromMatch(String matchText) {
-        if (matchText == null || matchText.isEmpty()) {
-            return "unknown";
-        }
-        // Try xpos first
-        java.util.regex.Matcher m = XPOS_ATTR.matcher(matchText);
-        if (m.find()) {
-            return m.group(1);
-        }
-        // Fallback to upos
-        m = UPOS_ATTR.matcher(matchText);
-        if (m.find()) {
-            return m.group(1);
-        }
-        return "unknown";
     }
 
     public List<QueryResults.WordSketchResult> findDependencyCollocations(
@@ -269,11 +226,11 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             long totalHits = hits.size();
 
             // Extract headword for logDice calculation
-            String headword = extractHeadword(bcqlPattern);
+            String headword = BlackLabSnippetParser.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
 
             // Get concordances: 60 tokens each side captures most sentences; post-process to trim at boundaries.
-            int collocatePos = findLabelPosition(bcqlPattern, 2);
+            int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
             int sampleSize = (int) Math.min(totalHits, maxResults * 10L);
 
             // Single pass: collect per-hit data and build frequency map.
@@ -298,25 +255,25 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                             String matchXml = parts[1] != null ? parts[1] : "";
                             String rightXml = parts[2] != null ? parts[2] : "";
                             xmlSnippet = leftXml + matchXml + rightXml;
-                            leftText   = extractPlainTextFromXml(trimLeftXmlAtSentence(leftXml));
-                            matchText  = extractPlainTextFromXml(matchXml);
-                            rightText  = extractPlainTextFromXml(trimRightXmlAtSentence(rightXml));
+                            leftText   = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
+                            matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
+                            rightText  = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
 
                             // Extract collocate lemma from match XML at the labeled position
                             if (collocatePos > 0) {
-                                String extracted = extractCollocateFromXmlByPosition(matchXml, collocatePos);
+                                String extracted = BlackLabSnippetParser.extractCollocateFromXmlByPosition(matchXml, collocatePos);
                                 if (extracted != null && !extracted.isEmpty()) {
                                     collocateLemma = extracted;
                                 } else {
                                     // Fallback: last lemma in match XML
-                                    extracted = extractCollocateFromSnippet(matchXml);
+                                    extracted = BlackLabSnippetParser.extractCollocateFromSnippet(matchXml);
                                     if (extracted != null && !extracted.isEmpty()) {
                                         collocateLemma = extracted;
                                     }
                                 }
                             } else {
                                 // No labeled position: use last lemma in match XML as best-effort collocate
-                                collocateLemma = extractCollocateFromSnippet(matchXml);
+                                collocateLemma = BlackLabSnippetParser.extractCollocateFromSnippet(matchXml);
                             }
                         }
                     }
@@ -345,7 +302,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 double logDice = (headwordFreq > 0 && f_y > 0)
                     ? LogDiceCalculator.compute(f_xy, headwordFreq, f_y) : 0.0;
 
-                String plainText = trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
+                String plainText = BlackLabSnippetParser.trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
 
                 results.add(new QueryResults.ConcordanceResult(
                     plainText, rec.xmlSnippet(), rec.start(), rec.end(), String.valueOf(rec.docId()),
@@ -361,159 +318,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         } catch (InvalidQuery e) {
             throw new IOException("BCQL parse error: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Trim left/match/right plain-text parts to a single sentence.
-     * Scans the left context backward for the last sentence boundary and
-     * the right context forward for the first sentence boundary.
-     */
-    private String trimToSentence(String left, String match, String right) {
-        // Trim left: keep only text after the last sentence-final punctuation
-        String trimmedLeft = trimLeftAtSentenceBoundary(left);
-        // Trim right: keep only text up to and including the first sentence-final punctuation
-        String trimmedRight = trimRightAtSentenceBoundary(right);
-        String assembled = (trimmedLeft.isEmpty() ? "" : trimmedLeft + " ") + match
-                         + (trimmedRight.isEmpty() ? "" : " " + trimmedRight);
-        return detokenize(assembled);
-    }
-
-    /** Keep only the portion of left-context text AFTER the last sentence boundary. */
-    private String trimLeftAtSentenceBoundary(String text) {
-        if (text == null || text.isEmpty()) return "";
-        // Sentence boundaries: ". ", "! ", "? " followed by uppercase letter or end of string
-        java.util.regex.Matcher m = SENT_BOUND_LEFT.matcher(text);
-        int lastEnd = 0;
-        while (m.find()) lastEnd = m.end();
-        return lastEnd > 0 ? text.substring(lastEnd).trim() : text.trim();
-    }
-
-    /** Keep only the portion of right-context text UP TO AND INCLUDING the first sentence boundary. */
-    private String trimRightAtSentenceBoundary(String text) {
-        if (text == null || text.isEmpty()) return "";
-        // Look for a period/bang/question that ends a sentence:
-        // must be followed by whitespace+uppercase or end-of-string.
-        java.util.regex.Matcher m = SENT_BOUND_RIGHT.matcher(text);
-        if (m.find()) return text.substring(0, m.end()).trim();
-        return text.trim();
-    }
-
-    /** Keep only content after the last &lt;s&gt; open tag in the left-context XML. */
-    private String trimLeftXmlAtSentence(String xml) {
-        if (xml == null || xml.isEmpty()) return "";
-        java.util.regex.Matcher m = XML_SENT_OPEN.matcher(xml);
-        int lastTagEnd = -1;
-        while (m.find()) lastTagEnd = m.end();
-        return (lastTagEnd >= 0) ? xml.substring(lastTagEnd) : xml;
-    }
-
-    /** Keep only content before the first &lt;/s&gt; close tag in the right-context XML. */
-    private String trimRightXmlAtSentence(String xml) {
-        if (xml == null || xml.isEmpty()) return "";
-        java.util.regex.Matcher m = XML_SENT_CLOSE.matcher(xml);
-        return m.find() ? xml.substring(0, m.start()) : xml;
-    }
-
-    /**
-     * Extract plain text from XML snippet by stripping tags.
-     */
-    private String extractPlainTextFromXml(String xmlSnippet) {
-        if (xmlSnippet == null || xmlSnippet.isEmpty()) {
-            return "";
-        }
-        // Strip tags without injecting extra spaces — preserves whitespace already between elements.
-        String text = xmlSnippet.replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
-        return detokenize(text);
-    }
-
-    /** Remove spurious spaces introduced by whitespace-separated tokenization (e.g. "word ," → "word,"). */
-    private String detokenize(String text) {
-        if (text == null || text.isEmpty()) return text;
-        return text
-            .replaceAll(" +([.,!?:;)\\]])", "$1")   // no space before closing punctuation
-            .replaceAll("([({\\[]) +", "$1");         // no space after opening brackets
-    }
-
-    /**
-     * Extract collocate lemma from XML by labeled position.
-     * @param xmlSnippet The XML snippet containing the full sentence
-     * @param position The 1-based position of the token to extract (from findLabelPosition)
-     */
-    private String extractCollocateFromXmlByPosition(String xmlSnippet, int position) {
-        if (xmlSnippet == null || xmlSnippet.isEmpty() || position < 1) {
-            return null;
-        }
-        // Find all lemma="xxx" patterns in order
-        java.util.regex.Matcher m = LEMMA_ATTR.matcher(xmlSnippet);
-
-        int count = 0;
-        while (m.find()) {
-            count++;
-            if (count == position) {
-                return m.group(1);
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Extract lemma from match text (space-separated tokens from Kwic.match()).
-     * @param matchText Space-separated tokens from the match
-     * @param position 1-based position within the match tokens
-     */
-    private String extractCollocateFromMatchText(String matchText, int position) {
-        if (matchText == null || matchText.isEmpty() || position < 1) {
-            return null;
-        }
-        // matchText is plain text like "theory be relevant"
-        // Tokenize by whitespace
-        String[] tokens = matchText.trim().split("\\s+");
-        if (position > tokens.length) {
-            return null;
-        }
-        // Return the token at the specified position (it's already plain text)
-        return tokens[position - 1].toLowerCase();
-    }
-
-    /**
-     * Extract collocate lemma from the BCQL pattern for a given hit index.
-     * Uses the position labeled "2:" in the pattern.
-     */
-    private String extractCollocateFromPattern(String bcqlPattern, int hitIndex) {
-        // Find position 2: in the pattern
-        int pos2Index = findLabelPosition(bcqlPattern, 2);
-        if (pos2Index <= 0) {
-            return "unknown";
-        }
-        // For now, return a placeholder - actual extraction would need hit-specific data
-        return "unknown";
-    }
-
-    /**
-     * Extract the headword lemma from a BCQL pattern.
-     * Looks for patterns like lemma="word" or lemma='word'
-     */
-    private String extractHeadword(String bcqlPattern) {
-        // Simple regex to find lemma="xxx" or lemma='xxx'
-        java.util.regex.Matcher m = LEMMA_ATTR_ANY.matcher(bcqlPattern);
-        if (m.find()) {
-            return m.group(1);
-        }
-        return null;
-    }
-
-    /**
-     * Extract the collocate lemma from a concordance snippet (XML format).
-     * Finds the last lemma attribute in the snippet.
-     */
-    private String extractCollocateFromSnippet(String snippet) {
-        // Look for lemma="xxx" patterns and get the last one (the collocate)
-        java.util.regex.Matcher m = LEMMA_ATTR.matcher(snippet);
-        String lastLemma = null;
-        while (m.find()) {
-            lastLemma = m.group(1);
-        }
-        return lastLemma;
     }
 
     @Override
@@ -642,9 +446,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         // Extract lemma from XML attributes in the match
         // For dependency queries, the underscore matches the dependent word
         // We want the lemma of that matched word
-        java.util.regex.Matcher m = LEMMA_ATTR.matcher(identity);
-
-        // Get the last lemma in the match (the dependent)
+        java.util.regex.Matcher m = BlackLabSnippetParser.LEMMA_ATTR.matcher(identity);
         String lastLemma = null;
         while (m.find()) {
             lastLemma = m.group(1);
@@ -666,12 +468,12 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
 
         // Extract xpos or upos from XML
-        java.util.regex.Matcher m = XPOS_ATTR.matcher(identity);
+        java.util.regex.Matcher m = BlackLabSnippetParser.XPOS_ATTR.matcher(identity);
         if (m.find()) {
             return m.group(1);
         }
         // Fallback to upos
-        m = UPOS_ATTR.matcher(identity);
+        m = BlackLabSnippetParser.UPOS_ATTR.matcher(identity);
         if (m.find()) {
             return m.group(1);
         }
@@ -696,7 +498,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcqlPattern, "lemma");
 
             // Find the position of label "2:" in the pattern
-            int collocateLabelPos = findLabelPosition(bcqlPattern, 2);
+            int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
 
             // Get hits
@@ -717,10 +519,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 if (identity != null && !identity.isEmpty()) {
                     // The group identity is the matched text - extract the collocate from it
                     // Try XML format first, then plain text
-                    String collocate = extractCollocateFromMatch(identity, collocateLabelPos);
+                    String collocate = BlackLabSnippetParser.extractCollocateFromMatch(identity, collocateLabelPos);
                     if (collocate == null || collocate.isEmpty()) {
                         // Try plain text extraction - split by whitespace
-                        collocate = extractCollocateFromPlainText(identity, collocateLabelPos);
+                        collocate = BlackLabSnippetParser.extractCollocateFromPlainText(identity, collocateLabelPos);
                     }
                     if (collocate != null && !collocate.isEmpty()) {
                         freqMap.merge(collocate.toLowerCase(), group.size(), Long::sum);
@@ -754,124 +556,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
     }
 
-    /**
-     * Extract the collocate lemma from matched text using the labeled position.
-     * @param matchOnly The matched text (parts[1] from concordance)
-     * @param labelPos The 1-based position of the label (e.g., 3 for "2:" in pattern with 3 tokens)
-     */
-    private String extractCollocateFromMatch(String matchOnly, int labelPos) {
-        if (matchOnly == null || matchOnly.isEmpty() || labelPos < 1) {
-            return null;
-        }
-
-        // Find all lemma="xxx" patterns in order
-        java.util.regex.Matcher m = LEMMA_ATTR.matcher(matchOnly);
-
-        int count = 0;
-        while (m.find()) {
-            count++;
-            if (count == labelPos) {
-                return m.group(1);
-            }
-        }
-
-        // If position not found, return null
-        return null;
-    }
-
-    /**
-     * Extract the collocate from plain text (whitespace-separated words).
-     * @param text The matched text (e.g., "theory is irrelevant")
-     * @param position The 1-based position of the word to extract
-     */
-    private String extractCollocateFromPlainText(String text, int position) {
-        if (text == null || text.isEmpty() || position < 1) {
-            return null;
-        }
-
-        // Split by whitespace
-        String[] words = text.trim().split("\\s+");
-        if (position > words.length) {
-            return null;
-        }
-
-        return words[position - 1];
-    }
-
-    /**
-     * Find the position of a labeled capture group (e.g., "2:") in a BCQL pattern.
-     * Returns the 1-based position of that token in the pattern.
-     *
-     * Example: "1:[xpos="NN.*"] [lemma="be|..."] 2:[xpos="JJ.*"]"
-     * - "1:" is at position 1
-     * - "[lemma=...]" (unlabeled) is at position 2
-     * - "2:" is at position 3
-     */
-    private int findLabelPosition(String pattern, int label) {
-        if (pattern == null) {
-            return -1;
-        }
-
-        // The pattern has labeled positions like "1:" and "2:" BEFORE brackets.
-        // Example: "1:[xpos="NN.*"] [lemma="be|..."] 2:[xpos="JJ.*"]"
-        // Token positions: 1 (labeled 1), 2 (unlabeled), 3 (labeled 2)
-
-        // Strategy: Find "label:" and check if it's immediately followed by "["
-        String labelStr = label + ":";
-        int labelIndex = pattern.indexOf(labelStr);
-        if (labelIndex < 0) {
-            return -1;
-        }
-
-        // Check if label is followed by "["
-        if (labelIndex + labelStr.length() < pattern.length() &&
-            pattern.charAt(labelIndex + labelStr.length()) == '[') {
-            // Count brackets up to and including this one
-            int tokenPos = 0;
-            for (int i = 0; i < pattern.length(); i++) {
-                if (pattern.charAt(i) == '[') {
-                    tokenPos++;
-                    if (i == labelIndex + labelStr.length()) {
-                        return tokenPos;
-                    }
-                }
-            }
-        }
-
-        return -1;
-    }
-
-    /**
-     * Extract a specific token from a concordance snippet.
-     * Snippet format is like: "...[word1]...[word2]..." where words have lemma attributes.
-     */
-    private String extractTokenFromSnippet(String snippet, int position) {
-        if (snippet == null || snippet.isEmpty()) {
-            return null;
-        }
-
-        // Find all lemma="xxx" patterns and get the one at the specified position
-        java.util.regex.Matcher m = LEMMA_ATTR.matcher(snippet);
-        int count = 0;
-        while (m.find()) {
-            count++;
-            if (count == position) {
-                return m.group(1);
-            }
-        }
-        // If position is beyond the count, return the last one
-        if (count > 0 && position > count) {
-            m.reset();
-            String last = null;
-            while (m.find()) {
-                last = m.group(1);
-            }
-            return last;
-        }
-        return null;
-    }
-
-    public long getCorpusSize() throws IOException {
+        public long getCorpusSize() throws IOException {
         return 0L;
     }
 

@@ -36,6 +36,20 @@ public class RadialPlot {
     private static final double GUIDE_RADIUS_2 = 200.0;
     private static final double GUIDE_RADIUS_3 = 300.0;
 
+    // Stroke-width and font-size values (at baseline 800px canvas)
+    private static final double GUIDE_STROKE_WIDTH     = 0.5;
+    private static final double CONNECTOR_STROKE_WIDTH = 0.8;
+    private static final double CENTER_STROKE_WIDTH    = 2.0;
+    private static final double COLLOCATE_STROKE_WIDTH = 1.5;
+    private static final double LABEL_FONT_SIZE        = 11.0;
+    private static final double CENTER_FONT_SIZE       = 14.0;
+    // Label offset from collocate circle edge (above/below center)
+    private static final double LABEL_ABOVE_OFFSET     = 5.0;
+    private static final double LABEL_BELOW_OFFSET     = 12.0;
+    // Legend circle radius
+    private static final double LEGEND_CIRCLE_RADIUS   = 6.0;
+    private static final double LEGEND_CIRCLE_Y_OFFSET = -4.0; // vertical offset of legend circles from baseline
+
     private static String fmt(double value) {
         return df.format(value);
     }
@@ -146,15 +160,15 @@ public class RadialPlot {
         svg.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + width + "\" height=\"" + height + "\" viewBox=\"0 0 " + width + " " + height + "\">\n");
 
-        // CSS styles
+        // CSS styles - stroke-width and font-size values scaled to canvas
         svg.append("  <style>\n");
         svg.append("    .background { fill: #fafafa; }\n");
-        svg.append("    .guide-circle { fill: none; stroke: #ddd; stroke-width: 0.5; }\n");
-        svg.append("    .connector { stroke: #888; stroke-width: 0.8; opacity: 0.4; }\n");
-        svg.append("    .center-circle { fill: #2C3E50; stroke: white; stroke-width: 2; }\n");
-        svg.append("    .collocate-circle { stroke: white; stroke-width: 1.5; opacity: 0.9; }\n");
-        svg.append("    .label { font-family: Arial, sans-serif; font-size: 11px; fill: #333; }\n");
-        svg.append("    .center-label { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: white; }\n");
+        svg.append(String.format("    .guide-circle { fill: none; stroke: #ddd; stroke-width: %s; }\n", fmt(GUIDE_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .connector { stroke: #888; stroke-width: %s; opacity: 0.4; }\n", fmt(CONNECTOR_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .center-circle { fill: #2C3E50; stroke: white; stroke-width: %s; }\n", fmt(CENTER_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .collocate-circle { stroke: white; stroke-width: %s; opacity: 0.9; }\n", fmt(COLLOCATE_STROKE_WIDTH * scale)));
+        svg.append(String.format("    .label { font-family: Arial, sans-serif; font-size: %spx; fill: #333; }\n", fmt(LABEL_FONT_SIZE * scale)));
+        svg.append(String.format("    .center-label { font-family: Arial, sans-serif; font-size: %spx; font-weight: bold; fill: white; }\n", fmt(CENTER_FONT_SIZE * scale)));
         svg.append("  </style>\n");
 
         // Background
@@ -197,7 +211,7 @@ public class RadialPlot {
                 fmt(c.x), fmt(c.y), fmt(r), fillColor));
 
             // Draw label - position above or below circle
-            double labelY = c.y < centerY ? c.y - r - 5 : c.y + r + 12;
+            double labelY = c.y < centerY ? c.y - r - LABEL_ABOVE_OFFSET * scale : c.y + r + LABEL_BELOW_OFFSET * scale;
             svg.append(String.format("    <text class=\"label\" x=\"%s\" y=\"%s\" text-anchor=\"middle\">%s</text>\n",
                 fmt(c.x), fmt(labelY), escapeXml(c.word)));
         }
@@ -214,9 +228,9 @@ public class RadialPlot {
         if ("signed".equals(mode)) {
             svg.append("  <g id=\"legend\" transform=\"translate(20, " + (height - 40) + ")\">\n");
             svg.append("    <text class=\"label\" x=\"0\" y=\"0\">Positive (A&gt;B)</text>\n");
-            svg.append("    <circle cx=\"-15\" cy=\"-4\" r=\"6\" fill=\"rgb(43,131,186)\"/>\n");
+            svg.append(String.format("    <circle cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"rgb(43,131,186)\"/>\n", fmt(-15.0 * scale), fmt(LEGEND_CIRCLE_Y_OFFSET * scale), fmt(LEGEND_CIRCLE_RADIUS * scale)));
             svg.append("    <text class=\"label\" x=\"120\" y=\"0\">Negative (B&gt;A)</text>\n");
-            svg.append("    <circle cx=\"105\" cy=\"-4\" r=\"6\" fill=\"rgb(215,25,28)\"/>\n");
+            svg.append(String.format("    <circle cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"rgb(215,25,28)\"/>\n", fmt(105.0 * scale), fmt(LEGEND_CIRCLE_Y_OFFSET * scale), fmt(LEGEND_CIRCLE_RADIUS * scale)));
             svg.append("  </g>\n");
         }
 

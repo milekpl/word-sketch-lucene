@@ -1,0 +1,150 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {
+    "abstraction_fitness": 72.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface (query/QueryExecutor.java) has only one current runtime implementation (BlackLabQueryExecutor), but the abstraction is justified by explicit multi-implementation intent and its use of default methods for backward compatibility.",
+        "WordSketchApiServer.java casts the QueryExecutor field to BlackLabQueryExecutor in 5 places (lines 306, 350, 403, 455, 694) to call executeSurfacePattern(), which is not declared in the interface — callers consistently bypass the intended abstraction.",
+        "SemanticFieldExplorer.exploreByPredicates() (lines 262-270) is a pure forwarding wrapper: it passes all 5 parameters unchanged to explore() with no added behavior, policy, or translation.",
+        "SemanticFieldExplorer.exploreByPattern() (lines 87-97) accepts 10 parameters — seed, topPredicates, nounsPerPredicate, minShared, minLogDice, bcqlPattern, simplePattern, relationName, headPos, collocatePos — a wide parameter bag that hides domain boundaries.",
+        "CollocationsBuilder.buildRelationCollocations() (lines 216-303) is publicly callable but always produces empty results; the implementation immediately sets simpleRelations = Collections.emptyList() with a comment admitting the feature is DISABLED.",
+        "GrammarConfigLoader.RelationConfig has extractXposPattern() (line 528) and extractPosPattern() (line 536), each a one-line wrapper delegating to extractConstraintAttribute() with only the attribute name changed — no behavior, no translation.",
+        "LemmaLexiconReader.java (131 lines) is a tight, zero-waste abstraction: parallel arrays for O(1) ID lookup, buffer.duplicate() for safe concurrent reads, no pass-through wrappers — every method adds genuine value.",
+        "HybridIndexer.StatisticsCollector (inner class, lines 301-525) cleanly separates statistics collection concern from document indexing, is thread-safe via ConcurrentHashMap, and earns its abstraction.",
+        "GrammarConfigLoader.RelationConfig provides getFullPattern(), collocatePosGroup(), and getDeprel() — pattern manipulation utilities that meaningfully transform config data, justifying the abstraction.",
+        "StatisticsReader provides clean format-neutral access to frequency data with separate binary and TSV loading paths, both resulting in the same O(1) in-memory HashMap — legitimate abstraction over I/O format."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 78.0,
+        "indirection_cost": 75.0,
+        "interface_honesty": 60.0,
+        "delegation_density": 88.0,
+        "definition_directness": 72.0,
+        "type_discipline": 85.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "LemmaLexiconReader and StatisticsReader are exemplary tight abstractions: zero delegation waste, all methods add genuine value, format-neutral interfaces hide I/O complexity.",
+        "HybridIndexer.StatisticsCollector earns its existence by separating thread-safe statistics collection from document creation, enabling clean batch writes.",
+        "GrammarConfigLoader.RelationConfig provides meaningful transformation utilities (getFullPattern, collocatePosGroup, getDeprel) that translate raw config into actionable domain data.",
+        "QueryExecutor interface uses default methods well to provide backward-compatible fallbacks without forcing all implementations to override, and the design anticipates multiple implementations explicitly."
+      ],
+      "issue_character": "Issues are concentrated in two patterns: one systemic leaky abstraction (QueryExecutor bypassed by casts throughout the API server) and several local no-op artifacts (pass-through wrapper, always-empty public method, one-liner name aliases) — the structural leak is the deeper problem.",
+      "score_rationale": "The lower-level data and I/O abstractions (LemmaLexiconReader, StatisticsReader, StatisticsCollector) are well-designed and genuinely reduce complexity. However, the QueryExecutor interface — the primary query abstraction — fails its contract: WordSketchApiServer casts to BlackLabQueryExecutor in 5 call sites to reach executeSurfacePattern(), meaning the interface does not model the full interaction surface and callers must know the concrete type. This is a recurring friction point that places the codebase in the 70-75 range: a developer would mostly be well-served by the layering, but would regularly hit the leaky boundary between QueryExecutor and the concrete executor class when working on API handlers or adding new query types."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "leaky-query-executor-cast",
+      "summary": "WordSketchApiServer casts QueryExecutor to BlackLabQueryExecutor 5 times to call executeSurfacePattern(), bypassing the interface abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 306, 350, 403, 455, 694 of WordSketchApiServer.java all contain ((BlackLabQueryExecutor) executor).executeSurfacePattern(...) — five forced downcasts to reach functionality not declared in the interface.",
+        "executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) is defined only on BlackLabQueryExecutor, not on QueryExecutor.",
+        "The five handler methods (handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery, handleSemanticField) all depend on the cast, meaning any alternative QueryExecutor implementation would break these handlers at runtime."
+      ],
+      "suggestion": "Promote executeSurfacePattern() into the QueryExecutor interface (possibly with a default implementation that throws UnsupportedOperationException or delegates to findCollocations). This removes the need for all 5 casts and restores honest interface coverage. Alternatively, introduce a SurfacePatternQueryExecutor sub-interface that extends QueryExecutor and add an instanceof guard, but the cleaner solution is interface promotion.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface-coverage-gap"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "disabled-relation-precomputation",
+      "summary": "CollocationsBuilder.buildRelationCollocations() is publicly callable but always produces empty results because the feature was disabled inline",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/CollocationsBuilder.java"
+      ],
+      "evidence": [
+        "Line 226: List<GrammarConfigLoader.RelationConfig> simpleRelations = Collections.emptyList(); — immediately discards the grammarConfig argument.",
+        "Comment at lines 223-225: 'Relation precomputation is DISABLED. Word sketches require proper CQL pattern matching (grammatical relations), not window-based co-occurrence.'",
+        "The method still iterates simpleRelations (lines 230-242), writes an empty file (line 303), and logs '0 relations' — all work for zero output. It is called from line 1070."
+      ],
+      "suggestion": "Remove buildRelationCollocations() entirely or replace its body with a single documented throw (throw new UnsupportedOperationException(\"Relation precomputation is disabled — use CQL scan at query time\")) and update the call site at line 1070 accordingly. A public method with a silently no-op body misleads callers and wastes build time.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead-abstraction"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explore-by-predicates-passthrough",
+      "summary": "SemanticFieldExplorer.exploreByPredicates() is a pure forwarding wrapper over explore() with no added behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 262-270: exploreByPredicates(String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice) contains a single statement: return explore(seed, topPredicates, nounsPerPredicate, minShared, minLogDice) — all 5 parameters forwarded unchanged.",
+        "No preconditions, no logging, no parameter adaptation. The method name 'exploreByPredicates' implies distinct semantics from 'explore' but the implementation is identical."
+      ],
+      "suggestion": "Remove exploreByPredicates() and update all callers to call explore() directly. If the name distinction was intended to communicate usage intent, capture that via a Javadoc alias on explore() rather than a forwarding method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead-abstraction"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "wide-explore-by-pattern-params",
+      "summary": "SemanticFieldExplorer.exploreByPattern() takes 10 parameters, mixing domain config with BCQL-specific positional details",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 87-97: exploreByPattern(String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice, String bcqlPattern, String simplePattern, String relationName, int headPos, int collocatePos) — 10 parameters.",
+        "headPos and collocatePos are BCQL-specific positional indices that leak the BlackLab pattern format into the semantic exploration API, coupling the caller to executor internals.",
+        "WordSketchApiServer (lines 534-540) assembles all 10 arguments individually each time it calls this method, with no grouping."
+      ],
+      "suggestion": "Introduce a PatternRelationConfig value object (or use the existing GrammarConfigLoader.RelationConfig directly since it already holds bcqlPattern, simplePattern, headPosition, collocatePosition, and relationName) and reduce the signature to exploreByPattern(String seed, ExplorationConfig config, PatternRelationConfig relation). This reduces the signature to 3 parameters and removes the positional index leakage.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface-coverage-gap"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "grammar-config-redundant-one-liner-wrappers",
+      "summary": "GrammarConfigLoader.RelationConfig has two one-line wrapper methods (extractXposPattern, extractPosPattern) that add no behavior over the method they delegate to",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 528-530: extractXposPattern(String constraint) { return extractConstraintAttribute(constraint, \"xpos\"); } — single-line delegation.",
+        "Line 536-538: extractPosPattern(String constraint) { return extractConstraintAttribute(constraint, \"tag\"); } — single-line delegation.",
+        "extractConstraintAttribute(constraint, attrName) is already clear and concise; the wrapper methods add an extra indirection layer with no naming, policy, or transformation value."
+      ],
+      "suggestion": "Inline the two wrapper methods by replacing their call sites with direct calls to extractConstraintAttribute(constraint, \"xpos\") and extractConstraintAttribute(constraint, \"tag\") respectively, then delete the wrappers.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead-abstraction"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "interface-coverage-gap: QueryExecutor interface was not extended to cover all actual query entry points (specifically executeSurfacePattern), causing callers to bypass it via casts — likely grew incrementally as BlackLab-specific features were added without updating the interface contract.",
+      "dead-abstraction: Several methods and wrappers were left in place after the code they supported was disabled or superseded (buildRelationCollocations disabled in-place, exploreByPredicates never differentiated from explore, extractXposPattern/extractPosPattern never evolved beyond the generic delegate)."
+    ],
+    "likely_symptoms": [
+      "explore-by-predicates-passthrough",
+      "grammar-config-redundant-one-liner-wrappers"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "batch": "ai_generated_debt",
+  "batch_index": 10,
+  "assessments": {
+    "ai_generated_debt": 72.0
+  },
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "SemanticFieldExplorer.java has 59 System.out.println calls dumping step-by-step algorithm progress, per-collocate scores, and word lists to stdout during every API request — production code behaving like a debugging session",
+        "exploreByPattern() labels two distinct code sections as 'Step 3' (lines 179-180 and 206-207), a copy-paste artifact left after refactoring",
+        "Main.showUsage() prints the entire 'Commands:' section twice verbatim — the block at lines 79-113 is duplicated again starting at line 112",
+        "SemanticFieldExplorer.exploreByPredicates() is a pure pass-through: it forwards all parameters to explore() with no added logic, no precondition check, no rename of semantics",
+        "CollocationEntry has multi-line Javadoc on trivial 1-2 line methods: '/** Get the number of collocates. */' over size(), '/** Check if entry is empty. */' over isEmpty() — restating comments that add no information",
+        "PositionalTokenStream declares a field 'private boolean useWord = true' that is never read; fieldType string-enum does all the dispatch work — dead field from an earlier design iteration"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "ai_generated_debt": {
+      "strengths": [
+        "Infrastructure modules (CollocationsBuilder, StatisticsIndexBuilder, StatisticsReader, HybridIndexer) use SLF4J logger exclusively for operational output — no debug traces or stdout flooding",
+        "Collocation and Token value types are focused records/classes with no padding, ceremonial constructors, or boilerplate wrappers",
+        "GrammarConfigLoader defensive checks (missing 'version', empty 'relations', invalid positions) are at a genuine API boundary — a file being parsed at startup — not gratuitous null-safety theater",
+        "BlackLabQueryExecutor uses logger.warn/debug for fallback and error paths rather than println, and its error handling is specific to each failure mode"
+      ],
+      "issue_character": "Issues are concentrated in SemanticFieldExplorer and manifest as debug-era prototype code never promoted to production quality: step-by-step stdout traces that flood any API caller, a duplicated step header left by copy-paste, and a pass-through wrapper — all classic signs of iterative LLM-assisted assembly that was never cleaned up.",
+      "score_rationale": "At 72, the codebase sits in mixed territory per the global anchors. The indexing and API infrastructure modules are clean and purposeful with proper logging, pushing the score above 60. However SemanticFieldExplorer — the central semantic exploration feature — reads like prototype code left in production: 59 println calls would flood stdout on every HTTP request, the duplicated Step 3 header reveals an unreviewed copy-paste, and exploreByPredicates() is pure forwarding noise. Per the 80-anchor ('a developer regularly wades through defensive overengineering, restating comments, or formulaic patterns that obscure the real logic'), SemanticFieldExplorer clearly fits that description; the rest of the codebase does not, placing the overall score between 70-75."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "noisy-stdout-tracing-explorer",
+      "summary": "SemanticFieldExplorer dumps 59 System.out.println traces to stdout during every API exploration request",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern() begins with System.out.println(\"\\n=== SEMANTIC FIELD EXPLORATION ===\") and then prints each collocate with its logDice score, each intermediate noun count, and full result tables to stdout",
+        "explore() duplicates this pattern with another 30+ println calls covering identical step-trace output",
+        "SemanticFieldExplorer is called from WordSketchApiServer.handleSemanticFieldExplore() during HTTP request handling — every client API call produces this stdout flood",
+        "59 total System.out.println calls in the file; SLF4J logger is declared but unused in this class"
+      ],
+      "suggestion": "Replace all System.out.println calls in SemanticFieldExplorer with logger.debug()/logger.info() using SLF4J (the dependency is already on the classpath and logger is used correctly throughout the rest of the codebase). Step-trace output at INFO or DEBUG level will be suppressible in production without code changes.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "prototype-code-not-promoted"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicate-step3-header",
+      "summary": "exploreByPattern() labels two separate code sections 'Step 3', producing confusing doubled output",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 179: '// Step 3: Score nouns by shared collocate count' / System.out.println(\"\\nStep 3: Scoring nouns by shared \" + relationName + \"...\") — scores DiscoveredNoun list",
+        "Line 206: '// Step 3: Score nouns by shared collocate count' / System.out.println(\"\\nStep 3: Scoring nouns by shared collocates...\") — computes CoreAdjective frequency map",
+        "The second block is logically Step 4 (it processes the output of the first block); the duplicate label is a copy-paste artifact from an earlier method version"
+      ],
+      "suggestion": "Renumber the second block to 'Step 4: Identifying core collocates...' to accurately reflect the algorithm stages. This also removes the duplicate comment on line 206.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "prototype-code-not-promoted"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicate-commands-block-in-usage",
+      "summary": "Main.showUsage() prints the 'Commands:' help section twice verbatim",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Line 79: System.out.println(\"Commands:\") opens the first Commands block listing blacklab-index, blacklab-query, and server",
+        "Line 112: System.out.println(\"Commands:\") opens an identical second block with the same three commands — 34 lines of duplicated println calls",
+        "The section from line 112 to ~130 is a verbatim repeat of lines 79-98, inserting a 'Commands:' heading mid-usage-string after the Examples section"
+      ],
+      "suggestion": "Remove the duplicated Commands block (lines 112-130). The Examples section at lines 100-111 can close the usage string; a single Commands block at the top is sufficient.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "prototype-code-not-promoted"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "passthrough-explore-by-predicates",
+      "summary": "SemanticFieldExplorer.exploreByPredicates() is a pure forwarding wrapper with no added logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPredicates(seed, topPredicates, nounsPerPredicate, minShared, minLogDice) immediately calls return explore(seed, topPredicates, nounsPerPredicate, minShared, minLogDice) with identical argument order",
+        "No argument validation, no parameter transformation, no default injection — the method simply re-routes the call",
+        "The Javadoc says 'Explore using adjectival predicates (best for abstract nouns like theory, model)' but the implementation offers nothing beyond what explore() already does"
+      ],
+      "suggestion": "Delete exploreByPredicates() and have callers call explore() directly. If a future overload with different defaults is needed, add it with explicit defaults rather than a pass-through.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "prototype-code-not-promoted"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "docblob-trivial-collocation-entry",
+      "summary": "CollocationEntry has multi-line Javadoc on trivial 1-2 line delegating methods that purely restate the method name",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/CollocationEntry.java"
+      ],
+      "evidence": [
+        "'/** Get the number of collocates. */ public int size() { return collocates.size(); }' — the doc adds nothing over the method signature",
+        "'/** Check if entry is empty. */ public boolean isEmpty() { return collocates.isEmpty(); }' — identical pattern",
+        "'/** Get top N collocates. */ public List<Collocation> topN(int n) { return collocates.stream().limit(n).toList(); }' — same pattern; the parameter name 'n' already communicates this"
+      ],
+      "suggestion": "Remove the Javadoc from size(), isEmpty(), and topN(). Reserve Javadoc for methods where the name alone does not communicate the contract (e.g., filterByLogDice where the threshold semantics are worth documenting).",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SemanticFieldExplorer was developed iteratively (likely with LLM assistance) and graduated to production without removing debug-era stdout tracing — the class was never reviewed for production readiness as a library component called from the API server",
+      "Copy-paste-then-edit development style in exploreByPattern() left duplicate step headers and a redundant pass-through wrapper that were not caught in review"
+    ],
+    "likely_symptoms": [
+      "duplicate-step3-header",
+      "passthrough-explore-by-predicates"
+    ],
+    "possible_false_positives": []
+  }
+}

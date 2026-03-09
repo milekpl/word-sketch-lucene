@@ -3,6 +3,8 @@ package pl.marcinmilkowski.word_sketch.query;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Semantic Field Explorer - discovers semantic classes via shared adjective predicates.
@@ -47,6 +49,8 @@ import java.util.stream.Collectors;
  * </ul>
  */
 public class SemanticFieldExplorer implements AutoCloseable {
+
+    private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 
     private final QueryExecutor executor;
     private final String indexPath;
@@ -102,48 +106,37 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
         seed = seed.toLowerCase().trim();
 
-        System.out.println("\n=== SEMANTIC FIELD EXPLORATION ===");
-        System.out.println("Seed: " + seed);
-        System.out.println("Relation: " + relationName);
-        System.out.println("Pattern: " + bcqlPattern);
-        System.out.println("Head position: " + headPos + ", Collocate position: " + collocatePos);
-        System.out.println("Parameters: top=" + topPredicates +
-            ", nounsPerRel=" + nounsPerPredicate +
-            ", minShared=" + minShared +
-            ", minLogDice=" + minLogDice);
-        System.out.println("-".repeat(60));
+        logger.info("\n=== SEMANTIC FIELD EXPLORATION ===");
+        logger.info("Seed: {}", seed);
+        logger.info("Relation: {}", relationName);
+        logger.info("Pattern: {}", bcqlPattern);
+        logger.info("Head position: {}, Collocate position: {}", headPos, collocatePos);
+        logger.info("Parameters: top={}, nounsPerRel={}, minShared={}, minLogDice={}", topPredicates, nounsPerPredicate, minShared, minLogDice);
+        logger.info("------------------------------------------------------------");
 
         // Step 1: Get predicates/collocates for the seed noun using the BCQL pattern
-        System.out.println("\nStep 1: Finding collocates for '" + seed + "'...");
+        logger.info("\nStep 1: Finding collocates for '{}'...", seed);
 
         // Use executeSurfacePattern which properly handles labeled BCQL patterns
         List<QueryResults.WordSketchResult> seedRelations;
-        if (executor instanceof BlackLabQueryExecutor) {
-            seedRelations = 
-                ((BlackLabQueryExecutor) executor).executeSurfacePattern(
-                    seed, bcqlPattern, headPos, collocatePos, minLogDice, topPredicates);
-        } else {
-            // Fallback for other executors
-            seedRelations = executor.findCollocations(
-                seed, bcqlPattern, minLogDice, topPredicates);
-        }
+        seedRelations = executor.executeSurfacePattern(
+                seed, bcqlPattern, headPos, collocatePos, minLogDice, topPredicates);
 
         if (seedRelations.isEmpty()) {
-            System.out.println("  No results found for seed word.");
+            logger.info("  No results found for seed word.");
             // Try fallback to simple pattern
-            System.out.println("  Trying fallback to simple pattern...");
+            logger.info("  Trying fallback to simple pattern...");
             seedRelations = executor.findCollocations(
                 seed, simplePattern, minLogDice, topPredicates);
         }
 
         if (seedRelations.isEmpty()) {
-            System.out.println("  Still no results. Seed may be too rare.");
+            logger.info("  Still no results. Seed may be too rare.");
             return ExplorationResult.empty(seed);
         }
 
-        System.out.println("  Found " + seedRelations.size() + " collocates:");
-        seedRelations.forEach(a -> System.out.println("    " + a.getLemma() +
-            " (logDice=" + String.format("%.2f", a.getLogDice()) + ")"));
+        logger.info("  Found {} collocates:", seedRelations.size());
+        seedRelations.forEach(a -> logger.info("    {} (logDice={})", a.getLemma(), String.format("%.2f", a.getLogDice())));
 
         // Build map: collocate -> logDice with seed
         Map<String, Double> seedCollocScores = new LinkedHashMap<>();
@@ -152,7 +145,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
         }
 
         // Step 2: For each collocate, find nouns it collocates with
-        System.out.println("\nStep 2: Finding nouns for each collocate...");
+        logger.info("\nStep 2: Finding nouns for each collocate...");
 
         // noun -> {collocate -> logDice}
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
@@ -162,7 +155,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
             List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
                 colloc, NOUN_PATTERN, minLogDice, nounsPerPredicate);
 
-            System.out.println("  " + colloc + ": " + nouns.size() + " nouns");
+            logger.info("  {}: {} nouns", colloc, nouns.size());
 
             for (QueryResults.WordSketchResult r : nouns) {
                 String noun = r.getLemma().toLowerCase();
@@ -174,10 +167,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
             }
         }
 
-        System.out.println("  Total candidate nouns: " + nounProfiles.size());
+        logger.info("  Total candidate nouns: {}", nounProfiles.size());
 
         // Step 3: Score nouns by shared collocate count
-        System.out.println("\nStep 3: Scoring nouns by shared " + relationName + "...");
+        logger.info("\nStep 3: Scoring nouns by shared {}...", relationName);
 
         List<DiscoveredNoun> discoveredNouns = new ArrayList<>();
 
@@ -201,10 +194,9 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
         discoveredNouns.sort((a, b) -> Double.compare(b.similarityScore, a.similarityScore));
 
-        System.out.println("  Nouns with " + minShared + "+ shared: " + discoveredNouns.size());
+        logger.info("  Nouns with {}+ shared: {}", minShared, discoveredNouns.size());
 
-        // Step 3: Score nouns by shared collocate count
-        System.out.println("\nStep 3: Scoring nouns by shared collocates...");
+        // Step 4: Identify core collocates
 
         Map<String, Integer> collocFrequency = new LinkedHashMap<>();
         Map<String, Double> collocTotalScore = new LinkedHashMap<>();
@@ -238,35 +230,20 @@ public class SemanticFieldExplorer implements AutoCloseable {
         });
 
         // Print results
-        System.out.println("\n--- RESULTS ---");
-        System.out.println("\nSemantic class (nouns similar to '" + seed + "'):");
+        logger.info("\n--- RESULTS ---");
+        logger.info("\nSemantic class (nouns similar to '{}'):", seed);
         discoveredNouns.stream().limit(15).forEach(n ->
-            System.out.println("  " + n.noun + " (shared=" + n.sharedCount +
-                ", score=" + String.format("%.1f", n.similarityScore) +
-                ") <- " + String.join(", ", n.sharedAdjectives.keySet())));
+            logger.info("  {} (shared={}, score={}) <- {}", n.noun, n.sharedCount,
+                String.format("%.1f", n.similarityScore), String.join(", ", n.sharedAdjectives.keySet())));
 
-        System.out.println("\nCore " + relationName + " (define the class):");
+        logger.info("\nCore {} (define the class):", relationName);
         coreCollocates.stream().limit(10).forEach(a ->
-            System.out.println("  " + a.adjective + " (in " + a.sharedByCount +
-                "/" + a.totalNouns + " nouns, avgLogDice=" +
-                String.format("%.1f", a.avgLogDice) + ")"));
+            logger.info("  {} (in {}/{} nouns, avgLogDice={})", a.adjective, a.sharedByCount,
+                a.totalNouns, String.format("%.1f", a.avgLogDice)));
 
-        System.out.println("-".repeat(60));
+        logger.info("------------------------------------------------------------");
 
         return new ExplorationResult(seed, seedCollocScores, discoveredNouns, coreCollocates);
-    }
-
-    /**
-     * Explore using adjectival predicates (best for abstract nouns like theory, model).
-     */
-    public ExplorationResult exploreByPredicates(
-            String seed,
-            int topPredicates,
-            int nounsPerPredicate,
-            int minShared,
-            double minLogDice) throws IOException {
-        return explore(seed, topPredicates, nounsPerPredicate, minShared,
-            minLogDice);
     }
 
     /**
@@ -301,27 +278,23 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
         seed = seed.toLowerCase().trim();
 
-        System.out.println("\n=== SEMANTIC FIELD EXPLORATION ===");
-        System.out.println("Seed: " + seed);
-        System.out.println("Parameters: topAdj=" + topAdjectives +
-            ", nounsPerAdj=" + nounsPerAdjective +
-            ", minShared=" + minSharedAdjectives +
-            ", minLogDice=" + minLogDice);
-        System.out.println("-".repeat(60));
+        logger.info("\n=== SEMANTIC FIELD EXPLORATION ===");
+        logger.info("Seed: {}", seed);
+        logger.info("Parameters: topAdj={}, nounsPerAdj={}, minShared={}, minLogDice={}", topAdjectives, nounsPerAdjective, minSharedAdjectives, minLogDice);
+        logger.info("------------------------------------------------------------");
 
         // Step 1: Get adjectives for the seed noun
-        System.out.println("\nStep 1: Finding adjectives for '" + seed + "'...");
+        logger.info("\nStep 1: Finding adjectives for '{}'...", seed);
         List<QueryResults.WordSketchResult> seedAdjectives = executor.findCollocations(
             seed, ADJECTIVE_PATTERN, minLogDice, topAdjectives);
 
         if (seedAdjectives.isEmpty()) {
-            System.out.println("  No adjectives found for seed word.");
+            logger.info("  No adjectives found for seed word.");
             return ExplorationResult.empty(seed);
         }
 
-        System.out.println("  Found " + seedAdjectives.size() + " adjectives:");
-        seedAdjectives.forEach(a -> System.out.println("    " + a.getLemma() +
-            " (logDice=" + String.format("%.2f", a.getLogDice()) + ")"));
+        logger.info("  Found {} adjectives:", seedAdjectives.size());
+        seedAdjectives.forEach(a -> logger.info("    {} (logDice={})", a.getLemma(), String.format("%.2f", a.getLogDice())));
 
         // Build map: adjective -> logDice with seed
         Map<String, Double> seedAdjScores = new LinkedHashMap<>();
@@ -330,7 +303,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
         }
 
         // Step 2: For each adjective, find nouns it collocates with
-        System.out.println("\nStep 2: Finding nouns for each adjective...");
+        logger.info("\nStep 2: Finding nouns for each adjective...");
 
         // noun -> {adjective -> logDice}
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
@@ -339,7 +312,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
             List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
                 adj, NOUN_PATTERN, minLogDice, nounsPerAdjective);
 
-            System.out.println("  " + adj + ": " + nouns.size() + " nouns");
+            logger.info("  {}: {} nouns", adj, nouns.size());
 
             for (QueryResults.WordSketchResult r : nouns) {
                 String noun = r.getLemma().toLowerCase();
@@ -352,10 +325,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
             }
         }
 
-        System.out.println("  Total candidate nouns: " + nounProfiles.size());
+        logger.info("  Total candidate nouns: {}", nounProfiles.size());
 
         // Step 3: Score nouns by shared adjective count and cumulative score
-        System.out.println("\nStep 3: Scoring nouns by shared adjectives...");
+        logger.info("\nStep 3: Scoring nouns by shared adjectives...");
 
         List<DiscoveredNoun> discoveredNouns = new ArrayList<>();
 
@@ -384,11 +357,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
         // Sort by similarity score (shared count × avg logDice)
         discoveredNouns.sort((a, b) -> Double.compare(b.similarityScore, a.similarityScore));
 
-        System.out.println("  Nouns with " + minSharedAdjectives + "+ shared adjectives: " +
-            discoveredNouns.size());
+        logger.info("  Nouns with {}+ shared adjectives: {}", minSharedAdjectives, discoveredNouns.size());
 
         // Step 4: Identify core adjectives (shared by many discovered nouns)
-        System.out.println("\nStep 4: Identifying core adjectives...");
+        logger.info("\nStep 4: Identifying core adjectives...");
 
         Map<String, Integer> adjFrequency = new LinkedHashMap<>();
         Map<String, Double> adjTotalScore = new LinkedHashMap<>();
@@ -424,20 +396,18 @@ public class SemanticFieldExplorer implements AutoCloseable {
         });
 
         // Print results
-        System.out.println("\n--- RESULTS ---");
-        System.out.println("\nSemantic class (nouns similar to '" + seed + "'):");
+        logger.info("\n--- RESULTS ---");
+        logger.info("\nSemantic class (nouns similar to '{}'):", seed);
         discoveredNouns.stream().limit(15).forEach(n ->
-            System.out.println("  " + n.noun + " (shared=" + n.sharedCount +
-                ", score=" + String.format("%.1f", n.similarityScore) +
-                ") <- " + String.join(", ", n.sharedAdjectives.keySet())));
+            logger.info("  {} (shared={}, score={}) <- {}", n.noun, n.sharedCount,
+                String.format("%.1f", n.similarityScore), String.join(", ", n.sharedAdjectives.keySet())));
 
-        System.out.println("\nCore adjectives (define the class):");
+        logger.info("\nCore adjectives (define the class):");
         coreAdjectives.stream().limit(10).forEach(a ->
-            System.out.println("  " + a.adjective + " (in " + a.sharedByCount +
-                "/" + a.totalNouns + " nouns, avgLogDice=" +
-                String.format("%.1f", a.avgLogDice) + ")"));
+            logger.info("  {} (in {}/{} nouns, avgLogDice={})", a.adjective, a.sharedByCount,
+                a.totalNouns, String.format("%.1f", a.avgLogDice)));
 
-        System.out.println("-".repeat(60));
+        logger.info("------------------------------------------------------------");
 
         return new ExplorationResult(seed, seedAdjScores, discoveredNouns, coreAdjectives);
     }
@@ -471,27 +441,24 @@ public class SemanticFieldExplorer implements AutoCloseable {
         List<String> nounList = new ArrayList<>(seedNouns);
         int nounCount = nounList.size();
 
-        System.out.println("\n=== SEMANTIC FIELD COMPARISON ===");
-        System.out.println("Nouns: " + seedNouns);
-        System.out.println("Min logDice: " + minLogDice);
-        System.out.println("-".repeat(60));
+        logger.info("\n=== SEMANTIC FIELD COMPARISON ===");
+        logger.info("Nouns: {}", seedNouns);
+        logger.info("Min logDice: {}", minLogDice);
+        logger.info("------------------------------------------------------------");
 
         // Phase 1: Build adjective profiles for each noun
         // adjective -> {noun -> logDice}
         Map<String, Map<String, Double>> adjectiveProfiles = new LinkedHashMap<>();
 
         for (String noun : nounList) {
-            System.out.println("\nProfiling: " + noun);
+            logger.info("\nProfiling: {}", noun);
 
             List<QueryResults.WordSketchResult> adjectives = executor.findCollocations(
                 noun, ADJECTIVE_PATTERN, minLogDice, maxPerNoun);
 
-            System.out.println("  Found " + adjectives.size() + " adjectives");
+            logger.info("  Found {} adjectives", adjectives.size());
             if (!adjectives.isEmpty()) {
-                System.out.println("  Top 5: " + adjectives.stream()
-                    .limit(5)
-                    .map(a -> a.getLemma() + "(" + String.format("%.1f", a.getLogDice()) + ")")
-                    .collect(Collectors.joining(", ")));
+                logger.info("  Top 5: {}", adjectives.stream());
             }
 
             for (QueryResults.WordSketchResult r : adjectives) {
@@ -503,7 +470,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
         }
 
         // Phase 2: Build comparison profiles with graded scores
-        System.out.println("\n--- Building Comparison Profiles ---");
+        logger.info("\n--- Building Comparison Profiles ---");
 
         List<AdjectiveProfile> profiles = new ArrayList<>();
 
@@ -550,19 +517,18 @@ public class SemanticFieldExplorer implements AutoCloseable {
         // Sort by commonality score (most shared first)
         profiles.sort((a, b) -> Double.compare(b.commonalityScore, a.commonalityScore));
 
-        System.out.println("Total unique adjectives: " + profiles.size());
+        logger.info("Total unique adjectives: {}", profiles.size());
 
         // Show top shared
-        System.out.println("\nTop SHARED (high commonality):");
+        logger.info("\nTop SHARED (high commonality):");
         profiles.stream()
             .filter(p -> p.presentInCount >= 2)
             .limit(10)
-            .forEach(p -> System.out.println("  " + p.adjective +
-                " (" + p.presentInCount + "/" + nounCount + ", avg=" +
-                String.format("%.1f", p.avgLogDice) + ")"));
+            .forEach(p -> logger.info("  {} (in {}/{} nouns, avg={})", p.adjective,
+                p.presentInCount, p.totalNouns, String.format("%.2f", p.avgLogDice)));
 
         // Show top distinctive
-        System.out.println("\nTop DISTINCTIVE (specific to 1 noun):");
+        logger.info("\nTop DISTINCTIVE (specific to 1 noun):");
         profiles.stream()
             .filter(p -> p.presentInCount == 1)
             .sorted((a, b) -> Double.compare(b.maxLogDice, a.maxLogDice))
@@ -572,11 +538,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
                     .filter(e -> e.getValue() > 0)
                     .map(Map.Entry::getKey)
                     .findFirst().orElse("?");
-                System.out.println("  " + p.adjective + " -> " + specificNoun +
-                    " (logDice=" + String.format("%.1f", p.maxLogDice) + ")");
+                logger.info("  {} -> {} ({})", p.adjective, specificNoun, String.format("%.2f", p.maxLogDice));
             });
 
-        System.out.println("-".repeat(60));
+        logger.info("------------------------------------------------------------");
 
         return new ComparisonResult(nounList, profiles);
     }

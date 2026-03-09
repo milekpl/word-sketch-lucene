@@ -1,0 +1,115 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {
+    "error_consistency": 63.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "API layer (WordSketchApiServer) consistently catches IOException + Exception per endpoint and returns HTTP 500 with message — a sound top-level boundary",
+        "I/O-heavy classes (HybridIndexer, CollocationsBuilder, StatisticsReader, HybridConllUProcessor) all declare 'throws IOException', making failures explicit to callers",
+        "query/ directory strategy mix: returns_null=17, try_catch=9, throws=7, result_type=6 — three competing strategies in the same module",
+        "CorpusBuilder.buildIndex() line 117-119: 'catch (Exception e) { // Skip problematic sentences }' — completely silent, no logging, no counter; any NullPointerException, IndexOutOfBoundsException, or tagging failure is invisible",
+        "BlackLabQueryExecutor.getTotalFrequency() line 530: 'catch (Exception e) { return 0L; }' — silently returns 0 when frequency lookup fails, corrupting logDice scores without any indication; other public methods in the same class throw IOException",
+        "HybridConllUProcessor.buildSentence() line 210-212: 'catch (NumberFormatException e) { // Skip invalid token IDs }' — completely silent; ConllUProcessor.processCoNLLUSentence() handles the same case with logger.debug(), creating inconsistency between twin classes",
+        "HybridIndexer.writeStatistics() catches Exception twice (lines 242 and 257) and logs.warn() for binary stats and lexicon write failures — these files are required for query correctness but failures are demoted to warnings with no propagation",
+        "StatisticsConverter.convert() wraps IOException as RuntimeException inside the streaming lambda (line 113) — consistent with Java lambda constraints but differs from the throws IOException pattern used everywhere else in the same class"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "API boundary applies a uniform catch(IOException)+catch(Exception) pattern across every endpoint handler, reliably converting failures into HTTP 500 responses with message",
+        "All I/O-intensive methods (indexSentence, commit, build, writeStatistics) declare 'throws IOException', making the failure contract explicit and consistent across the indexer and builder layers",
+        "LemmaIdsCodec.decode() carefully distinguishes EOFException (returns empty array) from general IOException, giving callers a predictable, safe fallback for truncated data",
+        "BlackLabQueryExecutor constructor correctly wraps the caught Exception as IOException with cause preserved, converting a broad catch into a typed, informative contract"
+      ],
+      "issue_character": "Silent exception swallowing — log-nothing catches and silently-returning fallbacks — is concentrated in a few high-impact paths (corpus building, frequency scoring) where invisible failures directly corrupt output quality or make data loss undetectable.",
+      "score_rationale": "The codebase has a coherent two-layer error model: throw IOException in I/O code, catch at API boundaries. This covers the majority of paths and is solid (approaching the 80 anchor). However, the silent swallowing in CorpusBuilder (no log, no counter) and the 0-return in getTotalFrequency (silently distorts logDice) are not stylistic inconsistencies — they are genuine developer hazards where failures become invisible or yield wrong answers. Combined with three competing strategies in the query module (null, throw, result type), a developer cannot fully trust error behavior in the corpus-building and scoring paths, pulling the score into the 60s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "corpus_builder_silent_swallow",
+      "summary": "CorpusBuilder.buildIndex() silently swallows all exceptions per sentence with no logging",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/corpus/CorpusBuilder.java"],
+      "evidence": [
+        "Lines 117-119: catch (Exception e) { // Skip problematic sentences } — no logger call, no counter increment, no rethrow; any tagger NPE, IndexOutOfBoundsException, or Lucene failure is invisible to the caller",
+        "The caller receives a BuildStats with silently lower sentence/token counts than expected, with no way to distinguish a successful run from a run that skipped 90% of input"
+      ],
+      "suggestion": "Add a skippedSentences counter and log a warning per skipped sentence (at minimum log the exception class and message). After the loop, if skippedSentences > 0, log a summary warning: 'Skipped %d sentences due to errors'. This matches the pattern already used in HybridConllUProcessor which logs progress and errors.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_swallow"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "blacklab_frequency_silent_zero",
+      "summary": "BlackLabQueryExecutor.getTotalFrequency() returns 0 silently on any exception, corrupting logDice scores",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "Lines 529-531: catch (Exception e) { return 0L; } — a frequency of 0 makes logDice undefined/negative and causes the collocate to be dropped or ranked incorrectly",
+        "All other public methods in the same class (findCollocations, executeQuery, findCollocationsForDeprel) declare 'throws IOException'; getTotalFrequency alone uses a silent fallback, making the contract inconsistent"
+      ],
+      "suggestion": "Change to 'catch (Exception e) { throw new IOException(\"Failed to get frequency for lemma: \" + lemma, e); }' to match the IOException contract of sibling methods. Callers that truly need a safe fallback can catch IOException themselves and decide what default to use.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_swallow"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "hybrid_conllu_silent_nfe",
+      "summary": "HybridConllUProcessor.buildSentence() silently discards NumberFormatException with no log; ConllUProcessor logs at debug for the same case",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java"
+      ],
+      "evidence": [
+        "HybridConllUProcessor.java lines 210-212: catch (NumberFormatException e) { // Skip invalid token IDs } — no logger call",
+        "ConllUProcessor.java lines 196-199: catch (NumberFormatException e) { logger.debug(\"Skipping non-numeric token ID: \" + fields[0]); } — same pattern with debug log",
+        "These two classes perform the same CoNLL-U processing task but handle the same exception differently, making diagnostic behavior unpredictable"
+      ],
+      "suggestion": "Add 'logger.debug(\"Skipping non-numeric token ID '{}' in sentence {}\", fields[0], id);' inside the catch block to match ConllUProcessor's approach. Optionally extract the shared token-parsing logic into a shared utility.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_swallow"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "hybrid_indexer_stats_warn_on_required_files",
+      "summary": "HybridIndexer.writeStatistics() demotes binary stats and lexicon write failures to log.warn() with no propagation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridIndexer.java"],
+      "evidence": [
+        "Lines 239-244: catch (Exception e) { log.warn(\"Failed to write binary statistics: {}\", e.getMessage()); } — binary stats file required for query correctness",
+        "Lines 250-259: catch (Exception e) { log.warn(\"Failed to write lexicon: {}\", e.getMessage()); } — lexicon.bin required for single-pass collocations",
+        "Both files are described in CLAUDE.md as required index components; silently degrading to warn means an indexing run that produces a broken index will appear successful"
+      ],
+      "suggestion": "Rethrow as IOException (or log + rethrow) so the caller (HybridConllUProcessor.writeStatistics or Main) can fail fast. At minimum, escalate to log.error() and document explicitly that the index will be incomplete. A broken but apparently successful index run is harder to debug than a clear failure.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_swallow"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A single root cause cluster 'silent_swallow' drives all four issues: catches that consume exceptions without propagating or adequately logging them, concentrated in corpus-building and scoring paths"
+    ],
+    "likely_symptoms": [
+      "corpus_builder_silent_swallow — the silence is the defect, not a symptom of a deeper issue",
+      "hybrid_conllu_silent_nfe — symptom of inconsistency between twin classes rather than a structural problem"
+    ],
+    "possible_false_positives": [
+      "CollocationsBuilder per-lemma Exception catches in worker threads are intentional: per-lemma failures should not abort the entire build; this is not a defect"
+    ]
+  }
+}

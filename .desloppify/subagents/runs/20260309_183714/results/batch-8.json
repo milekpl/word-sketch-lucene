@@ -1,0 +1,189 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 8,
+  "assessments": {
+    "low_level_elegance": 58.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "WordSketchApiServer.java contains 30+ System.out.println calls in production request handlers, many explicitly labeled 'DEBUG': substituteCollocate() has ~10 debug printlns (lines 982-1006), handleConcordanceExamples has 4 (lines 907-923), handleBcqlQueryPost has 1 (line 1122), handleVisualRadial has 2 (lines 1061,1065). SLF4J logger is already present in the class.",
+        "Four identical 4-field JSONObject-building blocks (lemma, frequency, logDice, pos) are copy-pasted in handleFullSketch (lines 319-325), handleRelationQuery (362-370), handleFullDependencySketch (418-424), handleDependencyRelationQuery (468-474) — no shared helper.",
+        "The 9-line switch that maps legacy relation-id strings to config IDs appears verbatim twice: handleSemanticFieldExplore (lines 502-508) and handleSemanticFieldExploreMulti (lines 654-660).",
+        "BlackLabQueryExecutor.extractCollocateFromPattern() (lines 482-490) always returns 'unknown' — body comment says 'actual extraction would need hit-specific data'. Dead placeholder shipped in production.",
+        "SemanticFieldExplorer.exploreByPattern() labels two distinct algorithm blocks as 'Step 3' (lines 180 and 206) — the second is a copy-paste from explore() where step renumbering was missed.",
+        "Main.java showUsage() prints the entire 'Commands:' section twice verbatim (lines 83-92 then 127-136 repeat the same blacklab-index / blacklab-query / server listing).",
+        "WordSketchApiServer.RelationDef inner class (lines 1238-1252) and toLegacyRelationType() (lines 1191-1202) are never called anywhere in the file — dead remnants.",
+        "SemanticFieldExplorer.explore() and exploreByPattern() share nearly identical 3-step skeleton (collect seed collocates → expand to nouns → score & rank) but the common structure is fully duplicated, not factored into a shared template."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "BlackLabQueryExecutor uses small, focused helpers for XML extraction (trimLeftXmlAtSentence, trimRightXmlAtSentence, extractPlainTextFromXml, detokenize) that are individually clean and intention-revealing.",
+        "Use of a local record type HitRecord in executeBcqlQuery() appropriately encapsulates per-hit data without creating a top-level class.",
+        "Guard clauses (null/empty checks at the top of methods) are applied consistently across almost all entry points.",
+        "Data classes (ExplorationResult, DiscoveredNoun, CoreAdjective, AdjectiveProfile) are well-factored with appropriately minimal methods.",
+        "Builder pattern in WordSketchApiServer and fluid chaining in CollocationsBuilder setters are consistently applied."
+      ],
+      "issue_character": "Issues are concentrated in high-traffic files (WordSketchApiServer, SemanticFieldExplorer, BlackLabQueryExecutor) and manifest as habitual patterns — abandoned debug output left in production handlers, copy-paste expansion instead of extraction, and dead placeholder code — rather than isolated incidents.",
+      "score_rationale": "The codebase sits in the 60-range: a developer working in WordSketchApiServer encounters 30+ debug printlns polluting stdout across multiple request handlers, four duplicated JSON-building blocks, and a duplicated relation-ID switch, all in a 1253-line file. SemanticFieldExplorer doubles the exploration skeleton instead of factoring it. Multiple dead code sites (extractCollocateFromPattern, RelationDef, toLegacyRelationType, the doubled showUsage block) indicate code is abandoned-in-place rather than pruned. These are recurring patterns across major files, not edge cases. The score is held above 55 because individual helper functions are often clean and the data class layer is well-crafted, but the drag from the dominant files is material and consistent."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "debug-println-in-handlers",
+      "summary": "30+ System.out.println('DEBUG ...') calls left in production request handlers bypass the established SLF4J logger",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "substituteCollocate() contains ~10 System.out.println('DEBUG: ...') statements (lines 982-1006) that are invoked on every concordance-examples request.",
+        "handleConcordanceExamples() has 4 debug printlns (lines 907, 911, 913, 916, 923).",
+        "handleBcqlQueryPost() has 'System.out.println(\"DEBUG BCQL: \" + bcqlQuery)' on line 1122.",
+        "handleVisualRadial() has 2 debug printlns (lines 1061, 1065).",
+        "The class already has 'private static final Logger logger = LoggerFactory.getLogger(...)' on line 39."
+      ],
+      "suggestion": "Replace all System.out.println('DEBUG ...') calls with logger.debug() calls using the existing SLF4J logger. For substituteCollocate specifically, collapse the 10 println statements to a single logger.debug('substituteCollocate: tokens={}, collocatePos={}', tokens, collocatePosition) call.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "debug_println_habit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "colloc-json-building-duplication",
+      "summary": "Identical 4-field JSONObject collocation builder (lemma, frequency, logDice, pos) copy-pasted four times in WordSketchApiServer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleFullSketch() lines 318-325: JSONObject word = new JSONObject(); word.put('lemma', result.getLemma()); word.put('frequency', result.getFrequency()); word.put('logDice', result.getLogDice()); word.put('pos', result.getPos());",
+        "Identical block in handleRelationQuery() lines 362-370.",
+        "Identical block in handleFullDependencySketch() lines 417-424.",
+        "Identical block in handleDependencyRelationQuery() lines 467-474."
+      ],
+      "suggestion": "Extract a private helper: 'private JSONObject toCollocateJson(QueryResults.WordSketchResult r) { JSONObject o = new JSONObject(); o.put(\"lemma\", r.getLemma()); o.put(\"frequency\", r.getFrequency()); o.put(\"logDice\", r.getLogDice()); o.put(\"pos\", r.getPos()); return o; }' and call it in all four sites.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "intra-file-duplication"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "relation-id-switch-duplication",
+      "summary": "9-line legacy-relation-ID switch block is copy-pasted verbatim into both handleSemanticFieldExplore and handleSemanticFieldExploreMulti",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore lines 502-508: 'relationId = switch (relationId) { case \"adj_modifier\", \"modifier\" -> \"noun_modifiers\"; ...' ",
+        "handleSemanticFieldExploreMulti lines 654-660: identical switch expression with the same four cases."
+      ],
+      "suggestion": "Extract a private helper 'private String resolveRelationId(String rawId) { return switch (rawId.toLowerCase()) { ... }; }' and call it in both handlers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "intra-file-duplication"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "dead-placeholder-method",
+      "summary": "extractCollocateFromPattern() in BlackLabQueryExecutor always returns 'unknown' regardless of input — dead placeholder shipped in production",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 482-490: 'private String extractCollocateFromPattern(String bcqlPattern, int hitIndex) { int pos2Index = findLabelPosition(bcqlPattern, 2); if (pos2Index <= 0) { return \"unknown\"; } // For now, return a placeholder - actual extraction would need hit-specific data return \"unknown\"; }'",
+        "The method is defined but its body is entirely a stub — the comment admits it was never implemented."
+      ],
+      "suggestion": "Either implement the method properly using the existing extractCollocateFromXmlByPosition / extractCollocateFromMatch helpers, or delete it and any callers. As-is it misleads readers about capability.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "show-usage-duplicate-block",
+      "summary": "Main.showUsage() prints the 'Commands:' listing twice in the same method body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Lines 83-92 print 'Commands:' with blacklab-index, blacklab-query, server entries.",
+        "Lines 127-136 repeat the same 'Commands:' heading and all three command descriptions verbatim — a copy-paste left over from an earlier edit."
+      ],
+      "suggestion": "Delete the second duplicate block (lines 127-136) from showUsage().",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "dead-inner-class-and-method",
+      "summary": "RelationDef inner class and toLegacyRelationType() in WordSketchApiServer are never called — dead remnants",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "RelationDef (lines 1238-1252) is declared but no code in the file instantiates it; its constructor sets description = name indicating it was copied from a real use that was later replaced.",
+        "toLegacyRelationType() (lines 1191-1202) converts a String to a legacy QueryExecutor.RelationType enum but grep shows no call site within WordSketchApiServer.java."
+      ],
+      "suggestion": "Delete the RelationDef inner class (lines 1238-1252) and the toLegacyRelationType() method (lines 1191-1202).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore-step3-double-label",
+      "summary": "exploreByPattern() in SemanticFieldExplorer labels two different algorithm steps as 'Step 3', breaking the narrative for readers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 180: 'System.out.println(\"\\nStep 3: Scoring nouns by shared \" + relationName + \"...\");'",
+        "Line 206: 'System.out.println(\"\\nStep 3: Scoring nouns by shared collocates...\");' — a second Step 3 in the same method, introduced by copy-paste from explore() where it was Step 4."
+      ],
+      "suggestion": "Renumber the second block to 'Step 4' (or merge the duplicate scoring loops). The two Step 3 blocks compute overlapping things (scoring nouns, then scoring core collocates) and the mislabeling hides that the method effectively runs Step 3 twice.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore-skeleton-duplication",
+      "summary": "explore() and exploreByPattern() in SemanticFieldExplorer duplicate the same 3-step algorithm skeleton (~200 lines each) instead of factoring the shared structure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "explore() (lines 291-443) and exploreByPattern() (lines 87-257) share identical structure: collect seed collocates into seedCollocScores map, build nounProfiles via reverse lookup, score nouns by shared-collocate count and avgLogDice, identify coreCollocates, print results, return ExplorationResult. The scoring and ranking blocks (discoveredNouns sort, coreCollocates accumulation and sort) are copied verbatim.",
+        "The only material difference is how seedCollocScores is obtained (executeSurfacePattern with BCQL pattern vs. findCollocations with ADJECTIVE_PATTERN)."
+      ],
+      "suggestion": "Extract the shared skeleton into a private 'ExplorationResult runExploration(String seed, Map<String,Double> seedCollocScores, ...)' method. Both explore() and exploreByPattern() would obtain seedCollocScores via their respective strategies, then delegate to the common method for steps 2-4.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "intra-file-duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Habitual use of System.out.println for debugging instead of the established SLF4J logger, with no cleanup discipline before shipping.",
+      "Copy-paste-driven development: when a new method needs to do something similar to an existing one, the entire body is duplicated and lightly modified rather than extracting the common part.",
+      "Incomplete deletion: dead code (placeholder method bodies, unused inner classes, disabled method branches) is left in place when a feature is removed or superseded, suggesting no routine dead-code pruning."
+    ],
+    "likely_symptoms": [
+      "debug-println-in-handlers",
+      "show-usage-duplicate-block",
+      "explore-step3-double-label"
+    ],
+    "possible_false_positives": []
+  }
+}

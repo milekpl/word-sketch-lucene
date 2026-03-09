@@ -1,0 +1,143 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 11,
+  "assessments": {
+    "incomplete_migration": 58.0
+  },
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "Three coexisting indexer generations: indexer/LuceneIndexer (token-per-doc), indexer/hybrid/HybridIndexer (sentence-per-doc), and indexer/blacklab/BlackLabConllUIndexer (current). Only the BlackLab path is wired into Main.java; the other two generations remain live production code.",
+        "LuceneIndexer pipeline is still active: CorpusBuilder.java, tagging/ConllUProcessor.java, and tagging/CorpusProcessor.java all instantiate LuceneIndexer, but none of these classes are reachable from Main.java's command routing.",
+        "Two overlapping hybrid CoNLL-U processors coexist: HybridConllUProcessor and SinglePassConlluProcessor both wrap HybridIndexer identically; SinglePassConlluProcessor's javadoc says it 'no longer produces collocations.bin' suggesting it superseded HybridConllUProcessor, but the older class was never removed.",
+        "toLegacyRelationType() in WordSketchApiServer.java (line 1191) is defined but never called anywhere in the codebase — a dead shim mapping relation type strings to QueryExecutor.RelationType.",
+        "isLegacyFormat() on GrammarConfigLoader.RelationConfig (line 559) is defined but has zero callers — the method and surrounding tag= support code (lines 607-614) are unreachable legacy-format compatibility code.",
+        "LexiconFromStatsMigrator.java comment (line 17) references 'CollocationsBuilderV2' as the intended post-migration consumer, but no such class exists in the codebase — a ghost reference left from an incomplete migration.",
+        "StatisticsConverter and LexiconFromStatsMigrator are standalone migration tools (have their own main() methods) with no callers in Main.java, living in the production source tree as stranded migration artifacts.",
+        "QueryExecutor interface comment documents 'legacy, hybrid, BlackLab' implementations (line 9) suggesting the interface was designed to unify three eras — but only BlackLabQueryExecutor is actively instantiated at runtime."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The active runtime path in Main.java is unambiguous: all three commands route through BlackLabQueryExecutor and BlackLabConllUIndexer, so a developer following the main entry point sees a single, coherent pipeline.",
+        "The QueryExecutor interface cleanly abstracts away the executor generation so the API server and SemanticFieldExplorer are decoupled from indexer choice.",
+        "Migration artifacts (StatisticsConverter, LexiconFromStatsMigrator) are isolated to named classes with their own main() methods, making them easy to identify as standalone tools rather than silently embedded shims."
+      ],
+      "issue_character": "The issues are systemic and structural: three generations of indexing pipeline all compile together with no deprecation markers, two redundant CoNLL-U processors for the same intermediate generation, and several dead compatibility methods that were never cleaned up after the migration to BlackLab was completed.",
+      "score_rationale": "This codebase sits squarely in the 60-range on the incomplete_migration anchor: a developer exploring the indexer/ and tagging/ packages would encounter significant confusion about which pipeline to use or extend, as LuceneIndexer-based and HybridIndexer-based code both appear active alongside the BlackLab path. The dead toLegacyRelationType method and ghost CollocationsBuilderV2 reference add to the confusion. What pushes the score slightly below 60 is the dual-processor problem (HybridConllUProcessor vs SinglePassConlluProcessor) and the migration shims living in production source with no deprecation notice; what prevents a lower score is that the primary runtime path is clear and the migration artifacts are largely isolated."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "three_indexer_generations_coexist",
+      "summary": "Three generations of indexer coexist (LuceneIndexer, HybridIndexer, BlackLabConllUIndexer) with only the third active from Main.java",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/LuceneIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/corpus/CorpusBuilder.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/CorpusProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Main.java routes all commands through BlackLabConllUIndexer / BlackLabQueryExecutor exclusively; no command dispatches to LuceneIndexer or HybridIndexer.",
+        "CorpusBuilder.java, tagging/ConllUProcessor.java, and tagging/CorpusProcessor.java all instantiate LuceneIndexer and form a complete first-generation pipeline that is unreachable from Main.java.",
+        "HybridIndexer.java javadoc explicitly describes itself as 'Unlike the legacy token-per-document indexer' — confirming it was the second generation — but it too is orphaned from the main entry point."
+      ],
+      "suggestion": "Delete the LuceneIndexer-based pipeline (LuceneIndexer.java, CorpusBuilder.java, tagging/ConllUProcessor.java, tagging/CorpusProcessor.java) and, if the hybrid Lucene path is no longer needed, also HybridIndexer.java. Add a brief comment to BlackLabConllUIndexer naming it the canonical indexer. If the Postgres sampler (CorpusBuilder) is still useful, rewrite it to use BlackLabConllUIndexer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "multi_generation_indexer_drift"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dual_hybrid_conllu_processors",
+      "summary": "HybridConllUProcessor and SinglePassConlluProcessor both wrap HybridIndexer with overlapping functionality, with no deprecation marker on the older one",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/SinglePassConlluProcessor.java"
+      ],
+      "evidence": [
+        "Both classes have identical constructor signatures: HybridConllUProcessor(String indexPath) and SinglePassConlluProcessor(String indexPath), both instantiate HybridIndexer, and both offer processFile() and processDirectory().",
+        "SinglePassConlluProcessor javadoc states 'This class no longer produces collocations.bin since the CollocationsBinWriter... have been removed' — explicitly signalling it replaced the older class.",
+        "Neither class is marked @Deprecated; a developer cannot tell which to use or extend."
+      ],
+      "suggestion": "Mark HybridConllUProcessor with @Deprecated and add a Javadoc @deprecated tag pointing to SinglePassConlluProcessor. Then, if no external callers remain, delete HybridConllUProcessor in the next cleanup pass.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "multi_generation_indexer_drift"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead_to_legacy_relation_type_method",
+      "summary": "WordSketchApiServer.toLegacyRelationType() is defined but never called — a dead migration shim",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "toLegacyRelationType() is defined at line 1191 of WordSketchApiServer.java.",
+        "Searching the entire src/ tree finds zero call-sites for this method outside its own definition.",
+        "The name 'toLegacy' explicitly signals this was a compatibility bridge written during migration, never cleaned up."
+      ],
+      "suggestion": "Delete the toLegacyRelationType() method from WordSketchApiServer.java. If relation-type mapping is ever needed, it belongs on the QueryExecutor.RelationType enum itself (e.g., a static fromString() factory).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stranded_migration_stubs"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "uncalled_is_legacy_format",
+      "summary": "GrammarConfigLoader.RelationConfig.isLegacyFormat() and its associated tag= compatibility parsing have zero callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "isLegacyFormat() is defined at line 559 of GrammarConfigLoader.java with no call-sites found in src/.",
+        "The tag= fallback parsing block at lines 607-614 is dead code dependent on the same unreachable branch.",
+        "The method's own Javadoc confirms it exists only for backward compatibility with 'legacy: cql_pattern like [tag=NN.*]'."
+      ],
+      "suggestion": "Remove isLegacyFormat() and the tag= fallback branches (lines 607-614) from GrammarConfigLoader.java. If legacy grammar configs using tag= attributes still need to be supported, add a validation step at config load time that rejects them with a clear migration message.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stranded_migration_stubs"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "ghost_reference_to_collocations_builder_v2",
+      "summary": "LexiconFromStatsMigrator references CollocationsBuilderV2 which does not exist in the codebase",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/LexiconFromStatsMigrator.java"
+      ],
+      "evidence": [
+        "Line 17 of LexiconFromStatsMigrator.java: 'After running this, CollocationsBuilderV2 can use the lexicon for frequency lookups' — CollocationsBuilderV2 does not exist in the codebase.",
+        "This ghost reference suggests the migration from CollocationsBuilder to a V2 was planned but never completed, and the old migrator was never updated or removed."
+      ],
+      "suggestion": "Either delete LexiconFromStatsMigrator.java entirely if it is no longer needed (the BlackLab pipeline does not use lexicon.bin), or update the Javadoc to remove the CollocationsBuilderV2 reference and document the actual current consumer of the generated lexicon.bin.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stranded_migration_stubs"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The project went through at least three distinct indexing architectures (Lucene token-per-doc → Lucene sentence-per-doc hybrid → BlackLab) but each migration left the prior generation's code in place without deprecation or deletion.",
+      "Migration stubs and compatibility adapters were written (toLegacyRelationType, isLegacyFormat, LexiconFromStatsMigrator) but never cleaned up after the migration was finished, leaving dead code in production packages."
+    ],
+    "likely_symptoms": [
+      "ghost_reference_to_collocations_builder_v2"
+    ],
+    "possible_false_positives": []
+  }
+}

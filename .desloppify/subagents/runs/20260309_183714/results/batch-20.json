@@ -1,0 +1,162 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 20,
+  "assessments": {"test_strategy": 42.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "57 production files vs 20 test files; core business classes SemanticFieldExplorer (889 lines), WordSketchApiServer (1253 lines), CollocationsBuilder (1139 lines) have zero dedicated tests",
+        "TestBCQLParser.java contains only a main() method — it is never executed as a JUnit test",
+        "DiagnosticsIntegrationTest.skipDiagnostic() always passes: the method unconditionally returns or calls assertTrue(true), providing false CI confidence",
+        "DependencySketchTest, BlackLabDummyTest, BlackLabBcqlConcordanceTest silently return (no failure, no @Disabled) when hardcoded Windows path D:\\corpora_philsci\\bi does not exist — they appear to pass in any non-Windows CI environment",
+        "BlackLabBcqlConcordanceTest and DependencySketchTest use raw Java assert statements (e.g. 'assert results != null') which are no-ops unless the JVM is launched with -ea; assertions are effectively disabled",
+        "LongIntHashMap (135-line custom open-addressing hash map used in core indexing) has no test coverage despite non-trivial rehash and addTo logic",
+        "No integration test covers the indexer→query→API pipeline end-to-end; SemanticFieldExplorer has an injection constructor designed for mocking, but no mock-based test exists"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "LogDiceCalculatorTest (20+ tests) covers edge cases, symmetry, monotonicity, overflow protection, and real-corpus scenarios — exemplary for a utility class",
+        "TokenSequenceCodecTest (255 lines) exercises round-trip serialization including empty lists, unicode tokens, and large sequences",
+        "CQLParserTest (391 lines) systematically covers labeled positions, unlabeled positions, wildcards, and complex multi-element patterns",
+        "GrammarPatternRetrievalTest uses @TempDir for proper filesystem isolation and validates correctness of five grammatical pattern types",
+        "SemanticFieldExplorer exposes a QueryExecutor-injection constructor enabling mock-based testing — testability was at least considered in the design"
+      ],
+      "issue_character": "The test suite has a structural split: utility and codec classes are tested well, but the three largest, most critical production classes (SemanticFieldExplorer, WordSketchApiServer, CollocationsBuilder) have no coverage, and several tests that nominally exist are either always-passing stubs or silently skip due to missing external infrastructure.",
+      "score_rationale": "The codebase scores near the 'serious impediment' anchor (40) because the untested surface is concentrated in exactly the highest-value code: the API server, the semantic exploration engine, and the collocation builder that drives all rankings. Multiple tests that appear to provide coverage actually provide none — hardcoded environment-dependent paths, raw assert statements disabled at runtime, and a test class with only a main() method collectively create false CI confidence. The existing good tests (LogDice, codecs, CQL parser) are genuine quality, which prevents the score from falling further, but they cover the plumbing rather than the business logic."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "no_test_semantic_api_collocations",
+      "summary": "SemanticFieldExplorer, WordSketchApiServer, and CollocationsBuilder — the three largest critical classes — have zero test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/CollocationsBuilder.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer is 889 lines and implements the core semantic field exploration feature; no test file references it",
+        "WordSketchApiServer is 1253 lines and handles all REST endpoints; no test file references it",
+        "CollocationsBuilder is 1139 lines and drives all precomputed collocation ranking; no test file references it",
+        "SemanticFieldExplorer already exposes SemanticFieldExplorer(QueryExecutor executor) for injection, so testing with a mock is straightforward"
+      ],
+      "suggestion": "Add unit tests for SemanticFieldExplorer using a mock QueryExecutor (the constructor already supports it): test exploreByPattern with empty/null seeds, verify ExplorationResult fields, and verify minShared filtering. Add API-level tests for WordSketchApiServer using an embedded HttpServer or a test-only Builder wired to a mock executor. Add at least smoke-level tests for CollocationsBuilder against a tiny in-memory corpus.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "untested_critical_paths"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "silent_skip_external_path_tests",
+      "summary": "DependencySketchTest, BlackLabDummyTest, and BlackLabBcqlConcordanceTest silently pass when the required index path is unavailable",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "DependencySketchTest line 24: if (!indexDir.exists()) { System.err.println(\"...\"); return; } — six test methods all follow this pattern",
+        "BlackLabDummyTest does the same for D:\\corpora_philsci\\bi",
+        "BlackLabBcqlConcordanceTest uses @EnabledIf(\"indexExists\") on one method but falls back to the same silent-return pattern on the other",
+        "Hardcoded Windows path D:\\corpora_philsci\\bi will never exist in CI"
+      ],
+      "suggestion": "Replace silent return with JUnit 5 @DisabledIf or Assumptions.assumeTrue(indexDir.exists(), \"Index unavailable\") so the test is reported as skipped rather than passing. Move the index path to an environment variable or system property so CI can report the skip reason. For BlackLabDummyTest, which only prints output with no assertions, either delete it or convert it to a proper integration test with JUnit @Tag(\"integration\") and assertion-based verification.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "fragile_external_dependency_tests"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "raw_assert_disabled_at_runtime",
+      "summary": "BlackLabBcqlConcordanceTest and DependencySketchTest use raw Java assert statements that are disabled unless JVM runs with -ea",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java"
+      ],
+      "evidence": [
+        "BlackLabBcqlConcordanceTest lines 49, 56, 60, 64, 89, 97, 101: 'assert r.getSentence() != null ...', 'assert results.size() > 0 ...' — all raw Java asserts",
+        "DependencySketchTest lines 50, 166, 192: 'assert results != null', 'assert results.isEmpty()'",
+        "Maven Surefire does not enable assertions by default; these checks are silent no-ops in standard mvn test runs"
+      ],
+      "suggestion": "Replace all raw 'assert expr : message' with JUnit 5 assertions (assertNotNull, assertTrue, assertEquals). If assertions are intentionally run with -ea, add <argLine>-ea</argLine> to the maven-surefire-plugin configuration in pom.xml and document it.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "fragile_external_dependency_tests"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "testbcqlparser_not_a_junit_test",
+      "summary": "TestBCQLParser contains only a main() method and is never executed by JUnit",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/TestBCQLParser.java"
+      ],
+      "evidence": [
+        "TestBCQLParser.java has no @Test annotations and no extends/implements of any JUnit base; it is a plain Java program under src/test",
+        "Running mvn test will compile it but execute zero tests from this file",
+        "The file tests BCQL parsing — a non-trivial code path — but offers no automated verification"
+      ],
+      "suggestion": "Convert TestBCQLParser to a proper JUnit 5 test class: rename to BCQLParserTest, annotate each test case with @Test, replace System.out.println with assertions (e.g., assertNotNull(pattern), assertDoesNotThrow(...)), and remove the main() method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "untested_critical_paths"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "longinthashmap_no_test",
+      "summary": "LongIntHashMap, a custom open-addressing hash map used in core indexing, has no tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/LongIntHashMap.java"
+      ],
+      "evidence": [
+        "LongIntHashMap.java contains non-trivial rehash logic (lines 100-120), mix64 hash function, and addTo increment semantics",
+        "No test file in src/test references LongIntHashMap",
+        "The class is used in high-frequency collocation counting loops, making correctness critical"
+      ],
+      "suggestion": "Add LongIntHashMapTest covering: addTo with new keys, addTo increment on existing keys, rehash triggered by load threshold (fill past resizeAt), forEach iteration after rehash, and clear() reuse. A parameterized test with a range of initial capacities would also cover the init() rounding logic.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "untested_critical_paths"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "diagnostics_always_pass_placeholder",
+      "summary": "DiagnosticsIntegrationTest.skipDiagnostic() is a placeholder that always passes, providing no coverage",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DiagnosticsIntegrationTest.java"
+      ],
+      "evidence": [
+        "DiagnosticsIntegrationTest line 28: if (!Files.exists(idx)) { ...; return; } — exits before any assertion when index/ is absent",
+        "When index/ is present, the method prints a message and calls assertTrue(true) — no real assertion",
+        "Comment reads 'This test is now a placeholder'"
+      ],
+      "suggestion": "Either delete this test class entirely, or replace it with a genuine integration test that builds a small in-memory index (using @TempDir) and verifies an observable diagnostic property. If the feature tested was removed, remove the test file to avoid dead test noise in the suite.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "untested_critical_paths"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Tests appear to have been written alongside utility and codec classes but abandoned for the larger, more complex classes; the injection constructors in SemanticFieldExplorer suggest intent that was not followed through",
+      "External-infrastructure tests (BlackLab index) were written as exploratory scripts and never hardened into proper CI-safe tests, leaving the test suite with files that appear to provide coverage but do not"
+    ],
+    "likely_symptoms": [
+      "DiagnosticsIntegrationTest — always-pass placeholder",
+      "TestBCQLParser — main()-only file"
+    ],
+    "possible_false_positives": []
+  }
+}

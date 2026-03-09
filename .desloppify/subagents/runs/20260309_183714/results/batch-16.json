@@ -1,0 +1,133 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 16,
+  "assessments": {
+    "logic_clarity": 68.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "SinglePassConlluProcessor.buildSentence calls sentenceId.incrementAndGet() (line 184) to obtain the sentence ID, but processFile then calls sentenceId.incrementAndGet() again after buildSentence returns (lines 101 and 136). Every sentence is counted twice: IDs used are 1, 3, 5... and getSentenceCount() returns 2N instead of N.",
+        "BlackLabQueryExecutor.extractCollocateFromPattern (lines 482-490): both branches return the string literal \"unknown\". The positive branch (pos2Index > 0) contains a comment 'For now, return a placeholder' and then returns \"unknown\" — the method unconditionally returns \"unknown\" regardless of input. The if-check computes pos2Index but neither uses nor acts on it in the non-early-return path.",
+        "SemanticFieldExplorer.exploreByPattern contains two consecutive logical blocks both printed as 'Step 3'. Lines 179-180 print 'Step 3: Scoring nouns by shared {relationName}...' and lines 206-207 print 'Step 3: Scoring nouns by shared collocates...'. The second block is actually Step 4 (identifying core collocates), as evidenced by the equivalent explore() method which correctly labels this block as 'Step 4: Identifying core adjectives...' at line 391.",
+        "Main.showUsage() prints the full 'Commands:' block twice: once at line 79 (before the examples) and identically again at line 112 (after the examples). The user sees the same usage section duplicated in every --help invocation.",
+        "IndexFingerprintTool.main: the statement 'return;' at line 35 immediately follows 'System.exit(1)' and is unreachable dead code."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Core algorithm logic (logDice calculation, collocation building, Lucene document construction) is straightforward and each step is clearly labeled with inline comments explaining purpose.",
+        "The CollocationsBuilder.buildRelationCollocations method uses an explicit 'Relation precomputation is DISABLED' comment with a one-line assignment to Collections.emptyList() before the dead loops — intent is clearly communicated even if the body is not removed.",
+        "Boolean conditions throughout query execution (e.g., null/empty guards on lemma before query dispatch) are consistent with no double-negations or always-true predicates.",
+        "The QueryExecutor interface's RelationType enum captures the full/simple pattern pair cleanly, with no dead branches in the factory methods."
+      ],
+      "issue_character": "Issues are copy-paste and incomplete-implementation artifacts that locally confuse reasoning about state and control flow, rather than systemic structural misalignment; they are concentrated in three files (SinglePassConlluProcessor, BlackLabQueryExecutor, SemanticFieldExplorer) and do not propagate widely.",
+      "score_rationale": "The codebase sits below the 'solid but uneven' 80-band because it contains one genuine state-mutation bug (double sentenceId increment that corrupts document IDs and sentence counts), one method whose entire body is provably vacuous (extractCollocateFromPattern always returns 'unknown' regardless of the computed branch), and two user-visible logic-labeling defects that signal copy-paste without correction. The core indexing and query logic is clear and well-commented, which prevents the score from falling into the 'significant drag' 60-band; the defects are isolated rather than cross-cutting."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "single_pass_double_increment",
+      "summary": "SinglePassConlluProcessor increments sentenceId twice per sentence, producing wrong IDs and double-counted totals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/SinglePassConlluProcessor.java"
+      ],
+      "evidence": [
+        "buildSentence (line 184): 'int id = sentenceId.incrementAndGet();' — increments and uses the value as the document ID.",
+        "processFile, inner block (line 101): 'sentenceId.incrementAndGet();' — increments again immediately after buildSentence returns.",
+        "processFile, trailing block (line 136): same extra increment for the last sentence in a file.",
+        "getSentenceCount() returns sentenceId.get() which is 2×actual, and document IDs will be 1, 3, 5, ... (odd numbers only)."
+      ],
+      "suggestion": "Remove the two free-standing 'sentenceId.incrementAndGet()' calls in processFile (lines 101 and 136). The increment inside buildSentence already assigns and records the correct ID. If an external counter for logging is needed, use a separate local variable (e.g., 'fileSentenceCount') which already exists.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "copy_paste_state_mutation"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "extract_collocate_from_pattern_vacuous",
+      "summary": "extractCollocateFromPattern always returns \"unknown\" — both branches produce the same value, making the method a no-op",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 482-490: 'int pos2Index = findLabelPosition(bcqlPattern, 2); if (pos2Index <= 0) { return \"unknown\"; } return \"unknown\";'",
+        "The positive branch computes pos2Index but then returns the same constant regardless of its value.",
+        "The comment 'For now, return a placeholder' confirms the body was never completed."
+      ],
+      "suggestion": "Either implement the extraction (iterate over BCQL tokens to the labeled position and return the actual lemma) or, if the method is not yet implemented, make the unimplemented state explicit: throw UnsupportedOperationException, or collapse the method to a single 'return null;' and have callers handle null. As-is, callers receive a silently meaningless value.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "incomplete_implementation"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "explore_by_pattern_duplicate_step3",
+      "summary": "exploreByPattern prints 'Step 3' twice for two different logical steps, one of which is actually Step 4",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 179-180: '// Step 3: Score nouns by shared collocate count' / 'System.out.println(\"\\nStep 3: Scoring nouns by shared \" + relationName + \"...\");'",
+        "Line 206-207: '// Step 3: Score nouns by shared collocate count' / 'System.out.println(\"\\nStep 3: Scoring nouns by shared collocates...\");' — a second distinct logical block also labeled Step 3.",
+        "The sister method explore() correctly labels the equivalent block as 'Step 4: Identifying core adjectives...' (line 391).",
+        "exploreByPattern has no Step 4 announcement despite having four distinct algorithmic phases."
+      ],
+      "suggestion": "Renumber the second block in exploreByPattern from 'Step 3' to 'Step 4' and update its description to 'Identifying core collocates' to match the actual work done and to align with explore()'s step numbering.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "copy_paste_state_mutation"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "show_usage_duplicate_commands_block",
+      "summary": "Main.showUsage() prints the entire 'Commands:' section twice, sandwiching the Examples section with identical content",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Line 79: 'System.out.println(\"Commands:\");' followed by blacklab-index, blacklab-query, and server descriptions.",
+        "Line 112: 'System.out.println(\"Commands:\");' followed by the identical three-command block.",
+        "The duplicate block was likely an accidental paste when Examples: was inserted in the middle."
+      ],
+      "suggestion": "Remove the second 'Commands:' block (lines 112 onward through the end of showUsage). The single Commands block printed before the examples is sufficient.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "fingerprint_dead_return_after_exit",
+      "summary": "Dead 'return' statement after System.exit(1) in IndexFingerprintTool.main",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tools/IndexFingerprintTool.java"
+      ],
+      "evidence": [
+        "Lines 33-35: 'System.exit(1); return;' — return is unreachable because System.exit terminates the JVM."
+      ],
+      "suggestion": "Remove the 'return;' statement. If IDE or linter warnings about unreachable code are a concern, consider throwing an AssertionError instead of System.exit(1) within library-style tools.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Copy-paste from one method into another without adapting step labels or removing duplicate increments (double-increment, duplicate Step 3, duplicate Commands block).",
+      "Stub/placeholder methods left in production code without a TODO or throwing UnsupportedOperationException, making it unclear to callers that the method is unimplemented (extractCollocateFromPattern)."
+    ],
+    "likely_symptoms": [
+      "single_pass_double_increment — wrong document IDs could manifest as sentence retrieval misses or off-by-one concordance lookups, appearing as a query correctness bug rather than an indexer bug."
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -109,20 +109,6 @@ public class Main {
         System.out.println("  # Query API");
         System.out.println("  curl 'http://localhost:8080/api/sketch/theory?deprel=amod'");
         System.out.println();
-        System.out.println("Commands:");
-        System.out.println("  blacklab-index --input <file.conllu> --output <index-dir>");
-        System.out.println("      Index a CoNLL-U file with BlackLab");
-        System.out.println();
-        System.out.println("  blacklab-query --index <dir> --lemma <word> [--deprel <rel>]");
-        System.out.println("      Query the index for collocations");
-        System.out.println("      Options:");
-        System.out.println("        --deprel <rel>   Dependency relation (e.g., amod, nsubj, obj)");
-        System.out.println("        --min-logdice <n>  Minimum logDice score (default: 0)");
-        System.out.println("        --limit <n>      Max results (default: 20)");
-        System.out.println();
-        System.out.println("  server --index <dir> [--port <port>]");
-        System.out.println("      Start REST API server");
-        System.out.println();
     }
 
     private static final Pattern MWT_OR_EMPTY = Pattern.compile("^\\d+-\\d+\t|^\\d+\\.\\d+\t");

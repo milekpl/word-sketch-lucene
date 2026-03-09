@@ -1,0 +1,130 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {
+    "mid_level_elegance": 65.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "QueryExecutor interface defines a clean seam between the API layer and backend implementations, with RelationType enum collocating pattern knowledge in one place",
+        "Collocation and CollocationEntry records are minimal, explicit boundary types between the indexer and query layers",
+        "PosTagger interface provides a narrow, predictable handoff (sentence → List<TaggedToken>) that is honoured by all tagger implementations",
+        "ConcordanceResult has 5 constructors with shifting null fields — lemma, tag, word, rawXml are all null depending on which constructor path was used, making the query→API boundary unpredictable",
+        "BlackLabQueryExecutor has 5 overlapping private regex-based XML extraction helpers (extractLemmaFromMatch, extractCollocateFromMatch, extractDependentLemmaFromGroup, extractTokenFromSnippet, extractPosFromGroup) that all parse the same BlackLab match text with slightly different logic — concentrated glue-code entropy at the BlackLab→domain boundary",
+        "CQLVerifier exposes two nearly identical public methods — verify() and verifyForCollocate() — with the same implementation; a caller cannot determine which to use and the distinction is only a comment",
+        "POS-to-group mapping logic is scattered across three separate places with no composition: PosTagger.TaggedToken.getPosGroup() (Penn Treebank first-char switch), ConllUProcessor.mapUPOStoGroup() (UPOS switch), ConllUProcessor.guessUPOS() (PTB→UPOS heuristic); these three routines each implement an overlapping slice of the same mapping without referencing each other",
+        "CorpusProcessor.getTotalTokens() is a public API method that always returns 0, documented only as 'This would require tracking, but for now just return 0' — a broken contract at the module boundary"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "QueryExecutor interface provides a clean, explicit seam between the HTTP/API layer and all backend implementations, with RelationType enum placing multi-token pattern knowledge in one shared location",
+        "Collocation and CollocationEntry records are minimal, purpose-built data-transfer types — the handoff from indexer to query is explicit and has no hidden fields",
+        "PosTagger interface provides a narrow, predictable boundary contract (sentence text in, List<TaggedToken> out) that decouples the tagging pipeline from the corpus processing and indexing layers",
+        "QueryResults centralises all domain result types (WordSketchResult, ConcordanceResult) in one place, giving consumers a single import point for query outputs"
+      ],
+      "issue_character": "Issues are concentrated at two concrete boundary implementations — the BlackLab→domain translation layer and the shared query result type — where ad-hoc parsing and constructor proliferation create unpredictable and redundant seams rather than isolated rough edges.",
+      "score_rationale": "The codebase has genuinely clean architectural seams at the interface level (PosTagger, QueryExecutor, Collocation records), but the concrete implementations that bridge external libraries to domain types show recurring glue-code entropy. The BlackLabQueryExecutor concentrates five overlapping XML-scraping helpers at one boundary, ConcordanceResult's five-constructor spread makes the query→API handoff non-deterministic for consumers, and POS mapping logic is triply scattered with no shared root. These are exactly the patterns the dimension targets — translation at boundaries happening in multiple places instead of one, and orchestration that back-and-forths through ad-hoc extraction rather than composing clean collaborators. This places the codebase in the 60–70 'mixed' range: the high-level seam design is solid, but the developer regularly encounters friction when crossing concrete module boundaries."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "concordance_result_constructor_sprawl",
+      "summary": "ConcordanceResult exposes 5 constructors with shifting nullable fields, making the query→API boundary unpredictable",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"],
+      "evidence": [
+        "ConcordanceResult has 5 constructors; lemma, tag, word, and rawXml are null in 3 of them, but callers receive the same type regardless of which path created the object",
+        "A consumer calling getSentence(), getLemma(), getTag() cannot know which fields are populated without knowing the construction context",
+        "The 'full constructor with raw XML' and the 'BlackLab-style results' constructor both populate sentence but leave lemma/tag/word null for different reasons"
+      ],
+      "suggestion": "Split ConcordanceResult into two or three purpose-specific result types (e.g., TokenResult for lemma/tag/word-populated results and SnippetResult for concordance-style results), each with only the fields it guarantees to populate. Alternatively, use a sealed interface with distinct subtypes and eliminate the null-field ambiguity entirely.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_type_sprawl"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "blacklab_xml_scraping_duplication",
+      "summary": "BlackLabQueryExecutor has five overlapping regex-based XML extraction helpers at the BlackLab→domain boundary",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "extractLemmaFromMatch, extractCollocateFromMatch, extractDependentLemmaFromGroup, extractTokenFromSnippet, and extractPosFromGroup all parse the same BlackLab XML match string using the same LEMMA_ATTR/XPOS_ATTR/UPOS_ATTR patterns",
+        "extractCollocateFromMatch and extractTokenFromSnippet are functionally identical (nth regex match from XML) but are separate methods with different parameter names",
+        "The plain-text fallback in findCollocations (lastIndexOf(' ')) and extractCollocateFromPlainText in executeSurfacePattern implement the same fallback logic independently"
+      ],
+      "suggestion": "Extract a single BlackLabMatchParser class that owns all match-text-to-domain translation. Expose methods like extractLemmaAtPosition(text, n), extractPos(text), extractLastLemma(text). Call this from all three findCollocations / executeSurfacePattern / findByDependencyRelation paths. This consolidates translation at one obvious place and eliminates the parallel partial implementations.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_translation_entropy"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "pos_mapping_scattered_across_three_places",
+      "summary": "POS-to-group mapping is implemented three times across three files with no shared root",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/PosTagger.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java"
+      ],
+      "evidence": [
+        "PosTagger.TaggedToken.getPosGroup() maps Penn Treebank first char (N→noun, V→verb, J→adj, R→adv, D→det, P→pron, I→prep, C→conj, U→punct)",
+        "ConllUProcessor.mapUPOStoGroup() maps Universal POS strings (NOUN/PROPN/PRON→noun, VERB→verb, ADJ→adj, AUX→verb, CCONJ/SCONJ→conj) with different groupings",
+        "ConllUProcessor.guessUPOS() converts Penn Treebank tags back to Universal POS using yet another first-char switch, creating a round-trip path that is inconsistent with TaggedToken.getPosGroup()"
+      ],
+      "suggestion": "Introduce a single PosGroupMapper utility class (or static methods on a shared PosUtils class) with two clearly named factory methods: fromPennTreebank(String xpos) and fromUniversalPos(String upos). Both ConllUProcessor and TaggedToken should delegate to this shared class. This puts tag translation at one obvious place and eliminates the three diverging implementations.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "boundary_translation_entropy"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "cqlverifier_dual_entry_points",
+      "summary": "CQLVerifier.verify() and verifyForCollocate() are nearly identical, creating a misleading dual seam",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"],
+      "evidence": [
+        "verify() and verifyForCollocate() have the same method body: build steps, call matchSequence, return VerificationResult",
+        "The only documented difference is the comment 'looking for collocates' and 'The headword is at position 0 (conceptually)' — there is no structural difference in the implementation",
+        "A caller invoking CQLVerifier cannot determine which method to call; the seam provides no meaningful distinction"
+      ],
+      "suggestion": "Delete verifyForCollocate() and route all callers through verify(). If a headword-at-position-zero semantic is needed, make it explicit via a parameter (e.g., verify(pattern, window, headwordPosition)) which already exists, making the method signature self-explanatory.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "corpus_processor_broken_token_count",
+      "summary": "CorpusProcessor.getTotalTokens() is a public API method that always returns 0",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/tagging/CorpusProcessor.java"],
+      "evidence": [
+        "getTotalTokens() has the comment 'This would require tracking, but for now just return 0' and returns 0 unconditionally",
+        "processCorpus() does track totalTokens locally and logs it, but does not persist it to any field",
+        "Any caller relying on this method after processCorpus() receives a broken answer from an apparently complete module boundary"
+      ],
+      "suggestion": "Add a private int totalTokensProcessed field to CorpusProcessor, increment it inside processSentenceBuffer(), and return it from getTotalTokens(). This is a single-edit fix that makes the API honest.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "boundary_translation_entropy: Multiple parallel ad-hoc translation helpers at external-library seams (BlackLab, POS taggers) instead of a single owned translation layer",
+      "boundary_type_sprawl: Shared result types accumulating overloaded constructors across evolution cycles rather than being split into purpose-specific types"
+    ],
+    "likely_symptoms": [
+      "concordance_result_constructor_sprawl",
+      "cqlverifier_dual_entry_points"
+    ],
+    "possible_false_positives": []
+  }
+}

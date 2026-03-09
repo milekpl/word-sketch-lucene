@@ -1,0 +1,84 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 15,
+  "assessments": {
+    "contract_coherence": 63.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "WordSketchApiServer.executor is declared as QueryExecutor but four handler methods cast it unconditionally to BlackLabQueryExecutor (lines 306, 350, 403, 455) without instanceof guard; only handleSemanticFieldExploreMulti (line 693) guards with instanceof before casting",
+        "GrammarConfigLoader exposes two sibling methods for the same data: getRelation(String id) returns Optional<RelationConfig> and getRelationById(String id) returns raw nullable RelationConfig — inconsistent nullability contracts for the same lookup key",
+        "WordSketchApiServer.Builder.withExecutor(QueryExecutor) implies any QueryExecutor is acceptable, but handleFullSketch, handleRelationQuery, handleFullDependencySketch, and handleDependencyRelationQuery will throw ClassCastException if a non-BlackLabQueryExecutor is provided",
+        "SemanticFieldExplorer.exploreByPredicates(seed, topPredicates, nounsPerPredicate, minShared, minLogDice) is documented as using adjectival predicates but internally delegates to explore() whose parameter names are topAdjectives, nounsPerAdjective, minSharedAdjectives — the parameter names in the wrapper diverge from the semantic contract the doc describes",
+        "QueryExecutor interface has clean @throws IOException documentation on all declared methods; BlackLabQueryExecutor implementations honor this consistently"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "WordSketchApiServer makes unconditional casts from QueryExecutor to BlackLabQueryExecutor in 4 of 6 sketch/dependency handlers; the Builder contract accepting any QueryExecutor is effectively a lie for most API routes. GrammarConfigLoader's dual accessor pair (getRelation → Optional vs getRelationById → raw null) creates an inconsistent nullability contract for the same domain data."
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface declares clean, explicit @throws IOException contracts on all methods and the implementations consistently honor them — no silent swallowing of declared checked exceptions",
+        "StatisticsReader.getStatistics() documents 'returns null if not found' explicitly in its @return javadoc, making the nullable return an honest contract",
+        "GrammarConfigLoader.findRelationIdByType() documents 'Returns the first matching relation's ID, or null if not found' — the null return is disclosed",
+        "SemanticFieldExplorer.exploreByPattern() has thorough @param documentation matching all 10 method parameters exactly"
+      ],
+      "issue_character": "The predominant issue is a false interface contract in WordSketchApiServer where the declared QueryExecutor abstraction boundary is repeatedly breached by unconditional casts to the concrete BlackLabQueryExecutor, with a secondary pattern of redundant sibling accessors in GrammarConfigLoader that present the same data under incompatible nullability contracts.",
+      "score_rationale": "The codebase earns credit for consistent @throws documentation, honest nullable returns with explicit javadoc, and a well-specified QueryExecutor interface. However, WordSketchApiServer's Builder accepts any QueryExecutor but the majority of request handlers silently require BlackLabQueryExecutor, causing ClassCastException for any other implementation — this is a direct contract lie at the subsystem boundary. Combined with GrammarConfigLoader's dual-accessor inconsistency (Optional vs raw null for identical keys), the score sits well below the 'solid but uneven' range of 80: the issues are not cosmetic, they represent structural holes in how the interface contract is honored across the module."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "executor_cast_contract_lie",
+      "summary": "WordSketchApiServer.Builder declares QueryExecutor but four handlers unconditionally cast to BlackLabQueryExecutor, violating the interface contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Builder.withExecutor(QueryExecutor executor) at line 63 accepts any QueryExecutor",
+        "handleFullSketch (line 306), handleRelationQuery (line 350), handleFullDependencySketch (line 403), handleDependencyRelationQuery (line 455) all cast executor unconditionally via ((BlackLabQueryExecutor) executor).executeSurfacePattern(...)",
+        "handleSemanticFieldExploreMulti (line 693) correctly guards with 'if (executor instanceof BlackLabQueryExecutor)' before casting, showing the pattern is known but inconsistently applied",
+        "executeSurfacePattern and executeDependencyPattern are not declared on the QueryExecutor interface, making them invisible to callers relying on the interface contract"
+      ],
+      "suggestion": "Either (a) promote executeSurfacePattern to the QueryExecutor interface (possibly as a default that falls back to findCollocations) so the contract is complete, or (b) change the executor field type to BlackLabQueryExecutor and remove the pretense of interface polymorphism in WordSketchApiServer. The instanceof guard pattern used on line 693 should also be applied uniformly to lines 306, 350, 403, 455 as an immediate safety fix.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_abstraction_incomplete"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "grammar_config_dual_accessor_nullability",
+      "summary": "GrammarConfigLoader exposes getRelation() returning Optional<RelationConfig> and getRelationById() returning raw nullable RelationConfig for the same key/map",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader line 313: public Optional<RelationConfig> getRelation(String id) { return Optional.ofNullable(relationsById.get(id)); }",
+        "GrammarConfigLoader line 320: public RelationConfig getRelationById(String id) { return relationsById.get(id); } — both look up relationsById with the same key",
+        "WordSketchApiServer mixes both: uses getRelationById(relation) at lines 345, 448 (with manual null-check) and getRelation(relationId) at lines 515, 667, 903 (with Optional.isPresent/get) — callers cannot rely on a single nullability contract"
+      ],
+      "suggestion": "Remove getRelationById() entirely and standardize callers on getRelation() which returns Optional<RelationConfig>. This eliminates the inconsistent nullability contract and forces callers to handle the absent case explicitly. Update lines 345 and 448 in WordSketchApiServer to use grammarConfig.getRelation(relation).ifPresent(...) or .orElse(null) with explicit intent.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_abstraction_incomplete"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The QueryExecutor interface was designed as a general abstraction but BlackLabQueryExecutor grew domain-specific surface methods that were never promoted to the interface, causing callers to punch through the abstraction boundary with direct casts",
+      "GrammarConfigLoader's dual accessor is likely a refactoring artifact — Optional was added later (or for one call site), but the raw accessor was not removed"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

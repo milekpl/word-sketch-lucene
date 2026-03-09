@@ -1,0 +1,124 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 5,
+  "assessments": {
+    "naming_quality": 74.0
+  },
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Predicate hierarchy (LemmaPredicate, TagPredicate, PosGroupPredicate, WordPredicate, AndPredicate, OrPredicate, NotPredicate) uses a perfectly uniform naming convention",
+        "HybridConllUProcessor and SinglePassConlluProcessor live in the same package (indexer.hybrid), both delegate to HybridIndexer, but are named along different axes: 'Hybrid' describes the output type while 'SinglePass' describes the algorithm",
+        "CoNLL-U is spelled three different ways across class names: ConllU (HybridConllUProcessor, ConllUProcessor) and Conllu (SinglePassConlluProcessor)",
+        "ConllUProcessor.processCoNLLUSentence() uses the generic 'process' verb; the method body calls indexer.addWord() for each token — it is indexing, not processing in any abstract sense",
+        "BlackLabQueryExecutor has six private methods all prefixed extractCollocateFrom*: extractCollocateFromXmlByPosition, extractCollocateFromMatchText, extractCollocateFromPattern, extractCollocateFromSnippet, extractCollocateFromMatch, extractCollocateFromPlainText — the repeated prefix obscures the significant difference in input format",
+        "StatisticsConverter and StatisticsIndexBuilder both deal with statistics persistence but the distinction between 'Converter' (TSV->binary) and 'IndexBuilder' (in-memory -> binary) is not immediately obvious from the names"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "The predicate hierarchy uses a rigidly consistent naming pattern (LemmaPredicate, TagPredicate, PosGroupPredicate, WordPredicate, AndPredicate, OrPredicate, NotPredicate) — a developer can predict any new predicate name immediately",
+        "guessXPOS and guessUPOS use the 'guess' prefix honestly, signalling that the conversion is heuristic and not authoritative",
+        "Binary I/O classes in indexer.hybrid follow a clear role-suffix convention: LemmaIdsCodec, LemmaLexiconReader, LemmaLexiconWriter, StatisticsReader — the role is always legible",
+        "SemanticFieldExplorer, CollocationsBuilder, LogDiceCalculator, CQLParser all use precise domain vocabulary with no ambiguity",
+        "encode/decode/decodeTo in LemmaIdsCodec are well-chosen: decodeTo communicates reuse-buffer semantics that decode does not"
+      ],
+      "issue_character": "Issues are concentrated in two areas: a vocabulary inconsistency around CoNLL-U processor class naming (inconsistent capitalization and mismatched conceptual axes for near-duplicate classes) and a proliferation of same-prefixed private helper names in BlackLabQueryExecutor; neither pattern is codebase-wide.",
+      "score_rationale": "The codebase sits solidly above the 'significant drag' threshold (60) because the broad naming vocabulary is domain-appropriate and the predicate/codec subsystems are exemplary. What pulls the score down from 80+ is a clear naming dysfunction in the CoNLL-U processor cluster — two near-duplicate classes in the same package named along inconsistent axes with divergent capitalization of the same abbreviation — and a minor proliferation of ambiguous extractCollocateFrom* helpers in the query layer. These issues would slow a new developer navigating the indexer but would not derail comprehension of the overall system."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "conllu-capitalisation-divergence",
+      "summary": "CoNLL-U is spelled two different ways across class names in the same package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/SinglePassConlluProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java"
+      ],
+      "evidence": [
+        "HybridConllUProcessor (indexer.hybrid) uses 'ConllU'",
+        "SinglePassConlluProcessor (indexer.hybrid, same package) uses 'Conllu' — lowercase 'u'",
+        "ConllUProcessor (tagging) uses 'ConllU' matching the first convention"
+      ],
+      "suggestion": "Standardise on 'ConlluProcessor' (all-lowercase after 'Conll') or 'ConllUProcessor' (capital U) codebase-wide. The Lucene/Java convention for acronym suffixes favours a single capital letter boundary, so 'ConllUProcessor' is the better choice; rename SinglePassConlluProcessor to SinglePassConllUProcessor.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "conllu_naming"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "processor-naming-axis-mismatch",
+      "summary": "HybridConllUProcessor and SinglePassConlluProcessor are named along different conceptual axes despite doing the same work in the same package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/SinglePassConlluProcessor.java"
+      ],
+      "evidence": [
+        "'Hybrid' in HybridConllUProcessor refers to the output index type, not the processing strategy",
+        "'SinglePass' in SinglePassConlluProcessor refers to the algorithmic strategy, not the output type",
+        "Both classes have identical public APIs (processFile, processDirectory, setCommitInterval, close) and both delegate to HybridIndexer",
+        "The Javadoc for SinglePassConlluProcessor notes 'This class no longer produces collocations.bin' suggesting it supersedes HybridConllUProcessor, but a developer cannot infer this from the names"
+      ],
+      "suggestion": "If one class supersedes the other, delete the obsolete one and give the survivor a name that expresses the output type consistently, e.g., HybridIndexConlluProcessor or simply HybridConllUIndexer. If both are intentionally kept for different call sites, add a deprecation annotation to the obsolete class and document in its Javadoc which should be used.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "conllu_naming"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "processconllusentence-generic-verb",
+      "summary": "ConllUProcessor.processCoNLLUSentence() uses the generic 'process' verb for a method that exclusively indexes tokens into Lucene",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java"
+      ],
+      "evidence": [
+        "processCoNLLUSentence (line 145) calls indexer.addWord() for every token in the sentence — it indexes, it does not 'process' in any general sense",
+        "The dimension rubric explicitly flags 'process' as a generic verb that reveals nothing"
+      ],
+      "suggestion": "Rename to indexCoNLLUSentence to match the actual behaviour (indexing tokens into Lucene). This makes the read path obvious: processFile → indexCoNLLUSentence → indexer.addWord.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "extract-collocate-from-proliferation",
+      "summary": "BlackLabQueryExecutor has six private methods all named extractCollocateFrom*, leaving callers unable to distinguish their semantics from the name alone",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "extractCollocateFromXmlByPosition(xmlSnippet, position) — parses XML attribute at ordinal position",
+        "extractCollocateFromMatchText(matchText, position) — splits plain-text tokens by whitespace",
+        "extractCollocateFromPattern(bcqlPattern, hitIndex) — returns 'unknown'; placeholder",
+        "extractCollocateFromSnippet(snippet) — takes last lemma attribute from XML",
+        "extractCollocateFromMatch(matchOnly, labelPos) — (line 762) parses match string by label position",
+        "extractCollocateFromPlainText(text, position) — (line 787) splits plain text",
+        "Six methods share the same prefix yet differ in input format, return strategy, and completeness"
+      ],
+      "suggestion": "Rename to encode the input contract in the suffix: extractLemmaAtPositionFromXml, extractLemmaAtPositionFromTokens, extractLastLemmaFromXmlSnippet, etc. This eliminates the need for callers to read the body to understand which overload applies.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The CoNLL-U processor cluster was likely grown incrementally — each new class added a slightly different naming perspective (algorithm vs output type) without reconciling the existing class, leaving parallel classes with inconsistent names",
+      "The 'process' verb in ConllUProcessor may be a legacy of the class predating the indexer abstraction; the method body was updated to call addWord but the name was never revised to match"
+    ],
+    "likely_symptoms": [
+      "conllu-capitalisation-divergence is a symptom of the broader conllu_naming root cause rather than an independent problem"
+    ],
+    "possible_false_positives": []
+  }
+}

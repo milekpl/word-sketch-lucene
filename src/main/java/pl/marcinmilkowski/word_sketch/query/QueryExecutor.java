@@ -114,6 +114,26 @@ public interface QueryExecutor extends Closeable {
     }
 
     /**
+     * Execute a surface pattern query for word sketches using labeled BCQL capture groups.
+     *
+     * @param lemma             The headword lemma to search for
+     * @param bcqlPattern       BCQL pattern with labeled positions (1: head, 2: collocate)
+     * @param headPosition      Position index of the head token in the pattern
+     * @param collocatePosition Position index of the collocate token in the pattern
+     * @param minLogDice        Minimum logDice score (0 for no minimum)
+     * @param maxResults        Maximum number of results to return
+     * @return List of collocation results, sorted by logDice descending
+     * @throws IOException if index access fails
+     */
+    default List<QueryResults.WordSketchResult> executeSurfacePattern(
+            String lemma, String bcqlPattern,
+            int headPosition, int collocatePosition,
+            double minLogDice, int maxResults) throws IOException {
+        // Default: fall back to findCollocations (ignores position hints)
+        return findCollocations(lemma, bcqlPattern, minLogDice, maxResults);
+    }
+
+    /**
      * Get the type of this executor for logging/debugging.
      *
      * @return Executor type name (e.g., "legacy", "hybrid")

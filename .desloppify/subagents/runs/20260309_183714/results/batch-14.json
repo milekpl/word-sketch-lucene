@@ -1,0 +1,176 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 14,
+  "assessments": {"design_coherence": 58.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "WordSketchApiServer.java (1253 lines) mixes HTTP server setup, route registration, query-parameter parsing, business-logic delegation, and JSON serialization in a single class. Handler methods like handleFullSketch and handleFullDependencySketch are structurally parallel but not abstracted.",
+        "The 6-line JSON serialization block for WordSketchResult (JSONObject word + put lemma/frequency/logDice/pos + collocations.add) is copy-pasted verbatim at lines 319-324, 364-369, 418-423, and 469-474 in the same file.",
+        "The relation-id normalization switch (adj_modifier->noun_modifiers, adj_predicate->noun_adj_predicates, subject_of->noun_verbs, object_of->verb_nouns) appears identically at lines 502-507 and 654-659 inside handleSemanticFieldExplore and handleSemanticFieldExploreMulti.",
+        "The QueryExecutor interface abstraction is systematically broken: executor is declared as QueryExecutor but is explicitly cast to BlackLabQueryExecutor five times (lines 306, 350, 403, 455, 694) to call executeSurfacePattern(), which is absent from the interface.",
+        "SemanticFieldExplorer.java (889 lines): explore() and exploreByPattern() implement the same 3-step algorithm (find collocates -> expand to candidates -> score by shared count) with ~130 lines of duplicated logic. exploreByPattern() even prints 'Step 3' twice (lines 179-180 and 206-207), a copy-paste residue. exploreByPredicates() is a trivial 2-line delegate to explore().",
+        "CollocationsBuilder.buildRelationCollocations() (~200 lines) sets simpleRelations = Collections.emptyList() immediately (line 226) and logs 'Relation precomputation is DISABLED', yet the full parallel processing infrastructure (ExecutorService, futures, batches, buildRelationEntriesForLemma calls) runs unconditionally and does nothing.",
+        "GrammarConfigLoader.deriveHeadPositionFromPattern() and deriveCollocatePositionFromPattern() (lines 209 and 251) are structurally identical ~40-line methods differing only in the label string searched ('1:' vs '2:'). They could be a single parameterized method.",
+        "Smaller utility classes (LemmaIdsCodec, StatisticsConverter, LemmaPredicate, SentenceDocument) are focused and clean. HybridIndexer has a coherent single responsibility (indexing sentences). CollocationsBuilder's build() method is complex but cohesive."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Small utility classes (LemmaIdsCodec, StatisticsConverter, LemmaPredicate) have sharply focused responsibilities—each does exactly one thing.",
+        "HybridIndexer cleanly separates indexing concerns (document creation, statistics collection, lemma ID assignment) with well-named helper objects.",
+        "GrammarConfigLoader validates its inputs rigorously on construction, making its contract explicit and its callers simple.",
+        "CollocationsBuilder.build() is a complex but coherent method—its responsibility (build the precomputed collocations file) is singular and the streaming/resume logic is self-contained."
+      ],
+      "issue_character": "Issues cluster in the largest files as accumulated responsibilities: the API server is a true god class, and the two analysis-heavy classes (SemanticFieldExplorer, CollocationsBuilder) carry significant dead or duplicated algorithm bodies that should have been extracted.",
+      "score_rationale": "The codebase scores below the 'solid but uneven' anchor (80) because the most important production files—the API surface and the core query algorithm—have clear structural problems: a god-class API server with repeated serialization and normalization blocks, a broken interface abstraction requiring repeated unsafe downcasts, and an 889-line explorer class with two parallel copies of the same 3-step algorithm. These are not edge-case files; they are the core execution paths. On the other hand, many peripheral classes are clean and focused, preventing this from falling to the 'significant drag everywhere' range (40-50). The score of 58 reflects: design competence in the small, but real structural drag concentrated where it matters most."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "api_server_god_class",
+      "summary": "WordSketchApiServer (1253 lines) mixes HTTP wiring, routing, parameter parsing, JSON serialization, and business logic in one class",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() registers all routes inline with anonymous lambdas containing non-trivial logic",
+        "handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery are ~50-80 line methods each combining parameter validation, query execution, and JSON assembly",
+        "The 6-line WordSketchResult-to-JSONObject serialization block is duplicated verbatim at lines 319-324, 364-369, 418-423, and 469-474"
+      ],
+      "suggestion": "Extract a WordSketchResultSerializer helper that converts List<WordSketchResult> to JSONArray. Separate route dispatch (a thin routing class) from handler implementations (one class per handler group, e.g. SketchHandlers, SemanticFieldHandlers). The server class should only wire up the HTTP server and delegate.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "god_class_accumulation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "queryexecutor_interface_breach",
+      "summary": "QueryExecutor interface is bypassed by 5 explicit BlackLabQueryExecutor downcasts inside the API server",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "executor field is declared QueryExecutor but cast to BlackLabQueryExecutor at lines 306, 350, 403, 455, and 694 to call executeSurfacePattern()",
+        "executeSurfacePattern() is absent from the QueryExecutor interface, so the abstraction only holds at construction time",
+        "SemanticFieldExplorer also contains instanceof BlackLabQueryExecutor guards for the same reason (lines ~120-130)"
+      ],
+      "suggestion": "Add executeSurfacePattern() to the QueryExecutor interface (or a richer sub-interface). Alternatively, if only BlackLabQueryExecutor will ever be used, remove the interface indirection and type the field directly; the polymorphism is fictional.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "leaky_abstraction"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "semantic_explorer_algorithm_duplication",
+      "summary": "SemanticFieldExplorer.explore() and exploreByPattern() duplicate the same 3-step semantic field algorithm with ~130 lines of copied logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Both methods execute: (1) find collocates for seed, (2) for each collocate find reverse nouns, (3) score nouns by shared-collocate count and logDice, (4) find core collocates",
+        "exploreByPattern() prints 'Step 3' twice (lines 179-180 and 206-207), exposing a copy-paste residue",
+        "exploreByPredicates() at line 262 is a 2-line delegate that adds no behavior"
+      ],
+      "suggestion": "Extract a private exploreFromCollocates(seed, seedCollocScores, ...) that runs steps 2-4 given an already-fetched collocate map. Both explore() and exploreByPattern() differ only in how they fetch step-1 collocates; the rest is identical and should be shared.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "algorithm_copy_paste"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dead_buildrelationcollocations_body",
+      "summary": "CollocationsBuilder.buildRelationCollocations() has ~200 lines of dead code after explicitly disabling itself with Collections.emptyList()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/CollocationsBuilder.java"
+      ],
+      "evidence": [
+        "Line 226: 'simpleRelations = Collections.emptyList()' with log message 'Relation precomputation is DISABLED'",
+        "Lines 230-303 iterate over simpleRelations (always empty), execute full parallel ExecutorService/Future infrastructure, and call buildRelationEntriesForLemma—all doing nothing",
+        "buildRelationEntriesForLemma() (~60 lines) is only called from this dead path"
+      ],
+      "suggestion": "Either delete the method body entirely (keeping only an early-return stub) or, if future re-enabling is intended, remove the live infrastructure and replace with a single TODO comment. Dead code maintained alongside live code signals intent confusion and misleads reviewers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code_retention"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "grammar_config_mirror_position_methods",
+      "summary": "GrammarConfigLoader has two near-identical ~40-line methods deriveHeadPositionFromPattern() and deriveCollocatePositionFromPattern() differing only in the label they seek",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "deriveHeadPositionFromPattern (line 209) and deriveCollocatePositionFromPattern (line 251) share the same tokenizer loop, skipping logic, and position counter",
+        "The only functional difference: head method returns on encountering '1:', collocate method returns on encountering '2:'",
+        "Both default to 1 and 2 respectively—same structure, different constant"
+      ],
+      "suggestion": "Replace both with a single private static int derivePositionFromPattern(String pattern, int labelNumber) that accepts the label to search for. Call sites become derivePositionFromPattern(pattern, 1) and derivePositionFromPattern(pattern, 2).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "structural_duplication"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "relation_normalization_switch_duplication",
+      "summary": "The relation-id legacy-name normalization switch is copy-pasted identically into two adjacent handler methods in WordSketchApiServer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "The 4-case switch (adj_modifier->noun_modifiers, adj_predicate->noun_adj_predicates, subject_of->noun_verbs, object_of->verb_nouns) appears at lines 502-507 in handleSemanticFieldExplore and at lines 654-659 in handleSemanticFieldExploreMulti",
+        "Any future legacy-name addition or change requires updating both sites"
+      ],
+      "suggestion": "Extract a private normalizeRelationId(String id) method and call it from both handlers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "god_class_accumulation"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "conllu_processor_duplication",
+      "summary": "HybridConllUProcessor and tagging/ConllUProcessor share ~50 lines of near-identical CoNLL-U file parsing logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java"
+      ],
+      "evidence": [
+        "Both contain the same UTF-8 lenient decoder setup, blank-line sentence boundary detection, '# text =' comment extraction, and token accumulation loop",
+        "Mechanical scan confirmed 51-line boilerplate block shared between the two files",
+        "The sentence-building logic (skip '-' tokens, extract word/lemma/upos/xpos/deprel, compute offsets) is similarly replicated"
+      ],
+      "suggestion": "Extract a shared CoNLLUReader or CoNLLUIterator utility (e.g., in a parsing subpackage) that yields SentenceTokens objects. Both processors consume the iterator and delegate to their respective indexers. This also makes testing the parser independently straightforward.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "structural_duplication"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The API server grew by accretion—each new endpoint was added inline rather than routed to a separate handler class, causing the god-class pattern.",
+      "The QueryExecutor interface was defined too narrowly early on and never updated when BlackLab-specific methods were added, leading to pervasive unsafe downcasts.",
+      "SemanticFieldExplorer's two exploration methods appear to have evolved from a single method by copy-and-modify rather than refactoring to a shared core, leaving duplicate algorithm bodies and even a doubled println."
+    ],
+    "likely_symptoms": [
+      "api_server_collocation_serialization_repeat is a symptom of api_server_god_class",
+      "relation_normalization_switch_duplication is a symptom of api_server_god_class",
+      "dead_buildrelationcollocations_body may be a symptom of an incomplete migration from window-based to CQL-based collocations"
+    ],
+    "possible_false_positives": []
+  }
+}

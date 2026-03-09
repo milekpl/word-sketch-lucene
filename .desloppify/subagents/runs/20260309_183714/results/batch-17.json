@@ -1,0 +1,114 @@
+{
+  "batch": "type_safety",
+  "batch_index": 17,
+  "assessments": {"type_safety": 63.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "GrammarConfigLoader.RelationConfig record declares `String relationType` for a two-valued discriminator ('SURFACE'/'DEP'); all 8+ call-sites compare with `.equals(\"SURFACE\")` or `.equals(\"DEP\")` — a textbook enum bypass pattern.",
+        "GrammarConfigLoader.collocatePosGroup() returns one of four raw strings ('adj','noun','verb','adv') compared with `.equals(\"adj\")` in WordSketchApiServer line 540 and `.equalsIgnoreCase(r.collocatePosGroup())` in GrammarConfigLoader line 330 — another 4-value enum candidate treated as an unguarded string.",
+        "WordSketchApiServer builds all API responses as `Map<String, Object>` (30+ instances, lines 545-939). Well-typed domain classes (ExplorationResult, DiscoveredNoun, CoreAdjective, WordSketchResult) already exist but are manually unpacked into untyped maps, discarding compile-time shape guarantees.",
+        "toLegacyRelationType(String relationType) in WordSketchApiServer line 1191 accepts a raw String and switches on .toUpperCase() to map to the QueryExecutor.RelationType enum — the enum exists but is never used directly at the API boundary; the String path is the live code path.",
+        "CollocationsBuilder.java line 598: `@SuppressWarnings(\"deprecation\")` with no accompanying comment identifying which deprecated API is invoked or why migration is deferred.",
+        "QueryExecutor.RelationType enum is well-designed with embedded CQL patterns; it models the same concept as the String-based 'adj_predicate'/'subject_of' inputs accepted by the explore endpoint, creating two parallel representations of the same discriminator.",
+        "handleConcordanceExamples in WordSketchApiServer (lines 907-923) contains five live `System.out.println(\"DEBUG: ...\")` statements in production code — not a type issue but observed during file reading."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "QueryExecutor.RelationType enum is well-modelled with embedded CQL patterns attached to each constant, demonstrating deliberate use of the enum pattern at the query-executor layer.",
+        "Domain result types (QueryResults.WordSketchResult, QueryResults.ConcordanceResult, SemanticFieldExplorer.ExplorationResult, DiscoveredNoun, CoreAdjective) are properly typed immutable classes with no Object fields, giving a clean internal representation.",
+        "Optional<RelationConfig> is correctly used in GrammarConfigLoader.getRelation() rather than returning null, showing awareness of null-safety at one important boundary.",
+        "The Builder pattern on WordSketchApiServer with typed setters prevents partial construction of the server with untyped configuration."
+      ],
+      "issue_character": "The issues are systemic and cluster around one structural gap: the grammar-config layer models stable discriminators (relation backend type, POS category) as plain Strings throughout the GrammarConfigLoader record and all downstream consumers, while a parallel enum (QueryExecutor.RelationType) exists for a closely related concept but is unreachable without a string-to-enum conversion at the boundary.",
+      "score_rationale": "The codebase earns a moderate score: the domain-model layer has good typed classes and the QueryExecutor enum is well designed. However, the grammar-config layer systematically bypasses Java's enum mechanism — 'SURFACE'/'DEP' and 'adj'/'noun'/'verb'/'adv' category strings recur across GrammarConfigLoader, WordSketchApiServer, and SemanticFieldExplorer without any enum guard. Combined with the pervasive Map<String,Object> API-response pattern (30+ sites) that discards the shape guarantees provided by the existing typed result classes, the codebase sits in the 60-65 range: functioning and internally consistent, but with clear, repeated type-discipline failures that a developer would encounter when extending any relation- or POS-sensitive code path."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "raw_string_relation_type",
+      "summary": "RelationConfig.relationType() stores backend discriminator as String instead of an enum",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.RelationConfig record: `String relationType` holds exactly two values 'SURFACE' or 'DEP' (line 390).",
+        "WordSketchApiServer compares with .equals(\"SURFACE\") at lines 150, 301, 346 and .equals(\"DEP\") at lines 175, 393, 449 — any typo or new value is a silent runtime failure.",
+        "GrammarConfigLoader.findRelationIdByType(String relationType) also takes a raw string (line 338) — callers must know the magic strings."
+      ],
+      "suggestion": "Introduce a `RelationBackend` enum with values SURFACE, DEP inside GrammarConfigLoader (or as a top-level type). Change the RelationConfig record field to `RelationBackend relationType`. Parse from JSON once in the loader (RelationBackend.valueOf(str.toUpperCase())) and propagate the enum everywhere — all the .equals() comparisons become switch expressions with exhaustiveness checking.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "string_enum_bypass"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "raw_string_pos_group",
+      "summary": "collocatePosGroup() returns unguarded String POS category instead of an enum",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.posGroupFromConstraint() returns one of four literal strings: 'adj', 'verb', 'noun', 'adv' or null (lines 598-612).",
+        "WordSketchApiServer line 540: `relationConfig.get().collocatePosGroup().equals(\"adj\")` — comparison against magic string; a fifth POS category (e.g., 'pron') added later would silently fall through.",
+        "GrammarConfigLoader line 330 filters relations by `headPos.equalsIgnoreCase(r.collocatePosGroup())` with no exhaustiveness guarantee."
+      ],
+      "suggestion": "Define a `PosGroup` enum (ADJ, VERB, NOUN, ADV, OTHER) and change posGroupFromConstraint() to return `PosGroup`. Update all callers to switch on the enum. The null return can become PosGroup.OTHER to eliminate null comparisons.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "string_enum_bypass"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "map_object_api_responses",
+      "summary": "All API response objects built as Map<String, Object> despite typed domain classes existing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer contains 30+ instances of `Map<String, Object> response = new HashMap<>()` for constructing JSON payloads (lines 545, 718, 790, 868, 928, 1126, etc.).",
+        "SemanticFieldExplorer.ExplorationResult, DiscoveredNoun, and CoreAdjective are fully-typed classes yet the API manually copies each field into a Map, e.g. lines 563-614 for the explore response.",
+        "There is no compile-time guarantee that a field added to DiscoveredNoun will appear in the API response — the mapping code can silently omit or misspell field names."
+      ],
+      "suggestion": "Annotate the domain result classes (ExplorationResult, DiscoveredNoun, WordSketchResult, etc.) with fastjson2 `@JSONField` or ensure they are serializable by fastjson2's reflection, then pass the typed objects directly to `sendJsonResponse()`. Remove the manual Map-building code. Alternatively, introduce dedicated response record types (e.g., ExploreResponse) that fastjson2 can serialize directly.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "suppress_warnings_no_explanation",
+      "summary": "@SuppressWarnings(\"deprecation\") in CollocationsBuilder without an explanatory comment",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/CollocationsBuilder.java"
+      ],
+      "evidence": [
+        "Line 598: `@SuppressWarnings(\"deprecation\")` on forEachMatchedSentence() with no comment indicating which Lucene API is deprecated, what the migration path is, or when the suppression should be revisited."
+      ],
+      "suggestion": "Add a single-line comment immediately above the annotation: `// Using deprecated BinaryDocValues API; migrate to SortedSetDocValues when upgrading to Lucene 10.x (see LUCENE-XXXXX)`. This makes the intent visible and documents the suppression scope.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "string_enum_bypass: The grammar-config layer was likely evolved from a JSON-driven config without a companion enum type; the two live enum bypass patterns (relationType and posGroup) share this root cause and should be fixed together.",
+      "Typed domain result classes were designed for the query layer but the API serialization layer was written independently as Map<String,Object>, creating a gap between internal type discipline and the API boundary."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

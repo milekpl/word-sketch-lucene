@@ -1,0 +1,61 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 19,
+  "assessments": {
+    "authorization_consistency": 82.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer registers 10+ endpoint contexts (health, sketch, relations, semantic-field/explore, semantic-field/explore-multi, semantic-field, semantic-field/examples, concordance/examples, visual/radial, bcql) with no auth middleware or decorator on any of them — uniformly open, consistent with a local research tool.",
+        "sendJsonResponse() always sets Access-Control-Allow-Origin: * (line ~1209), but sendError() does not set any CORS header. Error responses from every endpoint therefore violate the trust boundary established for success responses.",
+        "POST endpoints (api/bcql, api/visual/radial) handle OPTIONS preflight manually and set CORS headers on 204/200 responses, but their error branches also fall through to sendError() which lacks CORS headers — the same inconsistency.",
+        "No authentication tokens, session checks, role constants, or permission literals exist anywhere in the codebase. The PostgresCorpusSampler credentials are passed as constructor parameters at build time, not accessible via the HTTP API."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "sendError() does not set Access-Control-Allow-Origin: *, so cross-origin error responses are blocked by browsers while all success responses allow any origin. This is a consistent rule applied inconsistently: success paths declare an open trust boundary but error paths silently revoke it."
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "All API endpoints are uniformly unauthenticated, which is architecturally coherent for a local corpus-analysis research tool — there are no sibling routes where some have guards and others do not.",
+        "No magic permission literals or role constants exist; the absence of an auth layer is total and deliberate, not patchwork.",
+        "Input validation is present and consistent on most endpoints: missing required parameters return HTTP 400 with a structured error body before any index query is executed."
+      ],
+      "issue_character": "The single observable inconsistency is infrastructural rather than an auth-design gap: CORS headers are set on success responses via a shared helper but omitted from the shared error helper, creating an asymmetric trust boundary across all endpoints simultaneously.",
+      "score_rationale": "This codebase has no authentication system, which is appropriate and architecturally consistent for a local research tool — the dimension's primary concerns (mixed auth on sibling routes, magic permission strings, selective RLS) simply do not arise. The one real inconsistency is that sendError() omits the Access-Control-Allow-Origin header that sendJsonResponse() always sets, meaning every endpoint silently breaks cross-origin error handling despite advertising an open CORS policy. This single-edit fix affects all ten endpoints at once, which places it in the 80-range on the global anchor scale: mostly coherent with a recurring gap that a developer reviewing the security posture would notice, but the gap is uniform and trivially correctable."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_missing_on_error_responses",
+      "summary": "sendError() omits Access-Control-Allow-Origin: * header, breaking cross-origin error visibility on every endpoint",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "sendJsonResponse() sets exchange.getResponseHeaders().set(\"Access-Control-Allow-Origin\", \"*\") before writing the body, establishing an open CORS policy for all success responses.",
+        "sendError() (lines ~1215-1228) sets Content-Type and the status code but never sets Access-Control-Allow-Origin. All ten registered endpoint contexts call sendError() for 400/405/500 paths.",
+        "The result: a browser making a cross-origin request receives a CORS error on any failure path, hiding the actual HTTP error code and JSON error body from the client, while the same request succeeds transparently on the happy path."
+      ],
+      "suggestion": "Add `exchange.getResponseHeaders().set(\"Access-Control-Allow-Origin\", \"*\");` as the first header line inside sendError(), immediately after the method signature — one-line fix that aligns the error path's trust boundary with the success path's.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "cors_asymmetry"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The shared sendError() helper was written independently from sendJsonResponse() without extracting a common header-setting step, so the CORS header added to the success helper was never mirrored in the error helper."
+    ],
+    "likely_symptoms": [
+      "cors_missing_on_error_responses"
+    ],
+    "possible_false_positives": []
+  }
+}

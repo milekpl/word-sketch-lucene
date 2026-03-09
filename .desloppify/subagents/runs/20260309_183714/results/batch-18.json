@@ -1,0 +1,136 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 18,
+  "assessments": {
+    "api_surface_coherence": 57.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern has 10 parameters: seed, topPredicates, nounsPerPredicate, minShared, minLogDice, bcqlPattern, simplePattern, relationName, headPos, collocatePos (src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java:87-97)",
+        "QueryExecutor interface does not declare executeSurfacePattern; both SemanticFieldExplorer (line 121) and WordSketchApiServer (line 693) must instanceof-downcast to BlackLabQueryExecutor to call it, breaking the abstraction",
+        "exploreByPredicates is a pure alias for explore with the same 5 params and no added behaviour (SemanticFieldExplorer.java:262-268), creating redundant surface area",
+        "CorpusProcessor.getTotalTokens() is a public method that always returns 0 with the comment 'This would require tracking, but for now just return 0' — a stub masquerading as live API (CorpusProcessor.java)",
+        "WordSketchApiServer handler methods bypass the injected QueryExecutor and directly construct new SemanticFieldExplorer(indexPath) at lines 530, 786, 864 — inconsistent with the Builder-injected executor pattern",
+        "Parameter naming is inconsistent between explore() (topAdjectives/nounsPerAdjective/minSharedAdjectives) and exploreByPattern() (topPredicates/nounsPerPredicate/minShared) for the same conceptual parameters",
+        "QueryExecutor interface and WordSketchApiServer.Builder are well-documented with Javadoc and clean method signatures"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "QueryExecutor interface is well-documented with Javadoc on every method, including parameter contracts and IOException declarations, giving implementors a clear contract",
+        "WordSketchApiServer uses a clean Builder pattern (withExecutor, withIndexPath, withPort, withGrammarConfig) — consistent naming and no parameter ordering ambiguity at construction time",
+        "REST endpoint URL structure is coherent: /api/sketch/{lemma}, /api/sketch/{lemma}/{relation}, /api/relations, /api/relations/dep follow consistent conventions",
+        "RelationType enum in QueryExecutor encapsulates both simplePattern and fullPattern together, avoiding duplicate string literals at call sites"
+      ],
+      "issue_character": "The issues are concentrated in SemanticFieldExplorer's public API: a 10-parameter method, redundant aliases with inconsistent parameter naming, and a recurring instanceof downcast leak that exposes the concrete BlackLabQueryExecutor type at multiple call sites despite an abstraction interface existing — a pattern of accretion without refactoring.",
+      "score_rationale": "The codebase has isolated clean areas (QueryExecutor interface, Builder) but SemanticFieldExplorer's public surface is a significant drag: its flagship method has 10 parameters (the rubric flags >5 as a boundary problem), it has a dead-code stub returning 0 on a public method, and the instanceof downcast to access executeSurfacePattern appears in two separate files, indicating the QueryExecutor interface does not honestly represent what callers actually need. These are not style nits — they create real friction for any developer trying to use the explore subsystem. Compared to a score-80 codebase (solid but uneven), this falls below because the incoherence is structural and affects the most visible part of the query API; it scores above 40 because the REST surface and core interface are coherent."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_by_pattern_10_params",
+      "summary": "SemanticFieldExplorer.exploreByPattern has 10 parameters, well above the API boundary threshold",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "exploreByPattern(String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice, String bcqlPattern, String simplePattern, String relationName, int headPos, int collocatePos) — 10 positional parameters at lines 87-97",
+        "The last 5 parameters (bcqlPattern, simplePattern, relationName, headPos, collocatePos) are all sourced from GrammarConfigLoader.RelationConfig at the call site in WordSketchApiServer (lines 534-543), suggesting they should be passed as a single config object"
+      ],
+      "suggestion": "Introduce a RelationPattern value object (or reuse the existing GrammarConfigLoader.RelationConfig) and collapse the last 5 parameters: exploreByPattern(String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice, RelationConfig relation). This also eliminates the parallel string/int reconstruction at every call site.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "semantic_explorer_api_accretion"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "executor_interface_downcast_leak",
+      "summary": "instanceof BlackLabQueryExecutor downcast used in two files to call executeSurfacePattern, which is absent from the QueryExecutor interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.java line 121: if (executor instanceof BlackLabQueryExecutor) { ((BlackLabQueryExecutor) executor).executeSurfacePattern(...) }",
+        "WordSketchApiServer.java line 693: if (executor instanceof BlackLabQueryExecutor) { ((BlackLabQueryExecutor) executor).executeSurfacePattern(...) }",
+        "executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) is public on BlackLabQueryExecutor (line 686) but not on QueryExecutor"
+      ],
+      "suggestion": "Add executeSurfacePattern (or a more generically named findByPattern) to the QueryExecutor interface with a default implementation that delegates to findCollocations. Remove the instanceof checks from both call sites. This makes the interface honest and allows future executor implementations to override the method properly.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "semantic_explorer_api_accretion"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_by_predicates_alias",
+      "summary": "exploreByPredicates is a redundant public alias for explore with identical parameters and no added behaviour",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "public ExplorationResult exploreByPredicates(String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice) at line 262 simply calls return explore(seed, topPredicates, nounsPerPredicate, minShared, minLogDice) with no transformation",
+        "The method name implies a different mode from explore() but the implementation is identical; parameter names differ only cosmetically (topPredicates vs topAdjectives)"
+      ],
+      "suggestion": "Remove exploreByPredicates and let callers call explore() directly. If a semantic distinction is intended (predicates vs adjective-modifier search), implement it as an actual separate code path and document the difference; otherwise the alias adds surface confusion without value.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "semantic_explorer_api_accretion"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "corpus_processor_stub_getter",
+      "summary": "CorpusProcessor.getTotalTokens() is a public method with an unimplemented body that always returns 0",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/CorpusProcessor.java"
+      ],
+      "evidence": [
+        "public int getTotalTokens() { // This would require tracking, but for now just return 0\\n return 0; } — silently returns 0 regardless of tokens indexed"
+      ],
+      "suggestion": "Either implement the counter (add a private int totalTokens field, increment in processSentenceBuffer, return it here) or remove the method if it has no callers. A public getter that always returns 0 is a dishonest contract that will mislead any code that tries to use it for progress reporting or validation.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_server_bypasses_injected_executor",
+      "summary": "WordSketchApiServer handler methods create new SemanticFieldExplorer(indexPath) directly rather than using the injected executor, breaking the dependency injection pattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 530: SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath); — creates a new BlackLabQueryExecutor internally, ignoring this.executor",
+        "Same pattern at lines 786 and 864 for handleSemanticField and handleSemanticFieldExamples",
+        "The Builder explicitly accepts a QueryExecutor via withExecutor(), implying clients can inject test doubles or alternate implementations — but the semantic field handlers silently hardwire to BlackLabQueryExecutor"
+      ],
+      "suggestion": "Pass this.executor into the SemanticFieldExplorer constructor: new SemanticFieldExplorer(this.executor). The two-arg constructor already accepts a QueryExecutor. This restores the testability contract implied by the Builder.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "semantic_explorer_api_accretion"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "semantic_explorer_api_accretion: SemanticFieldExplorer grew organically without consolidation — methods were added for new use cases without removing or refactoring old ones, resulting in overlapping signatures, a 10-parameter method, and leaking concrete types through the abstraction"
+    ],
+    "likely_symptoms": [
+      "explore_by_predicates_alias — symptom of accretion; the real issue is the lack of a clean exploration config object",
+      "api_server_bypasses_injected_executor — symptom of the same tight coupling that caused the instanceof pattern"
+    ],
+    "possible_false_positives": []
+  }
+}

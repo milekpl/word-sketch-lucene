@@ -1,0 +1,102 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 7,
+  "assessments": {
+    "dependency_health": 72.0
+  },
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares com.alibaba:fastjson:2.0.25; WordSketchApiServer.java, GrammarConfigLoader.java, and IndexFingerprintTool.java all import com.alibaba.fastjson2.*",
+        "blacklab-core-pom.xml shows BlackLab brings jackson-core:2.13.4, jackson-databind:2.13.4, and jackson-dataformat-yaml:2.13.4 as transitive dependencies, putting two JSON libraries in the effective runtime classpath",
+        "pom.xml declares postgresql:42.7.1 as runtime scope; only PostgresCorpusSampler.java and CorpusBuilder.java (which calls it) use JDBC; bundled into the shaded fat jar via maven-shade-plugin",
+        "BlackLab 4.0.0 is resolved from https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/ — a raw GitHub file URL, not a stable artifact repository",
+        "<lucene.version>8.11.1</lucene.version> property defined in pom.xml but never referenced in any <dependency> block; all Lucene access is transitive through blacklab-engine",
+        "Project declares slf4j-api:2.0.7 / slf4j-simple:2.0.7; BlackLab's transitive closure includes slf4j-api:1.7.32 — Maven resolves to 2.0.7 (nearest wins); minor but version spread exists"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Explicit dependency set is lean: only 7 production entries (BlackLab x2, fastjson, slf4j x2, postgresql) — no bloat of convenience libraries",
+        "Test dependencies are correctly scoped with <scope>test</scope> and do not leak into the production artifact",
+        "Versions are pinned via <properties> for reusable coordinates (lucene.version, blacklab.version, fastjson.version, junit.version), making future upgrades easy to coordinate"
+      ],
+      "issue_character": "The issues are structural rather than cosmetic: a duplicate JSON library pair (fastjson + Jackson) inherited through BlackLab's transitive closure, a heavyweight JDBC driver shaded into the fat jar for a single auxiliary utility, and a core dependency resolved from a fragile raw GitHub URL — these are the kinds of dep health problems that accumulate quietly and surprise developers at upgrade or security-audit time.",
+      "score_rationale": "The explicit dependency declaration is disciplined and purposeful, which pushes the score above 60. However, two concrete problems pull it below 80: fastjson is explicitly declared while Jackson is already present transitively through BlackLab (duplicate JSON libraries for the same purpose), and the PostgreSQL JDBC driver is bundled into the shaded jar for what amounts to a single optional utility class. The BlackLab dependency itself is resolved from a raw GitHub URL rather than Maven Central or a stable nexus, adding build-reliability risk that a developer might not notice until CI fails. Per the 80-anchor ('a developer encounters duplicate libraries for the same purpose, heavy deps for light use'), a score of 72 reflects real but bounded dependency drift — not catastrophic, but requiring attention."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "dual_json_fastjson_plus_jackson",
+      "summary": "fastjson2 explicitly declared while Jackson (jackson-databind + jackson-core) is already on classpath via BlackLab transitive deps",
+      "related_files": [
+        "pom.xml",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tools/IndexFingerprintTool.java"
+      ],
+      "evidence": [
+        "pom.xml line 41-45: <artifactId>fastjson</artifactId><version>2.0.25</version>",
+        "WordSketchApiServer.java imports com.alibaba.fastjson2.JSON, JSONArray, JSONObject",
+        "GrammarConfigLoader.java imports com.alibaba.fastjson2.JSON, JSONObject, JSONArray",
+        "blacklab-core-pom.xml lists jackson-core:2.13.4, jackson-databind:2.13.4 as BlackLab dependencies — both arrive transitively"
+      ],
+      "suggestion": "Replace fastjson2 usages in WordSketchApiServer, GrammarConfigLoader, and IndexFingerprintTool with Jackson ObjectMapper / JsonNode (already on the classpath via BlackLab). Remove the com.alibaba:fastjson dependency from pom.xml. Jackson is battle-hardened and already present — fastjson adds audit surface without adding capability.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "dep_overlap_json"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "postgresql_jdbc_in_fat_jar",
+      "summary": "Full PostgreSQL JDBC driver (~1.5MB) shaded into fat jar for a single optional utility class",
+      "related_files": [
+        "pom.xml",
+        "src/main/java/pl/marcinmilkowski/word_sketch/corpus/PostgresCorpusSampler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/corpus/CorpusBuilder.java"
+      ],
+      "evidence": [
+        "pom.xml: postgresql:42.7.1 declared with <scope>runtime</scope>; maven-shade-plugin bundles all runtime deps",
+        "PostgresCorpusSampler.java: the only class using JDBC; described in its own Javadoc as 'Used for building test corpora from production data' — a one-off utility, not a core feature",
+        "CorpusBuilder.java is the only caller of PostgresCorpusSampler"
+      ],
+      "suggestion": "Move the PostgresCorpusSampler and CorpusBuilder to a separate Maven module (e.g., corpus-tools) with the postgresql dependency, or make it an optional dependency with provided scope and document that it requires the driver at runtime only when the corpus import feature is needed. This keeps the main shaded jar free of the JDBC driver for the common deployment path.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab_from_raw_github_url",
+      "summary": "Core BlackLab dependency resolved from a raw GitHub file URL rather than a stable artifact repository",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml lines 103-107: repository URL is https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/ — a raw GitHub file path, not a proper Maven repository with redirect or proxy support",
+        "BlackLab 4.0.0 is the primary dependency underpinning all corpus query functionality; if this URL becomes unavailable or the branch is moved, the build fails"
+      ],
+      "suggestion": "Install blacklab-engine and blacklab-query-parser into a local Maven repository (mvn install:install-file) or a team Nexus/Artifactory proxy, and document this in BLACKLAB_SETUP.md. Alternatively, use the install-blacklab.sh script that already exists and pin that workflow in CI. Remove the raw GitHub repository entry from pom.xml once the artifacts are available through a stable channel.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab was adopted as a heavy pre-packaged dependency (with its own Jackson transitive closure) without auditing overlap with already-chosen application libraries (fastjson), leading to the dual JSON situation",
+      "The PostgreSQL utility class appears to have been added incrementally for a one-off data import task without evaluating its impact on the shaded artifact size or dependency surface"
+    ],
+    "likely_symptoms": [
+      "dual_json_fastjson_plus_jackson"
+    ],
+    "possible_false_positives": []
+  }
+}

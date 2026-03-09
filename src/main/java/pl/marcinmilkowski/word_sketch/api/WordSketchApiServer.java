@@ -6,7 +6,6 @@ import com.alibaba.fastjson2.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
-import pl.marcinmilkowski.word_sketch.query.BlackLabQueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
@@ -269,20 +268,20 @@ public class WordSketchApiServer {
             server.setExecutor(null);
             server.start();
             logger.info("API server started on port {}", port);
-            System.out.println("Server started on http://localhost:" + port);
-            System.out.println("Endpoints:");
-            System.out.println("  GET  /health - Health check");
-            System.out.println("  GET  /api/sketch/{lemma} - Get full word sketch (surface patterns)");
-            System.out.println("  GET  /api/sketch/{lemma}/{relation} - Get specific surface relation");
-            System.out.println("  GET  /api/sketch/{lemma}/dep - Get full dependency sketch");
-            System.out.println("  GET  /api/sketch/{lemma}/dep/{relationId} - Get specific dependency relation");
-            System.out.println("  GET  /api/relations - List available surface relations");
-            System.out.println("  GET  /api/relations/dep - List available dependency relations");
-            System.out.println("  GET  /api/concordance/examples - Get concordance examples for word pair");
-            System.out.println("  GET  /api/visual/radial - Get radial plot SVG");
-            System.out.println("  POST /api/bcql - Execute BCQL query");
-            System.out.println();
-            System.out.println("Press Ctrl+C to stop.");
+            logger.info("Server started on http://localhost:{}", port);
+            logger.info("Endpoints:");
+            logger.info("  GET  /health - Health check");
+            logger.info("  GET  /api/sketch/{lemma} - Get full word sketch (surface patterns)");
+            logger.info("  GET  /api/sketch/{lemma}/{relation} - Get specific surface relation");
+            logger.info("  GET  /api/sketch/{lemma}/dep - Get full dependency sketch");
+            logger.info("  GET  /api/sketch/{lemma}/dep/{relationId} - Get specific dependency relation");
+            logger.info("  GET  /api/relations - List available surface relations");
+            logger.info("  GET  /api/relations/dep - List available dependency relations");
+            logger.info("  GET  /api/concordance/examples - Get concordance examples for word pair");
+            logger.info("  GET  /api/visual/radial - Get radial plot SVG");
+            logger.info("  POST /api/bcql - Execute BCQL query");
+            logger.info("");
+            logger.info("Press Ctrl+C to stop.");
 
         } catch (IOException e) {
             logger.error("Failed to start server", e);
@@ -303,7 +302,7 @@ public class WordSketchApiServer {
                         // Substitute headword into BCQL pattern
                         String fullPattern = rel.getFullPattern(lemma);
                         List<QueryResults.WordSketchResult> results =
-                            ((BlackLabQueryExecutor) executor).executeSurfacePattern(
+                            executor.executeSurfacePattern(
                                 lemma, fullPattern,
                                 rel.headPosition(), rel.collocatePosition(),
                                 0.0, 20);
@@ -347,7 +346,7 @@ public class WordSketchApiServer {
                 try {
                     // Substitute headword into BCQL pattern
                     String fullPattern = rel.getFullPattern(lemma);
-                    results = ((BlackLabQueryExecutor) executor).executeSurfacePattern(
+                    results = executor.executeSurfacePattern(
                         lemma, fullPattern,
                         rel.headPosition(), rel.collocatePosition(),
                         0.0, 50);
@@ -400,7 +399,7 @@ public class WordSketchApiServer {
                         
                         // Execute using surface pattern method (DEP relations use surface patterns with deprel constraints)
                         List<QueryResults.WordSketchResult> results =
-                            ((BlackLabQueryExecutor) executor).executeSurfacePattern(
+                            executor.executeSurfacePattern(
                                 lemma, fullPattern,
                                 rel.headPosition(), rel.collocatePosition(),
                                 0.0, 20);
@@ -452,7 +451,7 @@ public class WordSketchApiServer {
                     String fullPattern = rel.getFullPattern(lemma);
                     
                     // Execute using surface pattern method
-                    results = ((BlackLabQueryExecutor) executor).executeSurfacePattern(
+                    results = executor.executeSurfacePattern(
                         lemma, fullPattern,
                         rel.headPosition(), rel.collocatePosition(),
                         0.0, 50);
@@ -527,7 +526,7 @@ public class WordSketchApiServer {
         double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
 
         // Run semantic field exploration using the BCQL pattern from grammar config
-        SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor);
         
         // Get the BCQL pattern with headword substituted at the head position
         String bcqlPattern = relationConfig.get().getFullPattern(seed);
@@ -690,12 +689,8 @@ public class WordSketchApiServer {
 
         for (String seed : seeds) {
             List<QueryResults.WordSketchResult> collocates;
-            if (executor instanceof BlackLabQueryExecutor) {
-                collocates = ((BlackLabQueryExecutor) executor).executeSurfacePattern(
-                    seed, bcqlPattern, headPos, collocatePos, minLogDice, topCollocates);
-            } else {
-                collocates = executor.findCollocations(seed, bcqlPattern, minLogDice, topCollocates);
-            }
+            collocates = executor.executeSurfacePattern(
+                seed, bcqlPattern, headPos, collocatePos, minLogDice, topCollocates);
             seedToCollocates.put(seed, collocates);
 
             Set<String> seedCollocates = new HashSet<>();
@@ -783,7 +778,7 @@ public class WordSketchApiServer {
         double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
         int maxPerNoun = Integer.parseInt(params.getOrDefault("max_per_noun", "50"));
 
-        SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor);
         ComparisonResult result = explorer.compare(nouns, minLogDice, maxPerNoun);
         explorer.close();
 
@@ -861,7 +856,7 @@ public class WordSketchApiServer {
 
         int maxExamples = Integer.parseInt(params.getOrDefault("max", "10"));
 
-        SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor);
         List<String> examples = explorer.fetchExamples(adjective, noun, maxExamples);
         explorer.close();
 
@@ -904,23 +899,23 @@ public class WordSketchApiServer {
             if (rel.isPresent()) {
                 // Substitute headword to get the full BCQL pattern
                 String patternWithHead = rel.get().getFullPattern(word1);
-                System.out.println("DEBUG: After getFullPattern: " + patternWithHead);
-                System.out.println("DEBUG: collocatePosition = " + rel.get().collocatePosition());
+                logger.debug("DEBUG: After getFullPattern: {}", patternWithHead);
+                logger.debug("DEBUG: collocatePosition = {}", rel.get().collocatePosition());
                 // Now also substitute the collocate at collocate_position
                 bcqlQuery = substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
-                System.out.println("DEBUG: After substituteCollocate: " + bcqlQuery);
+                logger.debug("DEBUG: After substituteCollocate: {}", bcqlQuery);
             } else {
-                System.out.println("DEBUG: Relation '" + relation + "' not found in grammar config");
+                logger.debug("DEBUG: Relation '{}' not found in grammar config", relation);
             }
         } else {
-            System.out.println("DEBUG: grammarConfig is null");
+            logger.debug("DEBUG: grammarConfig is null");
         }
 
         // Fallback to generic proximity query if relation not found or query is empty
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
                 word1.toLowerCase(), word2.toLowerCase());
-            System.out.println("DEBUG: Using fallback BCQL: " + bcqlQuery);
+            logger.debug("DEBUG: Using fallback BCQL: {}", bcqlQuery);
         }
 
         List<QueryResults.ConcordanceResult> results = executor.executeBcqlQuery(bcqlQuery, limit);
@@ -979,31 +974,31 @@ public class WordSketchApiServer {
             }
         }
 
-        System.out.println("DEBUG: substituteCollocate: tokens.size()=" + tokens.size() + ", collocatePosition=" + collocatePosition);
-        System.out.println("DEBUG: Tokens: " + tokens);
+        logger.debug("DEBUG: substituteCollocate: tokens.size()={}, collocatePosition={}", tokens.size(), collocatePosition);
+        logger.debug("DEBUG: Tokens: {}", tokens);
 
         if (collocatePosition > tokens.size()) {
-            System.out.println("DEBUG: Returning early - position > size");
+            logger.debug("DEBUG: Returning early - position > size");
             return pattern;
         }
 
         // Replace the constraint at collocatePosition with lemma constraint for the collocate
         String originalConstraint = tokens.get(collocatePosition - 1);
-        System.out.println("DEBUG: originalConstraint at position " + collocatePosition + ": " + originalConstraint);
+        logger.debug("DEBUG: originalConstraint at position {}: {}", collocatePosition, originalConstraint);
         // Extract xpos/tag from original and merge with lemma
         String xposPattern = extractXposFromConstraint(originalConstraint);
-        System.out.println("DEBUG: xposPattern: " + xposPattern);
+        logger.debug("DEBUG: xposPattern: {}", xposPattern);
         StringBuilder newConstraint = new StringBuilder();
         newConstraint.append("[lemma=\"").append(escapeForRegex(collocate)).append("\"");
         if (xposPattern != null) {
             newConstraint.append(" & ").append(xposPattern);
         }
         newConstraint.append("]");
-        System.out.println("DEBUG: newConstraint: " + newConstraint);
+        logger.debug("DEBUG: newConstraint: {}", newConstraint);
 
         tokens.set(collocatePosition - 1, newConstraint.toString());
         String result = String.join(" ", tokens);
-        System.out.println("DEBUG: final result: " + result);
+        logger.debug("DEBUG: final result: {}", result);
         return result;
     }
 
@@ -1058,11 +1053,11 @@ public class WordSketchApiServer {
 
         try {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            System.out.println("DEBUG Radial: body = " + body);
+            logger.debug("DEBUG Radial: body = {}", body);
             JSONObject obj = JSON.parseObject(body);
             String center = obj.getString("center");
             if (center == null) center = "";
-            System.out.println("DEBUG Radial: center = " + center);
+            logger.debug("DEBUG Radial: center = {}", center);
             int width = obj.getIntValue("width") == 0 ? 840 : obj.getIntValue("width");
             int height = obj.getIntValue("height") == 0 ? 520 : obj.getIntValue("height");
 
@@ -1119,7 +1114,7 @@ public class WordSketchApiServer {
             boolean raw = obj.getBooleanValue("raw");  // Add raw output option
             if (limit <= 0) limit = 20;
 
-            System.out.println("DEBUG BCQL: " + bcqlQuery);
+            logger.debug("DEBUG BCQL: {}", bcqlQuery);
 
             List<QueryResults.ConcordanceResult> results = executor.executeBcqlQuery(bcqlQuery, limit);
 

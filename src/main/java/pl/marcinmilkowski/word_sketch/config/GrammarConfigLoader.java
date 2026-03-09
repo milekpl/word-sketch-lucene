@@ -427,8 +427,8 @@ public class GrammarConfigLoader {
                 return pattern;
             }
 
-            // Split pattern into tokens, preserving numbered prefixes like "1:" or "2:"
-            List<String> tokens = new ArrayList<>();
+            // Split pattern into positions, preserving numbered prefixes like "1:" or "2:"
+            List<String> positions = new ArrayList<>();
             int i = 0;
             while (i < pattern.length()) {
                 // Skip whitespace
@@ -450,7 +450,7 @@ public class GrammarConfigLoader {
                 if (i < pattern.length() && pattern.charAt(i) == '[') {
                     int end = pattern.indexOf(']', i);
                     if (end > i) {
-                        tokens.add(prefix + pattern.substring(i, end + 1));
+                        positions.add(prefix + pattern.substring(i, end + 1));
                         i = end + 1;
                     } else {
                         i++;
@@ -468,33 +468,33 @@ public class GrammarConfigLoader {
                 }
             }
 
-            if (headPosition > tokens.size()) {
+            if (headPosition > positions.size()) {
                 return pattern;
             }
 
             // Get the constraint at headPosition and merge with lemma
-            String token = tokens.get(headPosition - 1);
+            String positionEntry = positions.get(headPosition - 1);
             // Extract just the constraint part (after any "1:" prefix)
-            String constraint = token;
-            if (!token.isEmpty() && Character.isDigit(token.charAt(0))) {
-                int colon = token.indexOf(':');
+            String constraint = positionEntry;
+            if (!positionEntry.isEmpty() && Character.isDigit(positionEntry.charAt(0))) {
+                int colon = positionEntry.indexOf(':');
                 if (colon > 0) {
-                    constraint = token.substring(colon + 1);
+                    constraint = positionEntry.substring(colon + 1);
                 }
             }
             String newConstraint = mergeLemmaConstraint(constraint, headword);
 
             // Replace with prefix + new constraint
             String prefix = "";
-            if (!token.isEmpty() && Character.isDigit(token.charAt(0))) {
-                int colon = token.indexOf(':');
+            if (!positionEntry.isEmpty() && Character.isDigit(positionEntry.charAt(0))) {
+                int colon = positionEntry.indexOf(':');
                 if (colon > 0) {
-                    prefix = token.substring(0, colon + 1);
+                    prefix = positionEntry.substring(0, colon + 1);
                 }
             }
-            tokens.set(headPosition - 1, prefix + newConstraint);
+            positions.set(headPosition - 1, prefix + newConstraint);
 
-            return String.join(" ", tokens);
+            return String.join(" ", positions);
         }
 
         /**

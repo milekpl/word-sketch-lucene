@@ -1,0 +1,122 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 2,
+  "assessments": {
+    "high_level_elegance": 52.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package names (api, config, corpus, grammar, indexer, query, tagging, tools, utils, viz) are semantically plausible and domain-aligned on the surface.",
+        "Main.java exposes only three commands (blacklab-index, blacklab-query, server), but CLAUDE.md (the canonical dev guide) documents four different commands (index, conllu, query, server) — a new engineer following CLAUDE.md would immediately fail at the CLI.",
+        "indexer/ contains three parallel indexer subsystems: LuceneIndexer (root-level, old), indexer/blacklab/BlackLabConllUIndexer (active, used by Main), and indexer/hybrid/ (20+ classes: HybridIndexer, SinglePassConlluProcessor, CollocationsBuilder, etc.) — none of the hybrid classes are reachable from Main or WordSketchApiServer.",
+        "tagging/ConllUProcessor.java and tagging/CorpusProcessor.java import pl.marcinmilkowski.word_sketch.indexer.LuceneIndexer (the old indexer), not the active BlackLab backend. They compile as live code but are disconnected from the active pipeline.",
+        "20+ .bak and .tmp.* files are version-controlled inside production source packages: query/ has 10 such files (CQLToLuceneCompiler, HybridQueryExecutor, WordSketchQueryExecutor, ConcordanceExplorer, QueryExecutorFactory, SemanticFieldExplorer.bak, SnowballCollocations.bak, plus 5 .tmp variants), grammar/ has 3, indexer/hybrid/ has 2, tools/ has 2, viz/ has 4. This makes it impossible to navigate any of these packages by filename and know what is active.",
+        "TestQuery.java is tracked at the project root with a hardcoded Windows path (D:\\corpora_philsci\\bi) — it is neither in src/test/ nor documented as a dev tool; it creates confusion about the project root's purpose.",
+        "corpus/ package (CorpusBuilder.java, PostgresCorpusSampler.java) uses the old LuceneIndexer and a PostgreSQL backend. It is neither referenced from Main nor documented as active, but it compiles as a live package alongside production code."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Top-level package names map to recognizable domain concepts: api, grammar, indexer, query, tagging, utils — a rough mental model is achievable from the directory listing alone.",
+        "The active query path is coherent: BlackLabQueryExecutor implements QueryExecutor, is wired in Main and WordSketchApiServer, and SemanticFieldExplorer composes it cleanly.",
+        "Collocation domain objects (Collocation record, CollocationEntry record) are well-factored with clear semantics and consistent naming within the hybrid package."
+      ],
+      "issue_character": "The issues are systemic migration debris: a BlackLab rewrite displaced the old Lucene/hybrid backend but left large dead subsystems as live-looking source code, with no clear boundary marking what is active — causing documentation, navigation, and ownership confusion codebase-wide.",
+      "score_rationale": "The package decomposition has reasonable intent, but an engineer joining this project would not be able to explain which of the three indexers is active, would follow CLAUDE.md and invoke non-existent CLI commands, and would encounter .bak/.tmp files in every major package when navigating. This places it squarely in the 50-60 range: 'purpose and ownership are muddled; a developer cannot predict where to find or put things.' The surface naming pulls the score up slightly, but the structural opacity of active vs dead subsystems and the contract violation in CLAUDE.md are codebase-wide problems that keep it at 52."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "stale_claude_md_commands",
+      "summary": "CLAUDE.md documents CLI commands (index, conllu, query) that do not exist in Main.java",
+      "related_files": [
+        "CLAUDE.md",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "CLAUDE.md lines 59-62 document: 'java -jar concept-sketch.jar index --corpus text.txt', 'conllu --input ...', 'query --index ...'",
+        "Main.java switch statement handles only: blacklab-index, blacklab-query, server, help — none of the documented commands exist."
+      ],
+      "suggestion": "Update CLAUDE.md 'CLI Commands' section to match Main.java: replace index/conllu/query with blacklab-index/blacklab-query/server, and add the correct option flags shown in Main.showUsage().",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "incomplete_blacklab_migration"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "three_parallel_indexers_no_active_marker",
+      "summary": "indexer/ has three coexisting indexer subsystems with no indication which is active",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/LuceneIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/HybridIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Main.java uses only BlackLabConllUIndexer (indexer/blacklab/). indexer/hybrid/ has 20+ classes (HybridIndexer, SinglePassConlluProcessor, CollocationsBuilder, etc.) none of which are reachable from Main or WordSketchApiServer.",
+        "tagging/ConllUProcessor and tagging/CorpusProcessor import indexer.LuceneIndexer (the root-level old indexer) and compile as live code.",
+        "corpus/CorpusBuilder.java also imports LuceneIndexer. None of these old-path classes are called from any active entry point."
+      ],
+      "suggestion": "Move the dead Lucene/hybrid indexer code to a clearly marked archive (e.g., indexer/legacy/ with a package-info.java stating 'superseded by indexer/blacklab'), or delete it if it is truly unused. Add a package-info.java to indexer/blacklab/ that explicitly states it is the current active backend. This gives a new engineer an immediate signal about what to follow.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incomplete_blacklab_migration"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "bak_tmp_files_pollute_source_packages",
+      "summary": "20+ .bak and .tmp.* files are version-controlled inside production source packages, making navigation impossible",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLToLuceneCompiler.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/HybridQueryExecutor.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/WordSketchQueryExecutor.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/WordSketchQueryExecutor.java.tmp.271284.1769173822782",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/SketchGrammarCompiler.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/GrammarPatternCollocationsBuilder.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/NetworkLayout.java.bak"
+      ],
+      "evidence": [
+        "find src/ -name '*.bak' -o -name '*.tmp.*' yields 30+ results across query/, grammar/, indexer/hybrid/, tools/, viz/, and test/ directories.",
+        "query/ alone has 10 such files alongside 14 live .java files — a new engineer browsing the package cannot distinguish active from abandoned code without opening each file."
+      ],
+      "suggestion": "Delete all .bak and .tmp.* files from the repository (git rm). Add *.bak and *.tmp.* to .gitignore to prevent future leakage. If any of these files contain useful historical context, the git history preserves them.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "incomplete_blacklab_migration"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "testquery_at_project_root",
+      "summary": "TestQuery.java is a debug file tracked at the project root with a hardcoded Windows path",
+      "related_files": [
+        "TestQuery.java"
+      ],
+      "evidence": [
+        "TestQuery.java line 8: String indexPath = \"D:\\\\corpora_philsci\\\\bi\"; — a Windows-specific absolute path embedded in tracked source.",
+        "The file lives at the project root, not in src/test/java, and has no package declaration.",
+        "git status shows it as modified (M), meaning it is version-controlled."
+      ],
+      "suggestion": "Either delete TestQuery.java (the use case is covered by integration tests or the CLI) or move it to src/test/java with a proper package and test framework annotations, replacing the hardcoded path with a system property or test-data reference.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "incomplete_blacklab_migration: The project migrated from a Lucene/hybrid backend to BlackLab, but the old subsystems (LuceneIndexer, HybridIndexer, ConllUProcessor, CorpusProcessor, corpus/) were left as compilable live code rather than being deleted or clearly archived. CLAUDE.md was not updated to reflect the new CLI surface. This single root cause explains the CLAUDE.md mismatch, the three-parallel-indexers confusion, the disconnected tagging processors, and the .bak files."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

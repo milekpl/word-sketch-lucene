@@ -1,0 +1,83 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 13,
+  "assessments": {
+    "initialization_coupling": 77.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "WordSketchApiServer uses Builder pattern with explicit dependency injection; all collaborators (QueryExecutor, GrammarConfigLoader) arrive through the builder, not via globals.",
+        "Main.handleServerCommand() builds the object graph in a single explicit sequence: executor -> grammarConfig -> server; no hidden boot-order magic.",
+        "Static members across the codebase are pure constants (magic numbers, logger, regex Pattern literals) or immutable maps initialized in static blocks with no I/O — SimpleTagger's static VERB_FORMS block is data-only.",
+        "SemanticFieldExplorer provides a two-constructor design: one that opens a BlackLabIndex itself (SemanticFieldExplorer(String indexPath)), and one that accepts an injected executor for testing — but the API server always calls the self-opening constructor.",
+        "In WordSketchApiServer, three request handlers (/api/semantic-field/explore, /api/semantic-field/compare, and the explore-multi path) each call 'new SemanticFieldExplorer(indexPath)' directly, which opens a new BlackLab index connection mid-request instead of reusing the shared this.executor.",
+        "None of the three SemanticFieldExplorer usages in WordSketchApiServer are wrapped in try-with-resources; close() is called on the happy path only, so any exception between construction and close() leaks the index handle.",
+        "GrammarConfigLoader.createDefaultEnglish() hardcodes a relative path 'grammars/relations.json' — callers must run from the project root; this factory is never called in the main codebase but is a latent CWD-dependent init trap.",
+        "grammarConfig is initialized to null in Main.handleServerCommand() (graceful optional load); this propagates through 8+ null-guards in WordSketchApiServer request handlers rather than being resolved to a null-object or explicit Optional at startup."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "Explicit builder-pattern construction in WordSketchApiServer keeps all init dependencies visible and avoids global singletons.",
+        "Main.java builds the object graph in a clear top-down sequence with no hidden cross-class boot-order dependencies.",
+        "Static initializers (SimpleTagger.VERB_FORMS, constant Pattern literals) are pure data — no I/O, network calls, or environment variable reads at class-load time.",
+        "BlackLabQueryExecutor opens its index in the constructor and is shutdown-hook-closed in Main, which is a straightforward lifecycle with no deferred or lazy coupling."
+      ],
+      "issue_character": "A single repeated pattern dominates: the API server bypasses its own injected executor and re-opens the BlackLab index from scratch for every semantic-field request, inverting the clean construction discipline the rest of the codebase maintains.",
+      "score_rationale": "The codebase avoids the worst initialization_coupling traps — no Java static initializers with I/O, no global singletons with creation-order problems, no circular init dependencies, and no environment reads at class-load time. What pulls the score down is a consistent but localized breach: three request handlers each construct a new SemanticFieldExplorer that opens a fresh BlackLab index handle, bypassing the shared executor that is already wired through the builder, and none of them use try-with-resources, so any exception on the exploration path leaks the handle. This is not a systemic architectural failure but it is a clear, repeated violation of the initialization discipline otherwise present — analogous to a 'solid but uneven' 80-level codebase with a notable recurring mistake in one subsystem, landing closer to 77."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "per_request_index_open",
+      "summary": "SemanticFieldExplorer opened per-request in API server, bypassing the shared executor and leaking on exceptions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.java line ~530: 'SemanticFieldExplorer explorer = new SemanticFieldExplorer(indexPath);' — this calls SemanticFieldExplorer(String), which calls 'new BlackLabQueryExecutor(indexPath)' which calls 'BlackLab.open(new File(indexPath))', opening the index from disk on every request.",
+        "The same pattern appears at lines ~786 and ~864 for compare and explore-multi paths.",
+        "In all three sites close() is called only on the happy path — if 'explorer.exploreByPattern(...)' throws, the index handle is never closed.",
+        "WordSketchApiServer already holds 'this.executor' (a shared BlackLabQueryExecutor) which could be passed to the testable 'SemanticFieldExplorer(QueryExecutor)' constructor instead."
+      ],
+      "suggestion": "Pass this.executor to SemanticFieldExplorer at all three call sites: 'try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor))'. This reuses the already-open shared index, removes the per-request I/O, and the try-with-resources guarantees close() even on exception paths.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "shared_resource_bypassed"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "grammar_config_cwd_dependency",
+      "summary": "GrammarConfigLoader.createDefaultEnglish() silently depends on CWD being the project root",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.java line ~169: 'return new GrammarConfigLoader(Path.of(\"grammars/relations.json\"));' — relative path resolved against process CWD.",
+        "Any caller (test runner, tool, future service) that doesn't happen to run from the project root will receive an IllegalStateException with no guidance on what CWD was expected.",
+        "The factory is unused in the current codebase, making it a latent trap for the next developer who reaches for a 'convenient default'."
+      ],
+      "suggestion": "Remove createDefaultEnglish() or replace it with a version that resolves the path relative to a caller-supplied base directory or a classpath resource, and document the assumption explicitly: 'public static GrammarConfigLoader createDefault(Path projectRoot)'.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The testable two-constructor design in SemanticFieldExplorer (injected executor vs self-opening) was not extended to the production call sites — the API server consistently uses the self-opening variant despite holding a suitable shared executor.",
+      "Nullable grammarConfig is managed by defensive null-checks scattered across request handlers rather than being resolved at startup into an explicit Optional or null-object pattern."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

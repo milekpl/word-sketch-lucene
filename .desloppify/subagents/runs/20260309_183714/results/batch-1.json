@@ -1,0 +1,102 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 63.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "executeSurfacePattern is defined only on BlackLabQueryExecutor (not on the QueryExecutor interface), forcing 5 explicit downcasts in WordSketchApiServer (lines 306, 350, 403, 455, 693-694) and 1 instanceof+downcast in SemanticFieldExplorer (line 121-123) to bypass the abstraction",
+        "SemanticFieldExplorer primary constructor directly instantiates BlackLabQueryExecutor (line 60: this.executor = new BlackLabQueryExecutor(indexPath)), hardcoding a concrete implementation inside the query subsystem",
+        "tagging package (ConllUProcessor, CorpusProcessor) imports and depends on indexer.LuceneIndexer, coupling the upstream tagging layer to the downstream indexer — the natural data-flow direction runs from tagging to indexer, but the dependency makes them structurally coupled rather than pipeline-connected through a boundary interface",
+        "WordSketchApiServer imports BlackLabQueryExecutor by name even though it declares the field as QueryExecutor — the interface is present but not respected at use-sites",
+        "QueryExecutor interface is otherwise well-designed: shared result types in QueryResults, RelationType enum for grammatical relations, default methods for optional capabilities"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "QueryExecutor interface correctly abstracts the query layer and is the injection point in Main and the Builder in WordSketchApiServer",
+        "QueryResults is cleanly extracted as a shared result type with no upstream dependencies, allowing callers to stay decoupled from executor implementations",
+        "indexer.hybrid subpackage properly contains its own low-level primitives (LongIntHashMap, LemmaLexiconReader, StatisticsReader) without reaching into other modules",
+        "utils.LogDiceCalculator is a pure computation module with no cross-module dependencies",
+        "config.GrammarConfigLoader is a self-contained configuration module, depended on by indexer and api without creating cycles"
+      ],
+      "issue_character": "The dominant issue is a single recurring structural gap — executeSurfacePattern is not on the QueryExecutor interface — that causes the same boundary violation to replicate across two modules (api and query) with six concrete downcast call sites, effectively nullifying the abstraction for the most common production code path.",
+      "score_rationale": "The package layout is clear and the QueryExecutor interface is a sound design, but the interface fails at runtime: every real call to the main surface-pattern feature bypasses it via instanceof checks and casts to the concrete implementation. This is not an isolated slip but a systemic pattern repeated in 6 places across two modules (WordSketchApiServer and SemanticFieldExplorer), meaning a developer cannot trust the QueryExecutor boundary when reading or extending the code. The tagging→indexer coupling compounds this with a dependency-direction violation. Together these push the score below 70 (mixed/can't trust patterns seen elsewhere), landing near 63 — the abstraction exists and is used for construction and testing, but the primary production code paths route around it."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "execute_surface_pattern_not_on_interface",
+      "summary": "executeSurfacePattern bypasses QueryExecutor interface via repeated downcasts in api and query layers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.java lines 306, 350, 403, 455, 693-694: ((BlackLabQueryExecutor) executor).executeSurfacePattern(...) — all five main sketch handler paths cast through the interface",
+        "SemanticFieldExplorer.java line 121-123: if (executor instanceof BlackLabQueryExecutor) { ((BlackLabQueryExecutor) executor).executeSurfacePattern(...) } — the query layer also punches through its own abstraction",
+        "QueryExecutor.java: executeSurfacePattern is absent from the interface, making it structurally unreachable without a downcast"
+      ],
+      "suggestion": "Add executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) as a default method on QueryExecutor (throwing UnsupportedOperationException or delegating to findCollocations as the fallback), then remove all (BlackLabQueryExecutor) casts in WordSketchApiServer and SemanticFieldExplorer. This eliminates six boundary violations and makes the abstraction honest.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "leaky_query_interface"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "semantic_field_explorer_hardcodes_impl",
+      "summary": "SemanticFieldExplorer primary constructor directly instantiates BlackLabQueryExecutor, bypassing injection",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.java line 60: this.executor = new BlackLabQueryExecutor(indexPath); — the query subsystem hardwires a concrete implementation in its own package",
+        "A second constructor (line 62-65) accepts QueryExecutor for testing, but production callers (WordSketchApiServer) pass an indexPath string, routing through the hardcoded constructor"
+      ],
+      "suggestion": "Remove the String-path constructor from SemanticFieldExplorer; require callers to supply a QueryExecutor. In WordSketchApiServer, pass the already-constructed executor to SemanticFieldExplorer instead of an index path. This removes the circular creation pattern inside the query package.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "leaky_query_interface"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "tagging_depends_on_indexer",
+      "summary": "tagging package imports indexer.LuceneIndexer, reversing the natural pipeline dependency direction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/ConllUProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/CorpusProcessor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/LuceneIndexer.java"
+      ],
+      "evidence": [
+        "ConllUProcessor.java line 5: import pl.marcinmilkowski.word_sketch.indexer.LuceneIndexer; line 37: private final LuceneIndexer indexer;",
+        "CorpusProcessor.java line 5: import pl.marcinmilkowski.word_sketch.indexer.LuceneIndexer; line 23: private final LuceneIndexer indexer;",
+        "The tagging layer produces tokens; the indexer consumes them — the coupling should be mediated by an interface or callback, not a direct import of the concrete indexer"
+      ],
+      "suggestion": "Introduce a TokenSink or DocumentConsumer interface in a shared or indexer package that LuceneIndexer implements. Have ConllUProcessor and CorpusProcessor depend on the interface rather than the concrete class. This restores the correct dependency direction and allows tagging to be tested without a live Lucene index.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The QueryExecutor interface was not kept in sync as BlackLabQueryExecutor grew new surface-pattern capabilities; the easiest path was to downcast rather than update the interface contract",
+      "SemanticFieldExplorer was likely created before a clean DI pattern was established, leading to internal construction of its own executor"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

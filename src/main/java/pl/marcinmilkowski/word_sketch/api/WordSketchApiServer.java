@@ -90,7 +90,7 @@ public class WordSketchApiServer {
             
             // Health check endpoint
             server.createContext("/health", exchange -> {
-                sendJsonResponse(exchange, Collections.singletonMap("status", "ok"));
+                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok"));
             });
 
             // Get word sketch for a lemma
@@ -99,7 +99,7 @@ public class WordSketchApiServer {
                 String[] parts = path.substring("/api/sketch/".length()).split("/");
 
                 if (parts.length == 0 || parts[0].isEmpty()) {
-                    sendError(exchange, 400, "Lemma required");
+                    HttpApiUtils.sendError(exchange, 400, "Lemma required");
                     return;
                 }
 
@@ -118,7 +118,7 @@ public class WordSketchApiServer {
                         }
                     } catch (IOException e) {
                         logger.error("Dependency sketch error", e);
-                        sendError(exchange, 500, "Dependency sketch failed: " + e.getMessage());
+                        HttpApiUtils.sendError(exchange, 500, "Dependency sketch failed: " + e.getMessage());
                     }
                     return;
                 }
@@ -135,7 +135,7 @@ public class WordSketchApiServer {
                     }
                 } catch (IOException e) {
                     logger.error("Query error", e);
-                    sendError(exchange, 500, "Query failed: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Query failed: " + e.getMessage());
                 }
             });
 
@@ -158,11 +158,11 @@ public class WordSketchApiServer {
                     }
                 } else {
                     // Fallback: return error if no grammar config
-                    sendError(exchange, 500, "Grammar configuration not loaded");
+                    HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
                     return;
                 }
 
-                sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
+                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
             });
 
             // Get available dependency relations - from grammar config filtered by DEP type
@@ -183,11 +183,11 @@ public class WordSketchApiServer {
                         }
                     }
                 } else {
-                    sendError(exchange, 500, "Grammar configuration not loaded");
+                    HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
                     return;
                 }
 
-                sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
+                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
             });
 
             // Semantic Field Exploration endpoints
@@ -197,10 +197,10 @@ public class WordSketchApiServer {
                     handleSemanticFieldExplore(exchange);
                 } catch (IOException e) {
                     logger.error("Semantic field explore error", e);
-                    sendError(exchange, 500, "Semantic field exploration failed: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Semantic field exploration failed: " + e.getMessage());
                 } catch (Exception e) {
                     logger.error("Semantic field explore unexpected error", e);
-                    sendError(exchange, 500, "Unexpected error: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Unexpected error: " + e.getMessage());
                 }
             });
 
@@ -210,10 +210,10 @@ public class WordSketchApiServer {
                     handleSemanticFieldExploreMulti(exchange);
                 } catch (IOException e) {
                     logger.error("Semantic field explore-multi error", e);
-                    sendError(exchange, 500, "Multi-seed exploration failed: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Multi-seed exploration failed: " + e.getMessage());
                 } catch (Exception e) {
                     logger.error("Semantic field explore-multi unexpected error", e);
-                    sendError(exchange, 500, "Unexpected error: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Unexpected error: " + e.getMessage());
                 }
             });
 
@@ -222,7 +222,7 @@ public class WordSketchApiServer {
                     handleSemanticField(exchange);
                 } catch (IOException e) {
                     logger.error("Semantic field error", e);
-                    sendError(exchange, 500, "Semantic field comparison failed: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Semantic field comparison failed: " + e.getMessage());
                 }
             });
 
@@ -231,7 +231,7 @@ public class WordSketchApiServer {
                     handleSemanticFieldExamples(exchange);
                 } catch (IOException e) {
                     logger.error("Semantic field examples error", e);
-                    sendError(exchange, 500, "Failed to fetch examples: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Failed to fetch examples: " + e.getMessage());
                 }
             });
 
@@ -241,7 +241,7 @@ public class WordSketchApiServer {
                     handleConcordanceExamples(exchange);
                 } catch (IOException e) {
                     logger.error("Concordance examples error", e);
-                    sendError(exchange, 500, "Failed to fetch concordance examples: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Failed to fetch concordance examples: " + e.getMessage());
                 }
             });
 
@@ -251,7 +251,7 @@ public class WordSketchApiServer {
                     handleVisualRadial(exchange);
                 } catch (Exception e) {
                     logger.error("Error rendering radial", e);
-                    sendError(exchange, 500, "Failed to render radial: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Failed to render radial: " + e.getMessage());
                 }
             });
 
@@ -261,7 +261,7 @@ public class WordSketchApiServer {
                     handleBcqlQueryPost(exchange);
                 } catch (Exception e) {
                     logger.error("Error executing BCQL", e);
-                    sendError(exchange, 500, "Failed to execute BCQL: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Failed to execute BCQL: " + e.getMessage());
                 }
             });
 
@@ -333,7 +333,7 @@ public class WordSketchApiServer {
         }
 
         response.put("patterns", patterns);
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     private void handleRelationQuery(com.sun.net.httpserver.HttpExchange exchange, String lemma, String relation) throws IOException {
@@ -352,7 +352,7 @@ public class WordSketchApiServer {
                         0.0, 50);
                 } catch (IOException e) {
                     logger.error("Query failed", e);
-                    sendError(exchange, 500, "Query failed: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Query failed: " + e.getMessage());
                     return;
                 }
             }
@@ -373,7 +373,7 @@ public class WordSketchApiServer {
         response.put("relation", relation);
         response.put("collocations", collocations);
 
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -432,7 +432,7 @@ public class WordSketchApiServer {
         }
 
         response.put("relations", relations);
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -457,7 +457,7 @@ public class WordSketchApiServer {
                         0.0, 50);
                 } catch (IOException e) {
                     logger.error("Dependency query failed", e);
-                    sendError(exchange, 500, "Dependency query failed: " + e.getMessage());
+                    HttpApiUtils.sendError(exchange, 500, "Dependency query failed: " + e.getMessage());
                     return;
                 }
             }
@@ -478,7 +478,7 @@ public class WordSketchApiServer {
         response.put("relation", relationId);
         response.put("collocations", collocations);
 
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -487,11 +487,11 @@ public class WordSketchApiServer {
      */
     private void handleSemanticFieldExplore(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = parseQueryParams(query);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
         String seed = params.getOrDefault("seed", "");
         if (seed.isEmpty()) {
-            sendError(exchange, 400, "Missing required parameter: seed");
+            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: seed");
             return;
         }
 
@@ -507,13 +507,13 @@ public class WordSketchApiServer {
         };
 
         if (grammarConfig == null) {
-            sendError(exchange, 500, "Grammar configuration not loaded");
+            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
             return;
         }
 
         var relationConfig = grammarConfig.getRelation(relationId);
         if (relationConfig.isEmpty()) {
-            sendError(exchange, 400, "Unknown relation: " + relationId);
+            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
             return;
         }
 
@@ -614,7 +614,7 @@ public class WordSketchApiServer {
         }
         response.put("edges", edges);
 
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -625,12 +625,12 @@ public class WordSketchApiServer {
         logger.info("handleSemanticFieldExploreMulti called");
         String query = exchange.getRequestURI().getQuery();
         logger.info("Query string: {}", query);
-        Map<String, String> params = parseQueryParams(query);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
         String seedsStr = params.getOrDefault("seeds", "");
         logger.info("Seeds parameter: {}", seedsStr);
         if (seedsStr.isEmpty()) {
-            sendError(exchange, 400, "Missing required parameter: seeds (comma-separated)");
+            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: seeds (comma-separated)");
             return;
         }
 
@@ -644,7 +644,7 @@ public class WordSketchApiServer {
         }
 
         if (seeds.size() < 2) {
-            sendError(exchange, 400, "Need at least 2 seeds for multi-seed exploration");
+            HttpApiUtils.sendError(exchange, 400, "Need at least 2 seeds for multi-seed exploration");
             return;
         }
 
@@ -659,13 +659,13 @@ public class WordSketchApiServer {
         };
 
         if (grammarConfig == null) {
-            sendError(exchange, 500, "Grammar configuration not loaded");
+            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
             return;
         }
 
         var relationConfig = grammarConfig.getRelation(relationId);
         if (relationConfig.isEmpty()) {
-            sendError(exchange, 400, "Unknown relation: " + relationId);
+            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
             return;
         }
 
@@ -757,7 +757,7 @@ public class WordSketchApiServer {
         }
         response.put("edges", edges);
 
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -766,11 +766,11 @@ public class WordSketchApiServer {
      */
     private void handleSemanticField(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = parseQueryParams(query);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
         String nounsParam = params.getOrDefault("nouns", "");
         if (nounsParam.isEmpty()) {
-            sendError(exchange, 400, "Missing required parameter: nouns");
+            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: nouns");
             return;
         }
 
@@ -836,7 +836,7 @@ public class WordSketchApiServer {
         response.put("edges", edges);
         response.put("total_edges", edges.size());
 
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -845,12 +845,12 @@ public class WordSketchApiServer {
      */
     private void handleSemanticFieldExamples(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = parseQueryParams(query);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
         String adjective = params.get("adjective");
         String noun = params.get("noun");
         if (adjective == null || adjective.isEmpty() || noun == null || noun.isEmpty()) {
-            sendError(exchange, 400, "Missing required parameters: adjective and noun");
+            HttpApiUtils.sendError(exchange, 400, "Missing required parameters: adjective and noun");
             return;
         }
 
@@ -867,7 +867,7 @@ public class WordSketchApiServer {
         response.put("examples", examples);
         response.put("count", examples.size());
 
-        sendJsonResponse(exchange, response);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -877,7 +877,7 @@ public class WordSketchApiServer {
      */
     private void handleConcordanceExamples(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = parseQueryParams(query);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
         String word1 = params.get("word1"); // headword (e.g., "theory")
         String word2 = params.get("word2"); // collocate (e.g., "good")
@@ -888,7 +888,7 @@ public class WordSketchApiServer {
         int limit = Integer.parseInt(params.getOrDefault("limit", "10"));
 
         if (word1 == null || word1.isEmpty() || word2 == null || word2.isEmpty()) {
-            sendError(exchange, 400, "Missing required parameters: word1 and word2");
+            HttpApiUtils.sendError(exchange, 400, "Missing required parameters: word1 and word2");
             return;
         }
 
@@ -902,7 +902,7 @@ public class WordSketchApiServer {
                 logger.debug("DEBUG: After getFullPattern: {}", patternWithHead);
                 logger.debug("DEBUG: collocatePosition = {}", rel.get().collocatePosition());
                 // Now also substitute the collocate at collocate_position
-                bcqlQuery = substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
+                bcqlQuery = PatternSubstitution.substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
                 logger.debug("DEBUG: After substituteCollocate: {}", bcqlQuery);
             } else {
                 logger.debug("DEBUG: Relation '{}' not found in grammar config", relation);
@@ -939,95 +939,7 @@ public class WordSketchApiServer {
         }
         response.put("examples", examplesList);
 
-        sendJsonResponse(exchange, response);
-    }
-
-    /**
-     * Substitute the collocate word into a BCQL pattern at the specified position.
-     */
-    private String substituteCollocate(String pattern, String collocate, int collocatePosition) {
-        if (pattern == null || collocate == null || collocatePosition < 1) {
-            return pattern;
-        }
-
-        // Split pattern into CQL positions
-        List<String> patternPositions = new ArrayList<>();
-        int i = 0;
-        while (i < pattern.length()) {
-            if (pattern.charAt(i) == '[') {
-                int end = pattern.indexOf(']', i);
-                if (end > i) {
-                    patternPositions.add(pattern.substring(i, end + 1));
-                    i = end + 1;
-                } else {
-                    i++;
-                }
-            } else if (pattern.charAt(i) == '"') {
-                int end = pattern.indexOf('"', i + 1);
-                if (end > i) {
-                    i = end + 1;
-                } else {
-                    i++;
-                }
-            } else {
-                i++;
-            }
-        }
-
-        logger.debug("DEBUG: substituteCollocate: patternPositions.size()={}, collocatePosition={}", patternPositions.size(), collocatePosition);
-        logger.debug("DEBUG: Pattern positions: {}", patternPositions);
-
-        if (collocatePosition > patternPositions.size()) {
-            logger.debug("DEBUG: Returning early - position > size");
-            return pattern;
-        }
-
-        // Replace the constraint at collocatePosition with lemma constraint for the collocate
-        String originalConstraint = patternPositions.get(collocatePosition - 1);
-        logger.debug("DEBUG: originalConstraint at position {}: {}", collocatePosition, originalConstraint);
-        // Extract xpos/tag from original and merge with lemma
-        String xposPattern = extractXposFromConstraint(originalConstraint);
-        logger.debug("DEBUG: xposPattern: {}", xposPattern);
-        StringBuilder newConstraint = new StringBuilder();
-        newConstraint.append("[lemma=\"").append(escapeForRegex(collocate)).append("\"");
-        if (xposPattern != null) {
-            newConstraint.append(" & ").append(xposPattern);
-        }
-        newConstraint.append("]");
-        logger.debug("DEBUG: newConstraint: {}", newConstraint);
-
-        patternPositions.set(collocatePosition - 1, newConstraint.toString());
-        String result = String.join(" ", patternPositions);
-        logger.debug("DEBUG: final result: {}", result);
-        return result;
-    }
-
-    private String extractXposFromConstraint(String constraint) {
-        if (constraint == null) return null;
-        // Look for xpos="..." pattern
-        int xposStart = constraint.indexOf("xpos=\"");
-        if (xposStart >= 0) {
-            int start = xposStart;
-            int end = constraint.indexOf("\"", xposStart + 6);
-            if (end > xposStart) {
-                return constraint.substring(start, end + 1);
-            }
-        }
-        // Also check for tag="..."
-        int tagStart = constraint.indexOf("tag=\"");
-        if (tagStart >= 0) {
-            int start = tagStart;
-            int end = constraint.indexOf("\"", tagStart + 5);
-            if (end > tagStart) {
-                return constraint.substring(start, end + 1);
-            }
-        }
-        return null;
-    }
-
-    private String escapeForRegex(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -1047,7 +959,7 @@ public class WordSketchApiServer {
             return;
         }
         if (!"POST".equalsIgnoreCase(method)) {
-            sendError(exchange, 405, "Method not allowed");
+            HttpApiUtils.sendError(exchange, 405, "Method not allowed");
             return;
         }
 
@@ -1084,7 +996,7 @@ public class WordSketchApiServer {
             }
         } catch (Exception e) {
             logger.error("Error rendering radial", e);
-            sendError(exchange, 500, "Failed to render radial: " + e.getMessage());
+            HttpApiUtils.sendError(exchange, 500, "Failed to render radial: " + e.getMessage());
         }
     }
 
@@ -1102,7 +1014,7 @@ public class WordSketchApiServer {
             return;
         }
         if (!"POST".equalsIgnoreCase(method)) {
-            sendError(exchange, 405, "Method not allowed");
+            HttpApiUtils.sendError(exchange, 405, "Method not allowed");
             return;
         }
 
@@ -1144,40 +1056,13 @@ public class WordSketchApiServer {
             }
             response.put("results", resultsList);
 
-            sendJsonResponse(exchange, response);
+            HttpApiUtils.sendJsonResponse(exchange, response);
         } catch (Exception e) {
             logger.error("BCQL query error", e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("error", e.getMessage());
-            sendJsonResponse(exchange, errorResponse);
+            HttpApiUtils.sendJsonResponse(exchange, errorResponse);
         }
-    }
-
-    /**
-     * Parse query parameters from URL.
-     */
-    private Map<String, String> parseQueryParams(String query) {
-        Map<String, String> params = new HashMap<>();
-        if (query == null || query.isEmpty()) {
-            return params;
-        }
-
-        String[] pairs = query.split("&");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split("=", 2);
-            if (keyValue.length == 2) {
-                try {
-                    params.put(
-                        java.net.URLDecoder.decode(keyValue[0], "UTF-8"),
-                        java.net.URLDecoder.decode(keyValue[1], "UTF-8")
-                    );
-                } catch (Exception e) {
-                    // Skip invalid parameters
-                }
-            }
-        }
-
-        return params;
     }
 
     /**
@@ -1194,33 +1079,6 @@ public class WordSketchApiServer {
             case "OBJECT_OF" -> QueryExecutor.RelationType.OBJECT_OF;
             default -> QueryExecutor.RelationType.ADJ_PREDICATE;
         };
-    }
-
-    private void sendJsonResponse(com.sun.net.httpserver.HttpExchange exchange, Object data) throws IOException {
-        String json = JSON.toJSONString(data);
-        byte[] bytes = json.getBytes("UTF-8");
-        
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.sendResponseHeaders(200, bytes.length);
-        
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
-        }
-    }
-
-    private void sendError(com.sun.net.httpserver.HttpExchange exchange, int code, String message) throws IOException {
-        JSONObject error = new JSONObject();
-        error.put("error", message);
-        String json = JSON.toJSONString(error);
-        byte[] bytes = json.getBytes("UTF-8");
-        
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(code, bytes.length);
-        
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
-        }
     }
 
     public void stop() {

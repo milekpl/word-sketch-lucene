@@ -74,11 +74,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             // For simple attribute constraints, we need to use the proper syntax
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcql, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
-            Hits hits = blackLabIndex.find(query);
-
-            if (hits.size() == 0) {
-                return Collections.emptyList();
-            }
 
             long headwordFreq = getTotalFrequency(headword);
 
@@ -87,7 +82,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             HitProperty groupBy = new HitPropertyHitText(blackLabIndex, MatchSensitivity.INSENSITIVE);
             HitGroups groups = searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute();
 
-            List<QueryResults.WordSketchResult> results = new ArrayList<>();
+            Map<String, Long> freqMap = new LinkedHashMap<>();
+            Map<String, String> posMap = new HashMap<>();
 
             for (HitGroup group : groups) {
                 String identity = group.identity().toString();
@@ -108,29 +104,16 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                     continue;
                 }
 
-                long f_xy = group.size();
-                long f_y = getTotalFrequency(collocateLemma);
-
-                double logDice = LogDiceCalculator.compute(f_xy, headwordFreq, f_y);
-
-                if (logDice >= minLogDice) {
-                    double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
-                    String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
-                    results.add(new QueryResults.WordSketchResult(
-                        collocateLemma, pos, f_xy, logDice, relFreq, Collections.emptyList()));
-                }
+                String key = collocateLemma.toLowerCase();
+                freqMap.merge(key, group.size(), Long::sum);
+                String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
+                if (pos != null) posMap.put(key, pos);
             }
 
-            return results.stream()
-                .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::getLogDice).reversed())
-                .limit(maxResults)
-                .toList();
+            return buildAndRankCollocates(freqMap, posMap, headwordFreq, minLogDice, maxResults);
 
         } catch (InvalidQuery e) {
-            // BCQL parse error - the pattern format may not be compatible
-            // Log the error and return empty results
-            logger.warn("BCQL parse error for pattern: {}. Error: {}", cqlPattern, e.getMessage());
-            return Collections.emptyList();
+            throw new IOException("BCQL parse error: " + e.getMessage(), e);
         }
     }
 
@@ -157,26 +140,15 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             HitGroups groups = searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute();
 
             long headwordFreq = getTotalFrequency(headword);
-            List<QueryResults.WordSketchResult> results = new ArrayList<>();
-
+            Map<String, Long> freqMap = new LinkedHashMap<>();
             for (HitGroup group : groups) {
                 String collocateLemma = group.identity().toString();
-                long f_xy = group.size();
-                long f_y = getTotalFrequency(collocateLemma);
-
-                double logDice = LogDiceCalculator.compute(f_xy, headwordFreq, f_y);
-
-                if (logDice >= minLogDice) {
-                    double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
-                    results.add(new QueryResults.WordSketchResult(
-                        collocateLemma, "unknown", f_xy, logDice, relFreq, Collections.emptyList()));
+                if (collocateLemma != null && !collocateLemma.isEmpty()) {
+                    freqMap.merge(collocateLemma, group.size(), Long::sum);
                 }
             }
 
-            return results.stream()
-                .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::getLogDice).reversed())
-                .limit(maxResults)
-                .toList();
+            return buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
 
         } catch (InvalidQuery e) {
             throw new IOException("CQL parse error: " + e.getMessage(), e);
@@ -376,12 +348,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcql, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
 
-            // Get hits
-            Hits hits = blackLabIndex.find(query);
-            if (hits.size() == 0) {
-                return Collections.emptyList();
-            }
-
             long headwordFreq = getTotalFrequency(lemma);
 
             // Group by dependent lemma to get frequencies
@@ -404,27 +370,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 }
             }
 
-            // Build results with logDice
-            List<QueryResults.WordSketchResult> results = new ArrayList<>();
-            for (Map.Entry<String, Long> entry : freqMap.entrySet()) {
-                String collocateLemma = entry.getKey();
-                long f_xy = entry.getValue();
-                long f_y = getTotalFrequency(collocateLemma);
-
-                double logDice = LogDiceCalculator.compute(f_xy, headwordFreq, f_y);
-
-                if (logDice >= minLogDice) {
-                    double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
-                    String pos = lemmaPosMap.getOrDefault(collocateLemma, "unknown");
-                    results.add(new QueryResults.WordSketchResult(
-                        collocateLemma, pos, f_xy, logDice, relFreq, Collections.emptyList()));
-                }
-            }
-
-            return results.stream()
-                .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::getLogDice).reversed())
-                .limit(maxResults)
-                .toList();
+            return buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
 
         } catch (InvalidQuery e) {
             throw new IOException("BCQL parse error: " + e.getMessage(), e);
@@ -501,9 +447,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
 
-            // Get hits
-            Hits hits = blackLabIndex.find(query);
-
             long headwordFreq = getTotalFrequency(lemma);
 
             // Build a map of collocate -> frequency by grouping hits
@@ -530,30 +473,41 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 }
             }
 
-            // Build results
-            List<QueryResults.WordSketchResult> results = new ArrayList<>();
-            for (Map.Entry<String, Long> entry : freqMap.entrySet()) {
-                String collocateLemma = entry.getKey();
-                long f_xy = entry.getValue();
-                long f_y = getTotalFrequency(collocateLemma);
-
-                double logDice = LogDiceCalculator.compute(f_xy, headwordFreq, f_y);
-
-                if (logDice >= minLogDice) {
-                    double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
-                    results.add(new QueryResults.WordSketchResult(
-                        collocateLemma, "unknown", f_xy, logDice, relFreq, Collections.emptyList()));
-                }
-            }
-
-            return results.stream()
-                .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::getLogDice).reversed())
-                .limit(maxResults)
-                .toList();
+            return buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
 
         } catch (InvalidQuery e) {
             throw new IOException("BCQL parse error: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Build and rank collocate results from a frequency map using logDice scoring.
+     */
+    private List<QueryResults.WordSketchResult> buildAndRankCollocates(
+            Map<String, Long> freqMap,
+            Map<String, String> posMap,
+            long headwordFreq,
+            double minLogDice,
+            int maxResults) throws IOException {
+        List<QueryResults.WordSketchResult> results = new ArrayList<>();
+        for (Map.Entry<String, Long> entry : freqMap.entrySet()) {
+            String collocateLemma = entry.getKey();
+            long f_xy = entry.getValue();
+            long f_y = getTotalFrequency(collocateLemma);
+
+            double logDice = LogDiceCalculator.compute(f_xy, headwordFreq, f_y);
+
+            if (logDice >= minLogDice) {
+                double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
+                String pos = posMap != null ? posMap.getOrDefault(collocateLemma, "unknown") : "unknown";
+                results.add(new QueryResults.WordSketchResult(
+                    collocateLemma, pos, f_xy, logDice, relFreq, Collections.emptyList()));
+            }
+        }
+        return results.stream()
+            .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::getLogDice).reversed())
+            .limit(maxResults)
+            .toList();
     }
 
         public long getCorpusSize() throws IOException {

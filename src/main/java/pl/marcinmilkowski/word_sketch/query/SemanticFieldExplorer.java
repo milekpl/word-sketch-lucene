@@ -54,6 +54,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
     private final QueryExecutor executor;
     private final String indexPath;
+    private final boolean ownsExecutor;
 
     // Patterns for finding collocates by POS (using xpos field from CoNLL-U index)
     private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
@@ -62,12 +63,14 @@ public class SemanticFieldExplorer implements AutoCloseable {
     public SemanticFieldExplorer(String indexPath) throws IOException {
         this.indexPath = indexPath;
         this.executor = new BlackLabQueryExecutor(indexPath);
+        this.ownsExecutor = true;
     }
 
     // Constructor for testing with mock executor
     public SemanticFieldExplorer(QueryExecutor executor) {
         this.indexPath = null;
         this.executor = executor;
+        this.ownsExecutor = false;
     }
 
     // ==================== EXPLORATION MODE ====================

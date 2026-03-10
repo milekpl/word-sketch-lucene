@@ -35,7 +35,7 @@ public class CQLParser {
     private static final Pattern DISTANCE = Pattern.compile(
         "~\\s*\\{(-?\\d+)(?:,(-?\\d+))?\\}"
     );
-    private static final Pattern REPITITION = Pattern.compile(
+    private static final Pattern REPETITION = Pattern.compile(
         "\"(?:[^\"]+)\"\\{(\\d+)(?:,(\\d+))?\\}"
     );
     private static final Pattern AGREEMENT_RULE = Pattern.compile(

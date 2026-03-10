@@ -341,7 +341,7 @@ public class WordSketchApiServer {
 
         // Try to find the relation in grammar config
         if (grammarConfig != null) {
-            var rel = grammarConfig.getRelationById(relation);
+            var rel = grammarConfig.getRelation(relation).orElse(null);
             if (rel != null && "SURFACE".equals(rel.relationType())) {
                 try {
                     // Substitute headword into BCQL pattern
@@ -444,7 +444,7 @@ public class WordSketchApiServer {
         List<QueryResults.WordSketchResult> results = new ArrayList<>();
 
         if (grammarConfig != null) {
-            var rel = grammarConfig.getRelationById(relationId);
+            var rel = grammarConfig.getRelation(relationId).orElse(null);
             if (rel != null && "DEP".equals(rel.relationType())) {
                 try {
                     // Use the pattern from config with headword substitution

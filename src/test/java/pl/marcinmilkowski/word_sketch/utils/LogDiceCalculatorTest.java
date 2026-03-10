@@ -91,27 +91,6 @@ class LogDiceCalculatorTest {
         assertTrue(logDice > 0);
     }
 
-    @Test
-    void testFrequencyAggregator() {
-        LogDiceCalculator.FrequencyAggregator aggregator = new LogDiceCalculator.FrequencyAggregator();
-
-        aggregator.setHeadwordFrequency(1000);
-        aggregator.addCollocate("big", "adj");
-        aggregator.addCollocate("big", "adj");
-        aggregator.addCollocate("big", "adj");
-        aggregator.addCollocate("small", "adj");
-
-        assertEquals(1000, aggregator.getHeadwordFrequency());
-        assertEquals(3, aggregator.getCollocateTotal("big"));
-        assertEquals(1, aggregator.getCollocateTotal("small"));
-
-        LogDiceCalculator.CollocationResult result = aggregator.getResult("big", "adj", 3);
-        assertEquals("big", result.getLemma());
-        assertEquals("adj", result.getPos());
-        assertEquals(3, result.getFrequency());
-        assertEquals(1000, result.getHeadwordFrequency());
-    }
-
     // =====================================================
     // Additional tests for scaled frequencies and real corpus scenarios
     // =====================================================

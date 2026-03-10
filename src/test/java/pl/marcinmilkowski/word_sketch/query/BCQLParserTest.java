@@ -7,7 +7,7 @@ import nl.inl.blacklab.exceptions.InvalidQuery;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
-public class TestBCQLParser {
+public class BCQLParserTest {
 
     @Test
     public void testSimplePosPattern() {

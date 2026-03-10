@@ -7,7 +7,7 @@ import java.nio.file.Paths;
 /**
  * Test helper for loading test grammar configurations.
  */
-public class TestGrammarConfig {
+public class GrammarConfigHelper {
 
     private static GrammarConfigLoader testConfig;
 

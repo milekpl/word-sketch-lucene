@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.model;
+package pl.marcinmilkowski.word_sketch.query;
 
 import java.util.List;
 

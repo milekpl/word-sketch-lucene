@@ -3,7 +3,6 @@ package pl.marcinmilkowski.word_sketch.query;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
-import pl.marcinmilkowski.word_sketch.model.QueryResults;
 
 /**
  * Interface for word sketch query executors.

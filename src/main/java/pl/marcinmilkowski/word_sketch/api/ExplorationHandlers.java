@@ -51,7 +51,7 @@ class ExplorationHandlers {
         String seed = HttpApiUtils.requireParam(exchange, params, "seed");
         if (seed == null) return;
 
-        String relationId = resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        String relationId = RelationUtils.resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
 
         var relationConfig = grammarConfig.getRelation(relationId);
         if (relationConfig.isEmpty()) {
@@ -117,7 +117,7 @@ class ExplorationHandlers {
             return;
         }
 
-        String relationId = resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        String relationId = RelationUtils.resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
 
         var relationConfig = grammarConfig.getRelation(relationId);
         if (relationConfig.isEmpty()) {
@@ -132,6 +132,7 @@ class ExplorationHandlers {
         int topCollocates = ep.topCollocates();
         int minShared = ep.minShared();
         double minLogDice = ep.minLogDice();
+        // nouns_per intentionally not supported in multi-seed mode — seeds parameter is required instead
 
         ExplorationResult result;
         try {
@@ -158,7 +159,7 @@ class ExplorationHandlers {
      * Handle semantic field comparison.
      * GET /api/semantic-field?seeds=theory,model,hypothesis&min_logdice=3.0
      */
-    void handleSemanticField(HttpExchange exchange) throws IOException {
+    void handleSemanticFieldComparison(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
@@ -397,16 +398,5 @@ class ExplorationHandlers {
             HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
             return null;
         }
-    }
-
-    private static String resolveRelationAlias(String relation) {
-        if (relation == null) return null;
-        return switch (relation) {
-            case "adj_modifier", "modifier" -> "noun_modifiers";
-            case "adj_predicate", "predicate" -> "noun_adj_predicates";
-            case "subject_of", "subject" -> "noun_verbs";
-            case "object_of", "object" -> "verb_nouns";
-            default -> relation;
-        };
     }
 }

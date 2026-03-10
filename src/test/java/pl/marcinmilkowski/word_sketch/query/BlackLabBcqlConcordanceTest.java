@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import java.io.File;
 import java.util.List;
-import pl.marcinmilkowski.word_sketch.model.QueryResults;
+import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**

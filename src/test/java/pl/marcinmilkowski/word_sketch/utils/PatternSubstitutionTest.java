@@ -2,6 +2,8 @@ package pl.marcinmilkowski.word_sketch.utils;
 
 import org.junit.jupiter.api.Test;
 
+import pl.marcinmilkowski.word_sketch.api.PatternSubstitution;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class PatternSubstitutionTest {

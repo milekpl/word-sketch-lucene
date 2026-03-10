@@ -61,7 +61,8 @@ public class WordSketchApiServer {
             registerGetHandler(server, "/health", exchange ->
                 HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));
 
-            registerGetHandler(server, "/api/sketch/", sketchHandlers::handleSketchRequest);
+            registerGetHandler(server, "/api/sketch/",
+                wrapHandler(sketchHandlers::handleSketchRequest, "Sketch request"));
 
             registerGetHandler(server, "/api/relations", sketchHandlers::handleSurfaceRelations);
 
@@ -78,7 +79,7 @@ public class WordSketchApiServer {
             }, "Multi-seed exploration"));
 
             registerGetHandler(server, "/api/semantic-field",
-                wrapHandler(explorationHandlers::handleSemanticField, "Semantic field comparison"));
+                wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
 
             registerGetHandler(server, "/api/semantic-field/examples",
                 wrapHandler(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));

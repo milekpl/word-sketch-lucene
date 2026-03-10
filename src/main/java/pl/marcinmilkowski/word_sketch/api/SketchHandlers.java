@@ -9,8 +9,7 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 import pl.marcinmilkowski.word_sketch.config.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
-import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.utils.PatternSubstitution;
+import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 import java.io.IOException;
@@ -49,41 +48,31 @@ class SketchHandlers {
 
         if (parts.length > 1 && "dep".equals(parts[1])) {
             String specificDeprel = parts.length > 2 ? parts[2] : null;
-            try {
-                if (specificDeprel != null && !specificDeprel.isEmpty()) {
-                    handleDependencyRelationQuery(exchange, lemma, specificDeprel);
-                } else {
-                    handleFullDependencySketch(exchange, lemma);
-                }
-            } catch (IOException e) {
-                logger.error("Dependency sketch error", e);
-                HttpApiUtils.sendError(exchange, 500, "Dependency sketch failed: " + e.getMessage());
+            if (specificDeprel != null && !specificDeprel.isEmpty()) {
+                handleDependencyRelationQuery(exchange, lemma, specificDeprel);
+            } else {
+                handleFullDependencySketch(exchange, lemma);
             }
             return;
         }
 
         String relation = parts.length > 1 ? parts[1] : null;
-        try {
-            if (relation != null && !relation.isEmpty()) {
-                handleRelationQuery(exchange, lemma, relation);
-            } else {
-                handleFullSketch(exchange, lemma);
-            }
-        } catch (IOException e) {
-            logger.error("Query error", e);
-            HttpApiUtils.sendError(exchange, 500, "Query failed: " + e.getMessage());
+        if (relation != null && !relation.isEmpty()) {
+            handleRelationSketch(exchange, lemma, relation);
+        } else {
+            handleFullSketch(exchange, lemma);
         }
     }
 
     void handleSurfaceRelations(HttpExchange exchange) throws IOException {
-        handleRelationsImpl(exchange, RelationType.SURFACE);
+        handleRelationsForType(exchange, RelationType.SURFACE);
     }
 
     void handleDepRelations(HttpExchange exchange) throws IOException {
-        handleRelationsImpl(exchange, RelationType.DEP);
+        handleRelationsForType(exchange, RelationType.DEP);
     }
 
-    private void handleRelationsImpl(HttpExchange exchange, RelationType relationType) throws IOException {
+    private void handleRelationsForType(HttpExchange exchange, RelationType relationType) throws IOException {
         JSONArray relationsArray = new JSONArray();
         if (grammarConfig != null) {
             for (var rel : grammarConfig.getRelations()) {
@@ -108,10 +97,10 @@ class SketchHandlers {
     }
 
     private void handleFullSketch(HttpExchange exchange, String lemma) throws IOException {
-        handleFullSketchImpl(exchange, lemma, RelationType.SURFACE);
+        handleFullSketchForType(exchange, lemma, RelationType.SURFACE);
     }
 
-    private void handleRelationQuery(HttpExchange exchange, String lemma, String relation) throws IOException {
+    private void handleRelationSketch(HttpExchange exchange, String lemma, String relation) throws IOException {
         handleRelationQueryInternal(exchange, lemma, relation, RelationType.SURFACE);
     }
 
@@ -121,10 +110,10 @@ class SketchHandlers {
      * DEP relations use surface patterns with [deprel="..."] constraints.
      */
     private void handleFullDependencySketch(HttpExchange exchange, String lemma) throws IOException {
-        handleFullSketchImpl(exchange, lemma, RelationType.DEP);
+        handleFullSketchForType(exchange, lemma, RelationType.DEP);
     }
 
-    private void handleFullSketchImpl(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {
+    private void handleFullSketchForType(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {
         boolean isDep = relationType == RelationType.DEP;
         Map<String, Object> byRelation = new HashMap<>();
 

@@ -22,6 +22,7 @@ public record RelationConfig(
     int collocatePosition,
     boolean dual,
     int defaultSlop,
+    /** May be {@code null} when the grammar JSON omits the {@code relation_type} field. */
     RelationType relationType,
     boolean explorationEnabled
 ) {
@@ -152,7 +153,15 @@ public record RelationConfig(
         return null;
     }
 
-    /** Map a constraint string to a POS group. */
+    /**
+     * Map a raw CQL constraint string to a {@link PosGroup} by scanning for known xpos/tag
+     * attribute prefixes (e.g. {@code xpos="jj}, {@code tag="vb}).
+     *
+     * <p>This intentionally uses raw string scanning rather than {@link PosGroup#fromString}
+     * because the input is a CQL bracket expression (e.g. {@code [xpos="JJ.*"]}), not a
+     * value-label string like {@code "adj"}. {@code PosGroup.fromString} maps canonical value
+     * labels to enum constants; it is not applicable here.
+     */
     private PosGroup posGroupFromConstraint(String s) {
         // xpos (Penn Treebank — used by current grammar)
         if (s.contains("xpos=\"jj") || s.contains("xpos=jj")) return PosGroup.ADJ;

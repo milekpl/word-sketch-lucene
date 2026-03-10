@@ -2,10 +2,12 @@ package pl.marcinmilkowski.word_sketch.exploration;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.model.QueryResults;
+import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import java.util.Map;
 import java.util.Set;
@@ -328,7 +330,18 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
     /**
      * Fetches collocates for each seed using the given relation and maps the results into an
-     * {@link ExplorationResult}.  Delegates to {@link CollocateProfileComparator}.
+     * {@link ExplorationResult}.  Seeds become the {@code discoveredNouns} (each carrying their
+     * common collocates as shared-collocate set); the collocate intersection becomes
+     * {@code coreCollocates}; and the aggregate collocate map becomes {@code seedCollocates}.
+     *
+     * @param seeds          ordered seed words (at least 2)
+     * @param relationConfig grammar relation to use for collocate lookup
+     * @param minLogDice     minimum logDice threshold for inclusion
+     * @param topCollocates  maximum collocates to fetch per seed
+     * @param minShared      minimum number of seeds a collocate must appear in to be
+     *                       included in the core set; use {@code seeds.size()}
+     *                       to require presence in all seeds
+     * @return ExplorationResult mapping multi-seed data into the shared exploration model
      */
     public ExplorationResult exploreMultiSeed(
             Set<String> seeds,
@@ -336,7 +349,71 @@ public class SemanticFieldExplorer implements AutoCloseable {
             double minLogDice,
             int topCollocates,
             int minShared) throws IOException {
-        return comparator.exploreMultiSeed(seeds, relationConfig, minLogDice, topCollocates, minShared);
+        Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap = new LinkedHashMap<>();
+        Map<String, Integer> collocateSharedCount = new HashMap<>();
+
+        for (String seed : seeds) {
+            String bcqlPattern = relationConfig.getFullPattern(seed);
+            List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
+                seed, bcqlPattern,
+                minLogDice, topCollocates);
+            seedCollocateMap.put(seed, collocates);
+
+            for (QueryResults.WordSketchResult wsr : collocates) {
+                collocateSharedCount.merge(wsr.getLemma(), 1, Integer::sum);
+            }
+        }
+
+        int threshold = Math.min(minShared, seeds.size());
+        Set<String> commonCollocates = new HashSet<>();
+        for (Map.Entry<String, Integer> entry : collocateSharedCount.entrySet()) {
+            if (entry.getValue() >= threshold) {
+                commonCollocates.add(entry.getKey());
+            }
+        }
+
+        Map<String, Double> seedCollocScores = new LinkedHashMap<>();
+        Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
+        for (List<QueryResults.WordSketchResult> collocs : seedCollocateMap.values()) {
+            for (QueryResults.WordSketchResult wsr : collocs) {
+                seedCollocScores.merge(wsr.getLemma(), wsr.getLogDice(), Math::max);
+                seedCollocFreqs.merge(wsr.getLemma(), wsr.getFrequency(), Long::sum);
+            }
+        }
+
+        int numSeeds = seeds.size();
+        List<DiscoveredNoun> discoveredNounsList = new ArrayList<>();
+        for (String seed : seeds) {
+            List<QueryResults.WordSketchResult> collocs = seedCollocateMap.getOrDefault(seed, List.of());
+            Map<String, Double> sharedCollocs = new LinkedHashMap<>();
+            for (QueryResults.WordSketchResult wsr : collocs) {
+                if (commonCollocates.contains(wsr.getLemma())) {
+                    sharedCollocs.put(wsr.getLemma(), wsr.getLogDice());
+                }
+            }
+            int count = sharedCollocs.size();
+            double avg = sharedCollocs.isEmpty() ? 0.0
+                : sharedCollocs.values().stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            double sum = sharedCollocs.values().stream().mapToDouble(Double::doubleValue).sum();
+            discoveredNounsList.add(new DiscoveredNoun(seed, sharedCollocs, count, sum, avg, count * avg));
+        }
+
+        List<CoreCollocate> coreCollocatesList = new ArrayList<>();
+        for (String c : commonCollocates) {
+            int sharedBy = collocateSharedCount.getOrDefault(c, 0);
+            double avgLd = seedCollocateMap.values().stream()
+                .flatMap(List::stream)
+                .filter(wsr -> c.equals(wsr.getLemma()))
+                .mapToDouble(QueryResults.WordSketchResult::getLogDice)
+                .average().orElse(0.0);
+            double seedLd = seedCollocScores.getOrDefault(c, 0.0);
+            coreCollocatesList.add(new CoreCollocate(c, sharedBy, numSeeds, seedLd, avgLd));
+        }
+
+        return new ExplorationResult(
+            String.join(",", seeds),
+            seedCollocScores, seedCollocFreqs,
+            discoveredNounsList, coreCollocatesList);
     }
 
     @Override

@@ -28,7 +28,6 @@ import nl.inl.blacklab.resultproperty.HitProperty;
 import nl.inl.blacklab.resultproperty.HitPropertyHitText;
 import nl.inl.blacklab.search.TermFrequencyList;
 
-import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.utils.LogDiceCalculator;
 
 import java.io.File;

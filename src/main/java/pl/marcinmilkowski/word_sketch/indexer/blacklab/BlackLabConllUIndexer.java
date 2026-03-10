@@ -113,8 +113,8 @@ public class BlackLabConllUIndexer implements AutoCloseable {
             } catch (Exception e) {
                 throw new IOException("Failed to finalize index: " + e.getMessage(), e);
             }
-            logger.info("Indexing complete! Documents: {}, Tokens: {}, Index: {}",
-                    documentCount.get(), tokenCount.get(), indexPath);
+            logger.info("Indexing complete! Documents: {}, Tokens: {}",
+                    documentCount.get(), tokenCount.get());
         }
     }
 

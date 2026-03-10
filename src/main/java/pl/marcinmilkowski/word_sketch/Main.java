@@ -330,13 +330,15 @@ public class Main {
         QueryExecutor executor = new BlackLabQueryExecutor(indexPath);
 
         // Load grammar configuration (optional)
+        // Override path via system property: -Dgrammar.config=path/to/relations.json
         GrammarConfigLoader grammarConfig = null;
+        String grammarConfigPath = System.getProperty("grammar.config", "grammars/relations.json");
         try {
-            var grammarPath = java.nio.file.Paths.get("grammars/relations.json");
+            var grammarPath = java.nio.file.Paths.get(grammarConfigPath);
             grammarConfig = new GrammarConfigLoader(grammarPath);
             System.out.println("Loaded grammar config: " + grammarConfig.getVersion());
         } catch (IOException e) {
-            System.out.println("No grammar config found, using defaults.");
+            System.out.println("No grammar config found at '" + grammarConfigPath + "', using defaults.");
         }
 
         WordSketchApiServer server = new WordSketchApiServer(executor, indexPath, port, grammarConfig);

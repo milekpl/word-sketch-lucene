@@ -9,6 +9,7 @@ import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,22 +26,23 @@ import java.util.regex.Pattern;
  * Loads and provides access to grammar configuration from JSON.
  *
  * Expected JSON structure:
+ * <pre>{@code
  * {
  *   "version": "1.0",
- *   "copulas": ["be", "seem", "become", ...],
  *   "relations": [
  *     {
  *       "id": "noun_adj_predicates",
  *       "name": "...",
- *       "head_pos": "noun",
- *       "collocate_pos": "adj",
- *       "cql_pattern": "[tag=jj.*]",
- *       "uses_copula": true,
+ *       "pattern": "1:[xpos=\"NN.*\"] [lemma=\"be|...\"] 2:[xpos=\"JJ.*\"]",
  *       "default_slop": 8
  *     },
  *     ...
  *   ]
  * }
+ * }</pre>
+ *
+ * <p>The canonical field name for patterns is {@code pattern}.
+ * Each relation must have a {@code pattern} field containing a labeled BCQL pattern.
  */
 public class GrammarConfigLoader {
     private static final Logger logger = LoggerFactory.getLogger(GrammarConfigLoader.class);
@@ -54,18 +56,46 @@ public class GrammarConfigLoader {
      * Load grammar configuration from the specified path.
      *
      * @param configPath Path to the relations.json file
-     * @throws IOException if the file cannot be read
-     * @throws IllegalArgumentException if the file is invalid
+     * @throws IOException if the file cannot be read or the config is invalid
      */
     public GrammarConfigLoader(Path configPath) throws IOException {
+        this(Files.exists(configPath) ? Files.readString(configPath)
+                : throwMissing(configPath),
+             configPath);
+    }
+
+    /**
+     * Create a GrammarConfigLoader from a {@link Reader} — useful for testing without
+     * touching the file system.
+     *
+     * <pre>{@code
+     * try (Reader r = new StringReader(jsonContent)) {
+     *     GrammarConfigLoader config = GrammarConfigLoader.fromReader(r);
+     * }
+     * }</pre>
+     *
+     * @param reader  Reader over a valid grammar JSON document
+     * @throws IOException if the reader fails or the JSON is invalid
+     */
+    public static GrammarConfigLoader fromReader(Reader reader) throws IOException {
+        try (reader) {
+            char[] buf = new char[65536];
+            StringBuilder sb = new StringBuilder();
+            int n;
+            while ((n = reader.read(buf)) != -1) sb.append(buf, 0, n);
+            return new GrammarConfigLoader(sb.toString(), null);
+        }
+    }
+
+    /** Throws IOException for a missing config file (helper for constructor chaining). */
+    private static String throwMissing(Path p) throws IOException {
+        throw new IOException("Grammar config file not found: " + p);
+    }
+
+    /** Primary constructor: parses JSON content directly. */
+    private GrammarConfigLoader(String content, Path configPath) throws IOException {
         this.configPath = configPath;
 
-        // Load and parse the config
-        if (!Files.exists(configPath)) {
-            throw new IOException("Grammar config file not found: " + configPath);
-        }
-
-        String content = Files.readString(configPath);
         JSONObject root = JSON.parseObject(content);
 
         // Validate version
@@ -101,9 +131,11 @@ public class GrammarConfigLoader {
                 throw new IOException("Config error: Missing 'id' field for relation at index " + i);
             }
 
-            // Support BCQL format with {head} placeholder
-            String pattern = relObj.containsKey("pattern") ? relObj.getString("pattern") :
-                           (relObj.containsKey("cql_pattern") ? relObj.getString("cql_pattern") : "");
+            // Canonical field name is "pattern"; cql_pattern is no longer supported
+            String pattern = relObj.getString("pattern");
+            if (pattern == null || pattern.isBlank()) {
+                throw new IOException("Config error: Relation '" + id + "' has no 'pattern' field - every relation must have a BCQL pattern");
+            }
 
             // Parse positions from numbered labels in pattern (1: for head, 2: for collocate)
             // If explicit fields are provided, use those; otherwise derive from pattern
@@ -112,11 +144,6 @@ public class GrammarConfigLoader {
 
             int headPosition = relObj.containsKey("head_position") ? relObj.getIntValue("head_position") : derivedHeadPos;
             int collocatePosition = relObj.containsKey("collocate_position") ? relObj.getIntValue("collocate_position") : derivedCollocatePos;
-
-            // VALIDATION: Require pattern - throw exception if missing
-            if (pattern == null || pattern.isBlank()) {
-                throw new IOException("Config error: Relation '" + id + "' has no pattern - every relation must have a BCQL pattern");
-            }
 
             // VALIDATION: Skip token count validation for:
             // 1. Patterns with {head} or {deprel} placeholders (dependency relations)
@@ -159,19 +186,20 @@ public class GrammarConfigLoader {
         this.relations = Collections.unmodifiableList(loadedRelations);
         this.relationsById = Collections.unmodifiableMap(loadedRelationsById);
 
-        logger.info("Loaded grammar config version {}: {} relations from {}",
-            version, relations.size(), configPath);
+        logger.info("Loaded grammar config version {}: {} relations{}",
+            version, relations.size(), configPath != null ? " from " + configPath : "");
     }
 
     /**
-     * Create a default English grammar config with standard copulas and relations.
-     * This is explicit configuration, not a fallback.
+     * Create the default grammar config, resolving the path from the
+     * {@code grammar.config} system property (default: {@code grammars/relations.json}).
      */
     public static GrammarConfigLoader createDefaultEnglish() {
+        String path = System.getProperty("grammar.config", "grammars/relations.json");
         try {
-            return new GrammarConfigLoader(Path.of("grammars/relations.json"));
+            return new GrammarConfigLoader(Path.of(path));
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to load default grammar config: grammars/relations.json", e);
+            throw new IllegalStateException("Failed to load default grammar config: " + path, e);
         }
     }
 
@@ -486,15 +514,15 @@ public class GrammarConfigLoader {
             if (s.contains("xpos=\"in") || s.contains("xpos=in")) return PosGroup.OTHER;
             if (s.contains("xpos=\"rp") || s.contains("xpos=rp")
              || s.contains("xpos=\"to") || s.contains("xpos=to")) return PosGroup.OTHER;
-            // tag (legacy / alternative attribute name)
-            if (s.contains("tag=\"jj") || s.contains("tag=jj")) return PosGroup.ADJ;
-            if (s.contains("tag=\"vb") || s.contains("tag=vb")) return PosGroup.VERB;
+            // legacy: tag= attribute support — use xpos= in new grammars
+            if (s.contains("tag=\"jj") || s.contains("tag=jj")) { logger.warn("Deprecated tag= attribute in grammar config; use xpos= instead"); return PosGroup.ADJ; }
+            if (s.contains("tag=\"vb") || s.contains("tag=vb")) { logger.warn("Deprecated tag= attribute in grammar config; use xpos= instead"); return PosGroup.VERB; }
             if (s.contains("tag=\"nn") || s.contains("tag=nn")
-             || s.contains("tag=\"pos") || s.contains("tag=pos")) return PosGroup.NOUN;
-            if (s.contains("tag=\"rb") || s.contains("tag=rb")) return PosGroup.ADV;
-            if (s.contains("tag=\"in") || s.contains("tag=in")) return PosGroup.OTHER;
+             || s.contains("tag=\"pos") || s.contains("tag=pos")) { logger.warn("Deprecated tag= attribute in grammar config; use xpos= instead"); return PosGroup.NOUN; }
+            if (s.contains("tag=\"rb") || s.contains("tag=rb")) { logger.warn("Deprecated tag= attribute in grammar config; use xpos= instead"); return PosGroup.ADV; }
+            if (s.contains("tag=\"in") || s.contains("tag=in")) { logger.warn("Deprecated tag= attribute in grammar config; use xpos= instead"); return PosGroup.OTHER; }
             if (s.contains("tag=\"rp") || s.contains("tag=rp")
-             || s.contains("tag=\"to") || s.contains("tag=to")) return PosGroup.OTHER;
+             || s.contains("tag=\"to") || s.contains("tag=to")) { logger.warn("Deprecated tag= attribute in grammar config; use xpos= instead"); return PosGroup.OTHER; }
             return PosGroup.OTHER;
         }
 

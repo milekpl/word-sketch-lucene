@@ -205,104 +205,31 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
     }
 
+    /** Per-hit data collected in phase 1 of {@link #executeBcqlQuery}. */
+    private record HitRecord(String xmlSnippet, String leftText, String matchText, String rightText,
+                             String collocateLemma, int docId, int start, int end) {}
+
     @Override
     public List<QueryResults.ConcordanceResult> executeBcqlQuery(String bcqlPattern, int maxResults) throws IOException {
         try {
-            // Use CorpusQueryLanguageParser for BCQL (not ContextualQueryLanguageParser)
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcqlPattern, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
 
-            // Use Hits API for concordances
             Hits hits = blackLabIndex.find(query);
-            long totalHits = hits.size();
-
-            // Extract headword for logDice calculation
             String headword = BlackLabSnippetParser.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
-
-            // Get concordances: 60 tokens each side captures most sentences; post-process to trim at boundaries.
             int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
-            int sampleSize = (int) Math.min(totalHits, maxResults * 10L);
+            int sampleSize = (int) Math.min(hits.size(), maxResults * 10L);
 
-            // Single pass: collect per-hit data and build frequency map.
-            record HitRecord(String xmlSnippet, String leftText, String matchText, String rightText, String collocateLemma, int docId, int start, int end) {}
-            List<HitRecord> hitRecords = new ArrayList<>(sampleSize);
+            // Phase 1: collect per-hit data and accumulate collocate frequencies
             Map<String, Long> collocateFreqMap = new HashMap<>();
+            List<HitRecord> hitRecords = collectHits(hits, sampleSize, collocatePos, collocateFreqMap);
 
-            if (totalHits > 0) {
-                Hits sample = hits.window(0L, (long) sampleSize);
-                Concordances concordances = sample.concordances(ContextSize.get(60, 60, Integer.MAX_VALUE), ConcordanceType.FORWARD_INDEX);
+            // Phase 2: score hits with logDice
+            List<QueryResults.ConcordanceResult> scored = scoreHits(hitRecords, collocateFreqMap, headwordFreq, maxResults);
 
-                for (int idx = 0; idx < sampleSize; idx++) {
-                    Hit hit = sample.get(idx);
-                    Concordance conc = concordances.get(hit);
-                    String leftText = "", matchText = "", rightText = "", xmlSnippet = "";
-                    String collocateLemma = null;
-
-                    if (conc != null) {
-                        String[] parts = conc.parts();
-                        if (parts != null && parts.length >= 3) {
-                            String leftXml  = parts[0] != null ? parts[0] : "";
-                            String matchXml = parts[1] != null ? parts[1] : "";
-                            String rightXml = parts[2] != null ? parts[2] : "";
-                            xmlSnippet = leftXml + matchXml + rightXml;
-                            leftText   = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
-                            matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
-                            rightText  = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
-
-                            // Extract collocate lemma from match XML at the labeled position
-                            if (collocatePos > 0) {
-                                String extracted = BlackLabSnippetParser.extractCollocateFromXmlByPosition(matchXml, collocatePos);
-                                if (extracted != null && !extracted.isEmpty()) {
-                                    collocateLemma = extracted;
-                                } else {
-                                    // Fallback: last lemma in match XML
-                                    extracted = BlackLabSnippetParser.extractCollocateFromSnippet(matchXml);
-                                    if (extracted != null && !extracted.isEmpty()) {
-                                        collocateLemma = extracted;
-                                    }
-                                }
-                            } else {
-                                // No labeled position: use last lemma in match XML as best-effort collocate
-                                collocateLemma = BlackLabSnippetParser.extractCollocateFromSnippet(matchXml);
-                            }
-                        }
-                    }
-
-                    if (collocateLemma != null && !collocateLemma.isEmpty()) {
-                        collocateFreqMap.merge(collocateLemma.toLowerCase(), 1L, Long::sum);
-                    }
-                    hitRecords.add(new HitRecord(xmlSnippet, leftText, matchText, rightText, collocateLemma, hit.doc(), hit.start(), hit.end()));
-                }
-            }
-
-            // Second pass: compute logDice and build results using stored plain-text parts.
-            List<QueryResults.ConcordanceResult> results = new ArrayList<>();
-            int resultLimit = Math.min(hitRecords.size(), maxResults * 3);
-
-            for (int i = 0; i < resultLimit; i++) {
-                HitRecord rec = hitRecords.get(i);
-                String collocateLemma = rec.collocateLemma();
-                // null/empty is valid "no collocate" — do not fall back to "unknown"
-
-                long f_xy = (collocateLemma != null && !collocateLemma.isEmpty())
-                    ? collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 1L) : 0L;
-                long f_y = (collocateLemma != null && !collocateLemma.isEmpty())
-                    ? getTotalFrequency(collocateLemma) : 0L;
-
-                double logDice = (headwordFreq > 0 && f_y > 0)
-                    ? LogDiceCalculator.compute(f_xy, headwordFreq, f_y) : 0.0;
-
-                String plainText = BlackLabSnippetParser.trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
-
-                results.add(new QueryResults.ConcordanceResult(
-                    plainText, rec.xmlSnippet(), null, null, null,
-                    rec.start(), rec.end(), String.valueOf(rec.docId()),
-                    collocateLemma, f_xy, logDice));
-            }
-
-            // Sort by logDice and limit
-            return results.stream()
+            // Phase 3: rank and limit
+            return scored.stream()
                 .sorted(Comparator.comparingDouble(QueryResults.ConcordanceResult::getLogDice).reversed())
                 .limit(maxResults)
                 .toList();
@@ -311,6 +238,93 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             throw new IOException("BCQL parse error: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Phase 1 — hit collection: iterate sample hits, extract text/XML and collocate lemma,
+     * and accumulate per-collocate co-occurrence counts into {@code freqMapOut}.
+     */
+    private List<HitRecord> collectHits(Hits hits, int sampleSize, int collocatePos,
+                                         Map<String, Long> freqMapOut) {
+        List<HitRecord> records = new ArrayList<>(sampleSize);
+        if (sampleSize == 0) return records;
+
+        Hits sample = hits.window(0L, (long) sampleSize);
+        Concordances concordances = sample.concordances(ContextSize.get(60, 60, Integer.MAX_VALUE), ConcordanceType.FORWARD_INDEX);
+
+        for (int idx = 0; idx < sampleSize; idx++) {
+            Hit hit = sample.get(idx);
+            Concordance conc = concordances.get(hit);
+            String leftText = "", matchText = "", rightText = "", xmlSnippet = "";
+            String collocateLemma = null;
+
+            if (conc != null) {
+                String[] parts = conc.parts();
+                if (parts != null && parts.length >= 3) {
+                    String leftXml  = parts[0] != null ? parts[0] : "";
+                    String matchXml = parts[1] != null ? parts[1] : "";
+                    String rightXml = parts[2] != null ? parts[2] : "";
+                    xmlSnippet = leftXml + matchXml + rightXml;
+                    leftText   = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
+                    matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
+                    rightText  = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
+                    collocateLemma = extractCollocateLemma(matchXml, collocatePos);
+                }
+            }
+
+            if (collocateLemma != null && !collocateLemma.isEmpty()) {
+                freqMapOut.merge(collocateLemma.toLowerCase(), 1L, Long::sum);
+            }
+            records.add(new HitRecord(xmlSnippet, leftText, matchText, rightText,
+                collocateLemma, hit.doc(), hit.start(), hit.end()));
+        }
+        return records;
+    }
+
+    /**
+     * Phase 2 — collocate frequency accumulation into scored ConcordanceResults.
+     * Computes logDice for each hit using corpus frequencies.
+     */
+    private List<QueryResults.ConcordanceResult> scoreHits(List<HitRecord> records,
+            Map<String, Long> collocateFreqMap, long headwordFreq, int maxResults) throws IOException {
+        List<QueryResults.ConcordanceResult> results = new ArrayList<>();
+        int limit = Math.min(records.size(), maxResults * 3);
+
+        for (int i = 0; i < limit; i++) {
+            HitRecord rec = records.get(i);
+            String collocateLemma = rec.collocateLemma();
+            // null/empty is valid "no collocate" — do not fall back to "unknown"
+
+            long f_xy = (collocateLemma != null && !collocateLemma.isEmpty())
+                ? collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 1L) : 0L;
+            long f_y = (collocateLemma != null && !collocateLemma.isEmpty())
+                ? getTotalFrequency(collocateLemma) : 0L;
+
+            double logDice = (headwordFreq > 0 && f_y > 0)
+                ? LogDiceCalculator.compute(f_xy, headwordFreq, f_y) : 0.0;
+
+            String plainText = BlackLabSnippetParser.trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
+
+            results.add(new QueryResults.ConcordanceResult(
+                plainText, rec.xmlSnippet(), null, null, null,
+                rec.start(), rec.end(), String.valueOf(rec.docId()),
+                collocateLemma, f_xy, logDice));
+        }
+        return results;
+    }
+
+    /**
+     * Extract collocate lemma from match XML using the labeled position.
+     * Falls back to the last lemma in the match XML when no labeled position is available.
+     */
+    private static String extractCollocateLemma(String matchXml, int collocatePos) {
+        if (collocatePos > 0) {
+            String extracted = BlackLabSnippetParser.extractCollocateFromXmlByPosition(matchXml, collocatePos);
+            if (extracted != null && !extracted.isEmpty()) return extracted;
+            // Fallback: last lemma in match XML
+        }
+        return BlackLabSnippetParser.extractCollocateFromSnippet(matchXml);
+    }
+
 
     /**
      * Returns total token frequency for the given lemma in the index.
@@ -407,50 +421,23 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     /**
      * Extract the dependent lemma from a dependency query hit group.
      * The dependent is matched by the underscore in the BCQL pattern.
-     * The group identity contains the matched text from which we extract the lemma.
      */
     private String extractDependentLemmaFromGroup(HitGroup group) {
-        // Get the group identity (matched text)
         String identity = group.identity().toString();
         if (identity == null || identity.isEmpty()) {
             return null;
         }
-
-        // Extract lemma from XML attributes in the match
-        // For dependency queries, the underscore matches the dependent word
-        // We want the lemma of that matched word
-        java.util.regex.Matcher m = BlackLabSnippetParser.LEMMA_ATTR.matcher(identity);
-        String lastLemma = null;
-        while (m.find()) {
-            lastLemma = m.group(1);
-        }
-        if (lastLemma != null) {
-            return lastLemma.toLowerCase();
-        }
-        return null;
+        // Delegate to the shared snippet parser
+        String lemma = BlackLabSnippetParser.extractCollocateFromSnippet(identity);
+        return lemma != null ? lemma.toLowerCase() : null;
     }
 
     /**
-     * Extract POS tag from a hit group.
-     * The group identity contains the matched text from which we extract POS.
+     * Extract POS tag from a hit group using the shared snippet parser.
      */
     private String extractPosFromGroup(HitGroup group) {
         String identity = group.identity().toString();
-        if (identity == null || identity.isEmpty()) {
-            return null;
-        }
-
-        // Extract xpos or upos from XML
-        java.util.regex.Matcher m = BlackLabSnippetParser.XPOS_ATTR.matcher(identity);
-        if (m.find()) {
-            return m.group(1);
-        }
-        // Fallback to upos
-        m = BlackLabSnippetParser.UPOS_ATTR.matcher(identity);
-        if (m.find()) {
-            return m.group(1);
-        }
-        return null;
+        return BlackLabSnippetParser.extractPosFromMatch(identity);
     }
 
     /**

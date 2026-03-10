@@ -50,6 +50,18 @@ class SemanticFieldExplorerTest {
         }
 
         @Override
+        public List<QueryResults.ConcordanceResult> executeBcqlQuery(String bcqlPattern, int maxResults) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<QueryResults.WordSketchResult> executeSurfacePattern(
+                String lemma, String bcqlPattern, int headPosition, int collocatePosition,
+                double minLogDice, int maxResults) {
+            return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
+        }
+
+        @Override
         public void close() {}
     }
 

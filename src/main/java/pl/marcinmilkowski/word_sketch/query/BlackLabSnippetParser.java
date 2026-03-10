@@ -167,7 +167,10 @@ public class BlackLabSnippetParser {
     /**
      * Extract the collocate lemma from a concordance snippet (XML format).
      * Finds the last lemma attribute in the snippet.
+     *
+     * @deprecated Use {@link #extractHeadLemma(String)} or {@link #extractCollocateLemma(String)} for clarity.
      */
+    @Deprecated
     static String extractCollocateFromSnippet(String snippet) {
         java.util.regex.Matcher m = LEMMA_ATTR.matcher(snippet);
         String lastLemma = null;
@@ -181,7 +184,9 @@ public class BlackLabSnippetParser {
      * Extract the collocate lemma from matched text using the labeled position.
      * @param matchOnly The matched text (parts[1] from concordance)
      * @param labelPos The 1-based position of the label (e.g., 3 for "2:" in pattern with 3 tokens)
+     * @deprecated Prefer {@link #extractLemmaAt(String, int)} which has a clearer name.
      */
+    @Deprecated
     static String extractCollocateFromMatch(String matchOnly, int labelPos) {
         if (matchOnly == null || matchOnly.isEmpty() || labelPos < 1) {
             return null;
@@ -201,7 +206,9 @@ public class BlackLabSnippetParser {
      * Extract the collocate from plain text (whitespace-separated words).
      * @param text The matched text (e.g., "theory is irrelevant")
      * @param position The 1-based position of the word to extract
+     * @deprecated Prefer {@link #extractLemmaAt(String, int)} or positional XML extraction.
      */
+    @Deprecated
     static String extractCollocateFromPlainText(String text, int position) {
         if (text == null || text.isEmpty() || position < 1) {
             return null;
@@ -249,7 +256,9 @@ public class BlackLabSnippetParser {
     /**
      * Extract a specific token from a concordance snippet.
      * Snippet format is like: "...[word1]...[word2]..." where words have lemma attributes.
+     * @deprecated Prefer {@link #extractLemmaAt(String, int)} which has clearer semantics.
      */
+    @Deprecated
     static String extractTokenFromSnippet(String snippet, int position) {
         if (snippet == null || snippet.isEmpty()) {
             return null;
@@ -272,5 +281,42 @@ public class BlackLabSnippetParser {
             return last;
         }
         return null;
+    }
+
+    // ==================== Consolidated clean API ====================
+
+    /**
+     * Extract lemma at a specific 1-based token position from XML snippet.
+     * This is the canonical method for positional lemma extraction.
+     *
+     * @param xml      XML snippet containing {@code lemma="..."} attributes
+     * @param position 1-based token position
+     * @return The lemma at that position, or {@code null} if not found
+     */
+    static String extractLemmaAt(String xml, int position) {
+        return extractCollocateFromXmlByPosition(xml, position);
+    }
+
+    /**
+     * Extract the head (labeled {@code 1:}) lemma from a BCQL match snippet.
+     * Assumes the first lemma attribute in the match corresponds to the head token.
+     *
+     * @param matchXml The match XML (parts[1] from a concordance)
+     * @return The head lemma in lowercase, or {@code null}
+     */
+    static String extractHeadLemma(String matchXml) {
+        return extractLemmaAt(matchXml, 1);
+    }
+
+    /**
+     * Extract the collocate (labeled {@code 2:}) lemma from a BCQL match snippet.
+     * Finds the last lemma attribute, which corresponds to the collocate in most patterns.
+     * For precise positional extraction, use {@link #extractLemmaAt(String, int)}.
+     *
+     * @param matchXml The match XML (parts[1] from a concordance)
+     * @return The collocate lemma, or {@code null}
+     */
+    static String extractCollocateLemma(String matchXml) {
+        return extractCollocateFromSnippet(matchXml);
     }
 }

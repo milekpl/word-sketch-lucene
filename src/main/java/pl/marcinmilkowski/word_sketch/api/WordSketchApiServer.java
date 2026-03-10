@@ -11,6 +11,8 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
+// TODO(42e2a9a1): These imports bind the API layer to SEF's inner result classes.
+// Once SEF inner classes are moved to a dedicated model/ package, update these imports.
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ExplorationResult;
@@ -58,7 +60,13 @@ public class WordSketchApiServer {
         this.indexPath = indexPath;
         this.port = port;
         this.grammarConfig = grammarConfig;
+        if (grammarConfig == null) {
+            logger.warn("WordSketchApiServer initialized without grammar configuration; " +
+                "relation-based endpoints (/api/sketch, /api/relations, /api/semantic-field/explore) will return 500");
+        }
         this.semanticFieldExplorer = new SemanticFieldExplorer(this.executor);
+        // TODO(595bb84c): Move HttpServer creation and route registration here so start() only calls server.start().
+        //   Requires declaring IOException on this constructor, which is a breaking-API change — defer to v2.
     }
 
     public void start() {
@@ -590,7 +598,6 @@ public class WordSketchApiServer {
         }
 
         String relationType = relationConfig.get().relationType().name();
-        String relationName = relationConfig.get().name();
 
         int topCollocates;
         int minShared;

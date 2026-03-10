@@ -160,7 +160,7 @@ public class RadialPlot {
         double scale = Math.min(width, height) / BASELINE_CANVAS_SIZE;
 
         svg.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + width + "\" height=\"" + height + "\" viewBox=\"0 0 " + width + " " + height + "\">\n");
+        svg.append(String.format("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n", width, height, width, height));
 
         // CSS styles - stroke-width and font-size values scaled to canvas
         svg.append("  <style>\n");
@@ -174,7 +174,7 @@ public class RadialPlot {
         svg.append("  </style>\n");
 
         // Background
-        svg.append("  <rect width=\"" + width + "\" height=\"" + height + "\" class=\"background\"/>\n");
+        svg.append(String.format("  <rect width=\"%d\" height=\"%d\" class=\"background\"/>\n", width, height));
 
         // Guides group - radii scaled to canvas
         svg.append("  <g id=\"guides\">\n");
@@ -228,8 +228,7 @@ public class RadialPlot {
 
         // Legend for signed mode
         if ("signed".equals(mode)) {
-            svg.append("  <g id=\"legend\" transform=\"translate(20, " + (height - 40) + ")\">\n");
-            svg.append("    <text class=\"label\" x=\"0\" y=\"0\">Positive (A&gt;B)</text>\n");
+            svg.append(String.format("  <g id=\"legend\" transform=\"translate(20, %d)\">\n", height - 40));            svg.append("    <text class=\"label\" x=\"0\" y=\"0\">Positive (A&gt;B)</text>\n");
             svg.append(String.format("    <circle cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"rgb(43,131,186)\"/>\n", fmt(-15.0 * scale), fmt(LEGEND_CIRCLE_Y_OFFSET * scale), fmt(LEGEND_CIRCLE_RADIUS * scale)));
             svg.append("    <text class=\"label\" x=\"120\" y=\"0\">Negative (B&gt;A)</text>\n");
             svg.append(String.format("    <circle cx=\"%s\" cy=\"%s\" r=\"%s\" fill=\"rgb(215,25,28)\"/>\n", fmt(105.0 * scale), fmt(LEGEND_CIRCLE_Y_OFFSET * scale), fmt(LEGEND_CIRCLE_RADIUS * scale)));

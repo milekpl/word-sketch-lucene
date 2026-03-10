@@ -49,6 +49,12 @@ import org.slf4j.LoggerFactory;
  * which collocates are shared across all seeds (the semantic core) and which
  * are distinctive to individual seeds. See {@link #compareSeeds}.</p>
  *
+ * <h2>Inner result classes</h2>
+ * <p>This class also hosts the result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
+ * {@code CoreCollocate}, {@code ComparisonResult}, {@code AdjectiveProfile}, {@code Edge}).
+ * These should be extracted to a dedicated {@code model/} package in a future refactor
+ * (see issue 28bc8918 / a430f585).</p>
+ *
  * <h2>Computational Limits</h2>
  * <p>Uses logDice thresholds at each step to prevent combinatorial explosion:</p>
  * <ul>
@@ -83,6 +89,11 @@ public class SemanticFieldExplorer implements AutoCloseable {
             int collocatePos,
             QueryExecutor executor) {}
 
+    /**
+     * Convenience constructor that creates an owned {@link BlackLabQueryExecutor} internally.
+     * Prefer {@link #SemanticFieldExplorer(QueryExecutor)} (dependency injection) for testability
+     * and to avoid double-open of the same index (see issue 297b2b52).
+     */
     public SemanticFieldExplorer(String indexPath) throws IOException {
         this.indexPath = indexPath;
         this.executor = new BlackLabQueryExecutor(indexPath);

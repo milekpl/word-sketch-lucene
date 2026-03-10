@@ -110,103 +110,25 @@ public class SimpleTagger {
 
     public SimpleTagger() {
         this.lexicon = new HashMap<>();
-        // Add common adjectives to lexicon
-        lexicon.put("big", "JJ");
-        lexicon.put("small", "JJ");
-        lexicon.put("large", "JJ");
-        lexicon.put("quick", "JJ");
-        lexicon.put("slow", "JJ");
-        lexicon.put("hot", "JJ");
-        lexicon.put("cold", "JJ");
-        lexicon.put("happy", "JJ");
-        lexicon.put("sad", "JJ");
-        lexicon.put("beautiful", "JJ");
-        lexicon.put("ugly", "JJ");
-        lexicon.put("good", "JJ");
-        lexicon.put("bad", "JJ");
-        lexicon.put("new", "JJ");
-        lexicon.put("old", "JJ");
-        lexicon.put("young", "JJ");
-        lexicon.put("long", "JJ");
-        lexicon.put("short", "JJ");
-        lexicon.put("high", "JJ");
-        lexicon.put("low", "JJ");
-        lexicon.put("early", "JJ");
-        lexicon.put("late", "JJ");
-        lexicon.put("right", "JJ");
-        lexicon.put("wrong", "JJ");
-        // More adjectives from test corpus
-        lexicon.put("warm", "JJ");
-        lexicon.put("lovely", "JJ");
-        lexicon.put("nice", "JJ");
-        lexicon.put("interesting", "JJ");
-        lexicon.put("heavy", "JJ");
-        lexicon.put("strong", "JJ");
-        lexicon.put("strange", "JJ");
-        lexicon.put("hungry", "JJ");
-        lexicon.put("busy", "JJ");
-        lexicon.put("quiet", "JJ");
-        lexicon.put("fast", "JJ");
-        lexicon.put("brown", "JJ");
-        lexicon.put("lazy", "JJ");
-        lexicon.put("blue", "JJ");
-        // Common nouns
-        lexicon.put("house", "NN");
-        lexicon.put("dog", "NN");
-        lexicon.put("cat", "NN");
-        lexicon.put("park", "NN");
-        lexicon.put("bed", "NN");
-        lexicon.put("hill", "NN");
-        lexicon.put("man", "NN");
-        lexicon.put("garden", "NN");
-        lexicon.put("street", "NN");
-        lexicon.put("fox", "NN");
-        lexicon.put("river", "NN");
-        lexicon.put("children", "NN");
-        lexicon.put("yard", "NN");
-        lexicon.put("flower", "NN");
-        lexicon.put("meadow", "NN");
-        lexicon.put("weather", "NN");
-        lexicon.put("spring", "NN");
-        lexicon.put("birds", "NN");
-        lexicon.put("sky", "NN");
-        lexicon.put("gift", "NN");
-        lexicon.put("paintings", "NN");
-        lexicon.put("wall", "NN");
-        lexicon.put("cars", "NN");
-        lexicon.put("highway", "NN");
-        lexicon.put("teacher", "NN");
-        lexicon.put("lesson", "NN");
-        lexicon.put("students", "NN");
-        lexicon.put("books", "NN");
-        lexicon.put("library", "NN");
-        lexicon.put("rain", "NN");
-        lexicon.put("city", "NN");
-        lexicon.put("night", "NN");
-        lexicon.put("wind", "NN");
-        lexicon.put("north", "NN");
-        lexicon.put("noise", "NN");
-        // Common verbs
-        lexicon.put("runs", "VBZ");
-        lexicon.put("sleeps", "VBZ");
-        lexicon.put("stands", "VBZ");
-        lexicon.put("walks", "VBZ");
-        lexicon.put("chase", "VB");
-        lexicon.put("jumps", "VBZ");
-        lexicon.put("see", "VB");
-        lexicon.put("play", "VB");
-        lexicon.put("grows", "VBZ");
-        lexicon.put("changes", "VBZ");
-        lexicon.put("fly", "VB");
-        lexicon.put("receives", "VBZ");
-        lexicon.put("hang", "VB");
-        lexicon.put("drive", "VB");
-        lexicon.put("explains", "VBZ");
-        lexicon.put("read", "VB");
-        lexicon.put("falls", "VBZ");
-        lexicon.put("blows", "VBZ");
-        lexicon.put("wakes", "VBZ");
-        lexicon.put("meows", "VBZ");
+        // Load lexicon from bundled resource file instead of inline puts
+        try (var stream = getClass().getResourceAsStream("/lexicon.txt")) {
+            if (stream != null) {
+                try (var scanner = new Scanner(stream)) {
+                    while (scanner.hasNextLine()) {
+                        String line = scanner.nextLine().trim();
+                        if (line.isEmpty() || line.startsWith("#")) continue;
+                        String[] parts = line.split("\t", 2);
+                        if (parts.length == 2) {
+                            lexicon.put(parts[0].toLowerCase(), parts[1]);
+                        }
+                    }
+                }
+            } else {
+                logger.warn("Built-in lexicon resource /lexicon.txt not found; starting with empty lexicon");
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to load built-in lexicon: {}", e.getMessage());
+        }
     }
 
     /**

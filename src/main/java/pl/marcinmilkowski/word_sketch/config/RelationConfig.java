@@ -112,6 +112,18 @@ public record RelationConfig(
     }
 
     /**
+     * Returns the CQL pattern used for reverse collocate lookup, derived from the collocate POS group.
+     * Adjective relations reverse-look up {@code [xpos="JJ.*"]}; noun/verb relations use
+     * {@code [xpos="NN.*|VB.*"]}.
+     */
+    public String collocateReversePattern() {
+        return switch (collocatePosGroup()) {
+            case ADJ -> "[xpos=\"JJ.*\"]";
+            default  -> "[xpos=\"NN.*|VB.*\"]";
+        };
+    }
+
+    /**
      * Derive the collocate POS group from the pattern.
      * Looks specifically at the 2: labelled position so that multi-token patterns
      * like "1:[xpos="NN.*"] 2:[xpos="JJ.*"]" correctly return "adj" not "noun".

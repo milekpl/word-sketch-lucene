@@ -4,7 +4,6 @@ import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
-import pl.marcinmilkowski.word_sketch.config.PosGroup;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
@@ -18,7 +17,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -83,58 +81,33 @@ class ExplorationHandlers {
             return;
         }
 
+        // TODO: domain object assembly (bcqlPattern, reverseCollocatePattern, ExploreOptions)
+        //       should be delegated to a factory/service rather than assembled in the HTTP handler.
         String bcqlPattern = relationConfig.get().getFullPattern(seed);
-        String reverseCollocatePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ?
-            "[xpos=\"JJ.*\"]" : "[xpos=\"NN.*|VB.*\"]";
+        String reverseCollocatePattern = relationConfig.get().collocateReversePattern();
         int headPos = relationConfig.get().headPosition();
         int collocatePos = relationConfig.get().collocatePosition();
 
         ExploreOptions opts = new ExploreOptions(
             topCollocates, nounsPerCollocate, minLogDice, minShared, false, headPos, collocatePos);
-        ExplorationResult result = semanticFieldExplorer.exploreByPattern(
-            seed, relationName, bcqlPattern, reverseCollocatePattern, opts);
+
+        ExplorationResult result;
+        try {
+            result = semanticFieldExplorer.exploreByPattern(
+                seed, relationName, bcqlPattern, reverseCollocatePattern, opts);
+        } catch (IOException e) {
+            HttpApiUtils.sendError(exchange, 500, "Exploration failed: " + e.getMessage());
+            return;
+        } catch (IllegalArgumentException e) {
+            HttpApiUtils.sendError(exchange, 400, "Invalid exploration parameters: " + e.getMessage());
+            return;
+        }
 
         Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice);
         response.put("seed", result.getSeed());
         // nouns_per is specific to single-seed exploration
         ((Map<String, Object>) response.get("parameters")).put("nouns_per", nounsPerCollocate);
-
-        List<Map<String, Object>> seedCollocs = new ArrayList<>();
-        if (result.getSeedCollocates() != null) {
-            for (Map.Entry<String, Double> colloc : result.getSeedCollocates().entrySet()) {
-                long freq = result.getSeedCollocateFrequencies() != null
-                    ? result.getSeedCollocateFrequencies().getOrDefault(colloc.getKey(), 0L) : 0L;
-                seedCollocs.add(formatSeedCollocate(colloc.getKey(), colloc.getValue(), freq));
-            }
-        }
-        response.put("seed_collocates", seedCollocs);
-        response.put("seed_collocates_count", seedCollocs.size());
-
-        List<Map<String, Object>> nouns = new ArrayList<>();
-        if (result.getDiscoveredNouns() != null) {
-            for (DiscoveredNoun dn : result.getDiscoveredNouns()) {
-                nouns.add(formatDiscoveredNoun(dn));
-            }
-        }
-        response.put("discovered_nouns", nouns);
-        response.put("discovered_nouns_count", nouns.size());
-
-        List<Map<String, Object>> coreCollocs = new ArrayList<>();
-        if (result.getCoreCollocates() != null) {
-            for (CoreCollocate ca : result.getCoreCollocates()) {
-                coreCollocs.add(formatCoreCollocate(ca));
-            }
-        }
-        response.put("core_collocates", coreCollocs);
-        response.put("core_collocates_count", coreCollocs.size());
-
-        List<Map<String, Object>> edges = new ArrayList<>();
-        if (result.getEdges() != null) {
-            for (Edge edge : result.getEdges()) {
-                edges.add(formatEdge(edge));
-            }
-        }
-        response.put("edges", edges);
+        buildExploreResponseBody(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -192,57 +165,23 @@ class ExplorationHandlers {
         } catch (IOException e) {
             HttpApiUtils.sendError(exchange, 500, "Multi-seed exploration failed: " + e.getMessage());
             return;
+        } catch (IllegalArgumentException e) {
+            HttpApiUtils.sendError(exchange, 400, "Invalid exploration parameters: " + e.getMessage());
+            return;
         }
 
         Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice);
         response.put("seeds", new ArrayList<>(seeds));
         response.put("seed_count", seeds.size());
 
-        List<Map<String, Object>> seedCollocs = new ArrayList<>();
-        if (result.getSeedCollocates() != null) {
-            for (Map.Entry<String, Double> colloc : result.getSeedCollocates().entrySet()) {
-                long freq = result.getSeedCollocateFrequencies() != null
-                    ? result.getSeedCollocateFrequencies().getOrDefault(colloc.getKey(), 0L) : 0L;
-                seedCollocs.add(formatSeedCollocate(colloc.getKey(), colloc.getValue(), freq));
-            }
-        }
-        response.put("seed_collocates", seedCollocs);
-        response.put("seed_collocates_count", seedCollocs.size());
-
         List<String> commonCollocs = new ArrayList<>();
-        if (result.getCoreCollocates() != null) {
-            for (CoreCollocate ca : result.getCoreCollocates()) {
-                commonCollocs.add(ca.collocate);
-            }
+        for (CoreCollocate ca : result.getCoreCollocates()) {
+            commonCollocs.add(ca.collocate);
         }
         response.put("common_collocates", commonCollocs);
         response.put("common_collocates_count", commonCollocs.size());
 
-        List<Map<String, Object>> coreCollocs = new ArrayList<>();
-        if (result.getCoreCollocates() != null) {
-            for (CoreCollocate ca : result.getCoreCollocates()) {
-                coreCollocs.add(formatCoreCollocate(ca));
-            }
-        }
-        response.put("core_collocates", coreCollocs);
-        response.put("core_collocates_count", coreCollocs.size());
-
-        List<Map<String, Object>> discoveredNounsList = new ArrayList<>();
-        if (result.getDiscoveredNouns() != null) {
-            for (DiscoveredNoun dn : result.getDiscoveredNouns()) {
-                discoveredNounsList.add(formatDiscoveredNoun(dn));
-            }
-        }
-        response.put("discovered_nouns", discoveredNounsList);
-        response.put("discovered_nouns_count", discoveredNounsList.size());
-
-        List<Map<String, Object>> edges = new ArrayList<>();
-        if (result.getEdges() != null) {
-            for (Edge edge : result.getEdges()) {
-                edges.add(formatEdge(edge));
-            }
-        }
-        response.put("edges", edges);
+        buildExploreResponseBody(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -258,6 +197,11 @@ class ExplorationHandlers {
         String nounsParam = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (nounsParam == null) return;
 
+        if (nounsParam.isBlank()) {
+            HttpApiUtils.sendError(exchange, 400, "Parameter 'seeds' must not be empty");
+            return;
+        }
+
         Set<String> nouns = new LinkedHashSet<>(Arrays.asList(nounsParam.split(",")));
 
         double minLogDice;
@@ -271,7 +215,15 @@ class ExplorationHandlers {
         }
 
         ComparisonResult result;
-        result = semanticFieldExplorer.compareCollocateProfiles(nouns, minLogDice, maxPerNoun);
+        try {
+            result = semanticFieldExplorer.compareCollocateProfiles(nouns, minLogDice, maxPerNoun);
+        } catch (IOException e) {
+            HttpApiUtils.sendError(exchange, 500, "Comparison failed: " + e.getMessage());
+            return;
+        } catch (IllegalArgumentException e) {
+            HttpApiUtils.sendError(exchange, 400, "Invalid comparison parameters: " + e.getMessage());
+            return;
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -322,7 +274,15 @@ class ExplorationHandlers {
         }
 
         List<String> examples;
-        examples = semanticFieldExplorer.fetchExamples(adjective, noun, maxExamples);
+        try {
+            examples = semanticFieldExplorer.fetchExamples(adjective, noun, maxExamples);
+        } catch (IOException e) {
+            HttpApiUtils.sendError(exchange, 500, "Failed to fetch examples: " + e.getMessage());
+            return;
+        } catch (IllegalArgumentException e) {
+            HttpApiUtils.sendError(exchange, 400, "Invalid parameters: " + e.getMessage());
+            return;
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -369,6 +329,41 @@ class ExplorationHandlers {
         m.put("log_dice", Math.round(edge.weight * 100.0) / 100.0);
         m.put("type", edge.type);
         return m;
+    }
+
+    /**
+     * Populates the four standard explore response sections — seed_collocates, discovered_nouns,
+     * core_collocates, and edges — from {@code result} into {@code response}.
+     * Both single-seed and multi-seed handlers call this after setting their seed/seeds key.
+     */
+    private void buildExploreResponseBody(Map<String, Object> response, ExplorationResult result) {
+        List<Map<String, Object>> seedCollocs = new ArrayList<>();
+        for (Map.Entry<String, Double> colloc : result.getSeedCollocates().entrySet()) {
+            long freq = result.getSeedCollocateFrequencies().getOrDefault(colloc.getKey(), 0L);
+            seedCollocs.add(formatSeedCollocate(colloc.getKey(), colloc.getValue(), freq));
+        }
+        response.put("seed_collocates", seedCollocs);
+        response.put("seed_collocates_count", seedCollocs.size());
+
+        List<Map<String, Object>> nouns = new ArrayList<>();
+        for (DiscoveredNoun dn : result.getDiscoveredNouns()) {
+            nouns.add(formatDiscoveredNoun(dn));
+        }
+        response.put("discovered_nouns", nouns);
+        response.put("discovered_nouns_count", nouns.size());
+
+        List<Map<String, Object>> coreCollocs = new ArrayList<>();
+        for (CoreCollocate ca : result.getCoreCollocates()) {
+            coreCollocs.add(formatCoreCollocate(ca));
+        }
+        response.put("core_collocates", coreCollocs);
+        response.put("core_collocates_count", coreCollocs.size());
+
+        List<Map<String, Object>> edges = new ArrayList<>();
+        for (Edge edge : result.getEdges()) {
+            edges.add(formatEdge(edge));
+        }
+        response.put("edges", edges);
     }
 
     /**

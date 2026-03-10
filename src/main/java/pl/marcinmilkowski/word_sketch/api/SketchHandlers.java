@@ -162,7 +162,7 @@ class SketchHandlers {
                             byRelation.put(rel.id(), relData);
                         }
                     } catch (Exception e) {
-                        logger.warn("Relation {} failed for lemma {}", rel.id(), lemma, e);
+                        logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
                     }
                 }
             }

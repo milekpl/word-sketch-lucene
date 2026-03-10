@@ -1,0 +1,104 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 1,
+  "assessments": {
+    "test_strategy": 62.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "SemanticFieldExplorerTest has 8 stub-based tests covering fully-shared, partially-shared, specific, empty, null, single-seed, no-collocates, and edge-weight scenarios — the most complex business logic is meaningfully exercised",
+        "CollocateProfileComparatorTest has 4 stub-based tests covering the same comparison logic from a slightly different entry point, providing good redundancy on the core algorithm",
+        "HandlersTest happy-path tests (handleSketchRequest_validLemma_returns200, handleSemanticFieldExplore_validSeeds_returns200) only assert HTTP status code 200; no assertions on response body shape, JSON keys, or content — they are smoke tests, not behavioural tests",
+        "BlackLabConllUIndexer (128 lines) and ConlluConverter (85 lines) — the entire indexing pipeline — have zero test coverage; correctness of CoNLL-U parsing and field mapping cannot be verified without running a full index",
+        "RadialPlot (251 lines) has zero test coverage",
+        "BlackLabBcqlConcordanceTest still carries a raw hardcoded 'D:\\corpora_philsci\\bi' path on line 20 (INDEX_PATH field); the @EnabledIf guard evaluates that hardcoded path, not an env var, unlike the fixed DependencySketchTest and BlackLabDummyTest",
+        "BlackLabQueryExecutorTest is @Disabled at class level with a fallback hardcoded path as the default for the system property — tests are written but entirely non-running",
+        "Index-dependent tests in BlackLabDummyTest and DependencySketchTest use Assumptions.assumeTrue with env-var fallback, so they skip cleanly on developer machines without the index — good practice",
+        "Grammar config is covered by three test classes (GrammarConfigLoaderTest, RelationsValidationTest, HybridAlgorithmTest) with 10+ assertions on pattern content and relation metadata",
+        "Core utilities (LogDiceCalculator, LongIntHashMap, PatternSubstitution/CqlUtils, SimpleTagger) each have dedicated test classes with realistic input/edge-case coverage",
+        "151 @Test annotations across the test tree, 5 explicitly @Disabled — ratio is healthy; but a meaningful cluster of live tests (BlackLabBcqlConcordanceTest) is gated by a hardcoded Windows path that will never be true on CI"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Stub-based QueryExecutor pattern is used consistently across SemanticFieldExplorerTest, CollocateProfileComparatorTest, and HandlersTest — enables pure unit testing of core business logic without a live index",
+        "SemanticFieldExplorerTest covers the most critical business algorithm (collocate sharing/intersection) with 8 distinct scenarios including edge cases (null/empty seed sets, single seed, no-collocate seed)",
+        "Index-dependent tests use Assumptions.assumeTrue or @EnabledIf guards so they skip rather than fail on environments without the corpus, protecting CI from spurious failures",
+        "Utility layer (LogDice, LongIntHashMap, PatternSubstitution, SimpleTagger, grammar config) is well covered by focused unit tests with realistic inputs and boundary values"
+      ],
+      "issue_character": "Gaps are concentrated in two areas: the indexing pipeline (BlackLabConllUIndexer, ConlluConverter) is completely untested, and API-level tests are smoke-only with no response body assertions — both are systemic omissions rather than isolated misses.",
+      "score_rationale": "The codebase demonstrates intentional test design — stub executors, proper skip guards, and thorough coverage of the exploration algorithm place it well above the 'significant drag' threshold. However, the entire indexing path (the input stage of the pipeline) has no tests at all, and one integration-style test file (BlackLabBcqlConcordanceTest) will never execute on any CI runner due to a hardcoded Windows path. API handler tests exist but only verify HTTP status, not response semantics. These gaps leave the two critical I/O boundaries (ingestion and API output shape) essentially unverified, pulling the score to the low-60s rather than the 70–75 range that the core-logic coverage would otherwise support."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexer_zero_coverage",
+      "summary": "BlackLabConllUIndexer and ConlluConverter have no tests; the entire indexing pipeline is unverifiable without running a full index build",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "No test file exists for BlackLabConllUIndexer (128 lines) or ConlluConverter (85 lines)",
+        "ConlluConverter parses CoNLL-U token lines and maps them to index fields — a pure function with no external dependencies, making it trivially testable without a live BlackLab instance",
+        "grep -rn 'ConlluConverter\\|BlackLabConllUIndexer' src/test/ returns no results"
+      ],
+      "suggestion": "Add ConlluConverterTest with representative CoNLL-U sentence strings covering: normal token, multi-word token (range IDs), enhanced dependency rows, and malformed lines. ConlluConverter is a pure parsing class with no index dependency — tests require no external resources.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "bcql_concordance_hardcoded_path",
+      "summary": "BlackLabBcqlConcordanceTest uses a hardcoded Windows path that can never be true on CI, making its @EnabledIf guard permanently false outside one developer machine",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "Line 20: private static final String INDEX_PATH = \"D:\\\\corpora_philsci\\\\bi\";",
+        "The @EnabledIf(\"indexExists\") guard on lines 23 and 47 evaluates this hardcoded field, not an env var",
+        "The companion tests BlackLabDummyTest and DependencySketchTest were already fixed to use System.getenv(\"CONCEPT_SKETCH_TEST_INDEX\") with the hardcoded path only as a last-resort fallback"
+      ],
+      "suggestion": "Replace the static final field with the same env-var pattern already used in DependencySketchTest: String INDEX_PATH = System.getenv(\"CONCEPT_SKETCH_TEST_INDEX\") != null ? System.getenv(\"CONCEPT_SKETCH_TEST_INDEX\") : System.getProperty(\"conceptSketch.testIndex\", \"D:\\\\corpora_philsci\\\\bi\"); and update the indexExists() method accordingly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "api_handler_smoke_only",
+      "summary": "Happy-path API handler tests assert only HTTP 200 status; no assertions on response body JSON shape or content",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/HandlersTest.java"
+      ],
+      "evidence": [
+        "handleSketchRequest_validLemma_returns200: only asserts assertEquals(200, ex.statusCode)",
+        "handleSemanticFieldExplore_validSeeds_returns200: only asserts assertEquals(200, ex.statusCode)",
+        "The stub executor returns empty lists, so response body is a valid but empty JSON object — no test verifies the field names, array keys, or structure the web UI depends on"
+      ],
+      "suggestion": "Extend happy-path tests to parse ex.getResponseBodyAsString() as JSON (e.g. via Fastjson or org.json) and assert the presence of expected top-level keys ('lemma', 'relations' for sketch; 'seeds', 'nouns', 'edges' for explore-multi). This catches regressions in response shape without requiring a live index.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Indexing pipeline was likely developed before the stub-based testing pattern was established; once BlackLab dependency was introduced, it became unclear how to test without a real index — ConlluConverter's pure-function nature was overlooked",
+      "BlackLabBcqlConcordanceTest predates the env-var guard convention and was not included in the path-fix pass that updated the other three test files"
+    ],
+    "likely_symptoms": [
+      "Indexing regressions (field mapping errors, multi-word token handling) would only be caught by re-running a full index build and manually inspecting query results",
+      "API response shape regressions would be silent until the web UI breaks"
+    ],
+    "possible_false_positives": []
+  }
+}

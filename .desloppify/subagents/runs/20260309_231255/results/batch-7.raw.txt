@@ -1,0 +1,137 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 7,
+  "assessments": {"design_coherence": 52.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "BlackLabQueryExecutor.findCollocations() swallows InvalidQuery with logger.warn + empty return, while findDependencyCollocations(), executeQuery(), executeBcqlQuery(), and executeSurfacePattern() all wrap InvalidQuery as IOException and re-throw — same exception, five different call sites, two different behaviors",
+        "GrammarConfigLoader exposes two parallel lookup methods: getRelation(String) returning Optional<RelationConfig> and getRelationById(String) returning nullable RelationConfig; WordSketchApiServer uses getRelationById at lines 344/447 and getRelation at lines 514/666/898 with no documented reason",
+        "SemanticFieldExplorer.close() always closes its executor regardless of constructor used; WordSketchApiServer creates explorers with new SemanticFieldExplorer(this.executor) (injected executor not owned) then calls explorer.close() — double-close on the shared BlackLabIndex",
+        "logger.debug() calls in WordSketchApiServer and PatternSubstitution embed redundant 'DEBUG:' prefix strings in the message text",
+        "Dead inner class RelationDef at bottom of WordSketchApiServer — fields and constructor defined, never instantiated",
+        "SemanticFieldExplorer instantiated fresh per HTTP request rather than being a server-level singleton"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Consistent use of SLF4J Logger across all non-CLI classes with static final field declaration idiom",
+        "Builder pattern applied uniformly to WordSketchApiServer construction",
+        "try-with-resources used consistently for BlackLabIndex and file I/O resource management",
+        "Consistent use of Collections.emptyList() / early-return-empty for null/missing-input guard clauses",
+        "QueryExecutor interface provides a clean seam with documented contracts and appropriate default methods"
+      ],
+      "issue_character": "Inconsistency introduced by incremental development: the same problem (lookup failure, query parse error, resource ownership) is solved differently depending on which method was written last, with no visible policy distinguishing the variants.",
+      "score_rationale": "The structural foundation is sound — logger, builder, try-with-resources, and empty-collection idioms are uniformly applied. However three concrete divergences undercut developer trust: InvalidQuery is silently swallowed in one method and propagated in five others; two parallel nullable/Optional lookup paths exist for the same data; and SemanticFieldExplorer unconditionally closes an executor it may not own, creating a real double-close defect."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "inconsistent_invalidquery_handling",
+      "summary": "InvalidQuery swallowed silently in findCollocations but propagated as IOException in five other methods",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "findCollocations() catch(InvalidQuery e): logger.warn(...); return Collections.emptyList()",
+        "findDependencyCollocations() catch(InvalidQuery e): throw new IOException(\"CQL parse error: \" + e.getMessage(), e)",
+        "executeQuery(), executeBcqlQuery(), executeSurfacePattern() all re-throw as IOException"
+      ],
+      "suggestion": "Decide on one policy: either always propagate InvalidQuery wrapped as IOException, or always log-and-return-empty. Add a brief comment if an intentional exception applies to findCollocations.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dual_relation_lookup_api",
+      "summary": "GrammarConfigLoader exposes both getRelation() returning Optional and getRelationById() returning nullable for the same lookup",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader line 313: public Optional<RelationConfig> getRelation(String id)",
+        "GrammarConfigLoader line 320: public RelationConfig getRelationById(String id) { return relationsById.get(id); }  // returns null if missing",
+        "WordSketchApiServer uses getRelationById at lines 344 and 447; getRelation at lines 514, 666, and 898"
+      ],
+      "suggestion": "Remove getRelationById() and standardise all callers on getRelation() returning Optional.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "explorer_double_close",
+      "summary": "SemanticFieldExplorer.close() unconditionally closes an injected executor it does not own, causing double-close at server shutdown",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(QueryExecutor executor) constructor: this.executor = executor — does not set ownership flag",
+        "SemanticFieldExplorer.close(): always closes executor if AutoCloseable",
+        "WordSketchApiServer calls new SemanticFieldExplorer(this.executor) then explorer.close() at lines 541, 783, 861",
+        "Main.java shutdown hook also calls executor.close() — BlackLabIndex closed twice"
+      ],
+      "suggestion": "Add a boolean ownsExecutor field set to true only when the indexPath constructor is used, false when the executor-injection constructor is used. In close(), only close executor when ownsExecutor is true.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "debug_prefix_in_logger_messages",
+      "summary": "logger.debug() calls embed literal 'DEBUG:' text prefix in message strings, which is redundant and inconsistent with standard logging idiom",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer: logger.debug(\"DEBUG: After getFullPattern: {}\", ...)",
+        "WordSketchApiServer: logger.debug(\"DEBUG Radial: body = {}\", body)",
+        "PatternSubstitution: logger.debug(\"DEBUG: substituteCollocate: ...\")"
+      ],
+      "suggestion": "Remove the 'DEBUG:' and 'DEBUG ' string prefixes from all logger.debug() message strings.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dead_inner_class_relationdef",
+      "summary": "RelationDef private inner class in WordSketchApiServer is defined but never instantiated or referenced",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Lines 1091-1104: private static class RelationDef with id, name, description, deprel, showInUi fields and constructor",
+        "No new RelationDef(...) expression anywhere in the file or codebase",
+        "GrammarConfigLoader.RelationConfig record serves the same purpose"
+      ],
+      "suggestion": "Delete the RelationDef inner class.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental development without a style guide for error propagation — each method was written or modified independently",
+      "The SemanticFieldExplorer was originally designed as a standalone component owning its index connection; it was later adapted to accept an injected executor without updating the ownership/lifecycle contract",
+      "GrammarConfigLoader grew two lookup methods without consolidating them"
+    ],
+    "likely_symptoms": [
+      "Query parse errors in findCollocations silently return empty results, masking BCQL pattern bugs",
+      "BlackLabIndex.close() called twice at server shutdown produces log errors or undefined BlackLab behaviour",
+      "Developers looking up a relation use whichever method they find first, sometimes getting NPE and sometimes redundant isEmpty() checks"
+    ],
+    "possible_false_positives": [
+      "System.out.println in Main.java may be intentional for user-facing CLI progress output",
+      "Per-request SemanticFieldExplorer construction might be intentional if thread-safety of the shared executor is a concern, though the double-close is still a real bug"
+    ]
+  }
+}

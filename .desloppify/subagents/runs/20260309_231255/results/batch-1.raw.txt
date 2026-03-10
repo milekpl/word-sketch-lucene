@@ -1,0 +1,155 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {"high_level_elegance": 57.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package decomposition (grammar, query, indexer, api, config, tagging, utils, viz) maps recognisably to domain capabilities — a new engineer can name each package in one phrase.",
+        "CLAUDE.md lists ~10 classes that do not exist in the source tree (HybridLuceneIndexer, CollocationsBuilderV2, HybridIndex, HybridQueryExecutor, WordSketchQueryExecutor, SnowballCollocations, ConllUProcessor, CQLToLuceneCompiler, LuceneIndexer). The code-structure diagram in the project's primary reference doc is entirely wrong.",
+        "WordSketchApiServer.java is 1106 lines containing route registration, request parsing, response serialisation, and business logic for 10+ endpoints, a legacy RelationDef inner class, and a toLegacyRelationType() bridge method — a clear God Class whose change surface is the entire API.",
+        "SketchGrammarParser (grammar package) parses .wsdef.m4 format files and is never called anywhere in production code; runtime grammar loading is handled solely by GrammarConfigLoader from JSON. The class exists and compiles but is dead weight that implies a capability the system does not have.",
+        ".bak files (GrammarPatternCollocationsBuilder.java.bak, GrammarPatternCollocationsReader.java.bak) sit inside src/main/java/.../indexer/hybrid/ — committed dead code inside the production source tree.",
+        "QueryExecutor interface embeds a RelationType enum (ADJ_MODIFIER, ADJ_PREDICATE, SUBJECT_OF, OBJECT_OF) alongside GrammarConfigLoader's string-based relationType field (SURFACE, DEP). WordSketchApiServer bridges them with toLegacyRelationType(), meaning a new engineer must understand two parallel systems to trace any relation through the stack.",
+        "CQLVerifier and the entire predicate hierarchy live in the query package but are never invoked on the production code path — BlackLabQueryExecutor delegates to BlackLab's own CQL parser. Their inclusion in query alongside live production classes blurs the boundary between runtime and test-only infrastructure.",
+        "handleSemanticFieldExploreMulti inlines its own multi-seed intersection logic rather than delegating to SemanticFieldExplorer, while handleSemanticField calls SemanticFieldExplorer.compare() for the same conceptual operation."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "CLAUDE.md is the primary reference document and lists ~10 non-existent classes; the God Class API server concentrates change risk; a legacy predicate subsystem and orphaned parser create false signals about system capabilities; dual relation-type representations force bridge code that only the original author can navigate."
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package names (grammar, query, indexer, api, config, tagging, utils, viz) map directly to domain concepts — a newcomer can orient immediately.",
+        "QueryExecutor interface provides a clean seam between the API layer and query execution; WordSketchApiServer depends only on the interface, not the concrete BlackLabQueryExecutor.",
+        "GrammarConfigLoader externalises relation definitions to JSON rather than hard-coding them, making the configuration boundary explicit and changeable without touching source.",
+        "HttpApiUtils and PatternSubstitution are small, well-scoped utility extractions that correctly own their responsibilities.",
+        "WordSketchApiServer uses a Builder pattern for construction, keeping instantiation flexible and the dependencies visible."
+      ],
+      "issue_character": "The problems are structural and systemic: the primary reference document misrepresents the codebase, a God Class concentrates all API responsibility, and several subsystems (predicate hierarchy, SketchGrammarParser, legacy RelationType enum) are either dead or parallel duplicates that survive from earlier architecture phases.",
+      "score_rationale": "The package taxonomy earns credit for domain alignment and the QueryExecutor/GrammarConfigLoader seams are solid design decisions, placing this above a failing baseline. However, the CLAUDE.md structural diagram is completely wrong (violating the 'reference docs match runtime reality' criterion directly), the 1106-line God Class is the only entry point for all API concerns, and a dead predicate subsystem plus orphaned SketchGrammarParser create false impressions of system capabilities. This sits in the 55–60 range: recognisable structure with significant documentation/decomposition drag."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "claude-md-phantom-classes",
+      "summary": "CLAUDE.md code-structure diagram lists ~10 classes that do not exist in the source tree",
+      "related_files": ["CLAUDE.md"],
+      "evidence": [
+        "CLAUDE.md lists HybridLuceneIndexer.java, CollocationsBuilderV2.java, HybridIndex.java, HybridQueryExecutor.java, WordSketchQueryExecutor.java, SnowballCollocations.java, ConllUProcessor.java, CQLToLuceneCompiler.java under the code structure section.",
+        "None of these files exist under src/main/java/; the actual production classes are BlackLabQueryExecutor, BlackLabConllUIndexer, GrammarConfigLoader, SemanticFieldExplorer, and others.",
+        "CLAUDE.md also references 'SemanticFieldExplorer.java + SnowballCollocations.java' but SnowballCollocations.java does not exist."
+      ],
+      "suggestion": "Rewrite the CLAUDE.md code-structure section to match the actual file tree. Remove phantom entries and add the real classes.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "god-class-api-server",
+      "summary": "WordSketchApiServer is a 1106-line God Class owning route registration, request parsing, business logic, and response serialisation for all endpoints",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "File is 1106 lines containing server.createContext() registrations for 10 routes, 12 private handleXxx methods each implementing full request→response cycles, a private RelationDef inner class, and a toLegacyRelationType() bridge method.",
+        "Any change to a relation, an endpoint, or the serialisation format of a single field requires navigating the entire file."
+      ],
+      "suggestion": "Extract each logical group of endpoints into its own handler class (e.g., SketchHandler, SemanticFieldHandler, ConcordanceHandler) that each accept a QueryExecutor and GrammarConfigLoader. WordSketchApiServer becomes a thin router registering context paths.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "orphaned-sketch-grammar-parser",
+      "summary": "SketchGrammarParser is a full production class in the grammar package that is never called in production code",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/grammar/SketchGrammarParser.java"],
+      "evidence": [
+        "grep for SketchGrammarParser in src/main/java finds only the class definition itself; no production class instantiates or imports it.",
+        "Runtime grammar loading is handled solely by GrammarConfigLoader reading JSON from the index directory."
+      ],
+      "suggestion": "If superseded by GrammarConfigLoader, delete SketchGrammarParser and the .wsdef.m4 format support to remove the false capability signal.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "bak-files-in-production-source",
+      "summary": "Two .bak files committed inside src/main/java production source tree",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/GrammarPatternCollocationsBuilder.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/hybrid/GrammarPatternCollocationsReader.java.bak"
+      ],
+      "evidence": [
+        "ls of src/main/java/.../indexer/hybrid/ shows only these two .bak files — no live .java files exist in that package.",
+        ".bak files in a Maven source tree signal uncommitted-work-in-progress."
+      ],
+      "suggestion": "Delete the .bak files and the empty hybrid/ package directory.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "dual-relation-type-systems",
+      "summary": "Two parallel representations of grammatical relation types (QueryExecutor.RelationType enum vs GrammarConfigLoader string-based relationType) require a bridge method in the API server",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java defines RelationType enum with ADJ_MODIFIER, ADJ_PREDICATE, SUBJECT_OF, OBJECT_OF and hardcoded CQL patterns.",
+        "GrammarConfigLoader.RelationConfig carries a relationType() string field ('SURFACE', 'DEP') loaded from JSON.",
+        "WordSketchApiServer.toLegacyRelationType() bridges the two systems with a switch statement."
+      ],
+      "suggestion": "Remove the RelationType enum from QueryExecutor. Let GrammarConfigLoader.RelationConfig be the single source of truth for relation patterns.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "dead-predicate-subsystem-in-query-package",
+      "summary": "A full token-predicate evaluation subsystem (CQLVerifier, Token, TokenWindow, 6 predicate classes) lives in the query package but is never invoked on the production code path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/Token.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TokenWindow.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AndPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/OrPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/NotPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/LemmaPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TagPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroupPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/WordPredicate.java"
+      ],
+      "evidence": [
+        "Grep for CQLVerifier in src/main/java finds no caller in production code; only exercised by CQLVerifierTest and TokenPatternMatchTest.",
+        "BlackLabQueryExecutor delegates all query execution to BlackLab's CorpusQueryLanguageParser — it never constructs Token objects or calls TokenPredicate.test()."
+      ],
+      "suggestion": "If this subsystem is retained as a testing/verification utility, move it to src/test/java or a dedicated 'verification' sub-package. If superseded entirely by BlackLab, delete it.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The codebase has undergone at least two major architecture shifts (direct Lucene → hybrid → BlackLab) and each transition left the prior subsystem's classes in place rather than pruning them.",
+      "CLAUDE.md was written to describe an earlier architecture and was never updated when classes were deleted or replaced.",
+      "The API server grew by endpoint accretion with no structural decomposition, resulting in a God Class."
+    ],
+    "likely_symptoms": [
+      "dual-relation-type-systems is partly a symptom of the layered architecture migrations.",
+      "dead-predicate-subsystem-in-query-package is a symptom of the Lucene→BlackLab migration not fully completing."
+    ],
+    "possible_false_positives": []
+  }
+}

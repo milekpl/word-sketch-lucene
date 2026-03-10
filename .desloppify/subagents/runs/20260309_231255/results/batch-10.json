@@ -1,0 +1,134 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 10,
+  "assessments": {"test_strategy": 52.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "BlackLabDummyTest.testSubjectOf() has zero assertions; swallows exceptions silently; just prints to stderr and returns if index missing",
+        "RelationsValidationTest uses public static void main() instead of @Test; Maven Surefire will never execute it",
+        "DependencySketchTest and BlackLabBcqlConcordanceTest hard-code Windows path D:\\\\corpora_philsci\\\\bi; all tests skip silently in CI via Assumptions.assumeTrue or @EnabledIf",
+        "WordSketchApiServer.java (REST API), SemanticFieldExplorer.java (key advertised feature), BlackLabSnippetParser.java, SketchGrammarParser.java have zero test coverage",
+        "CQLVerifierTest verifies only isMatched()==true for most cases; does not assert which token was matched, at what position, or what the matched lemma was",
+        "CQLParserTest has 30+ well-named cases covering labeled positions, negation, OR, AND, distance, regex-vs-field OR disambiguation",
+        "LogDiceCalculatorTest includes symmetry property test, monotonicity test, and real-corpus scenario regression tests",
+        "LongIntHashMapTest tests collision/rehash with small initial capacity, negative keys, Long.MAX_VALUE",
+        "TestGrammarConfig is a utility class with no @Test methods placed in test directory — creates noise"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "CQLParserTest is extensive (30+ cases), covers real grammar macro patterns, edge cases like value-level vs field-level OR, and whitespace handling",
+        "LogDiceCalculatorTest goes beyond happy-path with symmetry and monotonicity property tests plus real-corpus regression values",
+        "LongIntHashMapTest properly exercises collision resolution by constructing the map with a deliberately small initial capacity",
+        "SimpleTaggerTest uses @BeforeEach for isolation and tests each linguistic rule (suffix, form, capitalization) individually",
+        "PredicatesTest and TokenPatternMatchTest test behavioral contracts cleanly with targeted positive and negative cases"
+      ],
+      "issue_character": "The pure-unit layer (parser, scoring, data structures) is tested with care, but the integration layer is represented by non-executable or always-skipping test shells that provide no CI protection.",
+      "score_rationale": "Unit tests for algorithmic components (CQLParser, LogDice, LongIntHashMap, SimpleTagger, Predicates, TokenWindow) are solid and behaviorally oriented. However, several 'test' files are effectively dead code (a main() method, a no-assertion print loop), and the two most user-visible components — the REST API and SemanticFieldExplorer — have no tests at all. Integration tests for the BlackLab backend are permanently disabled via hardcoded local paths, eliminating any CI signal for the core query pipeline."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "dummy_test_no_assertions",
+      "summary": "BlackLabDummyTest has no assertions and silently swallows all exceptions",
+      "related_files": ["src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java"],
+      "evidence": [
+        "Method body checks `if (!indexDir.exists()) { return; }` — returns silently instead of skipping via Assumptions",
+        "Loop catches all exceptions with `System.out.println(\"ERROR: \" + e.getMessage())` — failures are invisible",
+        "No `assert*` or `fail()` calls anywhere in the test"
+      ],
+      "suggestion": "Either convert to a real parameterized test with assertions on result sizes/content, or delete it. If the intent is exploratory debugging, move it to a separate manual test source set excluded from `mvn test`.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "relations_validation_not_junit",
+      "summary": "RelationsValidationTest uses main() not @Test — Maven Surefire never runs it",
+      "related_files": ["src/test/java/pl/marcinmilkowski/word_sketch/config/RelationsValidationTest.java"],
+      "evidence": [
+        "Class declares `public static void main(String[] args)` with no JUnit annotations",
+        "No `@Test` method present; the class will be compiled but never executed by Maven Surefire"
+      ],
+      "suggestion": "Convert to a proper JUnit 5 test class: annotate the validation logic with `@Test` and replace `System.exit(1)` with `assertEquals(0, withoutPattern, \"Relations missing patterns: \" + ...)`.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration_tests_hardcoded_path",
+      "summary": "DependencySketchTest and BlackLabBcqlConcordanceTest always skip in CI due to hardcoded local Windows paths",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "DependencySketchTest: `private static final String INDEX_PATH = \"D:\\\\corpora_philsci\\\\bi\";` with `Assumptions.assumeTrue(indexDir.exists(), ...)`",
+        "BlackLabBcqlConcordanceTest: same path, `@EnabledIf(\"indexExists\")` where `indexExists()` checks the hardcoded path",
+        "The `testDependencyEmptyLemma` and `testDependencyNullDeprel` tests verify pure logic (empty/null input) but still depend on the external index to run"
+      ],
+      "suggestion": "Extract the pure-logic edge-case tests (empty lemma, null deprel) into unit tests that mock or stub the executor. For real index tests, read the path from an environment variable or system property (`INDEX_PATH` env var with `Assumptions.assumeTrue(path != null)`).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_coverage_api_and_explorer",
+      "summary": "WordSketchApiServer, SemanticFieldExplorer, and BlackLabSnippetParser have zero test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "No test file found matching WordSketchApiServer or SemanticFieldExplorer",
+        "CLAUDE.md lists SemanticFieldExplorer as a key component with single-seed exploration logic",
+        "BlackLabSnippetParser parses XML snippets from BlackLab — string parsing logic that is easily unit-testable with fixture strings"
+      ],
+      "suggestion": "Add unit tests for BlackLabSnippetParser using hardcoded XML fixture strings. Add at least one integration smoke test for the /api/sketch/{lemma} endpoint using an embedded HTTP server. SemanticFieldExplorer can be tested with a mock QueryExecutor returning fixture collocations.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "cql_verifier_shallow_assertions",
+      "summary": "CQLVerifierTest verifies only isMatched() boolean; matched position and collocate identity are never asserted",
+      "related_files": ["src/test/java/pl/marcinmilkowski/word_sketch/query/CQLVerifierTest.java"],
+      "evidence": [
+        "13 out of 15 test methods only call `assertTrue(result.isMatched(), ...)` or `assertFalse(result.isMatched())`",
+        "`testMultiElementPattern` comment says \"Should find both 'big' (jj) at position 1 and 'is' (vb) at position 3\" but only checks the boolean result",
+        "No test verifies `result.getMatchedCollocate()`, matched position, or that the correct token was selected when multiple tokens match"
+      ],
+      "suggestion": "Extend assertions to also check the matched token's lemma/position from `VerificationResult`. For `testNounPattern`, assert the matched token is NOT the headword (position 2) to confirm the verifier excludes the head from collocate candidates.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Tests appear to have been written in two distinct phases: careful unit tests for algorithmic components (parser, scoring) and exploratory/spike tests for the BlackLab integration layer that were never cleaned up into real assertions",
+      "No CI environment appears to have enforced test passage — tests that silently skip or produce no assertions have gone unnoticed"
+    ],
+    "likely_symptoms": [
+      "Regressions in SemanticFieldExplorer or the REST API go undetected until manual QA",
+      "BlackLabSnippetParser XML parsing bugs surface only at runtime against a live corpus",
+      "A developer running `mvn test` sees all green but has no confidence in the query pipeline"
+    ],
+    "possible_false_positives": [
+      "HybridAlgorithmTest is named misleadingly (it tests GrammarConfigLoader, not an algorithm) but the tests themselves are valid and useful",
+      "TestGrammarConfig being in the test directory without @Test methods is a style issue, not a test-strategy failure per se"
+    ]
+  }
+}

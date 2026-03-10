@@ -5,6 +5,9 @@ import nl.inl.blacklab.search.BlackLabIndexWriter;
 import nl.inl.blacklab.index.Indexer;
 import nl.inl.blacklab.index.IndexListener;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,6 +21,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Uses BlackLab's Indexer API with the CoNLL-U format configuration.
  */
 public class BlackLabConllUIndexer implements AutoCloseable {
+
+    private static final Logger logger = LoggerFactory.getLogger(BlackLabConllUIndexer.class);
 
     private final BlackLabIndexWriter indexWriter;
     private final Indexer indexer;
@@ -37,14 +42,14 @@ public class BlackLabConllUIndexer implements AutoCloseable {
             this.indexer.setListener(new IndexListener() {
                 @Override
                 public void fileStarted(String name) {
-                    System.out.println("Indexing: " + name);
+                    logger.info("Indexing: {}", name);
                 }
 
                 @Override
                 public void fileDone(String name) {
                     documentCount.incrementAndGet();
                     if (documentCount.get() % 1000 == 0) {
-                        System.out.printf("Indexed %,d documents...%n", documentCount.get());
+                        logger.info("Indexed {} documents...", documentCount.get());
                     }
                 }
 
@@ -55,9 +60,9 @@ public class BlackLabConllUIndexer implements AutoCloseable {
 
                 @Override
                 public boolean errorOccurred(Throwable e, String path, File f) {
-                    System.err.println("Indexing error in " + path + ": " + e.getMessage());
+                    logger.error("Indexing error in {}: {}", path, e.getMessage());
                     if (e != null) {
-                        e.printStackTrace();
+                        logger.error("Stack trace:", e);
                     }
                     return true; // continue indexing
                 }
@@ -91,7 +96,7 @@ public class BlackLabConllUIndexer implements AutoCloseable {
             throw new IOException("Directory not found: " + dirPath);
         }
 
-        System.out.println("Indexing directory: " + dirPath);
+        logger.info("Indexing directory: {}", dirPath);
 
         try (var stream = Files.newDirectoryStream(dir, pattern)) {
             for (Path file : stream) {
@@ -108,10 +113,8 @@ public class BlackLabConllUIndexer implements AutoCloseable {
             } catch (Exception e) {
                 throw new IOException("Failed to finalize index: " + e.getMessage(), e);
             }
-            System.out.println("Indexing complete!");
-            System.out.println("  Documents: " + documentCount.get());
-            System.out.println("  Tokens:    " + tokenCount.get());
-            System.out.println("  Index:     " + indexPath);
+            logger.info("Indexing complete! Documents: {}, Tokens: {}, Index: {}",
+                    documentCount.get(), tokenCount.get(), indexPath);
         }
     }
 

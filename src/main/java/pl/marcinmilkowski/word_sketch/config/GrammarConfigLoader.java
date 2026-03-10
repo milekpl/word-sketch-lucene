@@ -39,7 +39,6 @@ public class GrammarConfigLoader {
     private static final Logger logger = LoggerFactory.getLogger(GrammarConfigLoader.class);
 
     private final List<String> copulas;
-    private final Set<String> copulaSet;
     private final List<RelationConfig> relations;
     private final Map<String, RelationConfig> relationsById;
     private final String version;
@@ -79,7 +78,6 @@ public class GrammarConfigLoader {
 
         // Copulas are now derived from CQL patterns - no separate array needed
         this.copulas = Collections.emptyList();
-        this.copulaSet = Collections.emptySet();
 
         // Load relations
         JSONArray relationsArray = root.getJSONArray("relations");

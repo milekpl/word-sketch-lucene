@@ -91,28 +91,46 @@ Requires:
 
 ```
 src/main/java/pl/marcinmilkowski/word_sketch/
-├── Main.java                           # CLI entry
+├── Main.java                           # CLI entry point
 ├── api/
-│   └── WordSketchApiServer.java        # REST API server
+│   ├── WordSketchApiServer.java        # REST API server (10+ endpoints)
+│   ├── HttpApiUtils.java               # HTTP utility: sendJsonResponse, sendError, parseQueryParams
+│   └── PatternSubstitution.java        # Pattern substitution utilities
+├── config/
+│   └── GrammarConfigLoader.java        # Grammar config loading from JSON
 ├── grammar/
-│   ├── CQLParser.java                  # CQL parsing
-│   └── CQLPattern.java                 # Pattern repr.
+│   ├── CQLParser.java                  # CQL pattern parser
+│   ├── CQLPattern.java                 # CQL pattern representation
+│   └── CQLParseException.java          # Parse exception type
 ├── indexer/
-│   ├── HybridLuceneIndexer.java        # Indexing
-│   └── hybrid/
-│       ├── CollocationsBuilderV2.java  # Precomputed building
-│       └── HybridIndex.java            # Index wrapper
+│   └── blacklab/
+│       └── BlackLabConllUIndexer.java  # CoNLL-U corpus indexer for BlackLab
 ├── query/
-│   ├── CQLToLuceneCompiler.java        # CQL -> Lucene
-│   ├── HybridQueryExecutor.java        # Query exec.
-│   ├── SemanticFieldExplorer.java      # Single-seed (bootstrap)
-│   ├── SnowballCollocations.java       # Multi-seed
-│   └── WordSketchQueryExecutor.java    # Legacy (fallback)
+│   ├── QueryExecutor.java              # Query executor interface
+│   ├── BlackLabQueryExecutor.java      # BlackLab-backed query executor
+│   ├── BlackLabSnippetParser.java      # Parses BlackLab XML snippets
+│   ├── SemanticFieldExplorer.java      # Single-seed semantic field exploration
+│   ├── CQLVerifier.java                # CQL pattern verifier (used in tests)
+│   ├── QueryResults.java               # Result DTOs: WordSketchResult, ConcordanceResult
+│   ├── Token.java                      # Token representation
+│   ├── TokenWindow.java                # Sliding token window
+│   ├── TokenPredicate.java             # Token predicate interface
+│   ├── AbstractPatternPredicate.java   # Base predicate class
+│   ├── AndPredicate.java               # Logical AND predicate
+│   ├── OrPredicate.java                # Logical OR predicate
+│   ├── NotPredicate.java               # Logical NOT predicate
+│   ├── LemmaPredicate.java             # Lemma-matching predicate
+│   ├── TagPredicate.java               # POS tag predicate
+│   ├── PosGroupPredicate.java          # POS group predicate
+│   └── WordPredicate.java              # Word-form predicate
 ├── tagging/
-│   ├── SimpleTagger.java               # Rule-based
-│   └── ConllUProcessor.java            # CoNLL-U parsing
-└── utils/
-    └── LogDiceCalculator.java          # logDice scoring
+│   ├── PosTagger.java                  # POS tagger interface
+│   └── SimpleTagger.java               # Rule-based POS tagger
+├── utils/
+│   ├── LogDiceCalculator.java          # logDice scoring
+│   └── LongIntHashMap.java             # Compact long→int hash map
+└── viz/
+    └── RadialPlot.java                 # Radial plot data builder
 ```
 
 ---

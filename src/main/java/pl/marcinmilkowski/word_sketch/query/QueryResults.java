@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * Common result classes for word sketch queries.
- * Extracted from WordSketchQueryExecutor for reuse across different executor implementations.
+ * Used by BlackLabQueryExecutor and SemanticFieldExplorer.
  */
 public class QueryResults {
 
@@ -54,9 +54,9 @@ public class QueryResults {
         private final int startOffset;
         private final int endOffset;
         private final String docId;
-        private final String collocateLemma;  // For grouped BCQL results
-        private final long frequency;          // For grouped BCQL results
-        private final double logDice;         // For grouped BCQL results
+        private final String collocateLemma;  // For grouped collocate results
+        private final long frequency;          // For grouped collocate results
+        private final double logDice;         // For grouped collocate results
 
         public ConcordanceResult(String sentence, String lemma, String tag,
                                 String word, int startOffset, int endOffset, String docId) {
@@ -74,7 +74,7 @@ public class QueryResults {
         }
 
         /**
-         * Constructor for grouped BCQL results with collocate info.
+         * Constructor for grouped results with collocate info.
          */
         public ConcordanceResult(String snippet, int start, int end, String docId,
                                 String collocateLemma, long frequency, double logDice) {
@@ -118,7 +118,7 @@ public class QueryResults {
         }
 
         /**
-         * Constructor for BlackLab-style results (snippet-based).
+         * Constructor for snippet-based results (sentence + offsets only).
          */
         public ConcordanceResult(String snippet, int start, int end, String docId) {
             this(snippet, null, null, null, start, end, docId);

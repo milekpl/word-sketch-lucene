@@ -1,0 +1,168 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 9,
+  "assessments": {"api_surface_coherence": 44.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "README documents /api/grammar/active endpoint that is never registered in WordSketchApiServer.java",
+        "README shows ?pos, ?limit, and ?scoring query parameters for /api/sketch/{lemma} but handleFullSketch() ignores all query params",
+        "README concordance response shows highlighted field with <mark> tags and word1_positions/word2_positions arrays, but code sets exMap.put(\"highlighted\", r.getSentence()) (plain text) and never adds position arrays",
+        "HttpApiUtils.sendError() does not set Access-Control-Allow-Origin header, causing CORS failures for browser clients receiving error responses",
+        "handleBcqlQueryPost() catch block calls sendJsonResponse() returning HTTP 200 with {\"error\": ...} instead of using sendError() with appropriate 4xx/5xx code",
+        "handleSemanticField() edge objects use key 'logDice'; handleSemanticFieldExplore() and handleSemanticFieldExploreMulti() edge objects use key 'weight' for the same semantic concept",
+        "Server startup log in code lists 11 endpoints; README startup-output snippet shows only 4",
+        "Private static class RelationDef (WordSketchApiServer lines 1091-1105) has fields id, name, description, deprel, showInUi but is never instantiated or used anywhere",
+        "Legacy relation alias switch (adj_predicate->noun_adj_predicates, etc.) is duplicated verbatim in both handleSemanticFieldExplore() and handleSemanticFieldExploreMulti()"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Builder pattern for WordSketchApiServer construction is clean and explicit",
+        "Consistent JSON response envelope (status, data fields) across most endpoints",
+        "HttpApiUtils centralises response serialization and query-param parsing",
+        "Error messages include descriptive text rather than bare codes",
+        "Endpoint URL design follows a consistent noun-hierarchy scheme (/api/sketch/{lemma}, /api/semantic-field/explore, /api/relations/dep)"
+      ],
+      "issue_character": "Documentation drifted substantially from implementation, producing phantom endpoints and undocumented parameters, compounded by several response-structure inconsistencies and broken CORS on error paths.",
+      "score_rationale": "The documented API and the implemented API diverge in four concrete places (phantom endpoint, unimplemented query params, wrong highlighted/position fields, startup listing mismatch), which would block any integrator relying on the README. On top of that, the edge weight field is named differently across three related endpoints, and error responses skip the CORS header that success responses set, breaking browser clients."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "phantom_grammar_active_endpoint",
+      "summary": "README documents /api/grammar/active which is never registered in the server",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java", "README.md"],
+      "evidence": [
+        "README: curl http://localhost:8080/api/grammar/active",
+        "No server.createContext(\"/api/grammar/active\", ...) call exists in WordSketchApiServer.java"
+      ],
+      "suggestion": "Either register the endpoint or remove the reference from README",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_query_params_undocumented_unimplemented",
+      "summary": "README documents ?pos, ?limit, and ?scoring params for /api/sketch/{lemma} but server ignores them all",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java", "README.md"],
+      "evidence": [
+        "README: curl \"http://localhost:8080/api/sketch/house?pos=noun,verb&limit=15\" and ?scoring=logDice variants",
+        "handleFullSketch() does not call parseQueryParams() at all; hardcodes minLogDice=0.0 and limit=20"
+      ],
+      "suggestion": "Parse and honour pos, limit, min_logdice, and scoring params in handleFullSketch(), or remove them from README examples",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "concordance_highlighted_positions_missing",
+      "summary": "Concordance response documented with HTML highlighting and position arrays but code returns plain text and omits position fields",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java", "README.md"],
+      "evidence": [
+        "README documents highlighted field with <mark> tags and word1_positions/word2_positions arrays",
+        "handleConcordanceExamples(): exMap.put(\"highlighted\", r.getSentence()) — no mark tags",
+        "No word1_positions or word2_positions keys are ever added to exMap"
+      ],
+      "suggestion": "Implement actual highlighting by scanning token positions and building <mark>-tagged HTML; add position arrays, or update README to reflect actual response shape",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "cors_missing_from_error_responses",
+      "summary": "sendError() omits Access-Control-Allow-Origin header, breaking browser CORS for all error responses",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "sendJsonResponse() line 24: exchange.getResponseHeaders().set(\"Access-Control-Allow-Origin\", \"*\")",
+        "sendError() has no Access-Control-Allow-Origin header — any 4xx/5xx response will be opaque to browser clients"
+      ],
+      "suggestion": "Add exchange.getResponseHeaders().set(\"Access-Control-Allow-Origin\", \"*\") inside sendError() before sendResponseHeaders()",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "bcql_error_returns_200",
+      "summary": "BCQL error catch block returns HTTP 200 with {\"error\":...} instead of an error status code",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "handleBcqlQueryPost() catch block: calls HttpApiUtils.sendJsonResponse(exchange, errorResponse) which always sends 200",
+        "All other handlers use HttpApiUtils.sendError(exchange, 500, ...) for exceptions"
+      ],
+      "suggestion": "Replace sendJsonResponse with sendError(exchange, 500, e.getMessage()) in the catch block",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "edge_weight_field_naming_inconsistency",
+      "summary": "Edge objects use 'logDice' key in /api/semantic-field but 'weight' in both explore endpoints",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "handleSemanticField(): edgeMap.put(\"logDice\", Math.round(edge.weight * 100.0) / 100.0)",
+        "handleSemanticFieldExplore(): edgeMap.put(\"weight\", Math.round(edge.weight * 100.0) / 100.0)",
+        "handleSemanticFieldExploreMulti(): edgeMap.put(\"weight\", wsr.getLogDice())"
+      ],
+      "suggestion": "Standardise on one field name (preferably 'logDice' since that is the semantic meaning) for edge association scores across all three endpoints",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "readme_startup_snippet_incomplete",
+      "summary": "README startup-output example lists only 4 endpoints; the server actually registers 11+",
+      "related_files": ["README.md", "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "README shows startup listing only /health, /api/sketch/{lemma}, /api/semantic-field/explore, /api/semantic-field/explore-multi",
+        "Server start() registers 10+ endpoints including /api/relations, /api/relations/dep, /api/semantic-field, /api/concordance/examples, /api/visual/radial, /api/bcql"
+      ],
+      "suggestion": "Update the README startup snippet to match the logger.info lines already present in WordSketchApiServer.start()",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "duplicate_relation_alias_mapping",
+      "summary": "Legacy relation alias switch is duplicated verbatim in handleSemanticFieldExplore and handleSemanticFieldExploreMulti",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Lines 501-507: switch block mapping adj_modifier->noun_modifiers etc. in handleSemanticFieldExplore",
+        "Lines 653-659: identical switch block in handleSemanticFieldExploreMulti"
+      ],
+      "suggestion": "Extract the mapping into a private static helper method resolveRelationId(String) and call it from both handlers",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "API documentation was written ahead of or in parallel with implementation without a subsequent sync pass",
+      "Error handling paths were added incrementally without enforcing the same contract (CORS headers, HTTP status codes) used on the success paths",
+      "Response shape for related endpoints evolved independently, producing field-name inconsistencies"
+    ],
+    "likely_symptoms": [
+      "Browser-based clients silently fail on validation errors because CORS headers are absent from error responses",
+      "Integrators using the README concordance example expect positioned highlighting but receive raw sentence text",
+      "Clients calling /api/grammar/active receive 404 with no indication of the correct alternative endpoint"
+    ],
+    "possible_false_positives": [
+      "?scoring parameter might be implemented in QueryExecutor downstream and simply not wired up in the handler yet",
+      "RelationDef dead class might be a planned refactoring scaffold that is intentionally kept for future use"
+    ]
+  }
+}

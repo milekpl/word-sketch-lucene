@@ -47,31 +47,31 @@ public class PatternSubstitution {
             }
         }
 
-        logger.debug("DEBUG: substituteCollocate: patternPositions.size()={}, collocatePosition={}", patternPositions.size(), collocatePosition);
-        logger.debug("DEBUG: Pattern positions: {}", patternPositions);
+        logger.debug("substituteCollocate: patternPositions.size()={}, collocatePosition={}", patternPositions.size(), collocatePosition);
+        logger.debug("Pattern positions: {}", patternPositions);
 
         if (collocatePosition > patternPositions.size()) {
-            logger.debug("DEBUG: Returning early - position > size");
+            logger.debug("Returning early - position > size");
             return pattern;
         }
 
         // Replace the constraint at collocatePosition with lemma constraint for the collocate
         String originalConstraint = patternPositions.get(collocatePosition - 1);
-        logger.debug("DEBUG: originalConstraint at position {}: {}", collocatePosition, originalConstraint);
+        logger.debug("originalConstraint at position {}: {}", collocatePosition, originalConstraint);
         // Extract xpos/tag from original and merge with lemma
         String xposPattern = extractXposFromConstraint(originalConstraint);
-        logger.debug("DEBUG: xposPattern: {}", xposPattern);
+        logger.debug("xposPattern: {}", xposPattern);
         StringBuilder newConstraint = new StringBuilder();
         newConstraint.append("[lemma=\"").append(escapeForRegex(collocate)).append("\"");
         if (xposPattern != null) {
             newConstraint.append(" & ").append(xposPattern);
         }
         newConstraint.append("]");
-        logger.debug("DEBUG: newConstraint: {}", newConstraint);
+        logger.debug("newConstraint: {}", newConstraint);
 
         patternPositions.set(collocatePosition - 1, newConstraint.toString());
         String result = String.join(" ", patternPositions);
-        logger.debug("DEBUG: final result: {}", result);
+        logger.debug("final result: {}", result);
         return result;
     }
 

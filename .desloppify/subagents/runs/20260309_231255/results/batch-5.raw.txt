@@ -1,0 +1,161 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 5,
+  "assessments": {"incomplete_migration": 38.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "34 .bak files in src/ tree for deleted production classes — the old implementation is stored inside the source tree rather than removed via git",
+        "CLAUDE.md code-structure diagram still lists CQLToLuceneCompiler.java, CollocationsBuilderV2.java, HybridIndex.java, SnowballCollocations.java, ConllUProcessor.java — none of which exist as real .java files any more",
+        "CLAUDE.md 'Key Components' section links to 'query/CQLToLuceneCompiler.java' (broken path) and lists 'tagging/UDPipeTagger.java' which is not present in source tree",
+        "QueryExecutor interface comment says 'Allows different implementations (legacy, hybrid, BlackLab) to be used interchangeably', and RelationType enum carries full CQL/Lucene patterns never used by the only real implementation",
+        "WordSketchApiServer.toLegacyRelationType() is defined but never called — dead code bridging the old RelationType enum",
+        "QueryResults.java Javadoc says 'Extracted from WordSketchQueryExecutor for reuse' — referring to a class that now exists only as a .bak file",
+        "CQLVerifier, CQLParser, CQLPattern, SketchGrammarParser are live .java files used only by tests or not at all from production paths",
+        "GrammarConfigLoader.RelationConfig.isLegacyFormat() is defined but never called",
+        "CLAUDE.md still references 'collocations.bin (700MB)', 'CollocationsBuilderV2 NUM_WORKERS' tuning — referring to the old hybrid pipeline replaced by BlackLab"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The migration to BlackLab has a clean single-implementation entry point: Main.java has no legacy command handlers left, only blacklab-index/blacklab-query/server",
+        "The QueryExecutor interface cleanly abstracts the executor so the API server is decoupled from the backend",
+        "Old files were at least renamed to .bak rather than left as compilable dead code, preventing them from participating in the build"
+      ],
+      "issue_character": "A large hybrid/Lucene implementation was replaced by BlackLab but the migration was left at 80%: 34 .bak files clutter the source tree, documentation still describes the deleted architecture, and dead code from the old pipeline was never cleaned up.",
+      "score_rationale": "The migration succeeded at the runtime level — the application boots and queries correctly through BlackLab only — but the codebase is littered with unmistakable migration artifacts. Thirty-four .bak files sitting inside src/ are the most visible sign; CLAUDE.md lists six classes that exist only as .bak; dead methods like toLegacyRelationType and isLegacyFormat add confusion; and grammar/CQLParser + query/CQLVerifier + grammar/SketchGrammarParser live in production source with no production caller."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "bak_files_in_source_tree",
+      "summary": "34 .bak files from the old hybrid/Lucene pipeline clutter the src/ tree and obscure the live architecture",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/HybridQueryExecutor.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLToLuceneCompiler.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/WordSketchQueryExecutor.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SnowballCollocations.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutorFactory.java.bak",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/SketchGrammarCompiler.java.bak"
+      ],
+      "evidence": [
+        "find src/ -name '*.bak' returns 34 files spanning query/, indexer/hybrid/, grammar/, viz/, tools/, and test subtrees",
+        "git history would preserve these; there is no need for them as .bak files in the working tree"
+      ],
+      "suggestion": "Delete all .bak files from the source tree (git rm src/**/*.bak). The history is preserved in git if anyone needs to recover the old code.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "claude_md_references_deleted_files",
+      "summary": "CLAUDE.md code-structure diagram and key-components section list six classes that no longer exist as .java files",
+      "related_files": ["CLAUDE.md"],
+      "evidence": [
+        "CLAUDE.md line 103-113 lists CollocationsBuilderV2.java, HybridIndex.java, CQLToLuceneCompiler.java, SnowballCollocations.java, ConllUProcessor.java — all are .bak only",
+        "CLAUDE.md line 262 links to 'query/CQLToLuceneCompiler.java' (broken path)",
+        "CLAUDE.md lines 140, 182-184 describe collocations.bin, stats.bin, lexicon.bin index files that belong to the old hybrid index, not the BlackLab index"
+      ],
+      "suggestion": "Update CLAUDE.md to reflect the current BlackLab architecture: replace the code-structure diagram, remove references to deleted hybrid files, update the index-file section to describe BlackLab index structure.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead_to_legacy_relation_type_method",
+      "summary": "WordSketchApiServer.toLegacyRelationType() is defined but never called anywhere",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Method defined at line 1071 of WordSketchApiServer.java",
+        "grep for 'toLegacyRelationType' in src/ finds only the definition, no call sites"
+      ],
+      "suggestion": "Remove the toLegacyRelationType() method. If QueryExecutor.RelationType itself has no remaining callers, remove the enum too.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead_query_executor_relation_type_enum",
+      "summary": "QueryExecutor.RelationType enum and findGrammaticalRelation() default method carry hardcoded Lucene-era CQL patterns never used by BlackLabQueryExecutor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "RelationType.ADJ_MODIFIER has simplePattern '[xpos=\"JJ.*\"]' — BlackLabQueryExecutor uses BCQL dependency syntax instead",
+        "findGrammaticalRelation() default implementation calls findCollocations(headword, relType.getSimplePattern(), ...) — BlackLabQueryExecutor never overrides this method and the API server never calls it"
+      ],
+      "suggestion": "Remove RelationType enum and findGrammaticalRelation() default method from QueryExecutor interface. Grammar-config-driven patterns via GrammarConfigLoader are the live mechanism.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "orphaned_cql_grammar_classes",
+      "summary": "CQLParser, CQLPattern, CQLVerifier, and SketchGrammarParser are live production .java classes with no production callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLPattern.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/SketchGrammarParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"
+      ],
+      "evidence": [
+        "No import of CQLParser, CQLVerifier, or SketchGrammarParser appears in any production src/main file outside of their own definitions",
+        "CQLVerifier is exercised only in CQLVerifierTest (test code) and CQLParserTest uses CQLParser",
+        "These were part of the custom Lucene pattern matching pipeline replaced by BlackLab's BCQL parser"
+      ],
+      "suggestion": "Move these classes to a test-only scope or delete them if there is no intention to revive the custom CQL engine.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "is_legacy_format_dead_method",
+      "summary": "GrammarConfigLoader.RelationConfig.isLegacyFormat() is defined but never called",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": ["Method defined in GrammarConfigLoader.java; grep for 'isLegacyFormat' across all .java files returns only the definition"],
+      "suggestion": "Remove isLegacyFormat() from RelationConfig.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "query_results_stale_javadoc",
+      "summary": "QueryResults.java Javadoc still refers to the deleted WordSketchQueryExecutor class",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"],
+      "evidence": [
+        "Line 7: '* Extracted from WordSketchQueryExecutor for reuse across different executor implementations.'",
+        "WordSketchQueryExecutor.java exists only as a .bak file"
+      ],
+      "suggestion": "Update the Javadoc to remove the WordSketchQueryExecutor reference and describe the actual current purpose.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The BlackLab migration was executed by disabling old files via .bak rename rather than using git to delete them",
+      "Documentation (CLAUDE.md) was written for an intermediate hybrid state and was not updated when the final BlackLab-only architecture was reached",
+      "The QueryExecutor interface was designed as an abstraction point for multiple backends but cleanup was deferred when only one backend survived"
+    ],
+    "likely_symptoms": [
+      "New contributors read CLAUDE.md and expect to find CollocationsBuilderV2.java, HybridIndex.java, etc.",
+      "IDE code-navigation from QueryExecutor.RelationType or findGrammaticalRelation() leads nowhere useful",
+      "Developers trying to understand the CQL pipeline follow CQLParser → CQLVerifier → predicate hierarchy and never find a real call site"
+    ],
+    "possible_false_positives": [
+      "CQLParser and CQLVerifier may be intentionally retained as utilities for future custom query extension",
+      "The .bak files might be intentionally kept as a short-term rollback safety net"
+    ]
+  }
+}

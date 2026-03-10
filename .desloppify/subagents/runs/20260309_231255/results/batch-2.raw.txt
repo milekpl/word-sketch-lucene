@@ -1,0 +1,127 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {"abstraction_fitness": 67.5},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "AbstractPatternPredicate establishes a clean template method: extractValue() is the variation point, wildcard-to-regex lives in the base, 4 leaf classes reduce to one-liners.",
+        "Token.java carries matchesTag(), matchesLemma(), matchesWord(), matchesPosGroup() plus its own private matchesPattern(). A grep of all callers in src/main/java shows ZERO call sites for any of these methods — Token is pure data storage in practice, but ships 40+ lines of dead matching code.",
+        "Token.matchesPattern and AbstractPatternPredicate.wildcardToRegex diverge: Token handles bracket character classes while AbstractPatternPredicate escapes special chars differently — a latent correctness hazard.",
+        "PosTagger interface is declared with tagSentence/tagSentences/getName/getTagset, but SimpleTagger is its only implementation and all call sites use the concrete type. CLAUDE.md mentions UDPipeTagger but it does not exist.",
+        "QueryExecutor.RelationType enum lives inside the interface and carries literal BCQL/CQL pattern strings — leaking a specific query language syntax into the interface boundary.",
+        "NotPredicate is a dedicated class while TokenPredicate already provides a default negate() method. CQLVerifier exclusively uses new NotPredicate(...) rather than pred.negate(), making negate() dead API surface.",
+        "PatternSubstitution is a static utility class called from exactly one site. Its methods are public but have no other consumers.",
+        "The composite predicates (AndPredicate, OrPredicate, NotPredicate) each implement TokenPredicate directly as separate classes rather than factory methods on the @FunctionalInterface.",
+        "LogDiceCalculator bundles FrequencyAggregator and CollocationResult as nested static classes — genuinely earns its grouping."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Token carries dead wildcard-matching methods that diverge from AbstractPatternPredicate's implementation; PosTagger interface adds indirection with zero active variation; RelationType embedding CQL pattern strings in the interface boundary is a real abstraction leak.",
+      "sub_axes": {
+        "abstraction_leverage": 70.0,
+        "indirection_cost": 62.0,
+        "interface_honesty": 58.0,
+        "delegation_density": 72.0,
+        "definition_directness": 68.0,
+        "type_discipline": 64.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "AbstractPatternPredicate template method is textbook: extractValue() is the single variation point, base class owns wildcard-to-regex, four leaf classes are one-liners.",
+        "QueryExecutor interface serves a real seam: SemanticFieldExplorer uses it as a mockable boundary in its test constructor, and the API server holds a QueryExecutor field.",
+        "LogDiceCalculator groups cohesive pure functions, FrequencyAggregator, and CollocationResult in a single class; the nesting is genuinely domain-meaningful.",
+        "TokenPredicate as @FunctionalInterface with a default negate() is idiomatic and enables lambda predicates without boilerplate.",
+        "BlackLabSnippetParser packages complex regex-based XML parsing into a package-private helper class."
+      ],
+      "issue_character": "The issues are isolated dead-code artifacts and single-implementation interfaces — not systemic design failures — but they represent concrete indirection costs (PosTagger, Token.matchesXxx) that earn no benefit and introduce a divergent-implementation risk.",
+      "score_rationale": "The core predicate hierarchy and QueryExecutor interface are well-designed and demonstrate real abstraction leverage. However, Token ships 40+ lines of dead wildcard-matching code that silently diverges from the active AbstractPatternPredicate implementation, PosTagger is a hollow interface never held as a declared type with no second implementor in the codebase, and RelationType embeds CQL pattern strings inside the interface boundary making it effectively leaky. Placing this around 67-68: the predicate and executor abstractions push toward 80, but the hollow/dead abstractions pull the score down a full tier."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "dead_token_matching_methods",
+      "summary": "Token.matchesTag/matchesLemma/matchesWord/matchesPosGroup are never called; duplicate and diverge from AbstractPatternPredicate",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/Token.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java"
+      ],
+      "evidence": [
+        "Token.matchesPattern() handles bracket character classes while AbstractPatternPredicate.wildcardToRegex() escapes them as literals — two incompatible wildcard semantics.",
+        "A full grep of src/main/java for .matchesTag(, .matchesLemma(, .matchesWord(, .matchesPosGroup( returns zero results.",
+        "CQLVerifier uses the AbstractPatternPredicate hierarchy exclusively — Token's matching API is parallel but inactive."
+      ],
+      "suggestion": "Delete Token.matchesTag(), matchesLemma(), matchesWord(), matchesPosGroup(), and the private matchesPattern() from Token.java. Token is correctly used as a pure value object; all matching is properly delegated to the TokenPredicate hierarchy.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "hollow_postagger_interface",
+      "summary": "PosTagger interface has one implementation (SimpleTagger) that is always referenced by its concrete type, making the interface earn no indirection benefit",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/PosTagger.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "All call sites use SimpleTagger.create() or new SimpleTagger() and assign to SimpleTagger variables — no variable is ever declared as PosTagger.",
+        "CLAUDE.md lists UDPipeTagger as a component but it does not exist in the source tree.",
+        "SimpleTagger.create() returns SimpleTagger (not PosTagger), leaking the concrete type at the factory boundary."
+      ],
+      "suggestion": "Either introduce the second tagger implementation the interface anticipates, or collapse SimpleTagger by removing the interface until a second implementation exists. If kept as an extension point, at minimum the factory methods should return PosTagger.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "relation_type_leaks_query_language",
+      "summary": "QueryExecutor.RelationType embeds BCQL/CQL pattern strings inside the interface, leaking a concrete query language into the abstraction boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "RelationType stores literal pattern strings like \"[xpos=\\\"JJ.*\\\"] [lemma=\\\"%s\\\"]\" — BlackLab CQL syntax baked into the interface shared by all implementors.",
+        "A hypothetical second QueryExecutor using a different pattern language cannot reuse RelationType without being forced to deal with CQL patterns it does not understand."
+      ],
+      "suggestion": "Move RelationType (with its CQL patterns) out of the QueryExecutor interface and into a BlackLab-specific or grammar-config layer. The interface should accept opaque pattern strings.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "not_predicate_redundant_with_negate_default",
+      "summary": "NotPredicate class duplicates TokenPredicate.negate() default method; neither is clearly canonical",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/NotPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TokenPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"
+      ],
+      "evidence": [
+        "TokenPredicate declares a default negate() returning a lambda: token -> !this.test(token).",
+        "NotPredicate is a separate class doing the same thing with an added toString() method.",
+        "CQLVerifier line 192 uses new NotPredicate(pred) rather than pred.negate(), so the default method is never exercised in production."
+      ],
+      "suggestion": "Remove the negate() default from TokenPredicate (it is never called) and keep NotPredicate, which provides the useful toString() for debugging. Or keep negate() and replace new NotPredicate(pred) with pred.negate() throughout, then delete the class.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Token appears to have been designed as a self-matching value object early in development, then the explicit TokenPredicate hierarchy was introduced without removing the now-redundant Token.matchesXxx methods.",
+      "PosTagger interface and RelationType enum appear to be anticipatory extension points that were never actualized."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

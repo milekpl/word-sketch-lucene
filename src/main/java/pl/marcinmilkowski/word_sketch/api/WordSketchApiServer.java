@@ -899,23 +899,23 @@ public class WordSketchApiServer {
             if (rel.isPresent()) {
                 // Substitute headword to get the full BCQL pattern
                 String patternWithHead = rel.get().getFullPattern(word1);
-                logger.debug("DEBUG: After getFullPattern: {}", patternWithHead);
-                logger.debug("DEBUG: collocatePosition = {}", rel.get().collocatePosition());
+                logger.debug("After getFullPattern: {}", patternWithHead);
+                logger.debug("collocatePosition = {}", rel.get().collocatePosition());
                 // Now also substitute the collocate at collocate_position
                 bcqlQuery = PatternSubstitution.substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
-                logger.debug("DEBUG: After substituteCollocate: {}", bcqlQuery);
+                logger.debug("After substituteCollocate: {}", bcqlQuery);
             } else {
-                logger.debug("DEBUG: Relation '{}' not found in grammar config", relation);
+                logger.debug("Relation '{}' not found in grammar config", relation);
             }
         } else {
-            logger.debug("DEBUG: grammarConfig is null");
+            logger.debug("grammarConfig is null");
         }
 
         // Fallback to generic proximity query if relation not found or query is empty
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
                 word1.toLowerCase(), word2.toLowerCase());
-            logger.debug("DEBUG: Using fallback BCQL: {}", bcqlQuery);
+            logger.debug("Using fallback BCQL: {}", bcqlQuery);
         }
 
         List<QueryResults.ConcordanceResult> results = executor.executeBcqlQuery(bcqlQuery, limit);
@@ -965,11 +965,11 @@ public class WordSketchApiServer {
 
         try {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            logger.debug("DEBUG Radial: body = {}", body);
+            logger.debug("Radial: body = {}", body);
             JSONObject obj = JSON.parseObject(body);
             String center = obj.getString("center");
             if (center == null) center = "";
-            logger.debug("DEBUG Radial: center = {}", center);
+            logger.debug("Radial: center = {}", center);
             int width = obj.getIntValue("width") == 0 ? 840 : obj.getIntValue("width");
             int height = obj.getIntValue("height") == 0 ? 520 : obj.getIntValue("height");
 
@@ -1026,7 +1026,7 @@ public class WordSketchApiServer {
             boolean raw = obj.getBooleanValue("raw");  // Add raw output option
             if (limit <= 0) limit = 20;
 
-            logger.debug("DEBUG BCQL: {}", bcqlQuery);
+            logger.debug("BCQL query: {}", bcqlQuery);
 
             List<QueryResults.ConcordanceResult> results = executor.executeBcqlQuery(bcqlQuery, limit);
 

@@ -1,0 +1,196 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 3,
+  "assessments": {"low_level_elegance": 42.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern (lines 91-265, ~175 lines) and explore (lines 268-416, ~148 lines) implement identical 4-step algorithm; steps 3-4 are copy-pasted verbatim",
+        "CQLParser: splitByOrOutsideQuotes and splitByAnd are structurally identical — both walk a string tracking inQuote state and split on a delimiter; differ only in the delimiter character",
+        "GrammarConfigLoader: deriveHeadPositionFromPattern and deriveCollocatePositionFromPattern are near-identical — same whitespace-skip, token-counting, bracket-matching logic, differ only in label digit '1:' vs '2:'",
+        "BlackLabQueryExecutor: the 'group hits → filter → compute logDice → build WordSketchResult list → sort/limit' pattern is duplicated across findCollocations, findDependencyCollocations, executeDependencyPattern, and executeSurfacePattern",
+        "Dead code in CQLParser.buildElement: lemmaMatcher extracts subPos/subField, modifies target via replaceFirst, then falls through; the comment 'will be used during compilation' indicates incomplete implementation",
+        "Bug: SemanticFieldExplorer.compare line 461: logger.info('  Top 5: {}', adjectives.stream()) — streams the Java Stream object reference into the logger, not the list contents",
+        "Double query execution in BlackLabQueryExecutor.executeDependencyPattern: blackLabIndex.find(query) fetches hits for the null-size guard, then blackLabIndex.search().find(query) re-executes the same query for grouping",
+        "executeBcqlQuery is a 130-line method with an inline record definition, two passes, and complex nested null-chains",
+        "GrammarConfigLoader constructor spans ~120 lines: JSON parsing, field validation, copula checks, pattern derivation, position counting, token validation, and map building all inline",
+        "Misspelling: REPITITION constant (CQLParser line 38) — used consistently but is a permanent naming defect",
+        "posGroupFromConstraint in RelationConfig uses 14 sequential if-contains chains for xpos/tag × POS variants instead of a lookup table"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Pervasive method-level duplication across all four seed files is the primary obstacle. exploreByPattern/explore duplication alone spans ~150 lines. The four-file pattern of identical 'compute logDice from grouped hits' logic indicates a systemic copy-paste habit. Several individual methods exceed the one-glance threshold. Additionally there is a functional bug (stream-to-logger) and dead code (lemma substitution)."
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "findMatchingBracket is short, single-purpose, and intention-revealing with a clean early-return guard",
+        "Stream pipelines are used appropriately in result sorting and filtering (sorted + limit + toList, Collectors.joining, etc.)",
+        "Guard clauses for null/empty inputs are consistently applied at the top of public methods",
+        "Static Pattern compilation at class load time avoids repeated compile overhead",
+        "Result data classes (DiscoveredNoun, CoreAdjective, ExplorationResult) are well-structured with focused toString/factory methods"
+      ],
+      "issue_character": "The dominant issue is systematic copy-paste duplication: the same multi-step algorithm is cloned rather than extracted, producing pairs of near-identical methods and a recurring 'group-hits → logDice → build-list' pattern duplicated four times.",
+      "score_rationale": "The codebase sits well below the midpoint on low-level elegance. While individual leaf functions are often clean and guard clauses are present, the core algorithmic methods across all four seed files suffer from 50-150 line duplications that a single refactoring session would eliminate. The dead lemma-substitution code, the functional stream-to-logger bug, and oversized constructors/methods further undermine the 'read in one glance' standard. This is consistent with a global anchor around 40-45: readable at the leaf level but repeatedly failing the extraction and duplication criteria at the method level."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore-duplication",
+      "summary": "exploreByPattern and explore implement an identical 4-step algorithm with 150+ lines copy-pasted",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "exploreByPattern (line 91) and explore (line 268) both: fetch collocates for seed, iterate to build nounProfiles, score nouns by sharedCount × avgLogDice, identify core collocates, sort by same comparator",
+        "Steps 3-4 share identical comparator lambda",
+        "The only variation is in Step 1 (how collocates are fetched) and the variable names (adj vs colloc)"
+      ],
+      "suggestion": "Extract a private scoreAndRankNouns(Map<String,Double> seedScores, Map<String,Map<String,Double>> nounProfiles, int minShared) method returning ExplorationResult. exploreByPattern and explore become thin wrappers that differ only in how they populate seedScores.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "split-outside-quotes-duplication",
+      "summary": "splitByOrOutsideQuotes and splitByAnd in CQLParser are identical except for the delimiter character",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java"],
+      "evidence": [
+        "splitByOrOutsideQuotes and splitByAnd both iterate with inQuote toggle on '\"', split on a delimiter, and collect tail via substring(start)",
+        "The only difference: delimiter is '|' in the first, '&' in the second"
+      ],
+      "suggestion": "Replace both with a single private List<String> splitOutsideQuotes(String s, char delimiter) method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "derive-position-duplication",
+      "summary": "deriveHeadPositionFromPattern and deriveCollocatePositionFromPattern in GrammarConfigLoader are near-identical",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Both walk the pattern character by character, skip whitespace, check for N: prefixes, count tokens via '[' … ']' brackets",
+        "They differ only in which label digit triggers the return (1 vs 2) and the default return value"
+      ],
+      "suggestion": "Replace both with private static int derivePositionForLabel(String pattern, int label, int defaultPos) and call it with label=1 or label=2.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "logdice-pipeline-duplication",
+      "summary": "The 'group hits → compute logDice → build WordSketchResult list' pattern is duplicated four times in BlackLabQueryExecutor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "findCollocations, findDependencyCollocations, executeDependencyPattern, and executeSurfacePattern all end with: iterate freqMap entries, call LogDiceCalculator.compute, check >= minLogDice, add WordSketchResult, stream-sort-limit",
+        "The sorted-limit chain is literally copy-pasted four times"
+      ],
+      "suggestion": "Extract a private List<WordSketchResult> buildAndRankResults(Map<String,Long> freqMap, long headwordFreq, Map<String,String> posMap, double minLogDice, int maxResults) helper.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "dead-lemma-substitution",
+      "summary": "Lemma substitution code in CQLParser.buildElement extracts data and modifies target but the result is never used",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java"],
+      "evidence": [
+        "Lines 260-265: lemmaMatcher parses group(1) into subPos and group(2) into subField, then target = lemmaMatcher.replaceFirst('') modifies target, followed by comment '// Store lemma substitution info - will be used during compilation'",
+        "Neither subPos nor subField are stored anywhere; the modified target is passed to PatternElement but the substitution data is lost"
+      ],
+      "suggestion": "Either complete the implementation or remove the entire block.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "stream-to-logger-bug",
+      "summary": "SemanticFieldExplorer logs a Java Stream object reference instead of the list contents",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "logger.info('  Top 5: {}', adjectives.stream()) — adjectives is already a List<WordSketchResult>; .stream() returns a Stream object whose toString is the internal descriptor"
+      ],
+      "suggestion": "Change to adjectives.stream().limit(5).map(r -> r.getLemma()).collect(Collectors.joining(', ')) or adjectives.subList(0, Math.min(5, adjectives.size())).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "double-query-execution",
+      "summary": "executeDependencyPattern executes the same BlackLab query twice unnecessarily",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "Line 380: Hits hits = blackLabIndex.find(query) — executed for null-guard (hits.size() == 0 check)",
+        "Line 391: SearchHits searchHits = blackLabIndex.search().find(query) — same query re-executed for grouping",
+        "The first Hits object is never used beyond the size check"
+      ],
+      "suggestion": "Execute the query once via blackLabIndex.search().find(query), call .execute() to materialize, then check groups.size() == 0 as the early-exit guard.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "oversized-executebcqlquery",
+      "summary": "executeBcqlQuery is a 130-line method mixing concordance fetching, collocate extraction, frequency accumulation, and logDice scoring",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "Single method defines an inline record HitRecord, runs a first pass to extract collocates and build a frequency map, runs a second pass to compute logDice, then sorts and limits",
+        "The per-hit extraction logic accounts for ~40 lines inside the first-pass loop"
+      ],
+      "suggestion": "Extract a private HitRecord processHit(Hit, Concordances, int collocatePos) method and a private List<WordSketchResult> rankByLogDice(List<HitRecord>, ...) method.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "grammar-config-god-constructor",
+      "summary": "GrammarConfigLoader constructor is a 120-line method mixing IO, validation, derivation, and indexing",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Constructor lines 52-170: reads file, validates version, rejects 'copulas' key, parses relations array, validates each relation's id/pattern/positions/token-count, builds two maps — all inline"
+      ],
+      "suggestion": "Extract a private RelationConfig parseRelation(JSONObject relObj, int index) method and optionally a private void validateRoot(JSONObject root) method.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "repitition-typo",
+      "summary": "Static constant REPITITION is a misspelling of REPETITION in CQLParser",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java"],
+      "evidence": [
+        "Line 38: private static final Pattern REPITITION = Pattern.compile(...)",
+        "Line 253: Matcher repetitionMatcher = REPITITION.matcher(after) — the matcher variable is correctly named but the constant it references is misspelled"
+      ],
+      "suggestion": "Rename REPITITION to REPETITION and update the single reference on line 253.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Copy-paste-then-adapt development style: new functionality was created by duplicating existing methods and making small adjustments rather than extracting shared logic",
+      "Incremental feature addition (exploreByPattern added after explore) without refactoring the shared algorithm into a reusable private method",
+      "Incomplete implementations left in place (lemma substitution) with placeholder comments"
+    ],
+    "likely_symptoms": [
+      "Bug fixes to the 4-step exploration algorithm must be applied in both exploreByPattern and explore",
+      "The logDice result-building fix must be replicated across four methods in BlackLabQueryExecutor",
+      "stream-to-logger bug in compare produces unhelpful log output at runtime"
+    ],
+    "possible_false_positives": [
+      "The data classes using public final fields instead of records may reflect a deliberate Java 11 compatibility choice"
+    ]
+  }
+}

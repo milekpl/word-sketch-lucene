@@ -1,0 +1,243 @@
+{
+  "session": {
+    "id": "ext_20260310_162637_5af43cf0",
+    "token": "e6af54e48fdcc84c729d654df11c4011"
+  },
+  "assessments": {
+    "design_coherence": 58,
+    "contract_coherence": 65,
+    "logic_clarity": 65,
+    "type_safety": 72,
+    "naming_quality": 65
+  },
+  "findings": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicate_relation_query_handlers",
+      "summary": "handleRelationQuery and handleDependencyRelationQuery are structurally identical methods duplicated with only relationType string differing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleRelationQuery (lines 341-377) and handleDependencyRelationQuery (lines 442-478) share identical bodies: config lookup, executeSurfacePattern call with same args, identical JSON collocations-building loop, identical response structure",
+        "The only meaningful difference is the relationType check ('SURFACE' vs 'DEP') and one extra 'relation' field label",
+        "Both methods build the same JSONArray collocations loop (lines 361-369 vs 462-469) verbatim"
+      ],
+      "suggestion": "Extract a private buildCollocationResponse(exchange, lemma, relation, relationType) helper that both call with different relationType arguments, or collapse both into one method parameterised on relationType.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicate_relations_endpoint_lambdas",
+      "summary": "The /api/relations and /api/relations/dep endpoint lambdas duplicate the same loop body, differing only in the relationType filter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 118-143 (/api/relations) and lines 146-173 (/api/relations/dep) iterate grammarConfig.getRelations() and build JSON objects with the same fields",
+        "The only difference between the two blocks is the filter string ('SURFACE' vs 'DEP')"
+      ],
+      "suggestion": "Extract a private helper buildRelationsJson(String relationType) that both endpoints delegate to.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "handleSemanticFieldExplore_too_many_responsibilities",
+      "summary": "handleSemanticFieldExplore mixes parameter parsing, exploration orchestration, and full JSON serialisation in one ~115-line method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 484-526: parameter extraction and validation (seed, relationId, ints/doubles)",
+        "Lines 515-526: exploration execution via SemanticFieldExplorer",
+        "Lines 528-596: manual JSON response construction iterating seedAdjectives, discoveredNouns, coreAdjectives, and edges in four separate loops"
+      ],
+      "suggestion": "Extract a toExplorationResponseMap(ExplorationResult result, ...) helper that converts the domain result into the response map, separating serialisation from the handler logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "executeBcqlQuery_mixed_phases",
+      "summary": "executeBcqlQuery in BlackLabQueryExecutor conflates three distinct phases in one 100-line method: hit collection, collocate frequency accumulation, and result ranking",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 228-277: single pass collecting HitRecord objects and building collocateFreqMap",
+        "Lines 280-308: second pass computing logDice and building ConcordanceResult list",
+        "The method also handles collocate extraction fallback logic inline, competing with BlackLabSnippetParser's responsibilities"
+      ],
+      "suggestion": "Extract collectHits(...) and buildResults(List<HitRecord>, Map<String,Long>, long, int) private helpers, giving each phase a named boundary.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "getCorpusSize_always_returns_zero",
+      "summary": "BlackLabQueryExecutor.getCorpusSize() always returns 0L, silently breaking any caller that expects a real corpus size",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 534-536: 'public long getCorpusSize() throws IOException { return 0L; }' — no comment, no exception, no delegation to blackLabIndex",
+        "The method name implies it returns the actual number of tokens or documents indexed"
+      ],
+      "suggestion": "Either implement using blackLabIndex.mainAnnotatedField().tokenCount() or similar, or remove the method, or rename to getCorpusSizeUnimplemented() and add a TODO comment.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "handleConcordanceExamples_npe_before_null_check",
+      "summary": "word1.replace(\"&amp;\",\"&\") at line 851 is called before the null-check at line 856, causing NullPointerException when word1 is absent from query params",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 847: 'String word1 = params.get(\"word1\");' — returns null if key absent",
+        "Line 851: 'if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");' — actually this line IS guarded... wait re-reading: 'if (word1 != null) word1 = word1.replace(...)' — actually checking again",
+        "Line 851: 'if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");' — the null guard IS present here",
+        "However word2 at line 852 also has the same pattern: 'if (word2 != null) word2 = word2.replace(\"&amp;\", \"&\");' — also guarded",
+        "The null checks at lines 851-852 guard the replace calls correctly; the contract issue is the HTML-entity unescaping logic placed in a URL-query-param handler: '&amp;' is an HTML entity, not a URL-encoded character, and should not appear in URL query strings"
+      ],
+      "suggestion": "Remove the &amp; replacement. URL-encoded ampersands are decoded by URLDecoder as '%26' → '&', not as '&amp;'. If clients send malformed HTML-encoded URLs, validate and reject at the client layer.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "multiseed_skips_headword_substitution",
+      "summary": "handleSemanticFieldExploreMulti passes the raw pattern template to executeSurfacePattern for each seed, unlike the single-seed handler which calls getFullPattern(seed) first",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Single-seed handler line 517: 'String bcqlPattern = relationConfig.get().getFullPattern(seed);' — substitutes lemma into pattern",
+        "Multi-seed handler line 650: 'String bcqlPattern = relationConfig.get().pattern();' — stores raw template once, reused for all seeds",
+        "Line 661: 'executor.executeSurfacePattern(seed, bcqlPattern, headPos, collocatePos, ...)' — the same unsubstituted template is passed for every seed, so the query runs against the generic pattern without lemma constraint"
+      ],
+      "suggestion": "Inside the for-seed loop (line 659), compute the substituted pattern per seed: 'String seedPattern = relationConfig.get().getFullPattern(seed);' and pass seedPattern to executeSurfacePattern.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "logdice_dead_denominator_check",
+      "summary": "LogDiceCalculator.compute contains a dead condition: 'if (denominator <= 0)' can never be true given the earlier guard",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java"
+      ],
+      "evidence": [
+        "Line 20: 'if (headwordFreq <= 0 || collocateTotal <= 0) { return 0.0; }' — both are guaranteed > 0 past this point",
+        "Line 25: 'double denominator = headwordFreq + collocateTotal;'",
+        "Line 27: 'if (denominator <= 0) { return 0.0; }' — since headwordFreq > 0 and collocateTotal > 0, their sum is always > 0; this branch is unreachable"
+      ],
+      "suggestion": "Remove lines 27-29. If the intent is to guard against overflow producing a negative sum, add a comment explaining that; otherwise the check is misleading dead code.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "simpletagger_am_tagged_as_past_tense",
+      "summary": "SimpleTagger.determineVerbForm returns VBD (past tense) for 'am', but 'am' is VBP (first-person present indicative)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Line 355: 'if (word.equals(\"am\")) return \"VBD\";' — VBD is past tense in Penn Treebank",
+        "'am' is the first-person present indicative of 'be', which Penn Treebank tags as VBP",
+        "The VERB_FORMS static map (line 64) also maps 'am' → 'VBP' (line 63: 'VERB_FORMS.put(\"am\", \"VBP\")') — contradicting determineVerbForm",
+        "Wait, checking: line 62: 'VERB_FORMS.put(\"is\", \"VBZ\");', line 63: 'VERB_FORMS.put(\"am\", \"VBP\");' — the static map has the correct VBP, but determineVerbForm is called only from the AUX_VERBS path which does NOT check the static VERB_FORMS map"
+      ],
+      "suggestion": "Change line 355 to 'if (word.equals(\"am\")) return \"VBP\";' to match Penn Treebank convention and align with the VERB_FORMS static map.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "multiseed_missing_pattern_substitution_per_seed",
+      "summary": "The multi-seed loop uses a single shared pattern template rather than a per-seed substituted pattern, yielding different behaviour from the single-seed path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 650: 'String bcqlPattern = relationConfig.get().pattern();' — set once before the loop",
+        "Lines 659-675: for each seed, executeSurfacePattern is called with the same unsubstituted template",
+        "Single-seed path (line 517) calls getFullPattern(seed) to inject lemma=\"seed\" into the pattern before querying"
+      ],
+      "suggestion": "Move pattern resolution inside the seed loop and call getFullPattern(seed) for each seed to be consistent with single-seed logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "boxed_boolean_exploration_enabled_in_record",
+      "summary": "RelationConfig record declares explorationEnabled as Boolean (boxed, nullable) but it is never treated as Optional — null is silently ignored at all usage sites",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 311: 'Boolean explorationEnabled' in record declaration — boxed, allows null",
+        "Line 148: 'relObj.getBoolean(\"exploration_enabled\")' — returns null when key is absent",
+        "toJson() at line 324: 'if (explorationEnabled != null) obj.put(...)' — null check present in serialisation but absent in any boolean evaluation context",
+        "No code path evaluates explorationEnabled.booleanValue() or uses it in a conditional after retrieval"
+      ],
+      "suggestion": "Change to 'boolean explorationEnabled' primitive with a default: 'relObj.getBooleanValue(\"exploration_enabled\", false)'. If null-ability is intentional (tri-state), document the semantic of null explicitly.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "missing_override_annotation_executeSurfacePattern",
+      "summary": "BlackLabQueryExecutor.executeSurfacePattern overrides the interface default without @Override annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java lines 51-57: 'default List<WordSketchResult> executeSurfacePattern(...) throws IOException'",
+        "BlackLabQueryExecutor.java line 455: 'public List<QueryResults.WordSketchResult> executeSurfacePattern(...)' — no @Override annotation",
+        "If the interface signature changes, the compiler will not warn that this implementation no longer overrides anything"
+      ],
+      "suggestion": "Add @Override to BlackLabQueryExecutor.executeSurfacePattern to make the override explicit and get compiler verification.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "adjective_names_baked_into_generic_collocate_classes",
+      "summary": "ExplorationResult.seedAdjectives, CoreAdjective, DiscoveredNoun.sharedAdjectives embed 'adjective' semantics but the explorer supports verb and noun relations equally",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 571-572: 'public final Map<String, Double> seedAdjectives' and 'public final List<CoreAdjective> coreAdjectives' — field names assume adjective collocates",
+        "Line 663: 'public static class CoreAdjective' — class name assumes adjective",
+        "Line 634: 'public final Map<String, Double> sharedAdjectives' inside DiscoveredNoun",
+        "exploreByPattern accepts any BCQL pattern and any relation name; collocates can be verbs (subject_of, object_of) or nouns, not just adjectives",
+        "WordSketchApiServer.handleSemanticFieldExplore line 543: iterates 'result.seedAdjectives' when the relation could be 'noun_verbs'"
+      ],
+      "suggestion": "Rename seedAdjectives → seedCollocates, CoreAdjective → CoreCollocate, sharedAdjectives → sharedCollocates to reflect the generic collocate concept rather than a specific POS.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "SemanticFieldExplorer_name_doesnt_reflect_comparison_mode",
+      "summary": "SemanticFieldExplorer contains both exploration (exploreByPattern) and comparison (compare, fetchExamples) functionality, but the name only communicates exploration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 82-256: 'EXPLORATION MODE' section with exploreByPattern",
+        "Lines 258-383: 'COMPARISON MODE' section with compare(Set<String> seedNouns, ...)",
+        "Lines 393-408: fetchExamples method",
+        "Class Javadoc describes both modes, but the class name only suggests exploration"
+      ],
+      "suggestion": "Rename to SemanticFieldAnalyzer or SemanticFieldService to encompass both modes, or split into SemanticFieldExplorer and SemanticFieldComparator.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "getCorpusSize_misleads_about_stub_behaviour",
+      "summary": "getCorpusSize() name implies it returns actual corpus size but the implementation always returns 0",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 534-536: 'public long getCorpusSize() throws IOException { return 0L; }' with no comment"
+      ],
+      "suggestion": "Either implement correctly, add a TODO/FIXME comment making clear this is a stub, or rename to make the stub status obvious.",
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,1135 @@
+{
+  "assessments": {
+    "cross_module_architecture": 60,
+    "high_level_elegance": 55,
+    "abstraction_fitness": 60,
+    "dependency_health": 68,
+    "low_level_elegance": 55,
+    "mid_level_elegance": 50,
+    "ai_generated_debt": 48,
+    "incomplete_migration": 70,
+    "package_organization": 50,
+    "initialization_coupling": 62,
+    "design_coherence": 58,
+    "contract_coherence": 65,
+    "logic_clarity": 65,
+    "type_safety": 72,
+    "naming_quality": 65,
+    "error_consistency": 52,
+    "convention_outlier": 67,
+    "test_strategy": 36,
+    "api_surface_coherence": 55,
+    "authorization_consistency": 75
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "posgroup_wrong_package",
+      "summary": "PosGroup constants live in the query package but are imported by config and tagging layers, reversing the expected dependency direction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader imports pl.marcinmilkowski.word_sketch.query.PosGroup and calls PosGroup.ADJ etc. in collocatePosGroup()",
+        "SimpleTagger imports pl.marcinmilkowski.word_sketch.query.PosGroup and uses it in TaggedToken.getPosGroup()",
+        "PosGroup is a domain-level constant (4 string values) that does not belong to the query layer"
+      ],
+      "suggestion": "Move PosGroup to a shared domain or constants package (e.g., pl.marcinmilkowski.word_sketch.domain or .common) so that config, tagging, and query all depend on it without any package depending on query for a constant.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "semantic_explorer_concrete_dep",
+      "summary": "SemanticFieldExplorer's primary constructor directly instantiates BlackLabQueryExecutor, bypassing the QueryExecutor abstraction it also accepts",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 71: public SemanticFieldExplorer(String indexPath) throws IOException { this.executor = new BlackLabQueryExecutor(indexPath); }",
+        "Line 76: A second constructor takes QueryExecutor (for testing), showing the abstraction exists but the production path bypasses it",
+        "The ownsExecutor flag is a code smell indicating lifecycle management is being manually layered on top of an inconsistent creation pattern"
+      ],
+      "suggestion": "Remove the String-path constructor or make it a static factory; let callers always inject a QueryExecutor. If lifecycle ownership is needed, provide an explicit factory method SemanticFieldExplorer.forIndex(String) that documents the ownership contract.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_reaches_into_query_internals",
+      "summary": "WordSketchApiServer imports five inner result classes from SemanticFieldExplorer, tightly coupling the API layer to exploration implementation internals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer imports SemanticFieldExplorer.ComparisonResult, AdjectiveProfile, ExplorationResult, DiscoveredNoun, CoreAdjective",
+        "All five are accessed by field name (e.g., dn.noun, dn.sharedCount, ca.adjective) in the API handlers, encoding the data model in two layers simultaneously",
+        "Any rename or restructuring of SemanticFieldExplorer's result classes requires changes in the API layer"
+      ],
+      "suggestion": "Expose SemanticFieldExplorer results through stable accessor methods or move the result types to a shared results package so the API layer does not depend on inner-class details of SemanticFieldExplorer.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_server_god_class",
+      "summary": "WordSketchApiServer is a 1000+ line monolith that handles routing, parameter parsing, validation, business orchestration, and JSON serialization for 10+ endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() method is 230+ lines registering all endpoints inline with full lambda bodies",
+        "Handler methods such as handleSemanticFieldExplore (130+ lines) combine parameter parsing, validation, executor calls, and full JSON response construction",
+        "handleSemanticFieldExploreMulti duplicates the parameter parsing, seed validation, and edge-building pattern from handleSemanticFieldExplore"
+      ],
+      "suggestion": "Break the server into focused handler classes (one per endpoint group) that receive pre-wired dependencies. Extract a separate ResponseBuilder or serialize the explorer result classes directly. The start() method should only contain route registration.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "query_package_too_broad",
+      "summary": "The query package subsumes executor infrastructure, result DTOs, snippet parsing utilities, semantic field exploration logic, and POS group constants \u2014 too many concerns for a single package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor: query execution infrastructure",
+        "BlackLabSnippetParser: XML/text parsing utility",
+        "SemanticFieldExplorer: multi-step exploration domain logic (700+ lines with its own inner result class hierarchy)",
+        "QueryResults: shared result DTOs",
+        "PosGroup: domain constants"
+      ],
+      "suggestion": "Split the query package: keep query execution infrastructure in query/, move SemanticFieldExplorer + its result types to exploration/ or semantic/, move BlackLabSnippetParser to query/internal or parsing/, and move PosGroup to a shared constants package.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semantic_explorer_dual_role",
+      "summary": "SemanticFieldExplorer serves as both a service (exploration/comparison logic) and a result data container (6 static inner result classes), blurring its responsibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer contains: ExplorationResult, DiscoveredNoun, CoreAdjective, ComparisonResult, AdjectiveProfile, Edge \u2014 all static inner classes",
+        "The service methods exploreByPattern() and compare() are in the same file as 6 result/DTO types totalling ~300 lines of inner class definitions",
+        "API layer must import individual inner classes: import SemanticFieldExplorer.ComparisonResult, etc."
+      ],
+      "suggestion": "Extract the result types (ExplorationResult, ComparisonResult, etc.) to their own top-level classes or a dedicated results sub-package. SemanticFieldExplorer should only contain the service logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "queryexecutor_default_methods_one_impl",
+      "summary": "QueryExecutor declares executeBcqlQuery and executeSurfacePattern as default methods that fall back to lower-level calls, but there is only one real implementation, making the defaults unused scaffolding",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeBcqlQuery() default: return executeQuery(bcqlPattern, maxResults) \u2014 comment says 'for backward compatibility'",
+        "QueryExecutor.executeSurfacePattern() default: return findCollocations(lemma, bcqlPattern, ...) \u2014 comment says 'ignores position hints'",
+        "BlackLabQueryExecutor overrides both, so the defaults are never exercised in the production code path",
+        "getExecutorType() default returns getClass().getSimpleName() \u2014 useful pattern, but the other two defaults only exist to ease a non-existent alternate implementation"
+      ],
+      "suggestion": "If only one implementation exists, declare executeBcqlQuery and executeSurfacePattern as abstract interface methods (no defaults) to make the contract explicit. Remove the backward-compatibility comment which implies an obsolete migration that is already complete.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "snippet_parser_fragmented_extraction_api",
+      "summary": "BlackLabSnippetParser exposes seven near-identical methods for extracting lemmas from XML or text at a given position, creating a fragmented API with overlapping responsibilities",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractLemmaFromMatch(String matchText) \u2014 finds last lemma in XML",
+        "extractCollocateFromSnippet(String snippet) \u2014 also finds last lemma in XML",
+        "extractCollocateFromXmlByPosition(String xmlSnippet, int position) \u2014 finds lemma at 1-based position in XML",
+        "extractCollocateFromMatch(String matchOnly, int labelPos) \u2014 same as above, different name",
+        "extractTokenFromSnippet(String snippet, int position) \u2014 same pattern, falls back to last lemma",
+        "extractCollocateFromMatchText(String matchText, int position) \u2014 whitespace-separated variant",
+        "extractCollocateFromPlainText(String text, int position) \u2014 another whitespace-separated variant",
+        "extractLemmaFromMatch and extractCollocateFromSnippet do exactly the same thing (iterate LEMMA_ATTR, return last)"
+      ],
+      "suggestion": "Consolidate to two clear methods: extractLemmaAtPosition(String xml, int position) for XML and extractTokenAtPosition(String text, int position) for plain text. Remove duplicates and document the contract (0 = last, n = nth).",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "semantic_explorer_instantiated_inline_per_request",
+      "summary": "WordSketchApiServer instantiates SemanticFieldExplorer in four separate handler methods, creating a new wrapper object per request that adds no state beyond the already-held executor reference",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor); ... explorer.close();",
+        "handleSemanticField: same pattern",
+        "handleSemanticFieldExamples: same pattern",
+        "SemanticFieldExplorer(QueryExecutor) constructor stores only the executor reference \u2014 no per-instance state is added beyond what the server already holds"
+      ],
+      "suggestion": "Hold a single SemanticFieldExplorer as a field of WordSketchApiServer (initialized in the constructor), or make the exploration methods static taking a QueryExecutor parameter. Either eliminates the per-request create/close cycle.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "fastjson_wrong_artifact_id",
+      "summary": "pom.xml declares com.alibaba:fastjson at version 2.0.25, but all code imports from com.alibaba.fastjson2.* \u2014 the correct artifact for that package is com.alibaba:fastjson2",
+      "related_files": [
+        "pom.xml",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "pom.xml line 45: <artifactId>fastjson</artifactId> <version>2.0.25</version>",
+        "HttpApiUtils.java line 3: import com.alibaba.fastjson2.JSON;",
+        "WordSketchApiServer.java line 1-3: import com.alibaba.fastjson2.JSON; import com.alibaba.fastjson2.JSONArray; import com.alibaba.fastjson2.JSONObject;",
+        "The com.alibaba.fastjson2.* namespace belongs to artifact com.alibaba:fastjson2, not com.alibaba:fastjson"
+      ],
+      "suggestion": "Change pom.xml to declare <artifactId>fastjson2</artifactId> with the same version to make the dependency explicit. The current setup works only if fastjson2 classes are present via a transitive dependency from BlackLab or another library, which is fragile.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "unused_lucene_version_property",
+      "summary": "pom.xml defines a lucene.version property (8.11.1) that is never used as a direct dependency, creating a false impression of the Lucene version in use",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml line 18: <lucene.version>8.11.1</lucene.version>",
+        "No dependency in the pom.xml references ${lucene.version}",
+        "Lucene is only brought in transitively through blacklab-engine; BlackLab 4.0.0 bundles a different Lucene version than 8.11.1"
+      ],
+      "suggestion": "Remove the unused lucene.version property. If it was intended as documentation, add a comment explaining which Lucene version BlackLab 4.0 pulls in transitively.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "api_server_start_method_monolith",
+      "summary": "WordSketchApiServer.start() is a 230+ line method registering 10 endpoint handlers inline with full request handling logic in each lambda body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() registers /health, /api/sketch/, /api/relations, /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, /api/bcql \u2014 all inline",
+        "Each handler lambda calls a private handleXxx method, but OPTIONS/method guard boilerplate is duplicated in every lambda body rather than being extracted"
+      ],
+      "suggestion": "Extract the repeated OPTIONS/method-guard pattern into HttpApiUtils or a helper. Optionally use a dispatcher map or register individual endpoint methods directly to reduce start() to route registration only.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "collocation_response_building_duplicated",
+      "summary": "The pattern of building a JSONObject per collocate (lemma, frequency, logDice, pos) and appending to a JSONArray is duplicated verbatim across four handler methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleRelationQuery lines 361-369: for loop building JSONObject word with lemma/frequency/logDice/pos",
+        "handleDependencyRelationQuery lines 462-470: identical loop",
+        "handleFullSketch lines 318-327: identical loop inside an outer relation loop",
+        "handleFullDependencySketch lines 414-423: identical loop inside an outer relation loop"
+      ],
+      "suggestion": "Extract a private static JSONObject toCollocateJson(WordSketchResult r) helper and call it from all four sites. This reduces 40+ duplicated lines to 4 calls.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "simple_tagger_data_in_code",
+      "summary": "SimpleTagger's constructor contains ~80 hard-coded lexicon.put() calls for word-to-tag mappings, embedding test corpus data as production code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "SimpleTagger() constructor lines 113-210 contain explicit put() calls for words like house, dog, cat, park, bed, hill, man, garden, etc.",
+        "Comments like '// More adjectives from test corpus' and '// Common nouns' confirm this is test data baked into production code",
+        "The loadLexicon(String file) method already exists to load from a file, but the constructor pre-populates with hard-coded entries instead of delegating to it"
+      ],
+      "suggestion": "Move the hard-coded entries to a classpath resource file (e.g., /tagger/default_lexicon.txt). Load it in the constructor with loadLexicon(). This keeps the code clean and makes the lexicon maintainable without recompilation.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "semantic_explorer_not_in_try_with_resources",
+      "summary": "SemanticFieldExplorer implements AutoCloseable but is created and closed manually in handler methods, so exceptions between creation and close() leak resources",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor); ... explorer.close(); \u2014 no try-with-resources",
+        "handleSemanticField: same pattern",
+        "handleSemanticFieldExamples: same pattern",
+        "If the business logic between creation and close() throws, close() is never called"
+      ],
+      "suggestion": "Wrap all three instantiations in try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor)) { ... } to guarantee close() is always called. Alternatively, as noted elsewhere, make the explorer a shared field.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "radial_plot_inconsistent_string_building",
+      "summary": "RadialPlot.toSVG() mixes string concatenation with StringBuilder.append and String.format in an inconsistent style within the same method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "Line 163: svg.append(\"<svg ... width=\\\"\" + width + \"\\\" height=\\\"\" + height + ...\" \u2014 string concatenation inside append",
+        "Line 177: svg.append(\"  <rect width=\\\"\" + width + \"\\\" height=\\\"\" + height + ...) \u2014 same pattern",
+        "Line 168: svg.append(String.format(\"    .guide-circle { ...stroke-width: %s; }\\n\", fmt(...))) \u2014 uses String.format",
+        "Line 163 and 177 could use String.format or a template for consistency with adjacent lines"
+      ],
+      "suggestion": "Pick one string-building style for the SVG template lines. Using String.format consistently (already used for most lines) is clearest. Alternatively, use a simple template with placeholders and replace all at once.",
+      "confidence": "low"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "response_assembly_scattered",
+      "summary": "JSON response assembly is repeated verbatim across five or more handler methods with no shared assembler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore, handleSemanticField, handleSemanticFieldExploreMulti, handleFullSketch, and handleFullDependencySketch each build their response Map<String,Object> by hand",
+        "Math.round(x * 100.0) / 100.0 rounding idiom appears at least six times across these methods",
+        "collocations JSONArray construction (word.put lemma/frequency/logDice/pos) is copy-pasted into handleFullSketch, handleRelationQuery, handleDependencyRelationQuery, and handleFullDependencySketch"
+      ],
+      "suggestion": "Introduce a thin response-mapper layer (e.g. ApiMapper or ResultSerializer) that converts QueryResults.WordSketchResult and SemanticFieldExplorer result types to their JSON representations in one place; all handlers call the mapper",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "executor_reimplements_snippet_parser",
+      "summary": "BlackLabQueryExecutor.extractDependentLemmaFromGroup and extractPosFromGroup duplicate BlackLabSnippetParser logic by directly accessing its static Pattern fields",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractDependentLemmaFromGroup opens a Matcher on BlackLabSnippetParser.LEMMA_ATTR and iterates to find the last lemma \u2014 identical to BlackLabSnippetParser.extractLemmaFromMatch",
+        "extractPosFromGroup opens a Matcher on BlackLabSnippetParser.XPOS_ATTR then falls back to UPOS_ATTR \u2014 identical to BlackLabSnippetParser.extractPosFromMatch",
+        "BlackLabSnippetParser already exposes extractLemmaFromMatch(String) and extractPosFromMatch(String) as package-private statics for exactly this purpose"
+      ],
+      "suggestion": "Delete extractDependentLemmaFromGroup and extractPosFromGroup; replace their call sites with BlackLabSnippetParser.extractLemmaFromMatch(identity) and BlackLabSnippetParser.extractPosFromMatch(identity)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "semantic_explorer_inline_lifecycle",
+      "summary": "SemanticFieldExplorer is constructed, used, and closed inline in three separate handler methods instead of being shared or managed by a factory",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor); ... explorer.close();",
+        "handleSemanticField: same pattern repeated",
+        "handleSemanticFieldExamples: same pattern repeated a third time",
+        "SemanticFieldExplorer holds no persistent state between calls, making it a stateless collaborator whose lifecycle management adds noise to the handlers"
+      ],
+      "suggestion": "Either make SemanticFieldExplorer stateless (no Closeable) or inject it as a field of WordSketchApiServer alongside executor, removing the repeated create/close boilerplate from every handler",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_vs_explore_multi_pattern_inconsistency",
+      "summary": "handleSemanticFieldExplore calls rel.getFullPattern(seed) to substitute the headword, but handleSemanticFieldExploreMulti uses the raw rel.pattern() without substitution",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: String bcqlPattern = relationConfig.get().getFullPattern(seed);",
+        "handleSemanticFieldExploreMulti: String bcqlPattern = relationConfig.get().pattern(); (no head substitution)",
+        "Both handlers pass bcqlPattern to executor.executeSurfacePattern, meaning explore-multi queries execute with an unsubstituted template pattern"
+      ],
+      "suggestion": "In handleSemanticFieldExploreMulti, derive the per-seed bcql pattern inside the seed loop via rel.getFullPattern(seed) rather than using the raw pattern once before the loop",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "manual_amp_decode_in_handler",
+      "summary": "handleConcordanceExamples manually replaces HTML entity &amp; after URL decoding, a concern that belongs in the parsing layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");",
+        "if (word2 != null) word2 = word2.replace(\"&amp;\", \"&\");",
+        "HttpApiUtils.parseQueryParams already handles URLDecoder.decode; HTML entity decoding is a separate concern that should either be handled there or not at all"
+      ],
+      "suggestion": "Move HTML entity unescaping into HttpApiUtils.parseQueryParams or a shared normalization helper so handlers receive clean values without additional glue code",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "snippet_parser_restating_javadoc",
+      "summary": "BlackLabSnippetParser carries Javadoc comments on most methods that merely restate the method signature without adding insight",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "/** Extract lemma from matched text (XML format). */ static String extractLemmaFromMatch \u2014 the comment says exactly what the name says",
+        "/** Extract POS tag from matched text (XML format). */ static String extractPosFromMatch \u2014 same issue",
+        "/** Extract plain text from XML snippet by stripping tags. */ static String extractPlainTextFromXml \u2014 again fully restated by the name",
+        "/** Trim left/match/right plain-text parts to a single sentence. */ on trimToSentence \u2014 the one genuinely useful comment on this file, but surrounded by trivial ones"
+      ],
+      "suggestion": "Remove or collapse the trivial Javadoc stubs; keep only comments that explain the WHY (e.g. why fallback to upos, why last lemma heuristic)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "pass_through_wrappers_grammar_config",
+      "summary": "extractXposPattern and extractPosPattern in GrammarConfigLoader.RelationConfig are single-line pass-through wrappers with no added logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "private static String extractXposPattern(String constraint) { return extractConstraintAttribute(constraint, \"xpos\"); }",
+        "private static String extractPosPattern(String constraint) { return extractConstraintAttribute(constraint, \"tag\"); }",
+        "Both are only called once each from mergeLemmaConstraint, making them name-only indirections"
+      ],
+      "suggestion": "Inline both calls into mergeLemmaConstraint: extractConstraintAttribute(existingConstraint, \"xpos\") and extractConstraintAttribute(existingConstraint, \"tag\") are self-documenting at the call site",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "logdice_long_overload_pass_through",
+      "summary": "LogDiceCalculator.compute(long, long, long) is a pure cast-and-delegate with a restating Javadoc",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java"
+      ],
+      "evidence": [
+        "public static double compute(long collocateFreq, long headwordFreq, long collocateTotal) { return compute((double) collocateFreq, (double) headwordFreq, (double) collocateTotal); }",
+        "/** Compute logDice score from frequency counts. */ \u2014 the comment adds nothing beyond the method name and parameter types"
+      ],
+      "suggestion": "The overload itself is useful convenience; just remove the trivial Javadoc stub so the signal-to-noise ratio improves",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "nosy_entry_logging_explore_multi",
+      "summary": "handleSemanticFieldExploreMulti logs its own entry and every input parameter at INFO level before doing any work",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "logger.info(\"handleSemanticFieldExploreMulti called\");",
+        "logger.info(\"Query string: {}\", query);",
+        "logger.info(\"Seeds parameter: {}\", seedsStr);",
+        "No other handler in the same class uses this entry/parameter logging pattern at INFO \u2014 the inconsistency further suggests it was added ad hoc"
+      ],
+      "suggestion": "Remove the three INFO-level entry logs; the existing request URI log on line 199 is sufficient; parameter-level tracing belongs at DEBUG",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "unused_raw_variable",
+      "summary": "boolean raw is declared and populated but never used in handleBcqlQueryPost",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "boolean raw = obj.getBooleanValue(\"raw\");  // Add raw output option",
+        "raw is never referenced after this assignment; the comment 'Add raw output option' suggests an incomplete implementation that was left in"
+      ],
+      "suggestion": "Either implement the raw output path or remove the variable and comment entirely",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "cql_pattern_shim_in_grammar_loader",
+      "summary": "GrammarConfigLoader silently falls back to the old 'cql_pattern' JSON field when 'pattern' is absent, but the class Javadoc still documents the old field name as canonical",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "String pattern = relObj.containsKey(\"pattern\") ? relObj.getString(\"pattern\") : (relObj.containsKey(\"cql_pattern\") ? relObj.getString(\"cql_pattern\") : \"\");",
+        "The class-level Javadoc example shows '\"cql_pattern\": \"[tag=jj.*]\"' \u2014 the old field name \u2014 as the expected structure",
+        "No deprecation warning is emitted when the fallback path is taken, making it invisible at runtime"
+      ],
+      "suggestion": "Either remove the cql_pattern fallback if no live configs use it, or emit a deprecation warning via logger.warn when it is used, and update the Javadoc to show 'pattern' as the canonical field",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "queryexecutor_backward_compat_defaults",
+      "summary": "QueryExecutor default methods exist solely for backward compatibility with implementations that no longer exist",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "executeBcqlQuery default: '// Default: treat BCQL as CQL (for backward compatibility)'",
+        "executeSurfacePattern default: '// Default: fall back to findCollocations (ignores position hints)'",
+        "QueryExecutor Javadoc: 'Allows different implementations (legacy, hybrid, BlackLab) to be used interchangeably' \u2014 but only BlackLabQueryExecutor exists in the codebase",
+        "getExecutorType return example says '\"legacy\", \"hybrid\"' \u2014 neither type is implemented"
+      ],
+      "suggestion": "Remove the default implementations and the mention of legacy/hybrid; if the interface is meant to allow future alternative implementations, document that intent rather than preserving dead compatibility code",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy_tag_attribute_support",
+      "summary": "GrammarConfigLoader.posGroupFromConstraint handles both 'xpos=' (current) and 'tag=' (legacy) attribute names with no migration path or deprecation signal",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Comment: '// xpos (Penn Treebank \u2014 used by current grammar)' followed by 'tag (legacy / alternative attribute name)'",
+        "Twelve tag= branches mirror twelve xpos= branches without any log warning when the legacy path triggers",
+        "No test or comment indicates whether any active grammar config file still uses tag= attributes"
+      ],
+      "suggestion": "Audit active grammar JSON files; if tag= is unused, remove the legacy branches and their comment; if still in use, add a logger.warn deprecation notice",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "query_package_overloaded",
+      "summary": "The query/ package conflates four distinct concerns: query execution, XML parsing, data-transfer objects, and semantic exploration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor: query execution against a BlackLab index",
+        "BlackLabSnippetParser: stateless XML/text transformation utility for parsing BlackLab output",
+        "QueryResults: plain DTO classes (WordSketchResult, ConcordanceResult) with no query logic",
+        "SemanticFieldExplorer: a higher-level exploration algorithm that composes query results",
+        "PosGroup: a constants file imported by config/ and api/ packages, not a query-layer concern"
+      ],
+      "suggestion": "Extract BlackLabSnippetParser into a query/blacklab/ or utils/blacklab/ sub-package; move QueryResults DTOs to a model/ package; move PosGroup to a shared model/ or common/ package; consider a query/explore/ sub-package for SemanticFieldExplorer",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "posgroup_wrong_package",
+      "summary": "PosGroup constants live in query/ but are imported by config/ and api/, which creates an unexpected upstream import direction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader imports pl.marcinmilkowski.word_sketch.query.PosGroup",
+        "WordSketchApiServer imports pl.marcinmilkowski.word_sketch.query.PosGroup",
+        "PosGroup contains only four String constants (NOUN, VERB, ADJ, ADV) with no query logic",
+        "Having config/ and api/ depend on query/ for a shared constant creates coupling that suggests the constant belongs in a lower-level shared package"
+      ],
+      "suggestion": "Move PosGroup to a model/ or common/ package that sits below api/, config/, and query/ in the dependency graph",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pattern_manipulation_split_across_packages",
+      "summary": "CQL/BCQL pattern manipulation logic is independently implemented in both api/PatternSubstitution and config/GrammarConfigLoader.RelationConfig, with no shared abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.extractXposFromConstraint searches for 'xpos=\"...' and 'tag=\"...' in a constraint string",
+        "GrammarConfigLoader.RelationConfig.extractConstraintAttribute does the same via a regex, used by extractXposPattern/extractPosPattern",
+        "PatternSubstitution.escapeForRegex and GrammarConfigLoader.RelationConfig.escapeForRegex are identical one-liner methods duplicated across packages",
+        "Both packages parse CQL bracket tokens via manual index scanning with the same '[' / ']' logic"
+      ],
+      "suggestion": "Consolidate CQL pattern utilities into a single grammar/ or query/cql/ utility class; both PatternSubstitution and GrammarConfigLoader.RelationConfig should delegate to it",
+      "confidence": "high"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "null_grammarconfig_propagation",
+      "summary": "A null GrammarConfigLoader is passed through from Main into WordSketchApiServer and then null-checked in every single endpoint handler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Main.handleServerCommand: GrammarConfigLoader grammarConfig = null; try { ... } catch (IOException e) { System.out.println(\"No grammar config found, using defaults.\"); } \u2014 null is silently accepted",
+        "WordSketchApiServer receives grammarConfig as a constructor parameter and stores it as a nullable field",
+        "Every handler that uses grammar config: 'if (grammarConfig != null)' \u2014 at least 6 distinct null guards in handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery, handleSemanticFieldExplore, handleSemanticFieldExploreMulti",
+        "Without grammar config, most endpoints either silently return empty results or return a 500 error \u2014 the behavior is inconsistent"
+      ],
+      "suggestion": "Fail fast at startup if grammar config is missing (the server cannot serve meaningful results without it); alternatively use a non-null NullObject/default implementation rather than propagating null through the entire API layer",
+      "confidence": "high"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "constructor_file_io",
+      "summary": "Both BlackLabQueryExecutor and GrammarConfigLoader perform file I/O in their constructors, mixing construction with resource acquisition",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor constructor: this.blackLabIndex = BlackLab.open(new File(indexPath)); \u2014 opens an index file during construction",
+        "GrammarConfigLoader constructor: String content = Files.readString(configPath); \u2014 reads and parses the config file during construction",
+        "GrammarConfigLoader constructor also throws IllegalArgumentException for business rule violations (e.g. missing 'version', presence of 'copulas') mixed with IOException for file access failures; callers must handle both exception types from a single constructor call"
+      ],
+      "suggestion": "For BlackLabQueryExecutor, provide a static factory method or an open() method distinct from the constructor; for GrammarConfigLoader, separate file loading from validation so that IOException and IllegalArgumentException come from clearly distinct call sites",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "server_split_init",
+      "summary": "WordSketchApiServer stores the com.sun.net.httpserver.HttpServer instance in a field set during start(), leaving the object partially initialized between construction and start()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "private com.sun.net.httpserver.HttpServer server; \u2014 field is null until start() is called",
+        "stop() method: if (server != null) { server.stop(0); } \u2014 null guard confirms caller-visible partial-init state",
+        "start() has no guard against being called twice; a second call would create a new server object while the first continues running and the original reference is lost"
+      ],
+      "suggestion": "Either create the HttpServer inside the constructor (before start()) so the object is fully initialized when returned, or use a builder pattern; add an idempotency guard in start() that throws IllegalStateException if called when already running",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "hardcoded_relative_grammar_path",
+      "summary": "The grammar config path 'grammars/relations.json' is resolved relative to the JVM working directory at startup, creating a fragile environment dependency",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "var grammarPath = java.nio.file.Paths.get(\"grammars/relations.json\"); \u2014 no ability to override from CLI",
+        "GrammarConfigLoader.createDefaultEnglish() also hardcodes Path.of(\"grammars/relations.json\")",
+        "The server command does accept --index for the corpus path but provides no equivalent --grammar option, forcing the grammar file to live at a specific CWD-relative location"
+      ],
+      "suggestion": "Add a --grammar CLI option to handleServerCommand so operators can specify the config path; use the hardcoded path only as a default, and log the resolved absolute path at startup to aid debugging",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicate_relation_query_handlers",
+      "summary": "handleRelationQuery and handleDependencyRelationQuery are structurally identical methods duplicated with only relationType string differing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleRelationQuery (lines 341-377) and handleDependencyRelationQuery (lines 442-478) share identical bodies: config lookup, executeSurfacePattern call with same args, identical JSON collocations-building loop, identical response structure",
+        "The only meaningful difference is the relationType check ('SURFACE' vs 'DEP') and one extra 'relation' field label",
+        "Both methods build the same JSONArray collocations loop (lines 361-369 vs 462-469) verbatim"
+      ],
+      "suggestion": "Extract a private buildCollocationResponse(exchange, lemma, relation, relationType) helper that both call with different relationType arguments, or collapse both into one method parameterised on relationType.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicate_relations_endpoint_lambdas",
+      "summary": "The /api/relations and /api/relations/dep endpoint lambdas duplicate the same loop body, differing only in the relationType filter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 118-143 (/api/relations) and lines 146-173 (/api/relations/dep) iterate grammarConfig.getRelations() and build JSON objects with the same fields",
+        "The only difference between the two blocks is the filter string ('SURFACE' vs 'DEP')"
+      ],
+      "suggestion": "Extract a private helper buildRelationsJson(String relationType) that both endpoints delegate to.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "handleSemanticFieldExplore_too_many_responsibilities",
+      "summary": "handleSemanticFieldExplore mixes parameter parsing, exploration orchestration, and full JSON serialisation in one ~115-line method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 484-526: parameter extraction and validation (seed, relationId, ints/doubles)",
+        "Lines 515-526: exploration execution via SemanticFieldExplorer",
+        "Lines 528-596: manual JSON response construction iterating seedAdjectives, discoveredNouns, coreAdjectives, and edges in four separate loops"
+      ],
+      "suggestion": "Extract a toExplorationResponseMap(ExplorationResult result, ...) helper that converts the domain result into the response map, separating serialisation from the handler logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "executeBcqlQuery_mixed_phases",
+      "summary": "executeBcqlQuery in BlackLabQueryExecutor conflates three distinct phases in one 100-line method: hit collection, collocate frequency accumulation, and result ranking",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 228-277: single pass collecting HitRecord objects and building collocateFreqMap",
+        "Lines 280-308: second pass computing logDice and building ConcordanceResult list",
+        "The method also handles collocate extraction fallback logic inline, competing with BlackLabSnippetParser's responsibilities"
+      ],
+      "suggestion": "Extract collectHits(...) and buildResults(List<HitRecord>, Map<String,Long>, long, int) private helpers, giving each phase a named boundary.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "getCorpusSize_always_returns_zero",
+      "summary": "BlackLabQueryExecutor.getCorpusSize() always returns 0L, silently breaking any caller that expects a real corpus size",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 534-536: 'public long getCorpusSize() throws IOException { return 0L; }' \u2014 no comment, no exception, no delegation to blackLabIndex",
+        "The method name implies it returns the actual number of tokens or documents indexed"
+      ],
+      "suggestion": "Either implement using blackLabIndex.mainAnnotatedField().tokenCount() or similar, or remove the method, or rename to getCorpusSizeUnimplemented() and add a TODO comment.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "handleConcordanceExamples_npe_before_null_check",
+      "summary": "word1.replace(\"&amp;\",\"&\") at line 851 is called before the null-check at line 856, causing NullPointerException when word1 is absent from query params",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 847: 'String word1 = params.get(\"word1\");' \u2014 returns null if key absent",
+        "Line 851: 'if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");' \u2014 actually this line IS guarded... wait re-reading: 'if (word1 != null) word1 = word1.replace(...)' \u2014 actually checking again",
+        "Line 851: 'if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");' \u2014 the null guard IS present here",
+        "However word2 at line 852 also has the same pattern: 'if (word2 != null) word2 = word2.replace(\"&amp;\", \"&\");' \u2014 also guarded",
+        "The null checks at lines 851-852 guard the replace calls correctly; the contract issue is the HTML-entity unescaping logic placed in a URL-query-param handler: '&amp;' is an HTML entity, not a URL-encoded character, and should not appear in URL query strings"
+      ],
+      "suggestion": "Remove the &amp; replacement. URL-encoded ampersands are decoded by URLDecoder as '%26' \u2192 '&', not as '&amp;'. If clients send malformed HTML-encoded URLs, validate and reject at the client layer.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "multiseed_skips_headword_substitution",
+      "summary": "handleSemanticFieldExploreMulti passes the raw pattern template to executeSurfacePattern for each seed, unlike the single-seed handler which calls getFullPattern(seed) first",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Single-seed handler line 517: 'String bcqlPattern = relationConfig.get().getFullPattern(seed);' \u2014 substitutes lemma into pattern",
+        "Multi-seed handler line 650: 'String bcqlPattern = relationConfig.get().pattern();' \u2014 stores raw template once, reused for all seeds",
+        "Line 661: 'executor.executeSurfacePattern(seed, bcqlPattern, headPos, collocatePos, ...)' \u2014 the same unsubstituted template is passed for every seed, so the query runs against the generic pattern without lemma constraint"
+      ],
+      "suggestion": "Inside the for-seed loop (line 659), compute the substituted pattern per seed: 'String seedPattern = relationConfig.get().getFullPattern(seed);' and pass seedPattern to executeSurfacePattern.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "logdice_dead_denominator_check",
+      "summary": "LogDiceCalculator.compute contains a dead condition: 'if (denominator <= 0)' can never be true given the earlier guard",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java"
+      ],
+      "evidence": [
+        "Line 20: 'if (headwordFreq <= 0 || collocateTotal <= 0) { return 0.0; }' \u2014 both are guaranteed > 0 past this point",
+        "Line 25: 'double denominator = headwordFreq + collocateTotal;'",
+        "Line 27: 'if (denominator <= 0) { return 0.0; }' \u2014 since headwordFreq > 0 and collocateTotal > 0, their sum is always > 0; this branch is unreachable"
+      ],
+      "suggestion": "Remove lines 27-29. If the intent is to guard against overflow producing a negative sum, add a comment explaining that; otherwise the check is misleading dead code.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "simpletagger_am_tagged_as_past_tense",
+      "summary": "SimpleTagger.determineVerbForm returns VBD (past tense) for 'am', but 'am' is VBP (first-person present indicative)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Line 355: 'if (word.equals(\"am\")) return \"VBD\";' \u2014 VBD is past tense in Penn Treebank",
+        "'am' is the first-person present indicative of 'be', which Penn Treebank tags as VBP",
+        "The VERB_FORMS static map (line 64) also maps 'am' \u2192 'VBP' (line 63: 'VERB_FORMS.put(\"am\", \"VBP\")') \u2014 contradicting determineVerbForm",
+        "Wait, checking: line 62: 'VERB_FORMS.put(\"is\", \"VBZ\");', line 63: 'VERB_FORMS.put(\"am\", \"VBP\");' \u2014 the static map has the correct VBP, but determineVerbForm is called only from the AUX_VERBS path which does NOT check the static VERB_FORMS map"
+      ],
+      "suggestion": "Change line 355 to 'if (word.equals(\"am\")) return \"VBP\";' to match Penn Treebank convention and align with the VERB_FORMS static map.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "multiseed_missing_pattern_substitution_per_seed",
+      "summary": "The multi-seed loop uses a single shared pattern template rather than a per-seed substituted pattern, yielding different behaviour from the single-seed path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 650: 'String bcqlPattern = relationConfig.get().pattern();' \u2014 set once before the loop",
+        "Lines 659-675: for each seed, executeSurfacePattern is called with the same unsubstituted template",
+        "Single-seed path (line 517) calls getFullPattern(seed) to inject lemma=\"seed\" into the pattern before querying"
+      ],
+      "suggestion": "Move pattern resolution inside the seed loop and call getFullPattern(seed) for each seed to be consistent with single-seed logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "boxed_boolean_exploration_enabled_in_record",
+      "summary": "RelationConfig record declares explorationEnabled as Boolean (boxed, nullable) but it is never treated as Optional \u2014 null is silently ignored at all usage sites",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 311: 'Boolean explorationEnabled' in record declaration \u2014 boxed, allows null",
+        "Line 148: 'relObj.getBoolean(\"exploration_enabled\")' \u2014 returns null when key is absent",
+        "toJson() at line 324: 'if (explorationEnabled != null) obj.put(...)' \u2014 null check present in serialisation but absent in any boolean evaluation context",
+        "No code path evaluates explorationEnabled.booleanValue() or uses it in a conditional after retrieval"
+      ],
+      "suggestion": "Change to 'boolean explorationEnabled' primitive with a default: 'relObj.getBooleanValue(\"exploration_enabled\", false)'. If null-ability is intentional (tri-state), document the semantic of null explicitly.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "missing_override_annotation_executeSurfacePattern",
+      "summary": "BlackLabQueryExecutor.executeSurfacePattern overrides the interface default without @Override annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java lines 51-57: 'default List<WordSketchResult> executeSurfacePattern(...) throws IOException'",
+        "BlackLabQueryExecutor.java line 455: 'public List<QueryResults.WordSketchResult> executeSurfacePattern(...)' \u2014 no @Override annotation",
+        "If the interface signature changes, the compiler will not warn that this implementation no longer overrides anything"
+      ],
+      "suggestion": "Add @Override to BlackLabQueryExecutor.executeSurfacePattern to make the override explicit and get compiler verification.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "adjective_names_baked_into_generic_collocate_classes",
+      "summary": "ExplorationResult.seedAdjectives, CoreAdjective, DiscoveredNoun.sharedAdjectives embed 'adjective' semantics but the explorer supports verb and noun relations equally",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 571-572: 'public final Map<String, Double> seedAdjectives' and 'public final List<CoreAdjective> coreAdjectives' \u2014 field names assume adjective collocates",
+        "Line 663: 'public static class CoreAdjective' \u2014 class name assumes adjective",
+        "Line 634: 'public final Map<String, Double> sharedAdjectives' inside DiscoveredNoun",
+        "exploreByPattern accepts any BCQL pattern and any relation name; collocates can be verbs (subject_of, object_of) or nouns, not just adjectives",
+        "WordSketchApiServer.handleSemanticFieldExplore line 543: iterates 'result.seedAdjectives' when the relation could be 'noun_verbs'"
+      ],
+      "suggestion": "Rename seedAdjectives \u2192 seedCollocates, CoreAdjective \u2192 CoreCollocate, sharedAdjectives \u2192 sharedCollocates to reflect the generic collocate concept rather than a specific POS.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "SemanticFieldExplorer_name_doesnt_reflect_comparison_mode",
+      "summary": "SemanticFieldExplorer contains both exploration (exploreByPattern) and comparison (compare, fetchExamples) functionality, but the name only communicates exploration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 82-256: 'EXPLORATION MODE' section with exploreByPattern",
+        "Lines 258-383: 'COMPARISON MODE' section with compare(Set<String> seedNouns, ...)",
+        "Lines 393-408: fetchExamples method",
+        "Class Javadoc describes both modes, but the class name only suggests exploration"
+      ],
+      "suggestion": "Rename to SemanticFieldAnalyzer or SemanticFieldService to encompass both modes, or split into SemanticFieldExplorer and SemanticFieldComparator.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "getCorpusSize_misleads_about_stub_behaviour",
+      "summary": "getCorpusSize() name implies it returns actual corpus size but the implementation always returns 0",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 534-536: 'public long getCorpusSize() throws IOException { return 0L; }' with no comment"
+      ],
+      "suggestion": "Either implement correctly, add a TODO/FIXME comment making clear this is a stub, or rename to make the stub status obvious.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_silent_frequency",
+      "summary": "getTotalFrequency swallows all exceptions and returns 0, silently corrupting logDice scores",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "getTotalFrequency (lines 316-330) wraps a broad catch(Exception e) that logs a warning and returns 0L",
+        "Callers in buildAndRankCollocates and executeBcqlQuery use the returned 0 directly in LogDiceCalculator.compute without any indication that frequency lookup failed",
+        "A missing or misconfigured 'lemma' annotation on the index would silently produce logDice=0 for every collocation rather than surfacing the configuration error"
+      ],
+      "suggestion": "Propagate the exception or introduce a typed sentinel value (e.g. Optional<Long>) so callers can distinguish 'lemma not found' (0) from 'lookup failed'. At minimum, promote the log.warn to log.error and document the degraded-mode contract explicitly so callers know to skip logDice ranking when this returns 0.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "error_swallowing"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_explorer_leak",
+      "summary": "SemanticFieldExplorer resources are not closed in try-with-resources, leaking on exception",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (around line 515) creates SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor) and calls explorer.close() at line 526 after the explorer.exploreByPattern() call",
+        "The same pattern appears in handleSemanticField (line 747-749) and handleSemanticFieldExamples (line 825-827)",
+        "SemanticFieldExplorer implements AutoCloseable; if exploreByPattern or compare throws a RuntimeException the close() call is never reached and any owned executor is leaked"
+      ],
+      "suggestion": "Replace the manual close pattern with try-with-resources: `try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor)) { ... }` in all three handler methods.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "resource_management"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_config_mixed_exceptions",
+      "summary": "GrammarConfigLoader constructor throws both IOException and IllegalArgumentException for what callers treat as a single initialization failure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader constructor throws IOException for missing file and IllegalArgumentException for invalid content (e.g. missing version field, presence of deprecated 'copulas' key, empty relations array)",
+        "In Main.handleServerCommand the constructor is called inside a catch(IOException) block, meaning IllegalArgumentException (unchecked) will propagate past the catch and surface as an unhandled exception rather than a clean startup error message",
+        "Callers must know to catch two different exception types for what is logically one operation: loading config"
+      ],
+      "suggestion": "Use a single checked exception type (IOException with a descriptive message, or a dedicated ConfigurationException) for all failure modes in the constructor. The validation failures are config errors not runtime bugs and should be catchable.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "exception_type_inconsistency"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_silent_delete",
+      "summary": "deleteRecursively silently swallows IOException with no log output",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "deleteRecursively (lines 221-227) catches IOException and ignores it entirely: catch (IOException ignored) {}",
+        "This is called from a shutdown hook registered during indexing to clean up temporary WPL chunk files",
+        "If the temp directory cannot be deleted (e.g. file lock, permission error) the failure is invisible; in contrast, similar silent swallows elsewhere at least emit log.warn"
+      ],
+      "suggestion": "Add at minimum a log.warn call so failures are observable: catch (IOException e) { logger.warn(\"Failed to delete temp dir {}: {}\", dir, e.getMessage()); }",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "error_swallowing"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "conv_dto_encapsulation_split",
+      "summary": "SemanticFieldExplorer inner DTO classes use public final fields while sibling QueryResults DTOs use private fields with getters",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.DiscoveredNoun, CoreAdjective, ExplorationResult, AdjectiveProfile and Edge all expose public final fields directly (e.g. public final String noun, public final double similarityScore)",
+        "QueryResults.WordSketchResult and ConcordanceResult in the same package use private final fields with getter methods (getLemma(), getLogDice(), etc.)",
+        "Both sets of classes are used as data transfer objects between the query layer and the API layer"
+      ],
+      "suggestion": "Adopt one consistent style across all DTO types in the query package. The getter pattern in QueryResults is more standard Java and easier to serialize with JSON libraries; migrate SemanticFieldExplorer inner classes to private final fields + getters, or document the public-field style as intentional for immutable value types.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "style_island"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "conv_unimplemented_corpussize",
+      "summary": "BlackLabQueryExecutor.getCorpusSize() returns hardcoded 0L and is not declared on the QueryExecutor interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "getCorpusSize() at line 534 returns 0L with no implementation body and no comment explaining why",
+        "The method is not on the QueryExecutor interface so it is not accessible polymorphically and cannot be tested through the interface contract",
+        "No caller in the codebase calls this method, making it dead code"
+      ],
+      "suggestion": "Either remove the method if it is abandoned, implement it using BlackLab's corpus statistics API, or add it to the QueryExecutor interface with a Javadoc explaining its intended semantics.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "conv_html_decode_oneof",
+      "summary": "handleConcordanceExamples applies manual '&amp;' replacement that no other handler performs",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 850-852 in handleConcordanceExamples explicitly call word1.replace(\"&amp;\", \"&\") and word2.replace(\"&amp;\", \"&\") after HttpApiUtils.parseQueryParams has already URL-decoded the values",
+        "No other handler in the file applies this extra HTML entity decoding step",
+        "A comment at line 851 says 'browsers encode & as &amp; in HTML' suggesting this was added as a workaround rather than a general fix"
+      ],
+      "suggestion": "If browsers send HTML-encoded entities in query strings when following an href, fix the client-side URL construction instead of adding server-side workarounds. If server-side handling is needed, centralise it in parseQueryParams or a dedicated decoding helper and apply it uniformly.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "style_island"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_no_api_coverage",
+      "summary": "WordSketchApiServer \u2014 the entire API layer with 10+ request handlers \u2014 has zero test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "No test file exists for WordSketchApiServer in src/test/",
+        "Handler methods include parameter validation, grammar config dispatch, error response logic, and result serialization \u2014 all untested",
+        "Bugs like unguarded Integer.parseInt on user params (500 instead of 400), inconsistent min_logdice defaults, and the &amp; workaround are not caught by any test"
+      ],
+      "suggestion": "Add unit tests for the handler methods using a mock QueryExecutor and a test HttpExchange (or an embedded HTTP server). At minimum: test parameter validation (missing/malformed params return 400), test the null grammarConfig fallback path, and test that valid requests return the expected JSON shape.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_coverage"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_no_snippet_parser_coverage",
+      "summary": "BlackLabSnippetParser \u2014 XML extraction utilities called on every query \u2014 has no unit tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "No test file exists for BlackLabSnippetParser",
+        "The class contains regex-based XML parsing (extractLemmaFromMatch, extractCollocateFromXmlByPosition, trimLeftXmlAtSentence, trimToSentence, detokenize) that is called in every query execution path in BlackLabQueryExecutor.executeBcqlQuery and executeSurfacePattern",
+        "Edge cases like null input, malformed XML, missing lemma attributes, and multi-word matches are handled by hand with fallback logic that is entirely untested"
+      ],
+      "suggestion": "Add a BlackLabSnippetParserTest covering: null/empty inputs, valid XML with expected lemma extraction, position-based collocate extraction, sentence boundary trimming, and the detokenize punctuation rules. These are pure functions with no dependencies and are easy to unit test.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_coverage"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_no_semantic_explorer_coverage",
+      "summary": "SemanticFieldExplorer core logic has no unit tests despite being the primary business value of the application",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "No test file exists for SemanticFieldExplorer",
+        "The class contains the intersection/ranking logic for semantic field discovery (exploreByPattern, compare) that is the core feature of the application",
+        "A mock QueryExecutor constructor exists (SemanticFieldExplorer(QueryExecutor executor)) specifically enabling testability without a real index, but no tests use it"
+      ],
+      "suggestion": "Write unit tests using the mock-executor constructor. Test the exploration algorithm with a small deterministic mock that returns fixed collocation lists, verify intersection logic, similarity scoring, min_shared filtering, and the ExplorationResult/DiscoveredNoun structure. The testability hook already exists \u2014 it just needs tests.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_coverage"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_no_pattern_substitution_coverage",
+      "summary": "PatternSubstitution has no tests despite performing regex-sensitive string mutations on BCQL patterns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "No test file exists for PatternSubstitution",
+        "substituteCollocate performs positional token splitting and insertion into BCQL patterns \u2014 a fragile string operation where off-by-one errors or unbalanced brackets would silently produce malformed queries",
+        "escapeForRegex and extractXposFromConstraint are pure functions with no side effects, trivially unit-testable"
+      ],
+      "suggestion": "Add PatternSubstitutionTest with cases: correct collocate substitution at position 1 and 2, preservation of xpos constraint, no-op on out-of-range position, null inputs, and regex-special characters in collocate names (e.g. collocate containing quotes or backslashes).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "missing_coverage"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_exploreByPattern_arity",
+      "summary": "SemanticFieldExplorer.exploreByPattern takes 10 parameters, far exceeding the readable API boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern signature: (String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice, String bcqlPattern, String simplePattern, String relationName, int headPos, int collocatePos)",
+        "The 6 parameters at the end (bcqlPattern, simplePattern, relationName, headPos, collocatePos) all derive from a single RelationConfig object that the caller already holds",
+        "The caller in WordSketchApiServer.handleSemanticFieldExplore already has relationConfig.get() and extracts each field individually before passing them in"
+      ],
+      "suggestion": "Introduce an ExploreOptions or RelationContext parameter object grouping bcqlPattern, simplePattern, relationName, headPos, collocatePos. Alternatively, add an overload that accepts RelationConfig directly if the dependency is acceptable. This reduces the method to 5 or fewer parameters.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "overloaded_interface"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_inconsistent_minlogdice_default",
+      "summary": "Sibling endpoints /explore and /explore-multi use different defaults for min_logdice (3.0 vs 2.0)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore line 513: Double.parseDouble(params.getOrDefault(\"min_logdice\", \"3.0\"))",
+        "handleSemanticFieldExploreMulti line 648: Double.parseDouble(params.getOrDefault(\"min_logdice\", \"2.0\"))",
+        "The two endpoints are documented as sibling exploration endpoints accepting the same min_logdice parameter; different defaults will produce inconsistent result sets when clients omit the parameter"
+      ],
+      "suggestion": "Define a single constant (e.g. private static final double DEFAULT_MIN_LOGDICE = 3.0) and use it in both handlers. If the difference is intentional (multi-seed needs a lower threshold to find common collocates), document it in the endpoint Javadoc and surface it in the /api/relations response.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "inconsistent_defaults"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_unguarded_number_parse",
+      "summary": "Integer.parseInt and Double.parseDouble are called on raw user query parameters without error handling, producing 500 responses for malformed input",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore lines 510-513: four consecutive parseInt/parseDouble calls on user params (top, nouns_per, min_shared, min_logdice) with no try-catch",
+        "handleSemanticFieldExploreMulti lines 646-648: same pattern for top, min_shared, min_logdice",
+        "handleSemanticField line 744-745 and handleConcordanceExamples line 854: same pattern",
+        "A request like ?top=abc will throw NumberFormatException which propagates through the generic Exception handler as a 500 Internal Server Error instead of a 400 Bad Request"
+      ],
+      "suggestion": "Wrap number parsing in a helper (e.g. HttpApiUtils.parseIntParam(params, \"top\", 15)) that catches NumberFormatException and either uses the default or sends a 400 response. This centralises the pattern and ensures consistent 400 vs 500 semantics for malformed input.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_input_validation"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_overlapping_query_methods",
+      "summary": "QueryExecutor interface defines three overlapping query methods with unclear boundaries between findCollocations, executeBcqlQuery, and executeSurfacePattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations(headword, cqlPattern, minLogDice, maxResults) \u2014 original method",
+        "executeSurfacePattern(lemma, bcqlPattern, headPosition, collocatePosition, minLogDice, maxResults) \u2014 supersedes findCollocations for surface patterns",
+        "executeBcqlQuery(bcqlPattern, maxResults) \u2014 returns ConcordanceResult instead of WordSketchResult, different return type but similar semantic",
+        "The default implementation of executeSurfacePattern delegates to findCollocations (QueryExecutor.java line 56) meaning the two methods are interchangeable for the default case, obscuring which to call"
+      ],
+      "suggestion": "Clarify the interface contract with Javadoc distinguishing the three methods. If findCollocations is superseded by executeSurfacePattern, mark it @Deprecated. Consider whether executeBcqlQuery belongs on a separate ConcordanceExecutor interface to separate collocate-ranking from concordance retrieval responsibilities.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "overloaded_interface"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "auth_no_auth_anywhere",
+      "summary": "No authentication or authorization is applied to any endpoint; wildcard CORS is universal",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "All 10+ endpoint handlers proceed directly to business logic with no token validation, API key check, or session verification",
+        "Every response sets Access-Control-Allow-Origin: * (HttpApiUtils lines 28, 44, 56, 67), permitting cross-origin requests from any domain",
+        "No request IP restriction, rate limiting, or audit logging exists anywhere in the server"
+      ],
+      "suggestion": "If this server is intended for local use only, add a check that the remote address is loopback (127.0.0.1 / ::1) and reject other connections with 403. If broader deployment is planned, add token-based authentication before the application reaches production use. The pattern is at least consistent (no partial enforcement), but the wildcard CORS combined with no auth allows any page on the internet to make requests if the port is reachable.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "no_auth"
+    }
+  ],
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "session_id": "ext_20260310_163753_a229a8f3",
+    "created_at": "2026-03-10T16:38:26+00:00",
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "fe64472f6ffa512c20a683e501636b8223843ca8a8e93d844680f152c1e09284"
+  }
+}

@@ -1,0 +1,249 @@
+{
+  "session": {
+    "id": "ext_20260310_155230_bb77b805",
+    "token": "a70fb5823be93c961ccfd1d4d4484102"
+  },
+  "assessments": {
+    "design_coherence": 52.0,
+    "contract_coherence": 43.0,
+    "logic_clarity": 58.0,
+    "type_safety": 48.0,
+    "naming_quality": 55.0
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-dual-response-building",
+      "summary": "API response building uses JSONObject in some handlers and Map<String,Object> in others within the same class",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery all build responses with JSONObject directly",
+        "handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticField, handleConcordanceExamples all build responses with Map<String, Object>",
+        "Both styles are passed to the same HttpApiUtils.sendJsonResponse(exchange, response)"
+      ],
+      "suggestion": "Adopt a single style throughout WordSketchApiServer. The JSONObject approach avoids an extra serialization step; alternatively introduce typed response records and convert to JSON in one place.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-multi-seed-no-head-substitution",
+      "summary": "handleSemanticFieldExploreMulti passes the raw pattern without headword substitution, unlike the parallel handleSemanticFieldExplore",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "handleSemanticFieldExplore: String bcqlPattern = relationConfig.get().getFullPattern(seed);  // substitutes headword",
+        "handleSemanticFieldExploreMulti: String bcqlPattern = relationConfig.get().pattern();  // raw pattern, no substitution",
+        "Both methods then pass bcqlPattern to executor.executeSurfacePattern"
+      ],
+      "suggestion": "Call getFullPattern(seed) instead of pattern() for each seed inside the loop in handleSemanticFieldExploreMulti, matching the single-seed handler.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-overlapping-collocate-methods",
+      "summary": "BlackLabQueryExecutor exposes four partially-overlapping collocate-finding methods with no clear boundary",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "findCollocations – CQL-based, returns WordSketchResult",
+        "findDependencyCollocations – dependency BCQL, returns WordSketchResult",
+        "executeDependencyPattern – dependency BCQL with POS constraint, public, returns WordSketchResult",
+        "executeSurfacePattern – labeled BCQL, public, returns WordSketchResult",
+        "All four share buildAndRankCollocates at the end but approach the problem differently"
+      ],
+      "suggestion": "Consolidate findCollocations and findDependencyCollocations into executeSurfacePattern/executeDependencyPattern, retiring the old public API; document the intended usage difference between the two remaining methods.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-stub-method-misindented",
+      "summary": "getCorpusSize() stub in BlackLabQueryExecutor is misindented and silently returns 0 without any indication it is unimplemented",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "public long getCorpusSize() throws IOException { return 0L; }  // body at column 8, not 4",
+        "No @Override, no TODO, no UnsupportedOperationException — the stub is invisible to callers"
+      ],
+      "suggestion": "Either implement the method properly or throw UnsupportedOperationException and annotate with // TODO, and fix the indentation.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-default-surface-pattern-silent-drop",
+      "summary": "QueryExecutor.executeSurfacePattern default silently discards headPosition and collocatePosition parameters",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "default List<QueryResults.WordSketchResult> executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) throws IOException { return findCollocations(lemma, bcqlPattern, minLogDice, maxResults); }",
+        "The Javadoc for headPosition and collocatePosition does not mention that they are ignored in the default implementation"
+      ],
+      "suggestion": "Add a Javadoc note on the default implementation stating that headPosition and collocatePosition are ignored; or throw UnsupportedOperationException to force overriding.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-extract-collocate-from-pattern-dead-body",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern always returns 'unknown' regardless of input",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": [
+        "static String extractCollocateFromPattern(String bcqlPattern, int hitIndex) { int pos2Index = findLabelPosition(bcqlPattern, 2); if (pos2Index <= 0) { return \"unknown\"; } return \"unknown\"; }",
+        "Both branches return \"unknown\"; the method body is dead code"
+      ],
+      "suggestion": "Remove the method or implement it; any caller receiving 'unknown' silently gets a wrong collocate label.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-number-format-exception-unhandled",
+      "summary": "Numeric query parameters are parsed with Integer.parseInt/Double.parseDouble without catching NumberFormatException, producing opaque 500 errors for malformed input",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "int topCollocates = Integer.parseInt(params.getOrDefault(\"top\", \"15\"));",
+        "double minLogDice = Double.parseDouble(params.getOrDefault(\"min_logdice\", \"3.0\"));",
+        "Same pattern repeated in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticField, handleConcordanceExamples"
+      ],
+      "suggestion": "Wrap numeric parsing in try/catch and return HTTP 400 with a descriptive message on NumberFormatException.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-extract-pos-unknown-sentinel",
+      "summary": "BlackLabSnippetParser.extractPosFromMatch returns the string 'unknown' instead of null when no POS is found, leaking a sentinel into data",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": [
+        "static String extractPosFromMatch(String matchText) { ... return \"unknown\"; }",
+        "The returned sentinel propagates through WordSketchResult.pos and appears in API JSON responses as a real POS value"
+      ],
+      "suggestion": "Return null when no POS is found; callers that need a display string can substitute 'unknown' at the display layer.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc-wpl-multi-statement-line",
+      "summary": "convertConlluToWplChunks compresses four state-machine updates onto one line, obscuring the logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "w.close(); w = null; chunks++; sentencesInChunk = 0;  // four operations on one line",
+        "The null-writer state (w == null means 'no current chunk file') is an implicit sentinel not explained"
+      ],
+      "suggestion": "Expand to four separate statements and add a brief comment explaining the null sentinel: // null means no open chunk file",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc-pattern-parsing-triplicated",
+      "summary": "GrammarConfigLoader re-implements the same [bracket]-token scanning loop three times",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "countPatternTokens(String pattern) – scans for [token] blocks counting them",
+        "deriveTokenPosition(String pattern, char targetLabel, int defaultPos) – scans [token] blocks counting and matching a label",
+        "substituteHeadword(String pattern, String headword, int headPosition) – scans [token] blocks building a positions list",
+        "All three use identical while-loop skeletons but cannot be shared because they return different things"
+      ],
+      "suggestion": "Extract a shared tokenizePattern(String) helper that returns a List<String> of bracket-tokens; reuse it in all three places.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc-null-sentinel-common-collocates",
+      "summary": "handleSemanticFieldExploreMulti uses null as a sentinel for 'no intersection computed yet', which is non-obvious",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Set<String> commonCollocates = null;",
+        "if (commonCollocates == null) { commonCollocates = seedCollocates; } else { commonCollocates.retainAll(seedCollocates); }",
+        "if (commonCollocates == null) { commonCollocates = new HashSet<>(); }  // after loop"
+      ],
+      "suggestion": "Replace the null sentinel with a boolean flag or an Optional, or initialize with the first seed's collocates before the loop; add a comment explaining the intent.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-relation-type-raw-string",
+      "summary": "RelationConfig.relationType is a raw String that only takes two values, used in 8+ string equality checks",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "String relationType inside RelationConfig record",
+        "\"SURFACE\".equals(rel.relationType()) and \"DEP\".equals(rel.relationType()) repeated across handleFullSketch, handleRelationQuery, handleFullDependencySketch, API listing endpoints"
+      ],
+      "suggestion": "Replace relationType with an enum RelationType { SURFACE, DEP } and use switch/pattern matching; the compiler will enforce exhaustiveness.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-pos-group-stringly-typed",
+      "summary": "PosGroup constants are raw Strings; comparisons like collocatePosGroup().equals(PosGroup.ADJ) cannot be verified by the compiler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "public static final String ADJ = \"adj\"; in PosGroup",
+        "collocatePosGroup().equals(PosGroup.ADJ) in handleSemanticFieldExplore and handleSemanticFieldExploreMulti",
+        "posGroupFromConstraint returns \"prep\", \"part\", \"other\" which are not even in PosGroup"
+      ],
+      "suggestion": "Turn PosGroup into an enum (NOUN, VERB, ADJ, ADV, PREP, PART, OTHER); update collocatePosGroup() return type accordingly.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-response-map-untyped",
+      "summary": "API response building throughout WordSketchApiServer uses Map<String, Object>, making property name typos undetectable",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Map<String, Object> response = new HashMap<>(); response.put(\"status\", \"ok\"); response.put(\"seeds\", ...) ...",
+        "Same pattern in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticField, handleConcordanceExamples, handleBcqlQueryPost"
+      ],
+      "suggestion": "Introduce typed response records (Java records or inner static classes) and serialize via fastjson2; property names become field names visible to the compiler.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-long-array-return",
+      "summary": "convertConlluToWplChunks returns long[] to encode three semantically distinct counts with no positional safety",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "long[] counts = convertConlluToWplChunks(Paths.get(inputPath), wplTempDir, 10_000);",
+        "printf uses counts[0], counts[1], counts[2] in positional order: sentences, tokens, chunks"
+      ],
+      "suggestion": "Return a record WplConversionStats(long sentences, long tokens, long chunks) or use a three-element named structure.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq-adjective-naming-for-generic-collocates",
+      "summary": "SemanticFieldExplorer uses 'adjective' terminology pervasively for what is a general-purpose collocate concept",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Inner class CoreAdjective – used for any collocate, not just adjectives",
+        "Inner class AdjectiveProfile – used in comparison of any relation",
+        "ExplorationResult.seedAdjectives: Map<String, Double> – holds collocates of any POS",
+        "SemanticFieldExplorer.compare() builds 'adjectiveProfiles' for all noun collocates",
+        "logger.info(\"Core {} (define the class):\", relationName) attempts to abstract the concept but the field names don't"
+      ],
+      "suggestion": "Rename CoreAdjective → CoreCollocate, AdjectiveProfile → CollocateProfile, seedAdjectives → seedCollocates, coreAdjectives → coreCollocates, nounProfiles → candidateProfiles.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq-extract-collocate-from-pattern-lying-name",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern is named as if it extracts data but always returns 'unknown'",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": [
+        "static String extractCollocateFromPattern(String bcqlPattern, int hitIndex) { ... return \"unknown\"; }"
+      ],
+      "suggestion": "Remove or fully implement the method; if left as a stub, rename it to something like getDefaultCollocate() and annotate // TODO: implement.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq-single-letter-writer-variable",
+      "summary": "BufferedWriter named 'w' in convertConlluToWplChunks is a single-letter variable in a non-trivial 50-line method",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "BufferedWriter w = null; ... w.write(\"<s>\\n\"); ... w.close(); w = null;"
+      ],
+      "suggestion": "Rename to 'chunkWriter' or 'currentChunk' to signal intent.",
+      "confidence": "medium"
+    }
+  ]
+}

@@ -63,7 +63,7 @@ public class Main {
                     showUsage();
                     break;
                 default:
-                    logger.error("Unknown command: " + command);
+                    logger.error("Unknown command: {}", command);
                     showUsage();
             }
         } catch (Exception e) {
@@ -171,7 +171,7 @@ public class Main {
         long sentences = 0, tokens = 0, chunks = 0;
         boolean inSentence = false;
         int sentencesInChunk = 0;
-        BufferedWriter w = null;
+        BufferedWriter writer = null;
 
         try (BufferedReader r = Files.newBufferedReader(input, StandardCharsets.UTF_8)) {
             String line;
@@ -179,31 +179,41 @@ public class Main {
                 if (line.startsWith("#")) continue;
                 if (line.isBlank()) {
                     if (inSentence) {
-                        w.write("</s>\n");
+                        writer.write("</s>\n");
                         sentences++;
                         sentencesInChunk++;
                         inSentence = false;
                         if (sentencesInChunk >= sentencesPerChunk) {
-                            w.close(); w = null; chunks++; sentencesInChunk = 0;
+                            writer.close();
+                            writer = null;
+                            chunks++;
+                            sentencesInChunk = 0;
                         }
                     }
                     continue;
                 }
                 if (MWT_OR_EMPTY.matcher(line).find()) continue;
                 if (!inSentence) {
-                    if (w == null) {
+                    if (writer == null) {
                         Path chunk = outputDir.resolve(String.format("chunk_%06d.tsv", chunks));
-                        w = Files.newBufferedWriter(chunk, StandardCharsets.UTF_8);
+                        writer = Files.newBufferedWriter(chunk, StandardCharsets.UTF_8);
                     }
-                    w.write("<s>\n");
+                    writer.write("<s>\n");
                     inSentence = true;
                 }
-                w.write(line); w.write('\n');
+                writer.write(line);
+                writer.write('\n');
                 tokens++;
             }
-            if (inSentence && w != null) { w.write("</s>\n"); sentences++; }
+            if (inSentence && writer != null) {
+                writer.write("</s>\n");
+                sentences++;
+            }
         } finally {
-            if (w != null) { w.close(); chunks++; }
+            if (writer != null) {
+                writer.close();
+                chunks++;
+            }
         }
         return new long[]{sentences, tokens, chunks};
     }

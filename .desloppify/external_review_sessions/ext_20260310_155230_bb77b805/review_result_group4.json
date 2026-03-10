@@ -1,0 +1,184 @@
+{
+  "session": {
+    "id": "ext_20260310_155230_bb77b805",
+    "token": "a70fb5823be93c961ccfd1d4d4484102"
+  },
+  "assessments": {
+    "error_consistency": 54.0,
+    "convention_outlier": 63.0,
+    "test_strategy": 41.0,
+    "api_surface_coherence": 59.0,
+    "authorization_consistency": 77.0
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "explorer-resource-leak",
+      "summary": "SemanticFieldExplorer is not closed in a try-with-resources, leaking resources on exception",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "In handleSemanticFieldExplore (line ~479): `SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor); ... ExplorationResult result = explorer.exploreByPattern(...); explorer.close();` — if exploreByPattern() throws, close() is never called",
+        "Same pattern repeated in handleSemanticField (~line 711) and handleSemanticFieldExamples (~line 789)",
+        "SemanticFieldExplorer implements AutoCloseable, so try-with-resources is the intended usage pattern"
+      ],
+      "suggestion": "Replace all three usages with try-with-resources: `try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor)) { ... }`",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "unguarded-parseint-on-user-input",
+      "summary": "Integer.parseInt/Double.parseDouble on user query params without NumberFormatException handling — returns 500 instead of 400",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (~line 474): `Integer.parseInt(params.getOrDefault(\"top\", \"15\"))` — if user passes `top=abc`, throws NumberFormatException which propagates as HTTP 500",
+        "Same issue at lines ~475, 476, 477, 610, 611, 612, 708, 709, 787, 818 — all numeric params in all handlers are unguarded",
+        "The outer catch in the context lambda catches Exception (logs it and sends 500), so the user gets a 500 with an opaque error instead of a 400 with a useful message"
+      ],
+      "suggestion": "Wrap numeric param parsing in a helper that catches NumberFormatException and calls `HttpApiUtils.sendError(exchange, 400, \"Invalid parameter value: ...\")`, or use a safe parseInt utility with a default",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "dead-stub-returns-unknown",
+      "summary": "extractCollocateFromPattern() is a dead stub that always returns \"unknown\" regardless of input",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractCollocateFromPattern (line ~164): method body has `int pos2Index = findLabelPosition(bcqlPattern, 2);` but then unconditionally `return \"unknown\";` — the computed pos2Index is never used",
+        "No callers appear to handle or detect this failure mode; any code relying on this returns a meaningless value"
+      ],
+      "suggestion": "Either implement the method body to actually extract the collocate using findLabelPosition, or remove the method if it is unused",
+      "confidence": "high"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "getCorpusSize-indentation-outlier",
+      "summary": "getCorpusSize() method in BlackLabQueryExecutor has broken indentation, appearing at the wrong nesting level",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "After buildAndRankCollocates, the method `public long getCorpusSize() throws IOException { return 0L; }` appears with 8-space indentation directly following the closing brace of buildAndRankCollocates, visually suggesting it is nested inside another method",
+        "All other methods in the class use standard 4-space class-level indentation; this single method is a formatting outlier"
+      ],
+      "suggestion": "Fix the indentation of getCorpusSize() to match the other class-level methods (4 spaces)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "charset-literal-vs-constant",
+      "summary": "HttpApiUtils uses \"UTF-8\" string literals for charset while the rest of the codebase uses StandardCharsets.UTF_8",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "sendJsonResponse: `json.getBytes(\"UTF-8\")` uses string literal",
+        "sendError: `json.getBytes(\"UTF-8\")` uses string literal",
+        "parseQueryParams: `java.net.URLDecoder.decode(keyValue[0], \"UTF-8\")` uses string literal",
+        "By contrast, Main.java and BlackLabConllUIndexer.java consistently use `StandardCharsets.UTF_8` constants"
+      ],
+      "suggestion": "Replace all `\"UTF-8\"` string literals in HttpApiUtils with `StandardCharsets.UTF_8` to match the rest of the codebase",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "api-server-zero-coverage",
+      "summary": "WordSketchApiServer (the entire REST API layer) has zero unit or integration tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "No test file exists anywhere under src/test/ for WordSketchApiServer or HttpApiUtils",
+        "The server contains ~1000 lines of request routing, parameter parsing, response building, and business logic — all entirely untested",
+        "Error handling bugs like the unguarded parseInt and resource leaks are undetectable without tests"
+      ],
+      "suggestion": "Add unit tests using a mock QueryExecutor: start the server on an ephemeral port, send HTTP requests with java.net.HttpURLConnection, assert response codes and JSON shape for key scenarios (missing params → 400, bad numeric param → 400, valid request → 200 with expected fields)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "snippet-parser-zero-coverage",
+      "summary": "BlackLabSnippetParser has no tests despite containing complex, fragile XML/text parsing logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "BlackLabSnippetParser has ~15 static utility methods with non-trivial regex-based logic (trimToSentence, extractCollocateFromXmlByPosition, detokenize, findLabelPosition, etc.)",
+        "No test class exists for BlackLabSnippetParser",
+        "The dead stub extractCollocateFromPattern (always returns \"unknown\") would be caught immediately by even a single test"
+      ],
+      "suggestion": "Add a BlackLabSnippetParserTest with pure unit tests over sample XML strings for each public/package-private method, especially findLabelPosition, extractCollocateFromXmlByPosition, trimToSentence, and detokenize",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration-tests-hardcoded-path",
+      "summary": "All integration tests require a hardcoded Windows index path (D:\\corpora_philsci\\bi) and are always skipped in any CI environment",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "DependencySketchTest: `private static final String INDEX_PATH = \"D:\\\\corpora_philsci\\\\bi\";` with `Assumptions.assumeTrue(indexDir.exists(), ...)`",
+        "BlackLabDummyTest and BlackLabBcqlConcordanceTest have the same pattern",
+        "Tests that do run only assert `assertNotNull(results)` — no actual content or behavior is verified"
+      ],
+      "suggestion": "Build a small in-memory test index from bundled test-data/ CoNLL-U sentences (the project already has test-data/), run BlackLab indexing in @BeforeAll, and execute real queries against it — removing the Assumptions.assumeTrue guards",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "readme-bcql-method-mismatch",
+      "summary": "README documents /api/bcql as GET but the implementation is POST",
+      "related_files": [
+        "README.md",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "README.md line 119: `GET /api/bcql`",
+        "WordSketchApiServer.java line ~229: `server.createContext(\"/api/bcql\", ...)` delegates to handleBcqlQueryPost which explicitly calls `requireMethod(exchange, \"POST\")`",
+        "Server startup log also states: `POST /api/bcql - Execute BCQL query`"
+      ],
+      "suggestion": "Change README.md line 119 from `GET /api/bcql` to `POST /api/bcql` and add a curl example showing the POST body format",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "numeric-param-returns-500-not-400",
+      "summary": "Invalid numeric query parameters (e.g. top=abc) produce HTTP 500 instead of 400, violating API contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore calls `Integer.parseInt(params.getOrDefault(\"top\", \"15\"))` without try-catch; a malformed value propagates as NumberFormatException caught by the outer `catch (Exception e)` which sends HTTP 500",
+        "Same issue in handleSemanticFieldExploreMulti (top, min_shared, min_logdice), handleSemanticField (min_logdice, max_per_noun), handleSemanticFieldExamples (max), handleConcordanceExamples (limit) — 10+ call sites",
+        "HTTP 500 implies a server-side fault; a user-supplied bad value should produce 400 Bad Request"
+      ],
+      "suggestion": "Add a helper `parseIntParam(params, key, defaultVal)` that catches NumberFormatException and calls sendError(exchange, 400, ...) then returns false; use it consistently across all handlers",
+      "confidence": "high"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "options-preflight-missing-on-get-endpoints",
+      "summary": "OPTIONS preflight is handled on POST endpoints but all GET endpoints return 405 for OPTIONS requests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "handleVisualRadial and handleBcqlQueryPost both check `if (\"OPTIONS\".equalsIgnoreCase(method))` and call `HttpApiUtils.sendOptionsResponse(exchange, \"POST\")`",
+        "All 9 GET endpoint context handlers call `HttpApiUtils.requireMethod(exchange, \"GET\")` which returns 405 for any non-GET method including OPTIONS",
+        "CORS headers (Access-Control-Allow-Origin: *) are set on all JSON responses, but a browser making a cross-origin request with custom headers will send an OPTIONS preflight that gets rejected with 405"
+      ],
+      "suggestion": "Update requireMethod() or add an OPTIONS check before the method guard in each GET context handler, or extend HttpApiUtils.requireMethod to automatically respond 204 with CORS headers for OPTIONS requests",
+      "confidence": "medium"
+    }
+  ]
+}

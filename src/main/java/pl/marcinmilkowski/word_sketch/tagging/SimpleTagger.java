@@ -239,7 +239,7 @@ public class SimpleTagger {
                 }
             }
         }
-        logger.info("Loaded " + lexicon.size() + " entries from lexicon");
+        logger.info("Loaded {} entries from lexicon", lexicon.size());
     }
 
 

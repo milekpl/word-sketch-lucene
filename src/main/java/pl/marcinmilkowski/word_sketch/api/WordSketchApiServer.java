@@ -62,11 +62,19 @@ public class WordSketchApiServer {
             server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(port), 0);
             
             server.createContext("/health", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok"));
             });
 
             server.createContext("/api/sketch/", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 String path = exchange.getRequestURI().getPath();
                 String[] parts = path.substring("/api/sketch/".length()).split("/");
@@ -108,6 +116,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/relations", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 JSONArray relations = new JSONArray();
 
@@ -132,6 +144,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/relations/dep", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 JSONArray relations = new JSONArray();
 
@@ -157,6 +173,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field/explore", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 logger.info("Received request: {}", exchange.getRequestURI());
                 try {
@@ -171,6 +191,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field/explore-multi", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 logger.info("Received request: {}", exchange.getRequestURI());
                 try {
@@ -185,6 +209,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 try {
                     handleSemanticField(exchange);
@@ -195,6 +223,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field/examples", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 try {
                     handleSemanticFieldExamples(exchange);
@@ -205,6 +237,10 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/concordance/examples", exchange -> {
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                    return;
+                }
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 try {
                     handleConcordanceExamples(exchange);

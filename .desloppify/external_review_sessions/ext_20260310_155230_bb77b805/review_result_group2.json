@@ -1,0 +1,210 @@
+{
+  "session": {
+    "id": "ext_20260310_155230_bb77b805",
+    "token": "a70fb5823be93c961ccfd1d4d4484102"
+  },
+  "assessments": {
+    "mid_level_elegance": 40.0,
+    "ai_generated_debt": 48.0,
+    "incomplete_migration": 50.0,
+    "package_organization": 55.0,
+    "initialization_coupling": 45.0
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "api-god-class",
+      "summary": "WordSketchApiServer is a 44KB god class mixing HTTP infrastructure, routing, and all business logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "start() method is 200+ lines registering 10 HTTP contexts with all setup logic inline",
+        "handleSemanticFieldExplore() does HTTP param extraction, validation, SemanticFieldExplorer construction, business orchestration, and JSON response building in a single 115-line method",
+        "handleSemanticFieldExploreMulti() creates and closes SemanticFieldExplorer transiently, not injecting it",
+        "JSON response-building code (building Map<String,Object>, calling Math.round, etc.) is duplicated across at least 6 handler methods"
+      ],
+      "suggestion": "Extract a dedicated SemanticFieldController or SemanticFieldHandler service class that takes the query logic out of the HTTP layer. Introduce a ResponseBuilder or use a proper DTO-to-JSON mapper to eliminate duplicated JSON construction. Register routes using a table-driven dispatch pattern or small handler objects rather than embedding all logic in lambda bodies inside start().",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "executor-long-methods",
+      "summary": "BlackLabQueryExecutor.executeBcqlQuery() is a 100+ line method with an embedded record definition and two-pass logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "Lines 209-312: single method handles concordance window sampling, XML extraction, collocate frequency counting, logDice scoring, result assembly, and sorting",
+        "Defines a local record HitRecord inside the method body (line 228)",
+        "executeDependencyPattern() and executeSurfacePattern() share near-identical query-group-extract-rank structure but are not refactored through a shared helper"
+      ],
+      "suggestion": "Extract a CollocateResultBuilder or a private collectHitRecords() helper that handles the two-pass concordance logic. Consolidate the shared query→group→extract→rank flow into a single parameterised helper used by executeDependencyPattern(), executeSurfacePattern(), and findCollocations().",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "stub-corpus-size",
+      "summary": "BlackLabQueryExecutor.getCorpusSize() is a public stub returning hardcoded 0L with a visible indentation anomaly",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "Lines 534-536: `public long getCorpusSize() throws IOException { return 0L; }` — method body hardcodes 0 unconditionally",
+        "The method indentation is misaligned (4 extra spaces) relative to surrounding code, suggesting it was pasted in out of context",
+        "getCorpusSize() is not part of the QueryExecutor interface and is never called from any other class"
+      ],
+      "suggestion": "If corpus size is not needed, delete the method. If it is needed, implement it via BlackLab's TermFrequencyList or token-count metadata rather than returning 0.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "dead-interface-method",
+      "summary": "QueryExecutor.isReady() default method returns true unconditionally and is never called",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "Line 68: `default boolean isReady() { return true; }` — trivial default with no override",
+        "grep across all main sources confirms no call site for isReady()"
+      ],
+      "suggestion": "Remove isReady() from the interface. If readiness checking is needed later, add it with a real contract and implementation.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "vestigial-copulas-field",
+      "summary": "GrammarConfigLoader maintains a copulas field that is always empty, serializes it, and logs it, despite being semantically dead",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Line 86: `this.copulas = Collections.emptyList();` — always assigned empty list, never populated",
+        "Line 165-166: logs `{} copulas` which always prints 0",
+        "Line 294: `root.put(\"copulas\", new JSONArray(copulas));` — serializes an empty list into every API response",
+        "Line 79-83: constructor actively rejects a 'copulas' key in the config file, yet the field still exists in the object"
+      ],
+      "suggestion": "Remove the copulas field, its log statement, and its toJson() serialization entirely. The comment in the Javadoc (line 29) referencing the old schema with copulas should also be removed.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "hardcoded-adjective-lexicon",
+      "summary": "SimpleTagger constructor hardcodes 50+ individual adjective entries line-by-line in a lexicon map",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"],
+      "evidence": [
+        "Constructor lines 111-210: roughly 50 lexicon.put() calls for individual adjectives like big, small, warm, lovely, brown",
+        "Pattern is characteristic of AI-generated seed data: progressively adding entries to satisfy examples rather than loading from a resource file",
+        "SimpleTagger is not called from any main source code (only SimpleTaggerTest references it)"
+      ],
+      "suggestion": "If SimpleTagger is still needed, load the lexicon from a bundled resource file (e.g., adjectives.txt in src/main/resources) rather than hard-coding entries in Java source. If it is no longer used, remove the class entirely.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead-cql-parser-package",
+      "summary": "The grammar/CQLParser and grammar/CQLPattern packages are unused dead code from a prior architecture",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLPattern.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParseException.java"
+      ],
+      "evidence": [
+        "grep of all main source files shows zero imports of CQLParser, CQLPattern, or CQLParseException outside the grammar package itself",
+        "The main execution path uses BlackLab's own CorpusQueryLanguageParser (nl.inl.blacklab.queryParser.corpusql) directly",
+        "CQLParser is only referenced in test files (CQLParserTest.java)",
+        "CLAUDE.md documents CQLParser.java as a key component, but it is absent from the actual call graph"
+      ],
+      "suggestion": "Either delete the grammar/CQL* package if the custom parser has been superseded by BlackLab's parser, or restore its integration as the single parsing layer and remove direct BlackLab parser calls. The current state — two parsers, one unused — is the worst of both worlds.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy-field-name-cql-pattern",
+      "summary": "GrammarConfigLoader silently falls back to legacy cql_pattern field name alongside new pattern field",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Line 108-109: `relObj.containsKey(\"pattern\") ? relObj.getString(\"pattern\") : (relObj.containsKey(\"cql_pattern\") ? relObj.getString(\"cql_pattern\") : \"\")`",
+        "The Javadoc comment at line 36 still shows `cql_pattern` as the field name in the expected JSON structure",
+        "The actual relations.json presumably uses pattern, but the old name is silently accepted"
+      ],
+      "suggestion": "Once all config files use `pattern`, remove the `cql_pattern` fallback and update the Javadoc to show only the current field name. If old config files still use `cql_pattern`, run a migration script and then remove the fallback.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dual-semantic-explorer-constructors",
+      "summary": "SemanticFieldExplorer retains an old path-based constructor that creates its own BlackLabQueryExecutor alongside the preferred injection constructor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Line 69-73: `public SemanticFieldExplorer(String indexPath) throws IOException` — constructs its own executor, ownsExecutor=true",
+        "Line 76-80: `public SemanticFieldExplorer(QueryExecutor executor)` — injection constructor, ownsExecutor=false",
+        "WordSketchApiServer always uses the injection constructor; the path-based constructor is only called from nowhere in main code",
+        "The ownsExecutor flag is a complexity tax paid to support both patterns simultaneously"
+      ],
+      "suggestion": "Remove the path-based constructor. All callers should use the injection constructor. This eliminates the ownsExecutor flag and the conditional close() logic.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pattern-substitution-wrong-package",
+      "summary": "PatternSubstitution is domain/query logic placed in the api/ HTTP-layer package",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"],
+      "evidence": [
+        "PatternSubstitution.substituteCollocate() and extractXposFromConstraint() manipulate BCQL patterns — pure domain logic with no HTTP dependency",
+        "The class is in package pl.marcinmilkowski.word_sketch.api but contains no javax.servlet, HttpExchange, or HTTP-specific code",
+        "It is called from WordSketchApiServer.handleConcordanceExamples() but its logic belongs to the query or grammar layer"
+      ],
+      "suggestion": "Move PatternSubstitution to the query/ or grammar/ package where it belongs alongside other pattern manipulation utilities.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "singleton-packages",
+      "summary": "The config/, viz/, and tagging/ packages each contain only 1-2 classes and add navigational overhead without domain clarity",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "config/ has exactly one class (GrammarConfigLoader) — the RelationConfig record it defines could be an inner class or a grammar/ member",
+        "viz/ has exactly one class (RadialPlot) — no other visualization code, no indication of growth",
+        "tagging/ has SimpleTagger and PosTagger interface but SimpleTagger is unused in main execution"
+      ],
+      "suggestion": "Merge GrammarConfigLoader (and its inner RelationConfig record) into the grammar/ package where it logically belongs. Move RadialPlot into api/ alongside other response-building utilities or into utils/. Delete the tagging/ package or move its contents if SimpleTagger is retained.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "query-package-overcrowded",
+      "summary": "The query/ package mixes interfaces, implementations, DTOs, a service, utilities, and an enum at inconsistent abstraction levels",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/"],
+      "evidence": [
+        "QueryExecutor (interface), BlackLabQueryExecutor (impl), QueryResults (DTOs), SemanticFieldExplorer (domain service), BlackLabSnippetParser (XML utility), PosGroup (enum) all cohabit query/",
+        "SemanticFieldExplorer is a higher-level service that composes QueryExecutor — placing it alongside its own dependency blurs the abstraction boundary",
+        "BlackLabSnippetParser is an implementation detail of BlackLabQueryExecutor that has no reason to be a separate top-level package member"
+      ],
+      "suggestion": "Introduce a sub-package like query/blacklab/ for BlackLab-specific implementation classes (BlackLabQueryExecutor, BlackLabSnippetParser). Move SemanticFieldExplorer to a new exploration/ package or a service layer. Keep QueryExecutor, QueryResults, and PosGroup in query/ as the stable API.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "io-in-blacklab-constructors",
+      "summary": "BlackLabQueryExecutor and BlackLabConllUIndexer both perform blocking I/O in their constructors",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor line 59: `this.blackLabIndex = BlackLab.open(new File(indexPath));` — opens the index (disk I/O) inside the constructor",
+        "BlackLabConllUIndexer lines 42-43: `Files.createDirectories()` and `BlackLab.openForWriting()` — creates directories and opens files in constructor",
+        "BlackLabConllUIndexer also registers an IndexListener callback in the constructor (line 45-68), coupling construction to event-subscription"
+      ],
+      "suggestion": "Add a static factory method (e.g., BlackLabQueryExecutor.open(String path)) or a two-phase init pattern: create the object cheaply, then call open()/initialize() for the I/O. This makes the construction cost explicit and allows injection of mock indexes in tests.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "io-in-grammar-config-constructor",
+      "summary": "GrammarConfigLoader reads and fully parses a JSON file inside its constructor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Lines 64-166: constructor reads the config file with Files.readString(), parses JSON, validates fields, and builds all internal state",
+        "Constructor throws IOException, forcing all callers to handle checked I/O exceptions at construction time",
+        "The static factory createDefaultEnglish() wraps the IOException in an IllegalStateException, hiding it — a symptom of the constructor doing too much"
+      ],
+      "suggestion": "Separate parsing from construction: accept pre-parsed JSONObject in the constructor, and provide a static GrammarConfigLoader.fromPath(Path) factory method for the I/O. This makes unit testing trivial (pass a JSONObject directly) and makes the I/O boundary explicit.",
+      "confidence": "high"
+    }
+  ]
+}

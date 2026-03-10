@@ -1,0 +1,910 @@
+{
+  "session": {
+    "id": "ext_20260310_155230_bb77b805",
+    "token": "a70fb5823be93c961ccfd1d4d4484102"
+  },
+  "assessments": {
+    "cross_module_architecture": 67.0,
+    "high_level_elegance": 54.0,
+    "abstraction_fitness": 62.0,
+    "dependency_health": 74.0,
+    "low_level_elegance": 52.0,
+    "mid_level_elegance": 40.0,
+    "ai_generated_debt": 48.0,
+    "incomplete_migration": 50.0,
+    "package_organization": 55.0,
+    "initialization_coupling": 45.0,
+    "design_coherence": 52.0,
+    "contract_coherence": 43.0,
+    "logic_clarity": 58.0,
+    "type_safety": 48.0,
+    "naming_quality": 55.0,
+    "error_consistency": 54.0,
+    "convention_outlier": 63.0,
+    "test_strategy": 41.0,
+    "api_surface_coherence": 59.0,
+    "authorization_consistency": 77.0
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "posgroup_wrong_package",
+      "summary": "PosGroup constants live in `query` but are imported by `config` and `tagging`, violating dependency direction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "PosGroup.java is in package `query`; GrammarConfigLoader.java imports `pl.marcinmilkowski.word_sketch.query.PosGroup`; SimpleTagger.java imports the same",
+        "`config` and `tagging` are infrastructure/config packages that should not depend on the `query` layer"
+      ],
+      "suggestion": "Move PosGroup to a shared `model` or `common` package (e.g., `pl.marcinmilkowski.word_sketch.model.PosGroup`) so it sits below both `query` and `config` in the dependency graph.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_accesses_internal_result_fields",
+      "summary": "WordSketchApiServer accesses public fields of SemanticFieldExplorer inner result classes, breaching the query/api boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer line 506: `result.seedAdjectives`, line 519: `dn.noun`, `dn.sharedCount`, `dn.similarityScore`, `dn.avgLogDice`",
+        "SemanticFieldExplorer inner classes DiscoveredNoun, CoreAdjective, Edge expose public fields rather than accessor methods",
+        "The API layer bypasses encapsulation and couples directly to internal data-holder layout"
+      ],
+      "suggestion": "Add accessor methods to DiscoveredNoun, CoreAdjective, ExplorationResult, and Edge; remove public fields. WordSketchApiServer should use only those getters.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_server_god_class",
+      "summary": "WordSketchApiServer is a 994-line god class mixing HTTP routing with all business/domain logic for 10+ endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() method alone is ~260 lines registering all routes as inline lambdas",
+        "handleSemanticFieldExploreMulti is 125+ lines of domain logic (intersection of collocate sets, edge building) inside the API handler",
+        "handleSemanticField, handleConcordanceExamples, handleFullSketch, handleFullDependencySketch, handleRelationQuery each also carry full result-assembly logic"
+      ],
+      "suggestion": "Extract route registration into a `registerRoutes()` helper per logical group. Move multi-seed intersection logic into SemanticFieldExplorer as an `exploreMulti()` method. Delegate response serialization to a dedicated mapper/serializer class.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "dead_stub_methods",
+      "summary": "Two methods appear implemented but are stubs that always return placeholder values",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabSnippetParser.extractCollocateFromPattern() lines 164-170: computes a label position but unconditionally returns `\"unknown\"` regardless",
+        "BlackLabQueryExecutor.getCorpusSize() returns hardcoded `0L` with no comment indicating it is intentionally unimplemented"
+      ],
+      "suggestion": "Either implement extractCollocateFromPattern properly (it has all required logic already available in sibling methods) or remove it and eliminate dead call sites. Mark getCorpusSize() with a TODO comment or throw UnsupportedOperationException if not yet needed.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "multi_seed_logic_not_delegated",
+      "summary": "Multi-seed exploration logic is implemented inline in the API handler instead of inside SemanticFieldExplorer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti (lines 567-691) builds seedToCollocates map, computes commonCollocates intersection, and builds edge list entirely in the API handler",
+        "SemanticFieldExplorer already has an exploreByPattern() method for single-seed; no multi-seed equivalent exists in the domain class"
+      ],
+      "suggestion": "Add `SemanticFieldExplorer.exploreMulti(Set<String> seeds, ...)` returning a result object. Move the intersection and edge logic there. The API handler becomes a thin delegation wrapper.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "query_results_unnecessary_namespace",
+      "summary": "QueryResults is a namespace wrapper holding two unrelated DTOs; top-level classes would be simpler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "QueryResults has only a private constructor and two static nested classes: WordSketchResult and ConcordanceResult",
+        "All callers already qualify with `QueryResults.WordSketchResult` / `QueryResults.ConcordanceResult`, gaining no brevity from the wrapper",
+        "The two DTOs have no shared base type, no shared logic, and different domains (sketch scoring vs concordance display)"
+      ],
+      "suggestion": "Promote WordSketchResult and ConcordanceResult to top-level public classes in the `query` package. Remove the QueryResults wrapper.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "inconsistent_simpletagger_construction",
+      "summary": "SimpleTagger exposes both a public constructor and two static factory methods without clear guidance on which to use",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Public constructor `new SimpleTagger()` on line 111",
+        "Static factory `SimpleTagger.create()` on line 215 delegating to the constructor",
+        "Static factory `SimpleTagger.create(String lexiconFile)` on line 222 \u2014 the only one adding value",
+        "The no-arg factory is a pure alias for the constructor and adds no information"
+      ],
+      "suggestion": "Remove the no-arg `create()` factory. Either keep only the public constructor (and add a separate `loadLexicon` call) or make the constructor private and route all construction through the factories.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "cqlparser_dual_return_type_api",
+      "summary": "CQLParser.parse() and parseFull() return different types (CQLPattern vs ParsedCQL) with no ergonomic guide",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java"
+      ],
+      "evidence": [
+        "parse() returns CQLPattern (high-level DTO), parseFull() returns ParsedCQL (internal intermediate type with alternatives and agreement rules)",
+        "ParsedCQL is a package-private inner class; external callers of parseFull() would receive it as a raw type without good IDE guidance",
+        "Both methods call the same parseInternal(); the split creates confusion about which API to prefer"
+      ],
+      "suggestion": "Expose only one public return type. If external callers need alternatives/agreement rules, add them to CQLPattern. Make ParsedCQL package-private and unexpose parseFull() or rename it to make the richer return type obvious.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "unused_lucene_version_property",
+      "summary": "pom.xml declares `lucene.version=8.11.1` but it is never referenced in any dependency",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml line 18: `<lucene.version>8.11.1</lucene.version>`",
+        "grep for `${lucene.version}` in pom.xml returns no matches \u2014 the property is orphaned",
+        "Lucene is transitively brought in via blacklab-engine; the standalone property creates a false impression that Lucene version is pinned here"
+      ],
+      "suggestion": "Remove the unused `lucene.version` property. If Lucene version pinning is needed, add an explicit Lucene dependency with `<scope>provided</scope>` or use `<dependencyManagement>` to constrain it.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "junit_platform_launcher_hardcoded_version",
+      "summary": "junit-platform-launcher version is hardcoded to 1.9.0 while all other JUnit deps use the `${junit.version}` property",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml lines 66-72: junit-jupiter-api and junit-jupiter-engine use `${junit.version}` (5.9.0)",
+        "pom.xml lines 73-78: junit-platform-launcher uses hardcoded `1.9.0` instead of a property",
+        "Platform 1.9.0 corresponds to Jupiter 5.9.0 so they are compatible today, but future upgrades via `${junit.version}` would leave the launcher on 1.9.0"
+      ],
+      "suggestion": "Add a `<junit.platform.version>1.9.0</junit.platform.version>` property (or derive it via `${junit.version}` with a suitable mapping) and reference it in the launcher dependency.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "dead_stub_extractcollocatefrompattern",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern always returns \"unknown\" \u2014 method body is a dead stub",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "Lines 164-170: the method calls findLabelPosition() into `pos2Index`, then unconditionally `return \"unknown\";` regardless of pos2Index value",
+        "The method is called by BlackLabQueryExecutor but callers never receive a useful value from it",
+        "A sibling method extractCollocateFromXmlByPosition() already does the intended work"
+      ],
+      "suggestion": "Remove extractCollocateFromPattern entirely and update any call sites to use extractCollocateFromXmlByPosition or extractCollocateFromMatch directly, which already implement the correct logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "slf4j_string_concat_logging",
+      "summary": "Several logger calls use string concatenation instead of SLF4J parameterized logging",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Main.java line 66: `logger.error(\"Unknown command: \" + command)`",
+        "SimpleTagger.java line 242: `logger.info(\"Loaded \" + lexicon.size() + \" entries from lexicon\")`",
+        "All other logger calls in the codebase correctly use parameterized `{}` placeholders"
+      ],
+      "suggestion": "Replace string concatenation: `logger.error(\"Unknown command: {}\", command)` and `logger.info(\"Loaded {} entries from lexicon\", lexicon.size())`.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "magic_strings_relation_type",
+      "summary": "Relation-type discriminators \"SURFACE\" and \"DEP\" are magic string literals scattered across 7 separate if-checks",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer: \"SURFACE\" appears at lines 116, 267, 310; \"DEP\" appears at lines 140, 356, 411",
+        "GrammarConfigLoader line 538: `!\"DEP\".equals(relationType)`",
+        "No constant or enum is defined for these type discriminators"
+      ],
+      "suggestion": "Define a `RelationType` enum (or String constants) with SURFACE and DEP values in GrammarConfigLoader or a shared model class. Replace all string literal comparisons with the enum.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "multi_statement_lines_in_convert",
+      "summary": "convertConlluToWplChunks uses multi-statement single lines that reduce readability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Line 187: `w.close(); w = null; chunks++; sentencesInChunk = 0;` \u2014 four statements on one line",
+        "Line 201: `w.write(line); w.write('\\n');` \u2014 two statements on one line",
+        "These are not hot-path optimizations; the style is inconsistent with the rest of the file"
+      ],
+      "suggestion": "Split each statement to its own line for readability. The compiler produces identical bytecode.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "duplicate_javadoc_sentence",
+      "summary": "Javadoc for handleVisualRadial contains the summary sentence twice",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 871-873: `/** \\n * Render radial plot.\\n * Render radial plot.\\n * POST /api/visual/radial`"
+      ],
+      "suggestion": "Remove the duplicate sentence so the Javadoc reads: `/** Render radial plot. POST /api/visual/radial ...`",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "api-god-class",
+      "summary": "WordSketchApiServer is a 44KB god class mixing HTTP infrastructure, routing, and all business logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() method is 200+ lines registering 10 HTTP contexts with all setup logic inline",
+        "handleSemanticFieldExplore() does HTTP param extraction, validation, SemanticFieldExplorer construction, business orchestration, and JSON response building in a single 115-line method",
+        "handleSemanticFieldExploreMulti() creates and closes SemanticFieldExplorer transiently, not injecting it",
+        "JSON response-building code (building Map<String,Object>, calling Math.round, etc.) is duplicated across at least 6 handler methods"
+      ],
+      "suggestion": "Extract a dedicated SemanticFieldController or SemanticFieldHandler service class that takes the query logic out of the HTTP layer. Introduce a ResponseBuilder or use a proper DTO-to-JSON mapper to eliminate duplicated JSON construction. Register routes using a table-driven dispatch pattern or small handler objects rather than embedding all logic in lambda bodies inside start().",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "executor-long-methods",
+      "summary": "BlackLabQueryExecutor.executeBcqlQuery() is a 100+ line method with an embedded record definition and two-pass logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 209-312: single method handles concordance window sampling, XML extraction, collocate frequency counting, logDice scoring, result assembly, and sorting",
+        "Defines a local record HitRecord inside the method body (line 228)",
+        "executeDependencyPattern() and executeSurfacePattern() share near-identical query-group-extract-rank structure but are not refactored through a shared helper"
+      ],
+      "suggestion": "Extract a CollocateResultBuilder or a private collectHitRecords() helper that handles the two-pass concordance logic. Consolidate the shared query\u2192group\u2192extract\u2192rank flow into a single parameterised helper used by executeDependencyPattern(), executeSurfacePattern(), and findCollocations().",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "stub-corpus-size",
+      "summary": "BlackLabQueryExecutor.getCorpusSize() is a public stub returning hardcoded 0L with a visible indentation anomaly",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 534-536: `public long getCorpusSize() throws IOException { return 0L; }` \u2014 method body hardcodes 0 unconditionally",
+        "The method indentation is misaligned (4 extra spaces) relative to surrounding code, suggesting it was pasted in out of context",
+        "getCorpusSize() is not part of the QueryExecutor interface and is never called from any other class"
+      ],
+      "suggestion": "If corpus size is not needed, delete the method. If it is needed, implement it via BlackLab's TermFrequencyList or token-count metadata rather than returning 0.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "dead-interface-method",
+      "summary": "QueryExecutor.isReady() default method returns true unconditionally and is never called",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "Line 68: `default boolean isReady() { return true; }` \u2014 trivial default with no override",
+        "grep across all main sources confirms no call site for isReady()"
+      ],
+      "suggestion": "Remove isReady() from the interface. If readiness checking is needed later, add it with a real contract and implementation.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "vestigial-copulas-field",
+      "summary": "GrammarConfigLoader maintains a copulas field that is always empty, serializes it, and logs it, despite being semantically dead",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 86: `this.copulas = Collections.emptyList();` \u2014 always assigned empty list, never populated",
+        "Line 165-166: logs `{} copulas` which always prints 0",
+        "Line 294: `root.put(\"copulas\", new JSONArray(copulas));` \u2014 serializes an empty list into every API response",
+        "Line 79-83: constructor actively rejects a 'copulas' key in the config file, yet the field still exists in the object"
+      ],
+      "suggestion": "Remove the copulas field, its log statement, and its toJson() serialization entirely. The comment in the Javadoc (line 29) referencing the old schema with copulas should also be removed.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "hardcoded-adjective-lexicon",
+      "summary": "SimpleTagger constructor hardcodes 50+ individual adjective entries line-by-line in a lexicon map",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Constructor lines 111-210: roughly 50 lexicon.put() calls for individual adjectives like big, small, warm, lovely, brown",
+        "Pattern is characteristic of AI-generated seed data: progressively adding entries to satisfy examples rather than loading from a resource file",
+        "SimpleTagger is not called from any main source code (only SimpleTaggerTest references it)"
+      ],
+      "suggestion": "If SimpleTagger is still needed, load the lexicon from a bundled resource file (e.g., adjectives.txt in src/main/resources) rather than hard-coding entries in Java source. If it is no longer used, remove the class entirely.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead-cql-parser-package",
+      "summary": "The grammar/CQLParser and grammar/CQLPattern packages are unused dead code from a prior architecture",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLPattern.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParseException.java"
+      ],
+      "evidence": [
+        "grep of all main source files shows zero imports of CQLParser, CQLPattern, or CQLParseException outside the grammar package itself",
+        "The main execution path uses BlackLab's own CorpusQueryLanguageParser (nl.inl.blacklab.queryParser.corpusql) directly",
+        "CQLParser is only referenced in test files (CQLParserTest.java)",
+        "CLAUDE.md documents CQLParser.java as a key component, but it is absent from the actual call graph"
+      ],
+      "suggestion": "Either delete the grammar/CQL* package if the custom parser has been superseded by BlackLab's parser, or restore its integration as the single parsing layer and remove direct BlackLab parser calls. The current state \u2014 two parsers, one unused \u2014 is the worst of both worlds.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy-field-name-cql-pattern",
+      "summary": "GrammarConfigLoader silently falls back to legacy cql_pattern field name alongside new pattern field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 108-109: `relObj.containsKey(\"pattern\") ? relObj.getString(\"pattern\") : (relObj.containsKey(\"cql_pattern\") ? relObj.getString(\"cql_pattern\") : \"\")`",
+        "The Javadoc comment at line 36 still shows `cql_pattern` as the field name in the expected JSON structure",
+        "The actual relations.json presumably uses pattern, but the old name is silently accepted"
+      ],
+      "suggestion": "Once all config files use `pattern`, remove the `cql_pattern` fallback and update the Javadoc to show only the current field name. If old config files still use `cql_pattern`, run a migration script and then remove the fallback.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dual-semantic-explorer-constructors",
+      "summary": "SemanticFieldExplorer retains an old path-based constructor that creates its own BlackLabQueryExecutor alongside the preferred injection constructor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 69-73: `public SemanticFieldExplorer(String indexPath) throws IOException` \u2014 constructs its own executor, ownsExecutor=true",
+        "Line 76-80: `public SemanticFieldExplorer(QueryExecutor executor)` \u2014 injection constructor, ownsExecutor=false",
+        "WordSketchApiServer always uses the injection constructor; the path-based constructor is only called from nowhere in main code",
+        "The ownsExecutor flag is a complexity tax paid to support both patterns simultaneously"
+      ],
+      "suggestion": "Remove the path-based constructor. All callers should use the injection constructor. This eliminates the ownsExecutor flag and the conditional close() logic.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pattern-substitution-wrong-package",
+      "summary": "PatternSubstitution is domain/query logic placed in the api/ HTTP-layer package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.substituteCollocate() and extractXposFromConstraint() manipulate BCQL patterns \u2014 pure domain logic with no HTTP dependency",
+        "The class is in package pl.marcinmilkowski.word_sketch.api but contains no javax.servlet, HttpExchange, or HTTP-specific code",
+        "It is called from WordSketchApiServer.handleConcordanceExamples() but its logic belongs to the query or grammar layer"
+      ],
+      "suggestion": "Move PatternSubstitution to the query/ or grammar/ package where it belongs alongside other pattern manipulation utilities.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "singleton-packages",
+      "summary": "The config/, viz/, and tagging/ packages each contain only 1-2 classes and add navigational overhead without domain clarity",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "config/ has exactly one class (GrammarConfigLoader) \u2014 the RelationConfig record it defines could be an inner class or a grammar/ member",
+        "viz/ has exactly one class (RadialPlot) \u2014 no other visualization code, no indication of growth",
+        "tagging/ has SimpleTagger and PosTagger interface but SimpleTagger is unused in main execution"
+      ],
+      "suggestion": "Merge GrammarConfigLoader (and its inner RelationConfig record) into the grammar/ package where it logically belongs. Move RadialPlot into api/ alongside other response-building utilities or into utils/. Delete the tagging/ package or move its contents if SimpleTagger is retained.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "query-package-overcrowded",
+      "summary": "The query/ package mixes interfaces, implementations, DTOs, a service, utilities, and an enum at inconsistent abstraction levels",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/"
+      ],
+      "evidence": [
+        "QueryExecutor (interface), BlackLabQueryExecutor (impl), QueryResults (DTOs), SemanticFieldExplorer (domain service), BlackLabSnippetParser (XML utility), PosGroup (enum) all cohabit query/",
+        "SemanticFieldExplorer is a higher-level service that composes QueryExecutor \u2014 placing it alongside its own dependency blurs the abstraction boundary",
+        "BlackLabSnippetParser is an implementation detail of BlackLabQueryExecutor that has no reason to be a separate top-level package member"
+      ],
+      "suggestion": "Introduce a sub-package like query/blacklab/ for BlackLab-specific implementation classes (BlackLabQueryExecutor, BlackLabSnippetParser). Move SemanticFieldExplorer to a new exploration/ package or a service layer. Keep QueryExecutor, QueryResults, and PosGroup in query/ as the stable API.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "io-in-blacklab-constructors",
+      "summary": "BlackLabQueryExecutor and BlackLabConllUIndexer both perform blocking I/O in their constructors",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor line 59: `this.blackLabIndex = BlackLab.open(new File(indexPath));` \u2014 opens the index (disk I/O) inside the constructor",
+        "BlackLabConllUIndexer lines 42-43: `Files.createDirectories()` and `BlackLab.openForWriting()` \u2014 creates directories and opens files in constructor",
+        "BlackLabConllUIndexer also registers an IndexListener callback in the constructor (line 45-68), coupling construction to event-subscription"
+      ],
+      "suggestion": "Add a static factory method (e.g., BlackLabQueryExecutor.open(String path)) or a two-phase init pattern: create the object cheaply, then call open()/initialize() for the I/O. This makes the construction cost explicit and allows injection of mock indexes in tests.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "io-in-grammar-config-constructor",
+      "summary": "GrammarConfigLoader reads and fully parses a JSON file inside its constructor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Lines 64-166: constructor reads the config file with Files.readString(), parses JSON, validates fields, and builds all internal state",
+        "Constructor throws IOException, forcing all callers to handle checked I/O exceptions at construction time",
+        "The static factory createDefaultEnglish() wraps the IOException in an IllegalStateException, hiding it \u2014 a symptom of the constructor doing too much"
+      ],
+      "suggestion": "Separate parsing from construction: accept pre-parsed JSONObject in the constructor, and provide a static GrammarConfigLoader.fromPath(Path) factory method for the I/O. This makes unit testing trivial (pass a JSONObject directly) and makes the I/O boundary explicit.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-dual-response-building",
+      "summary": "API response building uses JSONObject in some handlers and Map<String,Object> in others within the same class",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery all build responses with JSONObject directly",
+        "handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticField, handleConcordanceExamples all build responses with Map<String, Object>",
+        "Both styles are passed to the same HttpApiUtils.sendJsonResponse(exchange, response)"
+      ],
+      "suggestion": "Adopt a single style throughout WordSketchApiServer. The JSONObject approach avoids an extra serialization step; alternatively introduce typed response records and convert to JSON in one place.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-multi-seed-no-head-substitution",
+      "summary": "handleSemanticFieldExploreMulti passes the raw pattern without headword substitution, unlike the parallel handleSemanticFieldExplore",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: String bcqlPattern = relationConfig.get().getFullPattern(seed);  // substitutes headword",
+        "handleSemanticFieldExploreMulti: String bcqlPattern = relationConfig.get().pattern();  // raw pattern, no substitution",
+        "Both methods then pass bcqlPattern to executor.executeSurfacePattern"
+      ],
+      "suggestion": "Call getFullPattern(seed) instead of pattern() for each seed inside the loop in handleSemanticFieldExploreMulti, matching the single-seed handler.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-overlapping-collocate-methods",
+      "summary": "BlackLabQueryExecutor exposes four partially-overlapping collocate-finding methods with no clear boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations \u2013 CQL-based, returns WordSketchResult",
+        "findDependencyCollocations \u2013 dependency BCQL, returns WordSketchResult",
+        "executeDependencyPattern \u2013 dependency BCQL with POS constraint, public, returns WordSketchResult",
+        "executeSurfacePattern \u2013 labeled BCQL, public, returns WordSketchResult",
+        "All four share buildAndRankCollocates at the end but approach the problem differently"
+      ],
+      "suggestion": "Consolidate findCollocations and findDependencyCollocations into executeSurfacePattern/executeDependencyPattern, retiring the old public API; document the intended usage difference between the two remaining methods.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc-stub-method-misindented",
+      "summary": "getCorpusSize() stub in BlackLabQueryExecutor is misindented and silently returns 0 without any indication it is unimplemented",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "public long getCorpusSize() throws IOException { return 0L; }  // body at column 8, not 4",
+        "No @Override, no TODO, no UnsupportedOperationException \u2014 the stub is invisible to callers"
+      ],
+      "suggestion": "Either implement the method properly or throw UnsupportedOperationException and annotate with // TODO, and fix the indentation.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-default-surface-pattern-silent-drop",
+      "summary": "QueryExecutor.executeSurfacePattern default silently discards headPosition and collocatePosition parameters",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "default List<QueryResults.WordSketchResult> executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) throws IOException { return findCollocations(lemma, bcqlPattern, minLogDice, maxResults); }",
+        "The Javadoc for headPosition and collocatePosition does not mention that they are ignored in the default implementation"
+      ],
+      "suggestion": "Add a Javadoc note on the default implementation stating that headPosition and collocatePosition are ignored; or throw UnsupportedOperationException to force overriding.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-extract-collocate-from-pattern-dead-body",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern always returns 'unknown' regardless of input",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "static String extractCollocateFromPattern(String bcqlPattern, int hitIndex) { int pos2Index = findLabelPosition(bcqlPattern, 2); if (pos2Index <= 0) { return \"unknown\"; } return \"unknown\"; }",
+        "Both branches return \"unknown\"; the method body is dead code"
+      ],
+      "suggestion": "Remove the method or implement it; any caller receiving 'unknown' silently gets a wrong collocate label.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-number-format-exception-unhandled",
+      "summary": "Numeric query parameters are parsed with Integer.parseInt/Double.parseDouble without catching NumberFormatException, producing opaque 500 errors for malformed input",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "int topCollocates = Integer.parseInt(params.getOrDefault(\"top\", \"15\"));",
+        "double minLogDice = Double.parseDouble(params.getOrDefault(\"min_logdice\", \"3.0\"));",
+        "Same pattern repeated in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticField, handleConcordanceExamples"
+      ],
+      "suggestion": "Wrap numeric parsing in try/catch and return HTTP 400 with a descriptive message on NumberFormatException.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc-extract-pos-unknown-sentinel",
+      "summary": "BlackLabSnippetParser.extractPosFromMatch returns the string 'unknown' instead of null when no POS is found, leaking a sentinel into data",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "static String extractPosFromMatch(String matchText) { ... return \"unknown\"; }",
+        "The returned sentinel propagates through WordSketchResult.pos and appears in API JSON responses as a real POS value"
+      ],
+      "suggestion": "Return null when no POS is found; callers that need a display string can substitute 'unknown' at the display layer.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc-wpl-multi-statement-line",
+      "summary": "convertConlluToWplChunks compresses four state-machine updates onto one line, obscuring the logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "w.close(); w = null; chunks++; sentencesInChunk = 0;  // four operations on one line",
+        "The null-writer state (w == null means 'no current chunk file') is an implicit sentinel not explained"
+      ],
+      "suggestion": "Expand to four separate statements and add a brief comment explaining the null sentinel: // null means no open chunk file",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc-pattern-parsing-triplicated",
+      "summary": "GrammarConfigLoader re-implements the same [bracket]-token scanning loop three times",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "countPatternTokens(String pattern) \u2013 scans for [token] blocks counting them",
+        "deriveTokenPosition(String pattern, char targetLabel, int defaultPos) \u2013 scans [token] blocks counting and matching a label",
+        "substituteHeadword(String pattern, String headword, int headPosition) \u2013 scans [token] blocks building a positions list",
+        "All three use identical while-loop skeletons but cannot be shared because they return different things"
+      ],
+      "suggestion": "Extract a shared tokenizePattern(String) helper that returns a List<String> of bracket-tokens; reuse it in all three places.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc-null-sentinel-common-collocates",
+      "summary": "handleSemanticFieldExploreMulti uses null as a sentinel for 'no intersection computed yet', which is non-obvious",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Set<String> commonCollocates = null;",
+        "if (commonCollocates == null) { commonCollocates = seedCollocates; } else { commonCollocates.retainAll(seedCollocates); }",
+        "if (commonCollocates == null) { commonCollocates = new HashSet<>(); }  // after loop"
+      ],
+      "suggestion": "Replace the null sentinel with a boolean flag or an Optional, or initialize with the first seed's collocates before the loop; add a comment explaining the intent.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-relation-type-raw-string",
+      "summary": "RelationConfig.relationType is a raw String that only takes two values, used in 8+ string equality checks",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "String relationType inside RelationConfig record",
+        "\"SURFACE\".equals(rel.relationType()) and \"DEP\".equals(rel.relationType()) repeated across handleFullSketch, handleRelationQuery, handleFullDependencySketch, API listing endpoints"
+      ],
+      "suggestion": "Replace relationType with an enum RelationType { SURFACE, DEP } and use switch/pattern matching; the compiler will enforce exhaustiveness.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-pos-group-stringly-typed",
+      "summary": "PosGroup constants are raw Strings; comparisons like collocatePosGroup().equals(PosGroup.ADJ) cannot be verified by the compiler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "public static final String ADJ = \"adj\"; in PosGroup",
+        "collocatePosGroup().equals(PosGroup.ADJ) in handleSemanticFieldExplore and handleSemanticFieldExploreMulti",
+        "posGroupFromConstraint returns \"prep\", \"part\", \"other\" which are not even in PosGroup"
+      ],
+      "suggestion": "Turn PosGroup into an enum (NOUN, VERB, ADJ, ADV, PREP, PART, OTHER); update collocatePosGroup() return type accordingly.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-response-map-untyped",
+      "summary": "API response building throughout WordSketchApiServer uses Map<String, Object>, making property name typos undetectable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Map<String, Object> response = new HashMap<>(); response.put(\"status\", \"ok\"); response.put(\"seeds\", ...) ...",
+        "Same pattern in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticField, handleConcordanceExamples, handleBcqlQueryPost"
+      ],
+      "suggestion": "Introduce typed response records (Java records or inner static classes) and serialize via fastjson2; property names become field names visible to the compiler.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts-long-array-return",
+      "summary": "convertConlluToWplChunks returns long[] to encode three semantically distinct counts with no positional safety",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "long[] counts = convertConlluToWplChunks(Paths.get(inputPath), wplTempDir, 10_000);",
+        "printf uses counts[0], counts[1], counts[2] in positional order: sentences, tokens, chunks"
+      ],
+      "suggestion": "Return a record WplConversionStats(long sentences, long tokens, long chunks) or use a three-element named structure.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq-adjective-naming-for-generic-collocates",
+      "summary": "SemanticFieldExplorer uses 'adjective' terminology pervasively for what is a general-purpose collocate concept",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Inner class CoreAdjective \u2013 used for any collocate, not just adjectives",
+        "Inner class AdjectiveProfile \u2013 used in comparison of any relation",
+        "ExplorationResult.seedAdjectives: Map<String, Double> \u2013 holds collocates of any POS",
+        "SemanticFieldExplorer.compare() builds 'adjectiveProfiles' for all noun collocates",
+        "logger.info(\"Core {} (define the class):\", relationName) attempts to abstract the concept but the field names don't"
+      ],
+      "suggestion": "Rename CoreAdjective \u2192 CoreCollocate, AdjectiveProfile \u2192 CollocateProfile, seedAdjectives \u2192 seedCollocates, coreAdjectives \u2192 coreCollocates, nounProfiles \u2192 candidateProfiles.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq-extract-collocate-from-pattern-lying-name",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern is named as if it extracts data but always returns 'unknown'",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "static String extractCollocateFromPattern(String bcqlPattern, int hitIndex) { ... return \"unknown\"; }"
+      ],
+      "suggestion": "Remove or fully implement the method; if left as a stub, rename it to something like getDefaultCollocate() and annotate // TODO: implement.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq-single-letter-writer-variable",
+      "summary": "BufferedWriter named 'w' in convertConlluToWplChunks is a single-letter variable in a non-trivial 50-line method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "BufferedWriter w = null; ... w.write(\"<s>\\n\"); ... w.close(); w = null;"
+      ],
+      "suggestion": "Rename to 'chunkWriter' or 'currentChunk' to signal intent.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "explorer-resource-leak",
+      "summary": "SemanticFieldExplorer is not closed in a try-with-resources, leaking resources on exception",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "In handleSemanticFieldExplore (line ~479): `SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor); ... ExplorationResult result = explorer.exploreByPattern(...); explorer.close();` \u2014 if exploreByPattern() throws, close() is never called",
+        "Same pattern repeated in handleSemanticField (~line 711) and handleSemanticFieldExamples (~line 789)",
+        "SemanticFieldExplorer implements AutoCloseable, so try-with-resources is the intended usage pattern"
+      ],
+      "suggestion": "Replace all three usages with try-with-resources: `try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor)) { ... }`",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "unguarded-parseint-on-user-input",
+      "summary": "Integer.parseInt/Double.parseDouble on user query params without NumberFormatException handling \u2014 returns 500 instead of 400",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (~line 474): `Integer.parseInt(params.getOrDefault(\"top\", \"15\"))` \u2014 if user passes `top=abc`, throws NumberFormatException which propagates as HTTP 500",
+        "Same issue at lines ~475, 476, 477, 610, 611, 612, 708, 709, 787, 818 \u2014 all numeric params in all handlers are unguarded",
+        "The outer catch in the context lambda catches Exception (logs it and sends 500), so the user gets a 500 with an opaque error instead of a 400 with a useful message"
+      ],
+      "suggestion": "Wrap numeric param parsing in a helper that catches NumberFormatException and calls `HttpApiUtils.sendError(exchange, 400, \"Invalid parameter value: ...\")`, or use a safe parseInt utility with a default",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "dead-stub-returns-unknown",
+      "summary": "extractCollocateFromPattern() is a dead stub that always returns \"unknown\" regardless of input",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractCollocateFromPattern (line ~164): method body has `int pos2Index = findLabelPosition(bcqlPattern, 2);` but then unconditionally `return \"unknown\";` \u2014 the computed pos2Index is never used",
+        "No callers appear to handle or detect this failure mode; any code relying on this returns a meaningless value"
+      ],
+      "suggestion": "Either implement the method body to actually extract the collocate using findLabelPosition, or remove the method if it is unused",
+      "confidence": "high"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "getCorpusSize-indentation-outlier",
+      "summary": "getCorpusSize() method in BlackLabQueryExecutor has broken indentation, appearing at the wrong nesting level",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "After buildAndRankCollocates, the method `public long getCorpusSize() throws IOException { return 0L; }` appears with 8-space indentation directly following the closing brace of buildAndRankCollocates, visually suggesting it is nested inside another method",
+        "All other methods in the class use standard 4-space class-level indentation; this single method is a formatting outlier"
+      ],
+      "suggestion": "Fix the indentation of getCorpusSize() to match the other class-level methods (4 spaces)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "charset-literal-vs-constant",
+      "summary": "HttpApiUtils uses \"UTF-8\" string literals for charset while the rest of the codebase uses StandardCharsets.UTF_8",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "sendJsonResponse: `json.getBytes(\"UTF-8\")` uses string literal",
+        "sendError: `json.getBytes(\"UTF-8\")` uses string literal",
+        "parseQueryParams: `java.net.URLDecoder.decode(keyValue[0], \"UTF-8\")` uses string literal",
+        "By contrast, Main.java and BlackLabConllUIndexer.java consistently use `StandardCharsets.UTF_8` constants"
+      ],
+      "suggestion": "Replace all `\"UTF-8\"` string literals in HttpApiUtils with `StandardCharsets.UTF_8` to match the rest of the codebase",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "api-server-zero-coverage",
+      "summary": "WordSketchApiServer (the entire REST API layer) has zero unit or integration tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "No test file exists anywhere under src/test/ for WordSketchApiServer or HttpApiUtils",
+        "The server contains ~1000 lines of request routing, parameter parsing, response building, and business logic \u2014 all entirely untested",
+        "Error handling bugs like the unguarded parseInt and resource leaks are undetectable without tests"
+      ],
+      "suggestion": "Add unit tests using a mock QueryExecutor: start the server on an ephemeral port, send HTTP requests with java.net.HttpURLConnection, assert response codes and JSON shape for key scenarios (missing params \u2192 400, bad numeric param \u2192 400, valid request \u2192 200 with expected fields)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "snippet-parser-zero-coverage",
+      "summary": "BlackLabSnippetParser has no tests despite containing complex, fragile XML/text parsing logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "BlackLabSnippetParser has ~15 static utility methods with non-trivial regex-based logic (trimToSentence, extractCollocateFromXmlByPosition, detokenize, findLabelPosition, etc.)",
+        "No test class exists for BlackLabSnippetParser",
+        "The dead stub extractCollocateFromPattern (always returns \"unknown\") would be caught immediately by even a single test"
+      ],
+      "suggestion": "Add a BlackLabSnippetParserTest with pure unit tests over sample XML strings for each public/package-private method, especially findLabelPosition, extractCollocateFromXmlByPosition, trimToSentence, and detokenize",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "integration-tests-hardcoded-path",
+      "summary": "All integration tests require a hardcoded Windows index path (D:\\corpora_philsci\\bi) and are always skipped in any CI environment",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "DependencySketchTest: `private static final String INDEX_PATH = \"D:\\\\corpora_philsci\\\\bi\";` with `Assumptions.assumeTrue(indexDir.exists(), ...)`",
+        "BlackLabDummyTest and BlackLabBcqlConcordanceTest have the same pattern",
+        "Tests that do run only assert `assertNotNull(results)` \u2014 no actual content or behavior is verified"
+      ],
+      "suggestion": "Build a small in-memory test index from bundled test-data/ CoNLL-U sentences (the project already has test-data/), run BlackLab indexing in @BeforeAll, and execute real queries against it \u2014 removing the Assumptions.assumeTrue guards",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "readme-bcql-method-mismatch",
+      "summary": "README documents /api/bcql as GET but the implementation is POST",
+      "related_files": [
+        "README.md",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "README.md line 119: `GET /api/bcql`",
+        "WordSketchApiServer.java line ~229: `server.createContext(\"/api/bcql\", ...)` delegates to handleBcqlQueryPost which explicitly calls `requireMethod(exchange, \"POST\")`",
+        "Server startup log also states: `POST /api/bcql - Execute BCQL query`"
+      ],
+      "suggestion": "Change README.md line 119 from `GET /api/bcql` to `POST /api/bcql` and add a curl example showing the POST body format",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "numeric-param-returns-500-not-400",
+      "summary": "Invalid numeric query parameters (e.g. top=abc) produce HTTP 500 instead of 400, violating API contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore calls `Integer.parseInt(params.getOrDefault(\"top\", \"15\"))` without try-catch; a malformed value propagates as NumberFormatException caught by the outer `catch (Exception e)` which sends HTTP 500",
+        "Same issue in handleSemanticFieldExploreMulti (top, min_shared, min_logdice), handleSemanticField (min_logdice, max_per_noun), handleSemanticFieldExamples (max), handleConcordanceExamples (limit) \u2014 10+ call sites",
+        "HTTP 500 implies a server-side fault; a user-supplied bad value should produce 400 Bad Request"
+      ],
+      "suggestion": "Add a helper `parseIntParam(params, key, defaultVal)` that catches NumberFormatException and calls sendError(exchange, 400, ...) then returns false; use it consistently across all handlers",
+      "confidence": "high"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "options-preflight-missing-on-get-endpoints",
+      "summary": "OPTIONS preflight is handled on POST endpoints but all GET endpoints return 405 for OPTIONS requests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "handleVisualRadial and handleBcqlQueryPost both check `if (\"OPTIONS\".equalsIgnoreCase(method))` and call `HttpApiUtils.sendOptionsResponse(exchange, \"POST\")`",
+        "All 9 GET endpoint context handlers call `HttpApiUtils.requireMethod(exchange, \"GET\")` which returns 405 for any non-GET method including OPTIONS",
+        "CORS headers (Access-Control-Allow-Origin: *) are set on all JSON responses, but a browser making a cross-origin request with custom headers will send an OPTIONS preflight that gets rejected with 405"
+      ],
+      "suggestion": "Update requireMethod() or add an OPTIONS check before the method guard in each GET context handler, or extend HttpApiUtils.requireMethod to automatically respond 204 with CORS headers for OPTIONS requests",
+      "confidence": "medium"
+    }
+  ]
+}

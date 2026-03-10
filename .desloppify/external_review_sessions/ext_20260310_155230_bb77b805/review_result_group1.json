@@ -1,0 +1,243 @@
+{
+  "session": {
+    "id": "ext_20260310_155230_bb77b805",
+    "token": "a70fb5823be93c961ccfd1d4d4484102"
+  },
+  "assessments": {
+    "cross_module_architecture": 67.0,
+    "high_level_elegance": 54.0,
+    "abstraction_fitness": 62.0,
+    "dependency_health": 74.0,
+    "low_level_elegance": 52.0
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "posgroup_wrong_package",
+      "summary": "PosGroup constants live in `query` but are imported by `config` and `tagging`, violating dependency direction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "PosGroup.java is in package `query`; GrammarConfigLoader.java imports `pl.marcinmilkowski.word_sketch.query.PosGroup`; SimpleTagger.java imports the same",
+        "`config` and `tagging` are infrastructure/config packages that should not depend on the `query` layer"
+      ],
+      "suggestion": "Move PosGroup to a shared `model` or `common` package (e.g., `pl.marcinmilkowski.word_sketch.model.PosGroup`) so it sits below both `query` and `config` in the dependency graph.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_accesses_internal_result_fields",
+      "summary": "WordSketchApiServer accesses public fields of SemanticFieldExplorer inner result classes, breaching the query/api boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer line 506: `result.seedAdjectives`, line 519: `dn.noun`, `dn.sharedCount`, `dn.similarityScore`, `dn.avgLogDice`",
+        "SemanticFieldExplorer inner classes DiscoveredNoun, CoreAdjective, Edge expose public fields rather than accessor methods",
+        "The API layer bypasses encapsulation and couples directly to internal data-holder layout"
+      ],
+      "suggestion": "Add accessor methods to DiscoveredNoun, CoreAdjective, ExplorationResult, and Edge; remove public fields. WordSketchApiServer should use only those getters.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_server_god_class",
+      "summary": "WordSketchApiServer is a 994-line god class mixing HTTP routing with all business/domain logic for 10+ endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() method alone is ~260 lines registering all routes as inline lambdas",
+        "handleSemanticFieldExploreMulti is 125+ lines of domain logic (intersection of collocate sets, edge building) inside the API handler",
+        "handleSemanticField, handleConcordanceExamples, handleFullSketch, handleFullDependencySketch, handleRelationQuery each also carry full result-assembly logic"
+      ],
+      "suggestion": "Extract route registration into a `registerRoutes()` helper per logical group. Move multi-seed intersection logic into SemanticFieldExplorer as an `exploreMulti()` method. Delegate response serialization to a dedicated mapper/serializer class.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "dead_stub_methods",
+      "summary": "Two methods appear implemented but are stubs that always return placeholder values",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabSnippetParser.extractCollocateFromPattern() lines 164-170: computes a label position but unconditionally returns `\"unknown\"` regardless",
+        "BlackLabQueryExecutor.getCorpusSize() returns hardcoded `0L` with no comment indicating it is intentionally unimplemented"
+      ],
+      "suggestion": "Either implement extractCollocateFromPattern properly (it has all required logic already available in sibling methods) or remove it and eliminate dead call sites. Mark getCorpusSize() with a TODO comment or throw UnsupportedOperationException if not yet needed.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "multi_seed_logic_not_delegated",
+      "summary": "Multi-seed exploration logic is implemented inline in the API handler instead of inside SemanticFieldExplorer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti (lines 567-691) builds seedToCollocates map, computes commonCollocates intersection, and builds edge list entirely in the API handler",
+        "SemanticFieldExplorer already has an exploreByPattern() method for single-seed; no multi-seed equivalent exists in the domain class"
+      ],
+      "suggestion": "Add `SemanticFieldExplorer.exploreMulti(Set<String> seeds, ...)` returning a result object. Move the intersection and edge logic there. The API handler becomes a thin delegation wrapper.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "query_results_unnecessary_namespace",
+      "summary": "QueryResults is a namespace wrapper holding two unrelated DTOs; top-level classes would be simpler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "QueryResults has only a private constructor and two static nested classes: WordSketchResult and ConcordanceResult",
+        "All callers already qualify with `QueryResults.WordSketchResult` / `QueryResults.ConcordanceResult`, gaining no brevity from the wrapper",
+        "The two DTOs have no shared base type, no shared logic, and different domains (sketch scoring vs concordance display)"
+      ],
+      "suggestion": "Promote WordSketchResult and ConcordanceResult to top-level public classes in the `query` package. Remove the QueryResults wrapper.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "inconsistent_simpletagger_construction",
+      "summary": "SimpleTagger exposes both a public constructor and two static factory methods without clear guidance on which to use",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Public constructor `new SimpleTagger()` on line 111",
+        "Static factory `SimpleTagger.create()` on line 215 delegating to the constructor",
+        "Static factory `SimpleTagger.create(String lexiconFile)` on line 222 — the only one adding value",
+        "The no-arg factory is a pure alias for the constructor and adds no information"
+      ],
+      "suggestion": "Remove the no-arg `create()` factory. Either keep only the public constructor (and add a separate `loadLexicon` call) or make the constructor private and route all construction through the factories.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "cqlparser_dual_return_type_api",
+      "summary": "CQLParser.parse() and parseFull() return different types (CQLPattern vs ParsedCQL) with no ergonomic guide",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java"
+      ],
+      "evidence": [
+        "parse() returns CQLPattern (high-level DTO), parseFull() returns ParsedCQL (internal intermediate type with alternatives and agreement rules)",
+        "ParsedCQL is a package-private inner class; external callers of parseFull() would receive it as a raw type without good IDE guidance",
+        "Both methods call the same parseInternal(); the split creates confusion about which API to prefer"
+      ],
+      "suggestion": "Expose only one public return type. If external callers need alternatives/agreement rules, add them to CQLPattern. Make ParsedCQL package-private and unexpose parseFull() or rename it to make the richer return type obvious.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "unused_lucene_version_property",
+      "summary": "pom.xml declares `lucene.version=8.11.1` but it is never referenced in any dependency",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml line 18: `<lucene.version>8.11.1</lucene.version>`",
+        "grep for `${lucene.version}` in pom.xml returns no matches — the property is orphaned",
+        "Lucene is transitively brought in via blacklab-engine; the standalone property creates a false impression that Lucene version is pinned here"
+      ],
+      "suggestion": "Remove the unused `lucene.version` property. If Lucene version pinning is needed, add an explicit Lucene dependency with `<scope>provided</scope>` or use `<dependencyManagement>` to constrain it.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "junit_platform_launcher_hardcoded_version",
+      "summary": "junit-platform-launcher version is hardcoded to 1.9.0 while all other JUnit deps use the `${junit.version}` property",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml lines 66-72: junit-jupiter-api and junit-jupiter-engine use `${junit.version}` (5.9.0)",
+        "pom.xml lines 73-78: junit-platform-launcher uses hardcoded `1.9.0` instead of a property",
+        "Platform 1.9.0 corresponds to Jupiter 5.9.0 so they are compatible today, but future upgrades via `${junit.version}` would leave the launcher on 1.9.0"
+      ],
+      "suggestion": "Add a `<junit.platform.version>1.9.0</junit.platform.version>` property (or derive it via `${junit.version}` with a suitable mapping) and reference it in the launcher dependency.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "dead_stub_extractcollocatefrompattern",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern always returns \"unknown\" — method body is a dead stub",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "Lines 164-170: the method calls findLabelPosition() into `pos2Index`, then unconditionally `return \"unknown\";` regardless of pos2Index value",
+        "The method is called by BlackLabQueryExecutor but callers never receive a useful value from it",
+        "A sibling method extractCollocateFromXmlByPosition() already does the intended work"
+      ],
+      "suggestion": "Remove extractCollocateFromPattern entirely and update any call sites to use extractCollocateFromXmlByPosition or extractCollocateFromMatch directly, which already implement the correct logic.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "slf4j_string_concat_logging",
+      "summary": "Several logger calls use string concatenation instead of SLF4J parameterized logging",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Main.java line 66: `logger.error(\"Unknown command: \" + command)`",
+        "SimpleTagger.java line 242: `logger.info(\"Loaded \" + lexicon.size() + \" entries from lexicon\")`",
+        "All other logger calls in the codebase correctly use parameterized `{}` placeholders"
+      ],
+      "suggestion": "Replace string concatenation: `logger.error(\"Unknown command: {}\", command)` and `logger.info(\"Loaded {} entries from lexicon\", lexicon.size())`.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "magic_strings_relation_type",
+      "summary": "Relation-type discriminators \"SURFACE\" and \"DEP\" are magic string literals scattered across 7 separate if-checks",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer: \"SURFACE\" appears at lines 116, 267, 310; \"DEP\" appears at lines 140, 356, 411",
+        "GrammarConfigLoader line 538: `!\"DEP\".equals(relationType)`",
+        "No constant or enum is defined for these type discriminators"
+      ],
+      "suggestion": "Define a `RelationType` enum (or String constants) with SURFACE and DEP values in GrammarConfigLoader or a shared model class. Replace all string literal comparisons with the enum.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "multi_statement_lines_in_convert",
+      "summary": "convertConlluToWplChunks uses multi-statement single lines that reduce readability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Line 187: `w.close(); w = null; chunks++; sentencesInChunk = 0;` — four statements on one line",
+        "Line 201: `w.write(line); w.write('\\n');` — two statements on one line",
+        "These are not hot-path optimizations; the style is inconsistent with the rest of the file"
+      ],
+      "suggestion": "Split each statement to its own line for readability. The compiler produces identical bytecode.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "duplicate_javadoc_sentence",
+      "summary": "Javadoc for handleVisualRadial contains the summary sentence twice",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 871-873: `/** \\n * Render radial plot.\\n * Render radial plot.\\n * POST /api/visual/radial`"
+      ],
+      "suggestion": "Remove the duplicate sentence so the Javadoc reads: `/** Render radial plot. POST /api/visual/radial ...`",
+      "confidence": "high"
+    }
+  ]
+}

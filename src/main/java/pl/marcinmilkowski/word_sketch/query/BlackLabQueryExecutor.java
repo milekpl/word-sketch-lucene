@@ -538,10 +538,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             .toList();
     }
 
-    public long getCorpusSize() throws IOException {
-        return 0L;
-    }
-
     @Override
     public String getExecutorType() {
         return "blacklab";

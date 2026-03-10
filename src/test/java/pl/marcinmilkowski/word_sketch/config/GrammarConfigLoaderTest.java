@@ -1,0 +1,77 @@
+package pl.marcinmilkowski.word_sketch.config;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.io.StringReader;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class GrammarConfigLoaderTest {
+
+    private static final String MINIMAL_JSON = """
+            {
+              "version": "1.0-test",
+              "relations": [
+                {
+                  "id": "noun_adj_predicates",
+                  "name": "Adjectives (predicative)",
+                  "pattern": "1:[xpos=\\"NN.*\\"] [lemma=\\"be\\"] 2:[xpos=\\"JJ.*\\"]"
+                },
+                {
+                  "id": "noun_modifiers",
+                  "name": "Modifiers (adjectives)",
+                  "pattern": "2:[xpos=\\"JJ.*\\"] 1:[xpos=\\"NN.*\\"]"
+                }
+              ]
+            }
+            """;
+
+    @Test
+    @DisplayName("fromReader: loads relation names correctly")
+    void fromReader_loadsRelationNames() throws IOException {
+        GrammarConfigLoader config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
+
+        List<GrammarConfigLoader.RelationConfig> relations = config.getRelations();
+        assertEquals(2, relations.size());
+
+        assertEquals("noun_adj_predicates", relations.get(0).id());
+        assertEquals("Adjectives (predicative)", relations.get(0).name());
+
+        assertEquals("noun_modifiers", relations.get(1).id());
+        assertEquals("Modifiers (adjectives)", relations.get(1).name());
+    }
+
+    @Test
+    @DisplayName("fromReader: getRelation by id returns correct entry")
+    void fromReader_getRelationById() throws IOException {
+        GrammarConfigLoader config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
+
+        assertTrue(config.getRelation("noun_adj_predicates").isPresent());
+        assertTrue(config.getRelation("noun_modifiers").isPresent());
+        assertFalse(config.getRelation("nonexistent").isPresent());
+    }
+
+    @Test
+    @DisplayName("toJson: does not throw when configPath is null (fromReader path)")
+    void toJson_doesNotThrowWhenConfigPathIsNull() throws IOException {
+        GrammarConfigLoader config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
+
+        assertDoesNotThrow(() -> {
+            var json = config.toJson();
+            assertNotNull(json);
+            assertNotNull(json.get("relations"));
+        });
+    }
+
+    @Test
+    @DisplayName("toJson: config_path is null when loaded via fromReader")
+    void toJson_configPathIsNullFromReader() throws IOException {
+        GrammarConfigLoader config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
+
+        var json = config.toJson();
+        assertNull(json.get("config_path"));
+    }
+}

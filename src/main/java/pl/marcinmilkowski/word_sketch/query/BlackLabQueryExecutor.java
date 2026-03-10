@@ -84,7 +84,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             // BCQL requires proper sequence syntax
             bcql = String.format("\"%s\" %s", lemma.toLowerCase(), cqlPattern);
         } else {
-            // Fallback: just search for lemma
+            // Unrecognized pattern format — log warning and fall back to single-token wildcard.
+            // This indicates a grammar config bug: patterns should contain '%s' or start with '['.
+            logger.warn("Unrecognized cqlPattern format for lemma '{}': '{}'. Falling back to wildcard query.",
+                lemma, cqlPattern);
             bcql = String.format("\"%s\" []", lemma.toLowerCase());
         }
 
@@ -295,8 +298,13 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             String collocateLemma = rec.collocateLemma();
             // null/empty is valid "no collocate" — do not fall back to "unknown"
 
-            long f_xy = (collocateLemma != null && !collocateLemma.isEmpty())
-                ? collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 1L) : 0L;
+            long f_xy = 0L;
+            if (collocateLemma != null && !collocateLemma.isEmpty()) {
+                f_xy = collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 0L);
+                if (f_xy == 0L) {
+                    logger.warn("Collocate '{}' not found in frequency map — logDice will be 0", collocateLemma);
+                }
+            }
             long f_y = (collocateLemma != null && !collocateLemma.isEmpty())
                 ? getTotalFrequency(collocateLemma) : 0L;
 

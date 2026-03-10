@@ -244,7 +244,7 @@ class ExplorationHandlers {
             }
 
             if (commonCollocates == null) {
-                commonCollocates = seedCollocates;
+                commonCollocates = new HashSet<>(seedCollocates);
             } else {
                 commonCollocates.retainAll(seedCollocates);
             }

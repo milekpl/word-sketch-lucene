@@ -87,6 +87,19 @@ public class HttpApiUtils {
         return true;
     }
 
+    /**
+     * Returns the parameter value, or sends a 400 error and returns null if missing/empty.
+     * Caller must check for null return.
+     */
+    public static String requireParam(HttpExchange exchange, Map<String, String> params, String name) throws IOException {
+        String v = params.getOrDefault(name, "").trim();
+        if (v.isEmpty()) {
+            sendError(exchange, 400, "Missing required parameter: " + name);
+            return null;
+        }
+        return v;
+    }
+
     public static Map<String, String> parseQueryParams(String query) {
         Map<String, String> params = new HashMap<>();
         if (query == null || query.isEmpty()) {

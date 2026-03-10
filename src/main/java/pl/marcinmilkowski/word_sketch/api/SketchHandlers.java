@@ -140,12 +140,7 @@ class SketchHandlers {
 
                             List<Map<String, Object>> collocations = new ArrayList<>();
                             for (QueryResults.WordSketchResult result : results) {
-                                Map<String, Object> word = new HashMap<>();
-                                word.put("lemma", result.getLemma());
-                                word.put("frequency", result.getFrequency());
-                                word.put("logDice", result.getLogDice());
-                                word.put("pos", result.getPos());
-                                collocations.add(word);
+                                collocations.add(formatWordSketchResult(result));
                             }
                             patternData.put("collocations", collocations);
                             patterns.put(rel.id(), patternData);
@@ -201,12 +196,7 @@ class SketchHandlers {
 
                             List<Map<String, Object>> collocations = new ArrayList<>();
                             for (QueryResults.WordSketchResult result : results) {
-                                Map<String, Object> word = new HashMap<>();
-                                word.put("lemma", result.getLemma());
-                                word.put("frequency", result.getFrequency());
-                                word.put("logDice", result.getLogDice());
-                                word.put("pos", result.getPos());
-                                collocations.add(word);
+                                collocations.add(formatWordSketchResult(result));
                             }
                             relData.put("collocations", collocations);
                             relations.put(rel.id(), relData);
@@ -260,12 +250,7 @@ class SketchHandlers {
 
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
-            Map<String, Object> word = new HashMap<>();
-            word.put("lemma", result.getLemma());
-            word.put("frequency", result.getFrequency());
-            word.put("logDice", result.getLogDice());
-            word.put("pos", result.getPos());
-            collocations.add(word);
+            collocations.add(formatWordSketchResult(result));
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -274,6 +259,15 @@ class SketchHandlers {
         response.put("collocations", collocations);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
+    }
+
+    private static Map<String, Object> formatWordSketchResult(QueryResults.WordSketchResult result) {
+        Map<String, Object> word = new HashMap<>();
+        word.put("lemma", result.getLemma());
+        word.put("frequency", result.getFrequency());
+        word.put("log_dice", result.getLogDice());
+        word.put("pos", result.getPos());
+        return word;
     }
 
     /**
@@ -285,14 +279,11 @@ class SketchHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String word1 = params.get("word1");
-        String word2 = params.get("word2");
+        String word1 = HttpApiUtils.requireParam(exchange, params, "word1");
+        if (word1 == null) return;
+        String word2 = HttpApiUtils.requireParam(exchange, params, "word2");
+        if (word2 == null) return;
         String relation = params.getOrDefault("relation", "noun_adj_predicates");
-
-        if (word1 == null || word1.isEmpty() || word2 == null || word2.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Missing required parameters: word1 and word2");
-            return;
-        }
 
         int limit;
         try {
@@ -333,7 +324,7 @@ class SketchHandlers {
         response.put("relation", relation);
         response.put("bcql", bcqlQuery);
         response.put("limit_requested", limit);
-        response.put("count", results.size());
+        response.put("total", results.size());
 
         List<Map<String, Object>> examplesList = new ArrayList<>();
         for (QueryResults.ConcordanceResult r : results) {
@@ -427,7 +418,7 @@ class SketchHandlers {
 
             Map<String, Object> response = new HashMap<>();
             response.put("query", bcqlQuery);
-            response.put("hits", results.size());
+            response.put("total", results.size());
             response.put("limit", limit);
 
             List<Map<String, Object>> resultsList = new ArrayList<>();
@@ -437,12 +428,12 @@ class SketchHandlers {
                 if (r.getRawXml() != null) {
                     resultMap.put("raw", r.getRawXml());
                 }
-                resultMap.put("matchStart", r.getStartOffset());
-                resultMap.put("matchEnd", r.getEndOffset());
+                resultMap.put("match_start", r.getStartOffset());
+                resultMap.put("match_end", r.getEndOffset());
                 if (r.getCollocateLemma() != null) {
-                    resultMap.put("collocateLemma", r.getCollocateLemma());
+                    resultMap.put("collocate_lemma", r.getCollocateLemma());
                     resultMap.put("frequency", r.getFrequency());
-                    resultMap.put("logDice", r.getLogDice());
+                    resultMap.put("log_dice", r.getLogDice());
                 }
                 resultsList.add(resultMap);
             }

@@ -51,11 +51,8 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String seed = params.getOrDefault("seed", "");
-        if (seed.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: seed");
-            return;
-        }
+        String seed = HttpApiUtils.requireParam(exchange, params, "seed");
+        if (seed == null) return;
 
         String relationId = resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
 
@@ -88,7 +85,7 @@ class ExplorationHandlers {
         }
 
         String bcqlPattern = relationConfig.get().getFullPattern(seed);
-        String simplePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ?
+        String reverseCollocatePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ?
             "[xpos=\"JJ.*\"]" : "[xpos=\"NN.*|VB.*\"]";
         int headPos = relationConfig.get().headPosition();
         int collocatePos = relationConfig.get().collocatePosition();
@@ -96,7 +93,7 @@ class ExplorationHandlers {
         ExploreOptions opts = new ExploreOptions(
             topCollocates, nounsPerCollocate, minLogDice, minShared, false, headPos, collocatePos);
         ExplorationResult result = semanticFieldExplorer.exploreByPattern(
-            seed, relationName, bcqlPattern, simplePattern, opts);
+            seed, relationName, bcqlPattern, reverseCollocatePattern, opts);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -116,7 +113,7 @@ class ExplorationHandlers {
             for (Map.Entry<String, Double> colloc : result.seedCollocates.entrySet()) {
                 Map<String, Object> collocMap = new HashMap<>();
                 collocMap.put("word", colloc.getKey());
-                collocMap.put("logDice", Math.round(colloc.getValue() * 100.0) / 100.0);
+                collocMap.put("log_dice", Math.round(colloc.getValue() * 100.0) / 100.0);
                 seedCollocs.add(collocMap);
             }
         }
@@ -159,7 +156,7 @@ class ExplorationHandlers {
                 Map<String, Object> edgeMap = new HashMap<>();
                 edgeMap.put("source", edge.source);
                 edgeMap.put("target", edge.target);
-                edgeMap.put("logDice", Math.round(edge.weight * 100.0) / 100.0);
+                edgeMap.put("log_dice", Math.round(edge.weight * 100.0) / 100.0);
                 edgeMap.put("type", edge.type);
                 edges.add(edgeMap);
             }
@@ -177,11 +174,8 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String seedsStr = params.getOrDefault("seeds", "");
-        if (seedsStr.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: seeds (comma-separated)");
-            return;
-        }
+        String seedsStr = HttpApiUtils.requireParam(exchange, params, "seeds");
+        if (seedsStr == null) return;
 
         String[] seedArray = seedsStr.split(",");
         Set<String> seeds = new LinkedHashSet<>();
@@ -271,7 +265,7 @@ class ExplorationHandlers {
             for (QueryResults.WordSketchResult wsr : entry.getValue()) {
                 Map<String, Object> collocMap = new HashMap<>();
                 collocMap.put("word", wsr.getLemma());
-                collocMap.put("logDice", wsr.getLogDice());
+                collocMap.put("log_dice", wsr.getLogDice());
                 collocMap.put("frequency", wsr.getFrequency());
                 discoveredCollocs.add(collocMap);
             }
@@ -291,7 +285,7 @@ class ExplorationHandlers {
                 Map<String, Object> edgeMap = new HashMap<>();
                 edgeMap.put("source", seed);
                 edgeMap.put("target", wsr.getLemma());
-                edgeMap.put("logDice", wsr.getLogDice());
+                edgeMap.put("log_dice", wsr.getLogDice());
                 edgeMap.put("type", relationType);
                 edges.add(edgeMap);
             }
@@ -309,11 +303,8 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String nounsParam = params.getOrDefault("nouns", "");
-        if (nounsParam.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: nouns");
-            return;
-        }
+        String nounsParam = HttpApiUtils.requireParam(exchange, params, "nouns");
+        if (nounsParam == null) return;
 
         Set<String> nouns = new LinkedHashSet<>(Arrays.asList(nounsParam.split(",")));
 
@@ -377,7 +368,7 @@ class ExplorationHandlers {
                 Map<String, Object> edgeMap = new HashMap<>();
                 edgeMap.put("source", edge.source);
                 edgeMap.put("target", edge.target);
-                edgeMap.put("logDice", Math.round(edge.weight * 100.0) / 100.0);
+                edgeMap.put("log_dice", Math.round(edge.weight * 100.0) / 100.0);
                 edges.add(edgeMap);
             }
         }
@@ -395,12 +386,10 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String adjective = params.get("adjective");
-        String noun = params.get("noun");
-        if (adjective == null || adjective.isEmpty() || noun == null || noun.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Missing required parameters: adjective and noun");
-            return;
-        }
+        String adjective = HttpApiUtils.requireParam(exchange, params, "adjective");
+        if (adjective == null) return;
+        String noun = HttpApiUtils.requireParam(exchange, params, "noun");
+        if (noun == null) return;
 
         int maxExamples;
         try {

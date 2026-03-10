@@ -86,7 +86,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
      * Convenience constructor that creates an owned {@link BlackLabQueryExecutor} internally.
      * Prefer {@link #SemanticFieldExplorer(QueryExecutor)} (dependency injection) for testability
      * and to avoid double-open of the same index (see issue 297b2b52).
+     *
+     * @deprecated Use {@link #SemanticFieldExplorer(QueryExecutor)} to receive an injected executor.
      */
+    @Deprecated
     public SemanticFieldExplorer(String indexPath) throws IOException {
         this.indexPath = indexPath;
         this.executor = new BlackLabQueryExecutor(indexPath);

@@ -5,7 +5,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.query.PosGroup;
+import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -144,7 +144,7 @@ public class GrammarConfigLoader {
                 collocatePosition,
                 dual,
                 relObj.getIntValue("default_slop", 10),
-                relObj.getString("relation_type"),
+                parseRelationType(relObj.getString("relation_type")),
                 relObj.getBoolean("exploration_enabled")
             );
 
@@ -174,8 +174,14 @@ public class GrammarConfigLoader {
         }
     }
 
+    /** Parse a nullable relation-type string to the {@link RelationType} enum; returns {@code null} if absent. */
+    private static RelationType parseRelationType(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return RelationType.valueOf(value.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException e) { return null; }
+    }
+
     /**
-     * Count the number of tokens in a CQL pattern.
      * Each [constraint] is one token.
      */
     private static int countPatternTokens(String pattern) {
@@ -307,7 +313,7 @@ public class GrammarConfigLoader {
         int collocatePosition,
         boolean dual,
         int defaultSlop,
-        String relationType,
+        RelationType relationType,
         Boolean explorationEnabled
     ) {
         public JSONObject toJson() {
@@ -320,7 +326,7 @@ public class GrammarConfigLoader {
             obj.put("collocate_position", collocatePosition);
             obj.put("dual", dual);
             obj.put("default_slop", defaultSlop);
-            if (relationType != null) obj.put("relation_type", relationType);
+            if (relationType != null) obj.put("relation_type", relationType.name());
             if (explorationEnabled != null) obj.put("exploration_enabled", explorationEnabled);
             return obj;
         }
@@ -478,8 +484,8 @@ public class GrammarConfigLoader {
          * like "1:[xpos="NN.*"] 2:[xpos="JJ.*"]" correctly return "adj" not "noun".
          * Supports both xpos= (current grammar) and tag= (legacy format).
          */
-        public String collocatePosGroup() {
-            if (pattern == null) return "other";
+        public PosGroup collocatePosGroup() {
+            if (pattern == null) return PosGroup.OTHER;
             String pat = pattern.toLowerCase(Locale.ROOT);
             // Prefer the 2: labeled bracket; fall back to whole pattern for single-token patterns
             String target = extractLabelContent(pat, 2);
@@ -501,26 +507,26 @@ public class GrammarConfigLoader {
             return null;
         }
 
-        /** Map a constraint string to a POS group label. */
-        private String posGroupFromConstraint(String s) {
+        /** Map a constraint string to a POS group. */
+        private PosGroup posGroupFromConstraint(String s) {
             // xpos (Penn Treebank — used by current grammar)
             if (s.contains("xpos=\"jj") || s.contains("xpos=jj")) return PosGroup.ADJ;
             if (s.contains("xpos=\"vb") || s.contains("xpos=vb")) return PosGroup.VERB;
             if (s.contains("xpos=\"nn") || s.contains("xpos=nn")) return PosGroup.NOUN;
             if (s.contains("xpos=\"rb") || s.contains("xpos=rb")) return PosGroup.ADV;
-            if (s.contains("xpos=\"in") || s.contains("xpos=in")) return "prep";
+            if (s.contains("xpos=\"in") || s.contains("xpos=in")) return PosGroup.OTHER;
             if (s.contains("xpos=\"rp") || s.contains("xpos=rp")
-             || s.contains("xpos=\"to") || s.contains("xpos=to")) return "part";
+             || s.contains("xpos=\"to") || s.contains("xpos=to")) return PosGroup.OTHER;
             // tag (legacy / alternative attribute name)
             if (s.contains("tag=\"jj") || s.contains("tag=jj")) return PosGroup.ADJ;
             if (s.contains("tag=\"vb") || s.contains("tag=vb")) return PosGroup.VERB;
             if (s.contains("tag=\"nn") || s.contains("tag=nn")
              || s.contains("tag=\"pos") || s.contains("tag=pos")) return PosGroup.NOUN;
             if (s.contains("tag=\"rb") || s.contains("tag=rb")) return PosGroup.ADV;
-            if (s.contains("tag=\"in") || s.contains("tag=in")) return "prep";
+            if (s.contains("tag=\"in") || s.contains("tag=in")) return PosGroup.OTHER;
             if (s.contains("tag=\"rp") || s.contains("tag=rp")
-             || s.contains("tag=\"to") || s.contains("tag=to")) return "part";
-            return "other";
+             || s.contains("tag=\"to") || s.contains("tag=to")) return PosGroup.OTHER;
+            return PosGroup.OTHER;
         }
 
         /**
@@ -529,7 +535,7 @@ public class GrammarConfigLoader {
          * If not found, extracts from the relation ID (e.g., "dep_amod" -> "amod").
          */
         public String getDeprel() {
-            if (pattern == null || !"DEP".equals(relationType)) {
+            if (pattern == null || relationType != RelationType.DEP) {
                 return null;
             }
             // Look for deprel="xxx" or deprel='xxx' attribute constraint

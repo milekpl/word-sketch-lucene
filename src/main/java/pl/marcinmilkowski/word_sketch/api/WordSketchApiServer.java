@@ -6,9 +6,10 @@ import com.alibaba.fastjson2.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
+import pl.marcinmilkowski.word_sketch.config.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
-import pl.marcinmilkowski.word_sketch.query.PosGroup;
+import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.AdjectiveProfile;
@@ -125,12 +126,12 @@ public class WordSketchApiServer {
 
                 if (grammarConfig != null) {
                     for (var rel : grammarConfig.getRelations()) {
-                        if ("SURFACE".equals(rel.relationType())) {
-                            JSONObject obj = new JSONObject();
+                        if (rel.relationType() == RelationType.SURFACE) {
+                            Map<String, Object> obj = new HashMap<>();
                             obj.put("id", rel.id());
                             obj.put("name", rel.name());
                             obj.put("description", rel.description());
-                            obj.put("relation_type", rel.relationType());
+                            obj.put("relation_type", rel.relationType().name());
                             obj.put("pattern", rel.pattern());
                             relations.add(obj);
                         }
@@ -153,12 +154,12 @@ public class WordSketchApiServer {
 
                 if (grammarConfig != null) {
                     for (var rel : grammarConfig.getRelations()) {
-                        if ("DEP".equals(rel.relationType())) {
-                            JSONObject obj = new JSONObject();
+                        if (rel.relationType() == RelationType.DEP) {
+                            Map<String, Object> obj = new HashMap<>();
                             obj.put("id", rel.id());
                             obj.put("name", rel.name());
                             obj.put("description", rel.description());
-                            obj.put("relation_type", rel.relationType());
+                            obj.put("relation_type", rel.relationType().name());
                             obj.put("pattern", rel.pattern());
                             obj.put("deprel", rel.getDeprel());
                             relations.add(obj);
@@ -294,13 +295,11 @@ public class WordSketchApiServer {
     }
 
     private void handleFullSketch(com.sun.net.httpserver.HttpExchange exchange, String lemma) throws IOException {
-        JSONObject response = new JSONObject();
-        response.put("lemma", lemma);
-        JSONObject patterns = new JSONObject();
+        Map<String, Object> patterns = new HashMap<>();
 
         if (grammarConfig != null) {
             for (var rel : grammarConfig.getRelations()) {
-                if ("SURFACE".equals(rel.relationType())) {
+                if (rel.relationType() == RelationType.SURFACE) {
                     try {
                         String fullPattern = rel.getFullPattern(lemma);
                         List<QueryResults.WordSketchResult> results =
@@ -310,14 +309,14 @@ public class WordSketchApiServer {
                                 0.0, 20);
 
                         if (!results.isEmpty()) {
-                            JSONObject patternData = new JSONObject();
+                            Map<String, Object> patternData = new HashMap<>();
                             patternData.put("name", rel.name());
                             patternData.put("cql", rel.pattern());
-                            patternData.put("collocate_pos_group", rel.collocatePosGroup());
-                            
-                            JSONArray collocations = new JSONArray();
+                            patternData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+
+                            List<Map<String, Object>> collocations = new ArrayList<>();
                             for (QueryResults.WordSketchResult result : results) {
-                                JSONObject word = new JSONObject();
+                                Map<String, Object> word = new HashMap<>();
                                 word.put("lemma", result.getLemma());
                                 word.put("frequency", result.getFrequency());
                                 word.put("logDice", result.getLogDice());
@@ -334,6 +333,8 @@ public class WordSketchApiServer {
             }
         }
 
+        Map<String, Object> response = new HashMap<>();
+        response.put("lemma", lemma);
         response.put("patterns", patterns);
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -343,7 +344,7 @@ public class WordSketchApiServer {
 
         if (grammarConfig != null) {
             var rel = grammarConfig.getRelation(relation).orElse(null);
-            if (rel != null && "SURFACE".equals(rel.relationType())) {
+            if (rel != null && rel.relationType() == RelationType.SURFACE) {
                 try {
                     String fullPattern = rel.getFullPattern(lemma);
                     results = executor.executeSurfacePattern(
@@ -358,9 +359,9 @@ public class WordSketchApiServer {
             }
         }
 
-        JSONArray collocations = new JSONArray();
+        List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
-            JSONObject word = new JSONObject();
+            Map<String, Object> word = new HashMap<>();
             word.put("lemma", result.getLemma());
             word.put("frequency", result.getFrequency());
             word.put("logDice", result.getLogDice());
@@ -368,7 +369,7 @@ public class WordSketchApiServer {
             collocations.add(word);
         }
 
-        JSONObject response = new JSONObject();
+        Map<String, Object> response = new HashMap<>();
         response.put("lemma", lemma);
         response.put("relation", relation);
         response.put("collocations", collocations);
@@ -382,20 +383,17 @@ public class WordSketchApiServer {
      * DEP relations use surface patterns with [deprel="..."] constraints.
      */
     private void handleFullDependencySketch(com.sun.net.httpserver.HttpExchange exchange, String lemma) throws IOException {
-        JSONObject response = new JSONObject();
-        response.put("lemma", lemma);
-        response.put("type", "dependency");
-        JSONObject relations = new JSONObject();
+        Map<String, Object> relations = new HashMap<>();
 
         if (grammarConfig != null) {
             for (var rel : grammarConfig.getRelations()) {
-                if ("DEP".equals(rel.relationType())) {
+                if (rel.relationType() == RelationType.DEP) {
                     try {
                         String deprel = rel.getDeprel();
                         if (deprel == null) continue;
 
                         String fullPattern = rel.getFullPattern(lemma);
-                        
+
                         // DEP relations use surface patterns with [deprel="..."] constraints
                         List<QueryResults.WordSketchResult> results =
                             executor.executeSurfacePattern(
@@ -404,16 +402,16 @@ public class WordSketchApiServer {
                                 0.0, 20);
 
                         if (!results.isEmpty()) {
-                            JSONObject relData = new JSONObject();
+                            Map<String, Object> relData = new HashMap<>();
                             relData.put("id", rel.id());
                             relData.put("name", rel.name());
                             relData.put("description", rel.description());
                             relData.put("deprel", deprel);
                             relData.put("total_matches", results.stream().mapToInt(r -> (int)r.getFrequency()).sum());
 
-                            JSONArray collocations = new JSONArray();
+                            List<Map<String, Object>> collocations = new ArrayList<>();
                             for (QueryResults.WordSketchResult result : results) {
-                                JSONObject word = new JSONObject();
+                                Map<String, Object> word = new HashMap<>();
                                 word.put("lemma", result.getLemma());
                                 word.put("frequency", result.getFrequency());
                                 word.put("logDice", result.getLogDice());
@@ -430,6 +428,9 @@ public class WordSketchApiServer {
             }
         }
 
+        Map<String, Object> response = new HashMap<>();
+        response.put("lemma", lemma);
+        response.put("type", "dependency");
         response.put("relations", relations);
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -444,7 +445,7 @@ public class WordSketchApiServer {
 
         if (grammarConfig != null) {
             var rel = grammarConfig.getRelation(relationId).orElse(null);
-            if (rel != null && "DEP".equals(rel.relationType())) {
+            if (rel != null && rel.relationType() == RelationType.DEP) {
                 try {
                     String fullPattern = rel.getFullPattern(lemma);
                     results = executor.executeSurfacePattern(
@@ -459,9 +460,9 @@ public class WordSketchApiServer {
             }
         }
 
-        JSONArray collocations = new JSONArray();
+        List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
-            JSONObject word = new JSONObject();
+            Map<String, Object> word = new HashMap<>();
             word.put("lemma", result.getLemma());
             word.put("frequency", result.getFrequency());
             word.put("logDice", result.getLogDice());
@@ -469,7 +470,7 @@ public class WordSketchApiServer {
             collocations.add(word);
         }
 
-        JSONObject response = new JSONObject();
+        Map<String, Object> response = new HashMap<>();
         response.put("lemma", lemma);
         response.put("relation", relationId);
         response.put("collocations", collocations);
@@ -504,7 +505,7 @@ public class WordSketchApiServer {
             return;
         }
 
-        String relationType = relationConfig.get().relationType();
+        String relationType = relationConfig.get().relationType().name();
         String relationName = relationConfig.get().name();
 
         int topCollocates = Integer.parseInt(params.getOrDefault("top", "15"));
@@ -515,7 +516,7 @@ public class WordSketchApiServer {
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor);
         
         String bcqlPattern = relationConfig.get().getFullPattern(seed);
-        String simplePattern = relationConfig.get().collocatePosGroup().equals(PosGroup.ADJ) ? 
+        String simplePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ? 
             "[xpos=\"JJ.*\"]" : "[xpos=\"NN.*|VB.*\"]";
         int headPos = relationConfig.get().headPosition();
         int collocatePos = relationConfig.get().collocatePosition();
@@ -640,7 +641,7 @@ public class WordSketchApiServer {
             return;
         }
 
-        String relationType = relationConfig.get().relationType();
+        String relationType = relationConfig.get().relationType().name();
         String relationName = relationConfig.get().name();
 
         int topCollocates = Integer.parseInt(params.getOrDefault("top", "15"));
@@ -648,7 +649,7 @@ public class WordSketchApiServer {
         double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "2.0"));
 
         String bcqlPattern = relationConfig.get().pattern();
-        String simplePattern = relationConfig.get().collocatePosGroup().equals(PosGroup.ADJ) ? 
+        String simplePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ? 
             "[xpos=\"JJ.*\"]" : "[xpos=\"NN.*|VB.*\"]";
         int headPos = relationConfig.get().headPosition();
         int collocatePos = relationConfig.get().collocatePosition();

@@ -2,7 +2,7 @@ package pl.marcinmilkowski.word_sketch.tagging;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.query.PosGroup;
+import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -395,19 +395,19 @@ public class SimpleTagger {
         public int getPosition() { return position; }
 
         public String getPosGroup() {
-            if (tag == null) return "other";
+            if (tag == null) return PosGroup.OTHER.getValue();
             char firstChar = tag.charAt(0);
             switch (firstChar) {
-                case 'N': return PosGroup.NOUN;
-                case 'V': return PosGroup.VERB;
-                case 'J': return PosGroup.ADJ;
-                case 'R': return PosGroup.ADV;
+                case 'N': return PosGroup.NOUN.getValue();
+                case 'V': return PosGroup.VERB.getValue();
+                case 'J': return PosGroup.ADJ.getValue();
+                case 'R': return PosGroup.ADV.getValue();
                 case 'D': return "det";
                 case 'P': return "pron";
                 case 'I': return "prep";
                 case 'C': return "conj";
                 case 'U': return "punct";
-                default: return "other";
+                default: return PosGroup.OTHER.getValue();
             }
         }
 

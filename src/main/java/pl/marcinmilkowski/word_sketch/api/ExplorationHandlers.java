@@ -8,14 +8,13 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
-// TODO(42e2a9a1): These imports bind the API layer to SEF's inner result classes.
-// Once SEF inner classes are moved to a dedicated model/ package, update these imports.
-import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ComparisonResult;
-import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.AdjectiveProfile;
-import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ExplorationResult;
-import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.DiscoveredNoun;
-import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.CoreCollocate;
-import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.ExploreOptions;
+import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
+import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
+import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
+import pl.marcinmilkowski.word_sketch.model.Edge;
+import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
+import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -156,7 +155,7 @@ class ExplorationHandlers {
 
         List<Map<String, Object>> edges = new ArrayList<>();
         if (result.getEdges() != null) {
-            for (SemanticFieldExplorer.Edge edge : result.getEdges()) {
+            for (Edge edge : result.getEdges()) {
                 Map<String, Object> edgeMap = new HashMap<>();
                 edgeMap.put("source", edge.source);
                 edgeMap.put("target", edge.target);
@@ -374,7 +373,7 @@ class ExplorationHandlers {
 
         List<Map<String, Object>> edges = new ArrayList<>();
         if (result.getEdges() != null) {
-            for (SemanticFieldExplorer.Edge edge : result.getEdges()) {
+            for (Edge edge : result.getEdges()) {
                 Map<String, Object> edgeMap = new HashMap<>();
                 edgeMap.put("source", edge.source);
                 edgeMap.put("target", edge.target);

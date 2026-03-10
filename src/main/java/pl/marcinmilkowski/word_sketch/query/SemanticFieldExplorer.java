@@ -11,6 +11,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
+import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
+import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
+import pl.marcinmilkowski.word_sketch.model.Edge;
+import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
+import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 
 /**
  * Analyses semantic fields around seed words by querying collocate patterns.
@@ -49,11 +56,10 @@ import org.slf4j.LoggerFactory;
  * which collocates are shared across all seeds (the semantic core) and which
  * are distinctive to individual seeds. See {@link #compareSeeds}.</p>
  *
- * <h2>Inner result classes</h2>
- * <p>This class also hosts the result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
- * {@code CoreCollocate}, {@code ComparisonResult}, {@code AdjectiveProfile}, {@code Edge}).
- * These should be extracted to a dedicated {@code model/} package in a future refactor
- * (see issue 28bc8918 / a430f585).</p>
+ * <h2>Result classes</h2>
+ * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
+ * {@code CoreCollocate}, {@code ComparisonResult}, {@code AdjectiveProfile}, {@code Edge})
+ * live in the {@code pl.marcinmilkowski.word_sketch.model} package.</p>
  *
  * <h2>Computational Limits</h2>
  * <p>Uses logDice thresholds at each step to prevent combinatorial explosion:</p>
@@ -75,18 +81,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
     private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
     private static final String NOUN_PATTERN = "[xpos=\"NN.*\"]";
 
-    /**
-     * Options for {@link #exploreByPattern}, bundling the tuning parameters and
-     * positional hints that were previously spread across 10 method arguments.
-     */
-    public record ExploreOptions(
-            int topCollocates,
-            int nounsPerCollocate,
-            double minLogDice,
-            int minShared,
-            boolean includeExamples,
-            int headPos,
-            int collocatePos) {}
 
     /**
      * Convenience constructor that creates an owned {@link BlackLabQueryExecutor} internally.
@@ -442,273 +436,4 @@ public class SemanticFieldExplorer implements AutoCloseable {
         }
     }
 
-    // ============ Result Classes ============
-
-    /**
-     * Complete comparison result with graded adjective profiles.
-     */
-    public static class ComparisonResult {
-        private final List<String> nouns;
-        private final List<AdjectiveProfile> adjectives;
-
-        public ComparisonResult(List<String> nouns, List<AdjectiveProfile> adjectives) {
-            this.nouns = nouns;
-            this.adjectives = adjectives;
-        }
-
-        public static ComparisonResult empty() {
-            return new ComparisonResult(List.of(), List.of());
-        }
-
-        public List<String> getNouns() { return nouns; }
-        public List<AdjectiveProfile> getAllAdjectives() { return adjectives; }
-
-        /** Adjectives shared by ALL nouns */
-        public List<AdjectiveProfile> getFullyShared() {
-            return adjectives.stream()
-                .filter(a -> a.presentInCount == nouns.size())
-                .collect(Collectors.toList());
-        }
-
-        /** Adjectives shared by 2+ nouns but not all */
-        public List<AdjectiveProfile> getPartiallyShared() {
-            return adjectives.stream()
-                .filter(a -> a.presentInCount >= 2 && a.presentInCount < nouns.size())
-                .collect(Collectors.toList());
-        }
-
-        /** Adjectives specific to exactly one noun */
-        public List<AdjectiveProfile> getSpecific() {
-            return adjectives.stream()
-                .filter(a -> a.presentInCount == 1)
-                .collect(Collectors.toList());
-        }
-
-        /** Get adjectives specific to a particular noun */
-        public List<AdjectiveProfile> getSpecificTo(String noun) {
-            return adjectives.stream()
-                .filter(a -> a.presentInCount == 1 && a.nounScores.getOrDefault(noun, 0.0) > 0)
-                .sorted((x, y) -> Double.compare(y.maxLogDice, x.maxLogDice))
-                .collect(Collectors.toList());
-        }
-
-        /** Build edges for visualization */
-        public List<Edge> getEdges() {
-            List<Edge> edges = new ArrayList<>();
-            for (AdjectiveProfile adj : adjectives) {
-                for (Map.Entry<String, Double> entry : adj.nounScores.entrySet()) {
-                    if (entry.getValue() > 0) {
-                        edges.add(new Edge(adj.adjective, entry.getKey(),
-                            entry.getValue(), "modifier"));
-                    }
-                }
-            }
-            return edges;
-        }
-
-        @Override
-        public String toString() {
-            int shared = (int) adjectives.stream().filter(a -> a.presentInCount >= 2).count();
-            int specific = (int) adjectives.stream().filter(a -> a.presentInCount == 1).count();
-            return String.format("ComparisonResult(%d nouns, %d adjectives: %d shared, %d specific)",
-                nouns.size(), adjectives.size(), shared, specific);
-        }
-    }
-
-    /**
-     * Profile of one adjective across all seed nouns.
-     * Shows graded scores, not just binary presence.
-     */
-    public static class AdjectiveProfile {
-        public final String adjective;
-        public final Map<String, Double> nounScores;  // noun -> logDice (0 if absent)
-        public final int presentInCount;              // How many nouns have this adjective
-        public final int totalNouns;                  // Total seed nouns
-        public final double avgLogDice;               // Average score (where present)
-        public final double maxLogDice;               // Highest score
-        public final double minLogDice;               // Lowest score (where present)
-        public final double variance;                 // Score variance (high = distinctive pattern)
-        public final double commonalityScore;         // For ranking shared adjectives
-        public final double distinctivenessScore;     // For ranking specific adjectives
-
-        public AdjectiveProfile(String adjective, Map<String, Double> nounScores,
-                int presentInCount, int totalNouns,
-                double avgLogDice, double maxLogDice, double minLogDice, double variance,
-                double commonalityScore, double distinctivenessScore) {
-            this.adjective = adjective;
-            this.nounScores = nounScores;
-            this.presentInCount = presentInCount;
-            this.totalNouns = totalNouns;
-            this.avgLogDice = avgLogDice;
-            this.maxLogDice = maxLogDice;
-            this.minLogDice = minLogDice;
-            this.variance = variance;
-            this.commonalityScore = commonalityScore;
-            this.distinctivenessScore = distinctivenessScore;
-        }
-
-        public boolean isFullyShared() { return presentInCount == totalNouns; }
-        public boolean isPartiallyShared() { return presentInCount >= 2 && presentInCount < totalNouns; }
-        public boolean isSpecific() { return presentInCount == 1; }
-
-        /** Get the noun this adjective is most associated with */
-        public String getStrongestNoun() {
-            return nounScores.entrySet().stream()
-                .max(Comparator.comparingDouble(Map.Entry::getValue))
-                .map(Map.Entry::getKey)
-                .orElse(null);
-        }
-
-        @Override
-        public String toString() {
-            String scoreStr = nounScores.entrySet().stream()
-                .map(e -> e.getKey() + ":" + String.format("%.1f", e.getValue()))
-                .collect(Collectors.joining(", "));
-            return String.format("%s [%d/%d: %s]", adjective, presentInCount, totalNouns, scoreStr);
-        }
-    }
-
-    /**
-     * Edge for graph visualization.
-     */
-    public static class Edge {
-        public final String source;   // adjective
-        public final String target;   // noun
-        public final double weight;   // logDice score
-        public final String type;
-
-        public Edge(String source, String target, double weight, String type) {
-            this.source = source;
-            this.target = target;
-            this.weight = weight;
-            this.type = type;
-        }
-    }
-
-    // ============ Exploration Result Classes ============
-
-    /**
-     * Result of semantic field exploration from a seed word.
-     */
-    public static class ExplorationResult {
-        public final String seed;
-        public final Map<String, Double> seedCollocates;  // collocate -> logDice with seed
-        public final List<DiscoveredNoun> discoveredNouns;
-        public final List<CoreCollocate> coreCollocates;
-
-        public ExplorationResult(String seed, Map<String, Double> seedCollocates,
-                List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates) {
-            this.seed = seed;
-            this.seedCollocates = seedCollocates;
-            this.discoveredNouns = discoveredNouns;
-            this.coreCollocates = coreCollocates;
-        }
-
-        public static ExplorationResult empty(String seed) {
-            return new ExplorationResult(seed, Map.of(), List.of(), List.of());
-        }
-
-        public boolean isEmpty() {
-            return discoveredNouns.isEmpty();
-        }
-
-        /** Get top N similar nouns */
-        public List<DiscoveredNoun> getTopNouns(int n) {
-            return discoveredNouns.stream().limit(n).collect(Collectors.toList());
-        }
-
-        /** Get nouns sharing at least minShared collocates with seed */
-        public List<DiscoveredNoun> getNounsWithMinShared(int minShared) {
-            return discoveredNouns.stream()
-                .filter(n -> n.sharedCount >= minShared)
-                .collect(Collectors.toList());
-        }
-
-        /** Build edges for visualization */
-        public List<Edge> getEdges() {
-            List<Edge> edges = new ArrayList<>();
-
-            // Edges from seed to its collocates
-            for (Map.Entry<String, Double> colloc : seedCollocates.entrySet()) {
-                edges.add(new Edge(seed, colloc.getKey(), colloc.getValue(), "seed_adj"));
-            }
-
-            // Edges from discovered nouns to shared collocates
-            for (DiscoveredNoun noun : discoveredNouns) {
-                for (Map.Entry<String, Double> colloc : noun.sharedCollocates.entrySet()) {
-                    edges.add(new Edge(noun.noun, colloc.getKey(), colloc.getValue(), "discovered_adj"));
-                }
-            }
-
-            return edges;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("ExplorationResult(seed='%s', collocates=%d, discovered=%d, core=%d)",
-                seed, seedCollocates.size(), discoveredNouns.size(), coreCollocates.size());
-        }
-    }
-
-    /**
-     * A noun discovered during exploration - shares collocates with the seed.
-     */
-    public static class DiscoveredNoun {
-        public final String noun;
-        public final Map<String, Double> sharedCollocates;  // collocate -> logDice
-        public final int sharedCount;                        // Number of shared collocates
-        public final double cumulativeScore;                 // Sum of logDice scores
-        public final double avgLogDice;                      // Average logDice
-        public final double similarityScore;                 // Ranking score (sharedCount × avgLogDice)
-
-        public DiscoveredNoun(String noun, Map<String, Double> sharedCollocates,
-                int sharedCount, double cumulativeScore, double avgLogDice, double similarityScore) {
-            this.noun = noun;
-            this.sharedCollocates = sharedCollocates;
-            this.sharedCount = sharedCount;
-            this.cumulativeScore = cumulativeScore;
-            this.avgLogDice = avgLogDice;
-            this.similarityScore = similarityScore;
-        }
-
-        public List<String> getSharedCollocateList() {
-            return new ArrayList<>(sharedCollocates.keySet());
-        }
-
-        @Override
-        public String toString() {
-            return String.format("%s (shared=%d, score=%.1f)", noun, sharedCount, similarityScore);
-        }
-    }
-
-    /**
-     * A collocate that defines the semantic class (shared by multiple discovered nouns).
-     */
-    public static class CoreCollocate {
-        public final String collocate;
-        public final int sharedByCount;    // How many discovered nouns share this collocate
-        public final int totalNouns;       // Total discovered nouns
-        public final double seedLogDice;   // LogDice with the seed word
-        public final double avgLogDice;    // Average logDice across discovered nouns
-
-        public CoreCollocate(String collocate, int sharedByCount, int totalNouns,
-                double seedLogDice, double avgLogDice) {
-            this.collocate = collocate;
-            this.sharedByCount = sharedByCount;
-            this.totalNouns = totalNouns;
-            this.seedLogDice = seedLogDice;
-            this.avgLogDice = avgLogDice;
-        }
-
-        /** Coverage ratio: how many of the discovered nouns share this collocate */
-        public double getCoverage() {
-            return totalNouns > 0 ? (double) sharedByCount / totalNouns : 0.0;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("%s (in %d/%d nouns, avgLogDice=%.1f)",
-                collocate, sharedByCount, totalNouns, avgLogDice);
-        }
-    }
 }

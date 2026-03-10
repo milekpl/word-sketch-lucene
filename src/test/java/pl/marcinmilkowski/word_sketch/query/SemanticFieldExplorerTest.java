@@ -2,6 +2,13 @@ package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
+import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
+import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
+import pl.marcinmilkowski.word_sketch.model.Edge;
+import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
+import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -88,10 +95,10 @@ class SemanticFieldExplorerTest {
         ));
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Set.of("theory", "model", "hypothesis"), 0.0, 50);
 
-            List<SemanticFieldExplorer.AdjectiveProfile> fullyShared = result.getFullyShared();
+            List<AdjectiveProfile> fullyShared = result.getFullyShared();
             List<String> sharedNames = fullyShared.stream()
                 .map(p -> p.adjective).toList();
 
@@ -111,10 +118,10 @@ class SemanticFieldExplorerTest {
         ));
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Set.of("theory", "model"), 0.0, 50);
 
-            List<SemanticFieldExplorer.AdjectiveProfile> specific = result.getSpecific();
+            List<AdjectiveProfile> specific = result.getSpecific();
             List<String> specificNames = specific.stream().map(p -> p.adjective).toList();
 
             assertTrue(specificNames.contains("abstract"),
@@ -130,7 +137,7 @@ class SemanticFieldExplorerTest {
         StubExecutor executor = new StubExecutor(Map.of());
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Collections.emptySet(), 0.0, 50);
 
             assertNotNull(result);
@@ -147,7 +154,7 @@ class SemanticFieldExplorerTest {
         ));
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Set.of("theory"), 0.0, 50);
 
             assertNotNull(result);
@@ -168,7 +175,7 @@ class SemanticFieldExplorerTest {
         ));
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Set.of("theory", "model"), 0.0, 50);
 
             // empirical is specific to theory (model has no adjectives)
@@ -185,7 +192,7 @@ class SemanticFieldExplorerTest {
         StubExecutor executor = new StubExecutor(Map.of());
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(null, 0.0, 50);
 
             assertNotNull(result);
@@ -206,7 +213,7 @@ class SemanticFieldExplorerTest {
         ));
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Set.of("theory", "model", "hypothesis"), 0.0, 50);
 
             List<String> partialNames = result.getPartiallyShared().stream()
@@ -226,14 +233,14 @@ class SemanticFieldExplorerTest {
         ));
 
         try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            SemanticFieldExplorer.ComparisonResult result =
+            ComparisonResult result =
                 explorer.compare(Set.of("theory", "model"), 0.0, 50);
 
-            List<SemanticFieldExplorer.Edge> edges = result.getEdges();
+            List<Edge> edges = result.getEdges();
             assertFalse(edges.isEmpty(), "Should have edges");
 
             // Edge from abstract → theory should have weight ~9.0
-            SemanticFieldExplorer.Edge theoryEdge = edges.stream()
+            Edge theoryEdge = edges.stream()
                 .filter(e -> e.target.equals("theory") && e.source.equals("abstract"))
                 .findFirst().orElse(null);
             assertNotNull(theoryEdge, "Should have abstract→theory edge");

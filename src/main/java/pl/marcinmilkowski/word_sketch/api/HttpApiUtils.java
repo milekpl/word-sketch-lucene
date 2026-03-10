@@ -44,6 +44,41 @@ public class HttpApiUtils {
         }
     }
 
+    /**
+     * Responds to an OPTIONS preflight request with the appropriate CORS headers and 204 No Content.
+     */
+    public static void sendOptionsResponse(HttpExchange exchange, String allowedMethods) throws IOException {
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", allowedMethods + ", OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+        exchange.sendResponseHeaders(204, -1);
+    }
+
+    /**
+     * Sends a binary response with the given content type (e.g., image/svg+xml) and CORS header.
+     */
+    public static void sendBinaryResponse(HttpExchange exchange, String contentType, byte[] bytes) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", contentType);
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
+        }
+    }
+
+    /**
+     * Validates that the request uses the expected HTTP method.
+     * If it does not, sends a 405 Method Not Allowed response and returns false.
+     */
+    public static boolean requireMethod(HttpExchange exchange, String method) throws IOException {
+        if (!method.equals(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Allow", method);
+            sendError(exchange, 405, "Method Not Allowed");
+            return false;
+        }
+        return true;
+    }
+
     public static Map<String, String> parseQueryParams(String query) {
         Map<String, String> params = new HashMap<>();
         if (query == null || query.isEmpty()) {

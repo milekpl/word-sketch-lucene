@@ -16,7 +16,6 @@ import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.DiscoveredNoun
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer.CoreAdjective;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.net.URLDecoder;
@@ -61,13 +60,13 @@ public class WordSketchApiServer {
         try {
             server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(port), 0);
             
-            // Health check endpoint
             server.createContext("/health", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok"));
             });
 
-            // Get word sketch for a lemma
             server.createContext("/api/sketch/", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 String path = exchange.getRequestURI().getPath();
                 String[] parts = path.substring("/api/sketch/".length()).split("/");
 
@@ -78,15 +77,12 @@ public class WordSketchApiServer {
 
                 String lemma = parts[0];
                 
-                // Check if this is a dependency sketch request
                 if (parts.length > 1 && "dep".equals(parts[1])) {
                     String specificDeprel = parts.length > 2 ? parts[2] : null;
                     try {
                         if (specificDeprel != null && !specificDeprel.isEmpty()) {
-                            // Get specific dependency relation
                             handleDependencyRelationQuery(exchange, lemma, specificDeprel);
                         } else {
-                            // Get full dependency sketch
                             handleFullDependencySketch(exchange, lemma);
                         }
                     } catch (IOException e) {
@@ -100,10 +96,8 @@ public class WordSketchApiServer {
 
                 try {
                     if (relation != null && !relation.isEmpty()) {
-                        // Get specific relation
                         handleRelationQuery(exchange, lemma, relation);
                     } else {
-                        // Get full word sketch
                         handleFullSketch(exchange, lemma);
                     }
                 } catch (IOException e) {
@@ -114,6 +108,7 @@ public class WordSketchApiServer {
 
             // Get available relations - from grammar config filtered by SURFACE type
             server.createContext("/api/relations", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 JSONArray relations = new JSONArray();
 
                 // Use grammarConfig if available, filter by SURFACE type
@@ -130,7 +125,6 @@ public class WordSketchApiServer {
                         }
                     }
                 } else {
-                    // Fallback: return error if no grammar config
                     HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
                     return;
                 }
@@ -138,8 +132,8 @@ public class WordSketchApiServer {
                 HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
             });
 
-            // Get available dependency relations - from grammar config filtered by DEP type
             server.createContext("/api/relations/dep", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 JSONArray relations = new JSONArray();
 
                 if (grammarConfig != null) {
@@ -163,8 +157,8 @@ public class WordSketchApiServer {
                 HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
             });
 
-            // Semantic Field Exploration endpoints
             server.createContext("/api/semantic-field/explore", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 logger.info("Received request: {}", exchange.getRequestURI());
                 try {
                     handleSemanticFieldExplore(exchange);
@@ -178,6 +172,7 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field/explore-multi", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 logger.info("Received request: {}", exchange.getRequestURI());
                 try {
                     handleSemanticFieldExploreMulti(exchange);
@@ -191,6 +186,7 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 try {
                     handleSemanticField(exchange);
                 } catch (IOException e) {
@@ -200,6 +196,7 @@ public class WordSketchApiServer {
             });
 
             server.createContext("/api/semantic-field/examples", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 try {
                     handleSemanticFieldExamples(exchange);
                 } catch (IOException e) {
@@ -208,8 +205,8 @@ public class WordSketchApiServer {
                 }
             });
 
-            // Concordance examples endpoint
             server.createContext("/api/concordance/examples", exchange -> {
+                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 try {
                     handleConcordanceExamples(exchange);
                 } catch (IOException e) {
@@ -218,7 +215,6 @@ public class WordSketchApiServer {
                 }
             });
 
-            // Radial plot endpoint
             server.createContext("/api/visual/radial", exchange -> {
                 try {
                     handleVisualRadial(exchange);
@@ -228,7 +224,7 @@ public class WordSketchApiServer {
                 }
             });
 
-            // BCQL query endpoint (POST with JSON body to avoid URL encoding issues)
+            // POST with JSON body to avoid URL encoding issues
             server.createContext("/api/bcql", exchange -> {
                 try {
                     handleBcqlQueryPost(exchange);
@@ -910,14 +906,10 @@ public class WordSketchApiServer {
     private void handleVisualRadial(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
         if ("OPTIONS".equalsIgnoreCase(method)) {
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
-            exchange.sendResponseHeaders(204, -1);
+            HttpApiUtils.sendOptionsResponse(exchange, "POST");
             return;
         }
-        if (!"POST".equalsIgnoreCase(method)) {
-            HttpApiUtils.sendError(exchange, 405, "Method not allowed");
+        if (!HttpApiUtils.requireMethod(exchange, "POST")) {
             return;
         }
 
@@ -946,12 +938,7 @@ public class WordSketchApiServer {
 
             String svg = RadialPlot.renderFromItems(center, items, width, height, mode);
             byte[] bytes = svg.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "image/svg+xml; charset=utf-8");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(bytes);
-            }
+            HttpApiUtils.sendBinaryResponse(exchange, "image/svg+xml; charset=utf-8", bytes);
         } catch (Exception e) {
             logger.error("Error rendering radial", e);
             HttpApiUtils.sendError(exchange, 500, "Failed to render radial: " + e.getMessage());
@@ -965,14 +952,10 @@ public class WordSketchApiServer {
     private void handleBcqlQueryPost(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
         if ("OPTIONS".equalsIgnoreCase(method)) {
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
-            exchange.sendResponseHeaders(204, -1);
+            HttpApiUtils.sendOptionsResponse(exchange, "POST");
             return;
         }
-        if (!"POST".equalsIgnoreCase(method)) {
-            HttpApiUtils.sendError(exchange, 405, "Method not allowed");
+        if (!HttpApiUtils.requireMethod(exchange, "POST")) {
             return;
         }
 

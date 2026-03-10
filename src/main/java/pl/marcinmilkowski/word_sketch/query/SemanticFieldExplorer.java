@@ -288,7 +288,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
             logger.info("  Found {} adjectives", adjectives.size());
             if (!adjectives.isEmpty()) {
-                logger.info("  Top 5: {}", adjectives.stream());
+                logger.info("  Top 5: {}", adjectives.subList(0, Math.min(5, adjectives.size())));
             }
 
             for (QueryResults.WordSketchResult r : adjectives) {
@@ -403,9 +403,9 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
-        if (executor instanceof AutoCloseable) {
+        if (ownsExecutor && executor instanceof AutoCloseable ac) {
             try {
-                ((AutoCloseable) executor).close();
+                ac.close();
             } catch (Exception e) {
                 throw new IOException(e);
             }

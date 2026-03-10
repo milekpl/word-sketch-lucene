@@ -247,7 +247,7 @@ public class CQLParser {
         }
 
         // Check for repetition
-        Matcher repetitionMatcher = REPITITION.matcher(after);
+        Matcher repetitionMatcher = REPETITION.matcher(after);
         if (repetitionMatcher.lookingAt()) {
             minRepetition = Integer.parseInt(repetitionMatcher.group(1));
             maxRepetition = repetitionMatcher.group(2) != null ? Integer.parseInt(repetitionMatcher.group(2)) : minRepetition;

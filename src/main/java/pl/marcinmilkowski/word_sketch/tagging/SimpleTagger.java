@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * Used when UDPipe is not available.
  * Provides basic English POS tagging using lookup tables and rules.
  */
-public class SimpleTagger implements PosTagger {
+public class SimpleTagger {
 
     private static final Logger logger = LoggerFactory.getLogger(SimpleTagger.class);
 
@@ -234,7 +234,7 @@ public class SimpleTagger implements PosTagger {
         logger.info("Loaded " + lexicon.size() + " entries from lexicon");
     }
 
-    @Override
+
     public List<TaggedToken> tagSentence(String sentence) throws IOException {
         // Simple tokenization
         String[] words = sentence.split("\\s+");
@@ -348,7 +348,7 @@ public class SimpleTagger implements PosTagger {
         return "VB";
     }
 
-    @Override
+
     public List<List<TaggedToken>> tagSentences(List<String> sentences) throws IOException {
         List<List<TaggedToken>> results = new ArrayList<>();
         for (String sentence : sentences) {
@@ -357,13 +357,55 @@ public class SimpleTagger implements PosTagger {
         return results;
     }
 
-    @Override
+
     public String getName() {
         return "Simple Tagger (Rule-based)";
     }
 
-    @Override
+
     public String getTagset() {
         return "Penn Treebank (simplified)";
+    }
+
+    /** A single token with its POS tag, lemma, and position. */
+    public static class TaggedToken {
+        private final String word;
+        private final String lemma;
+        private final String tag;
+        private final int position;
+
+        public TaggedToken(String word, String lemma, String tag, int position) {
+            this.word = word;
+            this.lemma = lemma;
+            this.tag = tag;
+            this.position = position;
+        }
+
+        public String getWord() { return word; }
+        public String getLemma() { return lemma; }
+        public String getTag() { return tag; }
+        public int getPosition() { return position; }
+
+        public String getPosGroup() {
+            if (tag == null) return "other";
+            char firstChar = tag.charAt(0);
+            switch (firstChar) {
+                case 'N': return "noun";
+                case 'V': return "verb";
+                case 'J': return "adj";
+                case 'R': return "adv";
+                case 'D': return "det";
+                case 'P': return "pron";
+                case 'I': return "prep";
+                case 'C': return "conj";
+                case 'U': return "punct";
+                default: return "other";
+            }
+        }
+
+        @Override
+        public String toString() {
+            return word + "\t" + tag + "\t" + lemma;
+        }
     }
 }

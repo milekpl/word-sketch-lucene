@@ -70,15 +70,15 @@ class ExplorationHandlers {
         String relationType = relationConfig.get().relationType().name();
         String relationName = relationConfig.get().name();
 
-        int topCollocates;
+        ExploreParams ep = parseExploreParams(exchange, params);
+        if (ep == null) return;
+        int topCollocates = ep.topCollocates();
+        int minShared = ep.minShared();
+        double minLogDice = ep.minLogDice();
+
         int nounsPerCollocate;
-        int minShared;
-        double minLogDice;
         try {
-            topCollocates = Integer.parseInt(params.getOrDefault("top", "15"));
             nounsPerCollocate = Integer.parseInt(params.getOrDefault("nouns_per", "30"));
-            minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
-            minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
         } catch (NumberFormatException e) {
             HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
             return;
@@ -186,17 +186,11 @@ class ExplorationHandlers {
 
         String relationType = relationConfig.get().relationType().name();
 
-        int topCollocates;
-        int minShared;
-        double minLogDice;
-        try {
-            topCollocates = Integer.parseInt(params.getOrDefault("top", "15"));
-            minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
-            minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
-        } catch (NumberFormatException e) {
-            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
-            return;
-        }
+        ExploreParams ep = parseExploreParams(exchange, params);
+        if (ep == null) return;
+        int topCollocates = ep.topCollocates();
+        int minShared = ep.minShared();
+        double minLogDice = ep.minLogDice();
 
         SemanticFieldExplorer.MultiSeedCollocates multiResult;
         try {
@@ -398,6 +392,20 @@ class ExplorationHandlers {
         m.put("log_dice", Math.round(edge.weight * 100.0) / 100.0);
         m.put("type", edge.type);
         return m;
+    }
+
+    private record ExploreParams(int topCollocates, int minShared, double minLogDice) {}
+
+    private ExploreParams parseExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
+        try {
+            int top = Integer.parseInt(params.getOrDefault("top", "15"));
+            int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
+            double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
+            return new ExploreParams(top, minShared, minLogDice);
+        } catch (NumberFormatException e) {
+            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
+            return null;
+        }
     }
 
     private static String resolveRelationAlias(String relation) {

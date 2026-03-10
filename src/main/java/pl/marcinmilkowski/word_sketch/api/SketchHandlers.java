@@ -76,38 +76,27 @@ class SketchHandlers {
     }
 
     void handleSurfaceRelations(HttpExchange exchange) throws IOException {
-        JSONArray relationsArray = new JSONArray();
-        if (grammarConfig != null) {
-            for (var rel : grammarConfig.getRelations()) {
-                if (rel.relationType() == RelationType.SURFACE) {
-                    Map<String, Object> obj = new HashMap<>();
-                    obj.put("id", rel.id());
-                    obj.put("name", rel.name());
-                    obj.put("description", rel.description());
-                    obj.put("relation_type", rel.relationType().name());
-                    obj.put("pattern", rel.pattern());
-                    relationsArray.add(obj);
-                }
-            }
-        } else {
-            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
-            return;
-        }
-        HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relationsArray));
+        handleRelationsImpl(exchange, RelationType.SURFACE);
     }
 
     void handleDepRelations(HttpExchange exchange) throws IOException {
+        handleRelationsImpl(exchange, RelationType.DEP);
+    }
+
+    private void handleRelationsImpl(HttpExchange exchange, RelationType relationType) throws IOException {
         JSONArray relationsArray = new JSONArray();
         if (grammarConfig != null) {
             for (var rel : grammarConfig.getRelations()) {
-                if (rel.relationType() == RelationType.DEP) {
+                if (rel.relationType() == relationType) {
                     Map<String, Object> obj = new HashMap<>();
                     obj.put("id", rel.id());
                     obj.put("name", rel.name());
                     obj.put("description", rel.description());
                     obj.put("relation_type", rel.relationType().name());
                     obj.put("pattern", rel.pattern());
-                    obj.put("deprel", rel.getDeprel());
+                    if (relationType == RelationType.DEP) {
+                        obj.put("deprel", rel.getDeprel());
+                    }
                     relationsArray.add(obj);
                 }
             }
@@ -119,43 +108,7 @@ class SketchHandlers {
     }
 
     private void handleFullSketch(HttpExchange exchange, String lemma) throws IOException {
-        Map<String, Object> patterns = new HashMap<>();
-
-        if (grammarConfig != null) {
-            for (var rel : grammarConfig.getRelations()) {
-                if (rel.relationType() == RelationType.SURFACE) {
-                    try {
-                        String fullPattern = rel.getFullPattern(lemma);
-                        List<QueryResults.WordSketchResult> results =
-                            executor.executeSurfacePattern(
-                                lemma, fullPattern,
-                                rel.headPosition(), rel.collocatePosition(),
-                                0.0, 20);
-
-                        if (!results.isEmpty()) {
-                            Map<String, Object> patternData = new HashMap<>();
-                            patternData.put("name", rel.name());
-                            patternData.put("cql", rel.pattern());
-                            patternData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
-
-                            List<Map<String, Object>> collocations = new ArrayList<>();
-                            for (QueryResults.WordSketchResult result : results) {
-                                collocations.add(formatWordSketchResult(result));
-                            }
-                            patternData.put("collocations", collocations);
-                            patterns.put(rel.id(), patternData);
-                        }
-                    } catch (Exception e) {
-                        logger.warn("Relation {} failed for lemma {}", rel.id(), lemma, e);
-                    }
-                }
-            }
-        }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("lemma", lemma);
-        response.put("patterns", patterns);
-        HttpApiUtils.sendJsonResponse(exchange, response);
+        handleFullSketchImpl(exchange, lemma, RelationType.SURFACE);
     }
 
     private void handleRelationQuery(HttpExchange exchange, String lemma, String relation) throws IOException {
@@ -168,18 +121,20 @@ class SketchHandlers {
      * DEP relations use surface patterns with [deprel="..."] constraints.
      */
     private void handleFullDependencySketch(HttpExchange exchange, String lemma) throws IOException {
-        Map<String, Object> relations = new HashMap<>();
+        handleFullSketchImpl(exchange, lemma, RelationType.DEP);
+    }
+
+    private void handleFullSketchImpl(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {
+        boolean isDep = relationType == RelationType.DEP;
+        Map<String, Object> byRelation = new HashMap<>();
 
         if (grammarConfig != null) {
             for (var rel : grammarConfig.getRelations()) {
-                if (rel.relationType() == RelationType.DEP) {
+                if (rel.relationType() == relationType) {
                     try {
-                        String deprel = rel.getDeprel();
-                        if (deprel == null) continue;
+                        if (isDep && rel.getDeprel() == null) continue;
 
                         String fullPattern = rel.getFullPattern(lemma);
-
-                        // DEP relations use surface patterns with [deprel="..."] constraints
                         List<QueryResults.WordSketchResult> results =
                             executor.executeSurfacePattern(
                                 lemma, fullPattern,
@@ -187,22 +142,28 @@ class SketchHandlers {
                                 0.0, 20);
 
                         if (!results.isEmpty()) {
-                            Map<String, Object> relData = new HashMap<>();
-                            relData.put("id", rel.id());
-                            relData.put("name", rel.name());
-                            relData.put("description", rel.description());
-                            relData.put("deprel", deprel);
-                            relData.put("total_matches", results.stream().mapToInt(r -> (int)r.getFrequency()).sum());
-
                             List<Map<String, Object>> collocations = new ArrayList<>();
                             for (QueryResults.WordSketchResult result : results) {
                                 collocations.add(formatWordSketchResult(result));
                             }
+
+                            Map<String, Object> relData = new HashMap<>();
+                            if (isDep) {
+                                relData.put("id", rel.id());
+                                relData.put("name", rel.name());
+                                relData.put("description", rel.description());
+                                relData.put("deprel", rel.getDeprel());
+                                relData.put("total_matches", results.stream().mapToInt(r -> (int) r.getFrequency()).sum());
+                            } else {
+                                relData.put("name", rel.name());
+                                relData.put("cql", rel.pattern());
+                                relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+                            }
                             relData.put("collocations", collocations);
-                            relations.put(rel.id(), relData);
+                            byRelation.put(rel.id(), relData);
                         }
                     } catch (Exception e) {
-                        logger.warn("Dependency relation {} failed for lemma {}", rel.id(), lemma, e);
+                        logger.warn("Relation {} failed for lemma {}", rel.id(), lemma, e);
                     }
                 }
             }
@@ -210,8 +171,12 @@ class SketchHandlers {
 
         Map<String, Object> response = new HashMap<>();
         response.put("lemma", lemma);
-        response.put("type", "dependency");
-        response.put("relations", relations);
+        if (isDep) {
+            response.put("type", "dependency");
+            response.put("relations", byRelation);
+        } else {
+            response.put("patterns", byRelation);
+        }
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
 

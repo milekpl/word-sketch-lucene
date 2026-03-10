@@ -64,28 +64,28 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
     @Override
     public List<QueryResults.WordSketchResult> findCollocations(
-            String headword,
+            String lemma,
             String cqlPattern,
             double minLogDice,
             int maxResults) throws IOException {
 
-        if (headword == null || headword.isEmpty()) {
+        if (lemma == null || lemma.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // Use the provided CQL pattern with the headword
+        // Use the provided CQL pattern with the lemma
         // Pattern can be like "[xpos=JJ.*]" or "[lemma=\"%s\"] []{0,5} [xpos=\"JJ.*\"]"
         String bcql;
         if (cqlPattern.contains("%s")) {
-            // Pattern has placeholder for headword
-            bcql = String.format(cqlPattern, headword.toLowerCase());
+            // Pattern has placeholder for lemma
+            bcql = String.format(cqlPattern, lemma.toLowerCase());
         } else if (cqlPattern.startsWith("[")) {
-            // Simple pattern like "[xpos=JJ.*]" - find headword followed by pattern
+            // Simple pattern like "[xpos=JJ.*]" - find lemma followed by pattern
             // BCQL requires proper sequence syntax
-            bcql = String.format("\"%s\" %s", headword.toLowerCase(), cqlPattern);
+            bcql = String.format("\"%s\" %s", lemma.toLowerCase(), cqlPattern);
         } else {
-            // Fallback: just search for headword
-            bcql = String.format("\"%s\" []", headword.toLowerCase());
+            // Fallback: just search for lemma
+            bcql = String.format("\"%s\" []", lemma.toLowerCase());
         }
 
         try {
@@ -94,7 +94,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcql, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
 
-            long headwordFreq = getTotalFrequency(headword);
+            long headwordFreq = getTotalFrequency(lemma);
 
             // Group by the matched collocate (last token in pattern)
             SearchHits searchHits = blackLabIndex.search().find(query);
@@ -136,19 +136,20 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
     }
 
+    @Override
     public List<QueryResults.WordSketchResult> findDependencyCollocations(
-            String headword,
+            String lemma,
             String deprel,
             double minLogDice,
             int maxResults) throws IOException {
 
-        if (headword == null || headword.isEmpty()) {
+        if (lemma == null || lemma.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // BCQL syntax for dependency: "headword" -deprel-> _
-        // This finds all words that have the specified dependency relation to headword
-        String bcql = String.format("\"%s\" -%s-> _", headword.toLowerCase(), deprel);
+        // BCQL syntax for dependency: "lemma" -deprel-> _
+        // This finds all words that have the specified dependency relation to lemma
+        String bcql = String.format("\"%s\" -%s-> _", lemma.toLowerCase(), deprel);
 
         try {
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcql, "lemma");
@@ -158,7 +159,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             HitProperty groupBy = new HitPropertyHitText(blackLabIndex, MatchSensitivity.SENSITIVE);
             HitGroups groups = searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute();
 
-            long headwordFreq = getTotalFrequency(headword);
+            long headwordFreq = getTotalFrequency(lemma);
             Map<String, Long> freqMap = new LinkedHashMap<>();
             for (HitGroup group : groups) {
                 String collocateLemma = group.identity().toString();
@@ -322,7 +323,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             if (extracted != null && !extracted.isEmpty()) return extracted;
             // Fallback: last lemma in match XML
         }
-        return BlackLabSnippetParser.extractCollocateFromSnippet(matchXml);
+        return BlackLabSnippetParser.extractCollocateLemma(matchXml);
     }
 
 
@@ -428,7 +429,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             return null;
         }
         // Delegate to the shared snippet parser
-        String lemma = BlackLabSnippetParser.extractCollocateFromSnippet(identity);
+        String lemma = BlackLabSnippetParser.extractCollocateLemma(identity);
         return lemma != null ? lemma.toLowerCase() : null;
     }
 
@@ -477,10 +478,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 if (identity != null && !identity.isEmpty()) {
                     // The group identity is the matched text - extract the collocate from it
                     // Try XML format first, then plain text
-                    String collocate = BlackLabSnippetParser.extractCollocateFromMatch(identity, collocateLabelPos);
+                    String collocate = BlackLabSnippetParser.extractLemmaAt(identity, collocateLabelPos);
                     if (collocate == null || collocate.isEmpty()) {
                         // Try plain text extraction - split by whitespace
-                        collocate = BlackLabSnippetParser.extractCollocateFromPlainText(identity, collocateLabelPos);
+                        collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocateLabelPos);
                     }
                     if (collocate != null && !collocate.isEmpty()) {
                         freqMap.merge(collocate.toLowerCase(), group.size(), Long::sum);

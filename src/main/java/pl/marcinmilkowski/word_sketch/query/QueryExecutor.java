@@ -26,17 +26,17 @@ import java.util.List;
 public interface QueryExecutor extends Closeable {
 
     /**
-     * Find collocations for a headword using a CQL pattern.
+     * Find collocations for a lemma using a CQL pattern.
      * Groups hits by collocate identity and ranks results by logDice.
      *
-     * @param headword    The head lemma to search for
+     * @param lemma       The head lemma to search for
      * @param cqlPattern  CQL pattern defining the collocate constraints (no labeled positions)
      * @param minLogDice  Minimum logDice score threshold (0 for no minimum)
      * @param maxResults  Maximum number of results to return
      * @return List of collocation results, sorted by logDice descending
      * @throws IOException if index access fails
      */
-    List<QueryResults.WordSketchResult> findCollocations(String headword, String cqlPattern,
+    List<QueryResults.WordSketchResult> findCollocations(String lemma, String cqlPattern,
                                              double minLogDice, int maxResults) throws IOException;
 
     /**
@@ -89,6 +89,20 @@ public interface QueryExecutor extends Closeable {
             String lemma, String bcqlPattern,
             int headPosition, int collocatePosition,
             double minLogDice, int maxResults) throws IOException;
+
+    /**
+     * Find collocations for a lemma using a dependency relation.
+     * Groups hits by collocate identity and ranks results by logDice.
+     *
+     * @param lemma       The head lemma to search for
+     * @param deprel      The dependency relation label (e.g., "nsubj", "obj")
+     * @param minLogDice  Minimum logDice score threshold (0 for no minimum)
+     * @param maxResults  Maximum number of results to return
+     * @return List of collocation results, sorted by logDice descending
+     * @throws IOException if index access fails
+     */
+    List<QueryResults.WordSketchResult> findDependencyCollocations(String lemma, String deprel,
+                                                                   double minLogDice, int maxResults) throws IOException;
 
     /**
      * Get the type of this executor for logging/debugging.

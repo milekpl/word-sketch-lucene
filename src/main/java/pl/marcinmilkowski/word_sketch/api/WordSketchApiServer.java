@@ -7,6 +7,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.SemanticFieldExplorer;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Collections;
 
@@ -48,7 +49,8 @@ public class WordSketchApiServer {
 
     public void start() {
         try {
-            server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(port), 0);
+            server = com.sun.net.httpserver.HttpServer.create(
+                    new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
 
             registerGetHandler(server, "/health", exchange ->
                 HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));

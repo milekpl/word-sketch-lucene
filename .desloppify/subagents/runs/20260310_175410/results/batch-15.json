@@ -1,0 +1,106 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 15,
+  "assessments": {"naming_quality": 62.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "BlackLabSnippetParser has five overlapping extraction method names that differ only in minor suffixes: extractCollocateFromSnippet, extractCollocateFromMatch, extractCollocateFromPlainText, extractCollocateFromMatchText, extractTokenFromSnippet, extractCollocateFromXmlByPosition — all marked @Deprecated in favor of extractLemmaAt, extractHeadLemma, extractCollocateLemma, but the old names remain, creating a naming fog.",
+        "extractCollocateFromSnippet — documented to return 'the last lemma', but 'collocate' in the name implies semantic role, not positional heuristic. The actual behavior (last regex match = last lemma in XML) is not communicated by the name.",
+        "ExploreOptions.executor — the field name 'executor' strongly implies it is a usable executor; but it is always null and never used, making the name actively misleading for any reader of the record declaration.",
+        "BlackLabQueryExecutor has two public methods for dependency queries: findDependencyCollocations (takes headword + deprel) and executeDependencyPattern (takes lemma + deprel + headPosConstraint). The verb difference ('find' vs 'execute') suggests different levels of abstraction, but both ultimately execute a BCQL query and return WordSketchResult — the naming implies a distinction that the implementation does not maintain.",
+        "handleRelationQueryInternal — 'Internal' suffix conventionally means 'not part of the public API' but since this is already a private method, the qualifier adds no information. handleRelationQuery would be clearer and the private visibility already communicates internality.",
+        "GrammarConfigLoader.throwMissing — a static method that always throws, named as a verb-object (throw + missing). Unusual pattern: typically such helpers are named raiseConfigMissing or checkConfigExists, so the name 'throwMissing' is readable but diverges from codebase naming conventions (all other helpers are named for what they return, not for throwing).",
+        "WordSketchApiServer.resolveRelationAlias — 'resolve' is good vocabulary. The method name is clear and specific.",
+        "handleVisualRadial Javadoc: 'Render radial plot.\\n     * Render radial plot.' — the description is duplicated verbatim in the first and second sentences, a minor but noticeable quality issue.",
+        "BlackLabQueryExecutor.buildAndRankCollocates — verb-and-object name; 'build' covers construction, 'rank' covers scoring/sorting. Clear and specific.",
+        "SemanticFieldExplorer.compareSeeds does not exist as a method (only compare(Set, double, int)) — the Javadoc on the class says 'See compareSeeds' but the method is actually named compare, creating a naming mismatch between documentation and implementation."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "Domain-specific class names (BlackLabQueryExecutor, GrammarConfigLoader, SemanticFieldExplorer, LogDiceCalculator) accurately communicate their roles.",
+        "resolveRelationAlias, buildAndRankCollocates, findLabelPosition, trimLeftAtSentenceBoundary are precise, verb-object names that communicate intent clearly.",
+        "The enum value names (RelationType.SURFACE/DEP, PosGroup.NOUN/VERB/ADJ/ADV) are clear and consistent with the domain vocabulary."
+      ],
+      "issue_character": "The naming problems are concentrated in BlackLabSnippetParser, where a cluster of deprecated-but-retained overlapping method names creates a confusing vocabulary around a single concept (extracting a lemma from XML at a position), and in a few misleading field/method names that signal capabilities that don't exist.",
+      "score_rationale": "The codebase scores slightly above the midpoint: most class and method names are domain-accurate and specific, but the deprecated-method proliferation in BlackLabSnippetParser creates a genuinely confusing naming surface that a developer must navigate carefully. The misleading ExploreOptions.executor field and the findDependencyCollocations/executeDependencyPattern divergence add secondary naming issues. The codebase does not reach a good score because of these clustered problems in a central utility class."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "snippet_parser_naming_fog",
+      "summary": "BlackLabSnippetParser retains five deprecated methods with overlapping 'extractCollocate*' names alongside new clean-API replacements, creating an unnavigable naming cluster",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": [
+        "Deprecated: extractCollocateFromSnippet, extractCollocateFromMatch, extractCollocateFromPlainText, extractCollocateFromMatchText, extractTokenFromSnippet.",
+        "Replacements: extractLemmaAt, extractHeadLemma, extractCollocateLemma — but extractCollocateLemma delegates to the deprecated extractCollocateFromSnippet, so the replacement is a thin alias.",
+        "A developer reading the class for the first time sees 10 extraction methods, 5 deprecated, with similar names and no clear grouping."
+      ],
+      "suggestion": "Delete the deprecated methods (they are package-private and only called internally). Inline their implementations into the clean-API methods (extractLemmaAt, extractHeadLemma, extractCollocateLemma). If deletion is not yet possible, add a package-level note indicating the deprecation timeline.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "explore_options_executor_misleading_name",
+      "summary": "ExploreOptions.executor field name implies an injectable executor but the field is always null and never read",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "public record ExploreOptions(..., QueryExecutor executor) — 'executor' is a well-understood term that implies the field is used for query execution.",
+        "All call sites: 'new ExploreOptions(..., null)'. exploreByPattern() never calls opts.executor().",
+        "A developer reading ExploreOptions would reasonably assume the executor is respected, and might spend time debugging why injecting a mock executor has no effect."
+      ],
+      "suggestion": "Remove the executor field from ExploreOptions entirely (see contract_coherence finding explore_options_dead_executor_param). If the field was intended for future use, add a comment explaining this rather than declaring a typed parameter that is silently ignored.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "find_vs_execute_dep_method_divergence",
+      "summary": "findDependencyCollocations and executeDependencyPattern have different verbs implying different abstraction levels but both execute BCQL queries returning WordSketchResult",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "findDependencyCollocations(headword, deprel, minLogDice, maxResults) — 'find' suggests a high-level search.",
+        "executeDependencyPattern(lemma, deprel, headPosConstraint, minLogDice, maxResults) — 'execute' suggests a lower-level execution step.",
+        "Both methods internally build a BCQL pattern string and call CorpusQueryLanguageParser.parse() + query.toQuery() + groupWithStoredHits. The 'execute' method adds a headPosConstraint parameter but otherwise uses the same pipeline.",
+        "The naming divergence misleads readers into thinking one method is a wrapper around the other, or that they use different execution mechanisms."
+      ],
+      "suggestion": "Unify the naming: either rename findDependencyCollocations to executeDependencyPattern (removing the headPosConstraint overload as a separate method), or rename both to findDependencyCollocations with an optional headPosConstraint parameter. Consistent 'find*Collocations' naming matches the interface vocabulary.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "compare_seeds_doc_vs_impl_mismatch",
+      "summary": "SemanticFieldExplorer class Javadoc references 'compareSeeds' but the method is named 'compare'",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Class-level Javadoc: '<h2>Comparison Mode (multi-seed)</h2> ... See {@link #compareSeeds}.'",
+        "Actual method signature: 'public ComparisonResult compare(Set<String> seedNouns, double minLogDice, int maxPerNoun)'.",
+        "No method named 'compareSeeds' exists in the class — the link would fail javadoc validation."
+      ],
+      "suggestion": "Either rename the method to compareSeeds (aligning code with documentation) or update the Javadoc link to '{@link #compare}'. Renaming is preferable as 'compareSeeds' is more specific than 'compare'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLabSnippetParser grew a cluster of similar extraction utilities during iterative development; deprecated methods were retained instead of deleted, creating accumulated naming debt.",
+      "ExploreOptions was designed with a future executor-injection feature in mind; the field name was chosen proactively but the feature was never implemented, making the name misleading."
+    ],
+    "likely_symptoms": ["snippet_parser_naming_fog"],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 10,
+  "assessments": {"initialization_coupling": 80.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "WordSketchApiServer constructor directly instantiates SemanticFieldExplorer via 'this.semanticFieldExplorer = new SemanticFieldExplorer(this.executor)' rather than accepting it as an injected dependency — creates a hidden constructor-time dependency that cannot be overridden without subclassing (WordSketchApiServer.java line 67)",
+        "SemanticFieldExplorer has a string-path constructor that opens a BlackLabIndex (new BlackLabQueryExecutor(indexPath)) internally, but its own Javadoc warns: 'Prefer SemanticFieldExplorer(QueryExecutor) for testability and to avoid double-open of the same index (see issue 297b2b52)' — yet WordSketchApiServer's DI constructor still creates a concrete SemanticFieldExplorer, bypassing the recommended injection path (SemanticFieldExplorer.java lines 93-98)",
+        "BlackLabQueryExecutor constructor performs blocking I/O (BlackLab.open) and declares throws IOException — this is explicit and properly surfaced, not a hidden import-time side effect",
+        "HttpServer is created and routes registered inside start(), not the constructor — a valid lazy-init pattern; no boot-order issue here",
+        "No module-level or static-initializer side effects found (no static { } blocks, no env reads at class load time, no DB connections at field initialization)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "WordSketchApiServer hard-wires SemanticFieldExplorer construction in its constructor, making the explorer non-injectable and preventing test isolation without modifying production code."
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "BlackLabQueryExecutor constructor explicitly declares throws IOException for its index-open I/O, so callers cannot accidentally ignore the initialization cost or failure mode",
+        "HttpServer creation is deferred to start(), correctly separating object construction from server lifecycle",
+        "No static initializer side effects, environment variable reads at class load time, or circular import dependencies found anywhere in the codebase"
+      ],
+      "issue_character": "The single initialization coupling defect is localized: WordSketchApiServer hardwires a concrete SemanticFieldExplorer in its constructor, blocking injection and contradicting the SEF's own documentation recommending DI for testability.",
+      "score_rationale": "The codebase follows solid initialization discipline overall: I/O is explicit, servers start lazily, and there are no import-time side effects. The one defect is that WordSketchApiServer constructs SemanticFieldExplorer internally rather than accepting it via injection, which means test code must construct a live executor or subclass the server to override it. This is a real but contained issue — it affects one class's testability, not boot-order reliability across the application. That places the score at 80: solid but with one recurring friction point a developer would hit when writing integration tests."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "api_server_hardwires_sef_construction",
+      "summary": "WordSketchApiServer constructs SemanticFieldExplorer directly in its constructor, blocking injection and contradicting SEF's own DI recommendation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer constructor line 67: 'this.semanticFieldExplorer = new SemanticFieldExplorer(this.executor)' — SemanticFieldExplorer is created unconditionally from the injected executor",
+        "SemanticFieldExplorer.java lines 93-98 Javadoc: 'Prefer SemanticFieldExplorer(QueryExecutor) (dependency injection) for testability and to avoid double-open of the same index' — the recommended approach is injection, but WordSketchApiServer bypasses this by constructing directly",
+        "Tests that want to inject a mock SemanticFieldExplorer cannot do so without modifying WordSketchApiServer or subclassing it"
+      ],
+      "suggestion": "Add a second WordSketchApiServer constructor that accepts SemanticFieldExplorer as a parameter: 'public WordSketchApiServer(QueryExecutor executor, String indexPath, int port, GrammarConfigLoader grammarConfig, SemanticFieldExplorer sef)'. Have the existing 4-arg constructor delegate to it by calling 'new SemanticFieldExplorer(executor)' as the default. This preserves backward compatibility while enabling injection in tests.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SemanticFieldExplorer was added to WordSketchApiServer during feature development without wiring it through the existing constructor injection pattern used for QueryExecutor and GrammarConfigLoader"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

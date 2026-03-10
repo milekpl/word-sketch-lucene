@@ -1,0 +1,104 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {"type_safety": 52.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "All HTTP response building in WordSketchApiServer uses Map<String, Object> — approximately 10 handler methods each construct response maps inline. No typed response DTOs exist; field names are stringly-typed and can be misspelled silently.",
+        "ExploreOptions record carries a 'QueryExecutor executor' field declared as a first-class typed parameter, but it is always passed null and never read. The type system signals the field is meaningful when it is not.",
+        "BlackLabQueryExecutor.scoreHits uses collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 1L) — the default of 1L for an absent key is a data-shaping decision embedded in the type lookup. A collocate not seen in the sample would receive frequency=1 rather than 0, silently inflating its logDice score.",
+        "ConcordanceResult has 11 fields, 7 of which are documented as nullable (rawXml, lemma, tag, word, docId, collocateLemma, and the zero-default pair frequency/logDice). No @Nullable/@NonNull annotations are present on the class — the null contracts are documentation-only, not enforced by the type system.",
+        "WordSketchApiServer.handleSemanticField calls Double.parseDouble and Integer.parseInt on user-supplied strings without guarding against NumberFormatException — a type safety hole at the HTTP boundary that causes a 500 instead of the intended 400.",
+        "RelationType enum is defined and used for internal routing, but its string form is exposed via relationType().name() in every JSON response — clients consume the raw enum name 'SURFACE'/'DEP' as an untyped string contract. Any future enum rename would silently break the API contract.",
+        "BlackLabQueryExecutor.findDependencyCollocations is a public method absent from the QueryExecutor interface. Main.java calls it via a direct cast to the concrete type (BlackLabQueryExecutor), bypassing the interface contract. The type system does not prevent code from using implementation-only methods through the interface reference.",
+        "PatternSubstitution.extractXposFromConstraint has 'int start = xposStart;' and 'int start = tagStart;' — in both branches, start is always equal to the outer variable. These redundant local variables add noise but are not a safety issue per se."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "RelationType and PosGroup are enums (not raw strings) used consistently for internal branching logic throughout GrammarConfigLoader and QueryExecutor.",
+        "QueryResults.WordSketchResult and ConcordanceResult are dedicated result classes rather than raw maps, providing some type structure at the query layer.",
+        "GrammarConfigLoader uses Java records (RelationConfig) with typed fields, avoiding stringly-typed config access."
+      ],
+      "issue_character": "The dominant type-safety problem is the absence of typed response DTOs in the API layer, leaving a wide stringly-typed surface in all HTTP handlers; secondary issues are the nullable-without-annotation pattern in ConcordanceResult and the dead typed parameter in ExploreOptions.",
+      "score_rationale": "The codebase scores below the midpoint because the entire HTTP response layer is untyped (Map<String,Object>), meaning field-name errors are invisible to the compiler. The internal query layer has better type discipline (enums, records, typed result classes), but this does not compensate for the API layer's lack of typed contracts. Java's type system provides strong tools here that are simply not being used."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "untyped_response_maps",
+      "summary": "All HTTP responses are built as Map<String, Object> with stringly-typed field names; no typed response DTOs exist",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "handleFullSketch: 'Map<String, Object> patternData = new HashMap<>(); patternData.put(\"name\", rel.name()); patternData.put(\"cql\", rel.pattern()); ...' — 10+ handler methods each build response maps inline.",
+        "Field names like 'seed_collocates_count', 'discovered_nouns_count', 'core_collocates' are plain string literals with no compile-time verification — a typo ('seed_collocate_count' vs 'seed_collocates_count') would silently produce a missing field in the response."
+      ],
+      "suggestion": "Introduce typed response record classes (e.g., SketchResponse, SemanticFieldResponse) serializable with fastjson2 annotations. This makes field names compile-time constants and enables IDE-assisted refactoring.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_response_dto_layer"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "concordance_result_unannoted_nulls",
+      "summary": "ConcordanceResult has 7 nullable fields with no @Nullable annotations — null contracts are documentation-only",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"],
+      "evidence": [
+        "Class Javadoc documents nullable fields: rawXml, lemma, tag, word, docId, collocateLemma — but no @Nullable annotation is present on any constructor parameter or getter.",
+        "All getters return their fields directly without null-safety indication, meaning callers must read documentation to know which fields are safe to use without null checks."
+      ],
+      "suggestion": "Add @Nullable (from javax.annotation or org.jetbrains.annotations) to the nullable constructor parameters and corresponding getters; add @NonNull to sentence, startOffset, endOffset. This enables IDE nullability analysis and makes contracts machine-verifiable.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "scoreHits_default_freq_one",
+      "summary": "scoreHits defaults absent collocate frequency to 1L instead of 0L, silently inflating logDice for unseen collocates",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "'long f_xy = (collocateLemma != null && !collocateLemma.isEmpty()) ? collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 1L) : 0L;'",
+        "A collocate seen in a hit but absent from the freq map (should not happen in the normal flow) receives f_xy=1 instead of 0, giving it a non-zero logDice score that misrepresents the association strength."
+      ],
+      "suggestion": "Change the default to 0L. If a collocateLemma is truly observed but absent from freqMapOut (a logic inconsistency), log a warning rather than silently treating it as frequency 1.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "find_dependency_collocations_not_in_interface",
+      "summary": "findDependencyCollocations is a public method absent from QueryExecutor, forcing callers to cast to the concrete type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Main.java: 'var results = deprel != null ? executor.findDependencyCollocations(lemma, deprel, minLogDice, limit) : executor.findCollocations(...)' — executor is typed as BlackLabQueryExecutor (concrete), not QueryExecutor.",
+        "QueryExecutor interface has no findDependencyCollocations method, so the type system cannot enforce this capability on alternative implementations.",
+        "Switching to a different QueryExecutor implementation would silently break the CLI command at runtime."
+      ],
+      "suggestion": "Add findDependencyCollocations(String headword, String deprel, double minLogDice, int maxResults) to the QueryExecutor interface, with a default implementation that throws UnsupportedOperationException for backends that do not support dependency queries.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "API layer was built with ad-hoc Map-based serialization, never refactored to typed DTOs as the number of endpoints grew.",
+      "Java's nullability tooling (@Nullable etc.) requires explicit opt-in and was not adopted during initial development."
+    ],
+    "likely_symptoms": ["untyped_response_maps", "find_dependency_collocations_not_in_interface"],
+    "possible_false_positives": []
+  }
+}

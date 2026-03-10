@@ -1,0 +1,77 @@
+{
+  "batch": "package_organization",
+  "batch_index": 9,
+  "assessments": {"package_organization": 72.0},
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "query/ package (5 files, 1806 LOC) hosts both query orchestration (BlackLabQueryExecutor, QueryExecutor) and a large result-DTO namespace (ExplorationResult, DiscoveredNoun, CoreCollocate, ComparisonResult, AdjectiveProfile, Edge, ExploreOptions) as inner classes of SemanticFieldExplorer — concerns that belong in separate packages share one file",
+        "utils/ package (4 files) is a heterogeneous catch-all: CqlUtils (CQL parsing), LogDiceCalculator (statistical scoring), LongIntHashMap (general data structure), PosGroup (domain enum) — these have no common theme beyond 'not fitting elsewhere'",
+        "api/ package (3 files, 1167 LOC) is the largest per-file average; PatternSubstitution is a static utility that could live in utils/ given it depends on CqlUtils — its placement in api/ is an import-affinity mismatch (its primary import is utils.CqlUtils, not other api/ classes)",
+        "config/ package (2 files: GrammarConfigLoader + RelationType) is appropriately cohesive",
+        "No package has more than 10 files; flat directory overload is not an issue at the current scale"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "Top-level package split (api/, config/, query/, utils/) maps cleanly to architectural layers; a new developer can orient quickly",
+        "config/ package is coherent: GrammarConfigLoader and RelationType are co-located and have no leakage into other domains",
+        "No directory has more than 5 files, so navigation within packages is fast"
+      ],
+      "issue_character": "The organization issues are localized to two packages: query/ hosts a large DTO namespace as inner classes that should be a separate model/ package, and utils/ is a shallow catch-all that mixes CQL parsing, statistics, data structures, and a domain enum.",
+      "score_rationale": "The package structure is mostly coherent and a developer can find their way around. The main friction is that query/ conflates query execution with result modeling (forcing 6 inner DTO imports into WordSketchApiServer), and utils/ has no organizing principle beyond 'miscellaneous'. These are navigable problems rather than misleading ones — a developer knows to look in query/ for SEF results even if that is an odd home — which puts the score in the 70-75 range rather than the 60-70 'must search' range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "result_dtos_in_query_package",
+      "summary": "SemanticFieldExplorer hosts 7 result DTO inner classes that inflate query/ and force api/ to import query internals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer imports 6 inner classes from SemanticFieldExplorer: ComparisonResult, AdjectiveProfile, ExplorationResult, DiscoveredNoun, CoreCollocate, ExploreOptions",
+        "SemanticFieldExplorer.java is 650+ LOC; a significant portion is DTO record/class definitions rather than query logic"
+      ],
+      "suggestion": "Stage 1: Create src/main/java/pl/marcinmilkowski/word_sketch/model/ package. Stage 2: Move ExplorationResult, DiscoveredNoun, CoreCollocate, ComparisonResult, AdjectiveProfile, Edge, ExploreOptions into separate files in model/. Stage 3: Update imports in SemanticFieldExplorer and WordSketchApiServer (run `mvn compile` to validate no broken references). Stage 4: Remove the @see note in SemanticFieldExplorer javadoc once done.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "sef_boundary_leakage"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "utils_catch_all_package",
+      "summary": "utils/ packages four unrelated concerns (CQL parsing, statistics, data structures, domain enum) with no organizing theme",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LongIntHashMap.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PosGroup.java"
+      ],
+      "evidence": [
+        "CqlUtils parses CQL token syntax; LogDiceCalculator computes association scores; LongIntHashMap is a generic off-heap map; PosGroup is a domain enum for POS grouping — no shared concern across these four files",
+        "PatternSubstitution in api/ depends primarily on CqlUtils, suggesting CqlUtils has stronger affinity with pattern-processing utilities than with the api/ layer where PatternSubstitution lives"
+      ],
+      "suggestion": "Consider splitting utils/ into: scoring/ (LogDiceCalculator), collections/ or keeping LongIntHashMap in utils/ as a genuine general utility, and moving PosGroup into config/ (it is a domain concept used by GrammarConfigLoader). CqlUtils could move to a grammar/ or parsing/ sub-package alongside PatternSubstitution. Run `mvn compile` after each move to catch import breaks.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SEF result DTOs were added as inner classes during initial development before a model/ layer was established; later growth made the coupling visible",
+      "utils/ accumulated files organically without a naming policy; PosGroup in particular is a domain concept that slipped into a generic utilities package"
+    ],
+    "likely_symptoms": ["result_dtos_in_query_package"],
+    "possible_false_positives": []
+  }
+}

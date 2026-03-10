@@ -1,0 +1,97 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 63.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor.findCollocations uses 'headword' for the head lemma parameter; executeSurfacePattern uses 'lemma' for the same concept — inconsistent naming for the same domain concept across methods in the same interface",
+        "executeSurfacePattern has 6 parameters: (String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) — at the upper boundary for an interface method; the ExploreOptions record was created specifically to solve this for SemanticFieldExplorer callers but the interface method itself was not updated",
+        "BlackLabQueryExecutor.findDependencyCollocations is a public method not declared on the QueryExecutor interface — it creates an undocumented surface that bypasses the interface contract and cannot be mocked via the interface in tests",
+        "buildAndRankCollocates accepts a nullable Map<String, String> posMap — a null-or-map parameter signals that the method is doing two slightly different things, an overloaded behavior hidden as a nullable argument",
+        "QueryExecutor.executeQuery uses 'cqlPattern' parameter; executeBcqlQuery uses 'bcqlPattern' — different prefixes for what the interface javadoc acknowledges are two different parsers, which is correct, but callers must read the docs carefully to understand the difference",
+        "LogDiceCalculator has two overloads of compute() (double-signature and long-signature) that are consistent and well-designed",
+        "The ExploreOptions record in SemanticFieldExplorer is good API design — bundles 8 tuning parameters into a named record, avoiding a >5-parameter call site",
+        "The HTTP REST surface is consistent: all read operations are GET, write/execute is POST (/api/bcql, /api/visual/radial); CORS and OPTIONS are handled uniformly via registerGetHandler"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "The QueryExecutor interface has thorough Javadoc that documents the distinction between executeQuery (CQL) and executeBcqlQuery (BCQL) and between findCollocations (no position hints) and executeSurfacePattern (position hints) — the intent is clearly communicated",
+        "The HTTP REST surface is consistent: GETs for reads, POSTs for execute/render, OPTIONS/CORS handled uniformly",
+        "ExploreOptions record successfully prevents a >8-parameter method call at the SemanticFieldExplorer level"
+      ],
+      "issue_character": "Inconsistency is concentrated at the QueryExecutor interface boundary: the head-lemma parameter has two names (headword vs lemma) across sibling methods, executeSurfacePattern has 6 parameters, and a public implementation method (findDependencyCollocations) extends beyond the interface without documentation.",
+      "score_rationale": "The HTTP layer is coherent and the high-level SemanticFieldExplorer API uses good parameter bundling. However, the QueryExecutor interface — the central contract that all components depend on — has inconsistent parameter naming for the same concept, a 6-parameter method that could be bundled, and a public implementation method not declared on the interface. These defects affect every caller of the query layer. A codebase at 75 would have consistent parameter naming across sibling interface methods; at 80 it would also have no undocumented public methods extending the interface in implementations."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "headword_vs_lemma_naming_inconsistency",
+      "summary": "QueryExecutor interface uses 'headword' in findCollocations and 'lemma' in executeSurfacePattern for the same concept — inconsistent parameter naming across sibling interface methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.findCollocations signature: findCollocations(String headword, String cqlPattern, double minLogDice, int maxResults)",
+        "QueryExecutor.executeSurfacePattern signature: executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults)",
+        "BlackLabQueryExecutor.findDependencyCollocations also uses 'headword' — three slightly different names (headword, lemma, headword) for the same concept across the same class"
+      ],
+      "suggestion": "Standardize on 'lemma' throughout the QueryExecutor interface and BlackLabQueryExecutor implementation, since the codebase consistently uses 'lemma' elsewhere (LongIntHashMap key is lemma, GrammarConfigLoader refers to lemmas, LogDiceCalculator docs say lemma).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "finddependencycollocations_not_on_interface",
+      "summary": "BlackLabQueryExecutor.findDependencyCollocations is a public method that does not appear on the QueryExecutor interface, creating an undocumented API extension that bypasses the contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor has: public List<QueryResults.WordSketchResult> findDependencyCollocations(String headword, String deprel, double minLogDice, int maxResults) throws IOException",
+        "QueryExecutor interface does not declare findDependencyCollocations",
+        "WordSketchApiServer uses executor (typed as QueryExecutor) — to call findDependencyCollocations it must cast to BlackLabQueryExecutor, breaking the interface abstraction (or it cannot call it at all through the interface)"
+      ],
+      "suggestion": "Add findDependencyCollocations to the QueryExecutor interface with appropriate Javadoc, or make the method package-private if it is only called within the query package.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "executesurfacepattern_too_many_params",
+      "summary": "QueryExecutor.executeSurfacePattern has 6 parameters; the ExploreOptions record pattern already in use for SemanticFieldExplorer should be applied here",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "executeSurfacePattern(String lemma, String bcqlPattern, int headPosition, int collocatePosition, double minLogDice, int maxResults) — 6 parameters",
+        "SemanticFieldExplorer already has ExploreOptions record bundling headPos, collocatePos, topCollocates, minLogDice, minShared, nounsPerCollocate — demonstrating the codebase is aware of the >5-parameter problem",
+        "Callers in WordSketchApiServer and SemanticFieldExplorer must pass headPosition and collocatePosition as separate ints, which are positionally adjacent and easy to swap silently"
+      ],
+      "suggestion": "Define a SurfacePatternOptions record (or reuse ExploreOptions fields) bundling headPosition, collocatePosition, minLogDice, and maxResults; update the interface method to accept (String lemma, String bcqlPattern, SurfacePatternOptions opts).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The QueryExecutor interface was designed around the initial findCollocations use case and extended incrementally with executeSurfacePattern and executeBcqlQuery without normalizing parameter naming",
+      "findDependencyCollocations was added to the implementation without a corresponding interface update, suggesting it was intended as a temporary or internal method that was not cleaned up"
+    ],
+    "likely_symptoms": ["executesurfacepattern_too_many_params"],
+    "possible_false_positives": []
+  }
+}

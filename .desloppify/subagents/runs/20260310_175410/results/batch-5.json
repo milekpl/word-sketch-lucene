@@ -1,0 +1,129 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 5,
+  "assessments": {"low_level_elegance": 52.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "handleSurfaceRelations (lines 236-255) and handleDepRelations (lines 257-277) are near-identical: both iterate grammarConfig.getRelations(), filter by a RelationType predicate, build the same Map<String,Object> with the same keys, and call sendJsonResponse. The only difference is the RelationType filter and one extra field ('deprel') added for DEP relations. ~40 lines of duplicated logic.",
+        "handleFullSketch (lines 279-322) and handleFullDependencySketch (lines 333-384) are structurally near-identical: both iterate grammarConfig.getRelations(), filter by RelationType, call executeSurfacePattern, assemble collocations list, build response map. ~80 lines duplicated, unified only partially by handleRelationQueryInternal.",
+        "handleSemanticFieldExplore (lines 437-557, ~120 lines) manually assembles the JSON response by iterating result objects and building Map<String,Object> entries field by field: seedCollocs loop (lines 501-509), nouns loop (lines 513-526), coreCollocs loop (lines 528-541), edges loop (lines 543-554). Each loop duplicates the pattern: 'create map, put fields, add to list'. No serialization abstraction is used.",
+        "BlackLabQueryExecutor.findCollocations pattern-construction logic (lines 78-89) has three branches with inconsistent semantics: if '%s' in pattern → format; else if starts with '[' → prepend headword as quoted string; else → fallback to 'word []'. The third branch silently discards the provided cqlPattern, which could hide bugs if an unexpected pattern is passed.",
+        "CqlUtils.splitCqlTokens (lines 30-60) uses a fragile bracket-walk: it scans for '[' and then finds the next ']' with pattern.indexOf(']', i), which does not handle: (a) nested brackets, (b) ']' characters inside quoted strings within brackets. A pattern like [lemma=\"[abc]\"] would be incorrectly split.",
+        "BlackLabQueryExecutor.collectHits and scoreHits are well-extracted phases with single responsibilities and clear contracts — they represent good low-level practice.",
+        "LongIntHashMap is clean, focused, and internally consistent — correct use of open addressing with proper rehash.",
+        "The resolveRelationAlias switch expression (lines 977-986) is direct and intention-revealing."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "collectHits and scoreHits in BlackLabQueryExecutor are cleanly extracted two-phase methods with clear single responsibilities.",
+        "LongIntHashMap is a focused, correct open-addressing implementation with no dead branches.",
+        "resolveRelationAlias is a direct, intention-revealing switch with no fallback ambiguity."
+      ],
+      "issue_character": "The dominant pattern is response-building duplication: the same Map<String,Object> assembly loop appears across multiple handler methods without any serialization or DTO helper, and the RelationType-based handler pairs (handleSurfaceRelations/handleDepRelations, handleFullSketch/handleFullDependencySketch) are near-duplicates differing only in a single predicate.",
+      "score_rationale": "Several lower-level utilities (LongIntHashMap, collectHits/scoreHits, LogDiceCalculator) are well-crafted. However, the API handler layer has pervasive duplication: near-identical method pairs for surface vs. dependency relations, and repetitive map-assembly loops in every semantic-field handler. The fragile bracket-walker in CqlUtils and the silent-fallback branch in findCollocations add correctness risk. A codebase with consistent extraction style and no repeated 40-80 line structural duplicates would score in the 65-75 range; this one sits in the low-50s due to the volume and spread of the duplication."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "surface_dep_handler_duplication",
+      "summary": "handleSurfaceRelations and handleDepRelations are near-identical (~40 lines each), differing only in RelationType filter and one extra field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSurfaceRelations (lines 236-255): iterates relations, filters by RelationType.SURFACE, builds Map with id/name/description/relation_type/pattern keys.",
+        "handleDepRelations (lines 257-277): identical structure, filters by RelationType.DEP, adds one extra 'deprel' key.",
+        "Both methods have the same null-check on grammarConfig and the same sendJsonResponse call."
+      ],
+      "suggestion": "Extract a private buildRelationsList(RelationType type, boolean includeDeprel) method and call it from both handlers, or unify into a single handleRelations(RelationType type) method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "full_sketch_handler_duplication",
+      "summary": "handleFullSketch and handleFullDependencySketch are near-duplicates (~50 lines each) sharing the same relation-iteration and collocation-assembly structure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleFullSketch (lines 279-322) and handleFullDependencySketch (lines 333-384) both: iterate grammarConfig.getRelations(), filter by a RelationType, call executeSurfacePattern with the same parameters, build a collocations list with the same Map structure (lemma/frequency/logDice/pos keys).",
+        "The inner collocations-assembly loop (lines 299-308 vs 361-368) is character-for-character identical.",
+        "The only structural difference: handleFullDependencySketch adds id/name/description/deprel/total_matches to the relation-level map."
+      ],
+      "suggestion": "Extract the shared collocation-assembly loop into a private List<Map<String,Object>> buildCollocations(List<WordSketchResult>) method. Unify the two handlers into a single handleFullSketch(exchange, lemma, RelationType) method with conditional extras for DEP.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "semantic_field_response_builder_sprawl",
+      "summary": "handleSemanticFieldExplore assembles a 120-line response by repeating the same Map-put-loop pattern four times with no extraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 501-554: four consecutive loop blocks each creating a list of Maps, each following the same structure: 'List<Map<...>> x = new ArrayList<>(); for (Y y : result.getYs()) { Map<...> m = new HashMap<>(); m.put(...); ... x.add(m); } response.put(..., x);'",
+        "The same pattern (collocMap.put, nounMap.put, collocMap.put, edgeMap.put) is repeated without any helper or DTO serializer.",
+        "The equivalent response-building in handleSemanticFieldExploreMulti (lines 658-688) duplicates two of the four loops."
+      ],
+      "suggestion": "Introduce a private static Map<String,Object> toCollocMap(WordSketchResult), toNounMap(DiscoveredNoun), toCoreCollocMap(CoreCollocate), toEdgeMap(Edge) method per result type. Each handler calls these helpers instead of inlining the field assignments.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "find_collocations_silent_pattern_fallback",
+      "summary": "BlackLabQueryExecutor.findCollocations silently discards the provided cqlPattern in the else-fallback branch",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 78-89: if (cqlPattern.contains('%s')) → format; else if (cqlPattern.startsWith('[')) → prepend headword; else → 'bcql = String.format(\"\\\"%s\\\" []\", headword.toLowerCase())' which ignores cqlPattern entirely.",
+        "A caller passing a non-template, non-bracket-starting pattern (e.g., a quoted string or a multi-token pattern) would silently receive results for 'headword []' instead of an error.",
+        "The comment 'Fallback: just search for headword' does not signal to callers that their input was dropped."
+      ],
+      "suggestion": "Remove the silent fallback. Either throw an IllegalArgumentException for unrecognized pattern forms, or document the three expected forms with @throws in the Javadoc and validate at entry. If '[]' is a valid intent, make it the default value at the call site, not a hidden fallback inside the method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "cql_utils_bracket_parser_fragile",
+      "summary": "CqlUtils.splitCqlTokens uses a naive indexOf(']') that fails for ']' inside quoted strings within brackets",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "Line 44: 'int end = pattern.indexOf(']', i);' — this finds the first ']' after '[', even if that ']' is inside a quoted attribute value like [lemma=\"a]b\"].",
+        "The comment 'Skip quoted string to avoid mistaking embedded content for tokens' only handles standalone quoted strings at the outer level, not quotes nested inside brackets.",
+        "A pattern like 1:[xpos=\"[NN.*]\"] would be split incorrectly: the method would return [xpos=\"[NN.*] as one token, then treat ]\"] as leftover text."
+      ],
+      "suggestion": "Rewrite splitCqlTokens to track both bracket nesting depth and whether the scanner is currently inside a double-quoted string (toggling on unescaped '\"' characters). The '[' only opens a token when depth == 0, and ']' only closes the current token when depth == 1 and not inside a quote.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Response-building was never abstracted into a serialization layer — each handler builds Maps manually, so every new endpoint reproduces the same pattern.",
+      "The surface/dependency handler duplication grew from copy-paste expansion of the surface handler to add dependency support without extracting the shared skeleton.",
+      "CqlUtils was written as a quick utility without a full parser, leaving it fragile for edge-case CQL inputs."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

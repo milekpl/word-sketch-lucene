@@ -35,8 +35,8 @@ class SemanticFieldExplorerTest {
 
         @Override
         public List<QueryResults.WordSketchResult> findCollocations(
-                String headword, String cqlPattern, double minLogDice, int maxResults) {
-            return collocations.getOrDefault(headword.toLowerCase(), Collections.emptyList());
+                String lemma, String cqlPattern, double minLogDice, int maxResults) {
+            return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }
 
         @Override
@@ -63,6 +63,12 @@ class SemanticFieldExplorerTest {
 
         @Override
         public void close() {}
+
+        @Override
+        public List<QueryResults.WordSketchResult> findDependencyCollocations(
+                String lemma, String deprel, double minLogDice, int maxResults) {
+            throw new UnsupportedOperationException("findDependencyCollocations not supported in stub");
+        }
     }
 
     /** Convenience factory for WordSketchResult. */

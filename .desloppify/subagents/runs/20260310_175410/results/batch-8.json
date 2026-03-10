@@ -1,0 +1,94 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 8,
+  "assessments": {"incomplete_migration": 68.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "BlackLabSnippetParser marks 4 methods @Deprecated with replacement guidance, yet BlackLabQueryExecutor actively calls 3 of them: extractCollocateFromSnippet (lines 325 and 431), extractCollocateFromMatch (line 480), extractCollocateFromPlainText (line 483) — the deprecated API is the live code path",
+        "BlackLabSnippetParser's own 'clean API' section introduces extractCollocateLemma as a replacement for extractCollocateFromSnippet, but its body simply calls the deprecated method — the new API is a non-migrated wrapper",
+        "SemanticFieldExplorer class javadoc (lines 54-56) explicitly defers a model/ package refactor: 'These should be extracted to a dedicated model/ package in a future refactor (see issue 28bc8918 / a430f585)' — a tracked migration with no concrete completion criteria",
+        "WordSketchApiServer TODO(42e2a9a1): 'Once SEF inner classes are moved to a dedicated model/ package, update these imports' — two linked files with an open migration dependency between them",
+        "WordSketchApiServer TODO(595bb84c): 'Move HttpServer creation and route registration here so start() only calls server.start()' — a structural refactor deferred with a note that it requires a breaking API change (IOException on constructor)"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "Deprecated methods in BlackLabSnippetParser are explicitly annotated with @Deprecated and their Javadoc points to named replacements, making the intended migration direction clear",
+        "TODO comments reference specific issue hashes, providing traceability rather than anonymous stale notes"
+      ],
+      "issue_character": "The migration debt has two tiers: an API-rename migration in BlackLabSnippetParser where new names were added but callers were never updated (deprecated-but-actively-called), and a structural refactor in the query/api boundary where inner DTOs and constructor responsibilities are acknowledged as misplaced but deferred.",
+      "score_rationale": "The codebase has a clear migration intent documented in comments and @Deprecated annotations, which is better than silent debt. However, both migration tracks are in a state where the old and new patterns coexist without a timeline or gating condition: 3 deprecated methods are the live call path, the 'new' extractCollocateLemma still calls the deprecated original, and two linked TODOs describe a structural refactor with no progress. A developer adding a new extraction method or a new SEF result type must choose which pattern to follow and cannot find a definitive answer in the code. This places the score in the 65-70 range — well below solid (80) but above pervasive drift (60)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "deprecated_methods_still_called",
+      "summary": "3 @Deprecated BlackLabSnippetParser methods remain the active call path in BlackLabQueryExecutor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor line 325: extractCollocateFromSnippet(matchXml) — the @Deprecated method is called inside extractCollocateLemma helper",
+        "BlackLabQueryExecutor line 431: extractCollocateFromSnippet(identity) in extractDependentLemmaFromGroup",
+        "BlackLabQueryExecutor line 480: extractCollocateFromMatch(identity, collocateLabelPos) in executeSurfacePattern",
+        "BlackLabQueryExecutor line 483: extractCollocateFromPlainText(identity, collocateLabelPos) in executeSurfacePattern"
+      ],
+      "suggestion": "Replace each call site with the declared replacement: extractCollocateFromSnippet → extractCollocateLemma(xml) or extractLemmaAt(xml, n); extractCollocateFromMatch → extractLemmaAt(matchOnly, labelPos); extractCollocateFromPlainText → extractCollocateFromMatchText(text, position). Once no callers remain, delete the deprecated methods.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "snippet_parser_api_migration"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "clean_api_still_delegates_to_deprecated",
+      "summary": "BlackLabSnippetParser.extractCollocateLemma (the 'clean' replacement) calls the @Deprecated extractCollocateFromSnippet",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractCollocateLemma(matchXml) body: return extractCollocateFromSnippet(matchXml) — the replacement wraps the deprecated method without migrating the implementation",
+        "Callers of the 'new' API trigger the deprecated implementation on every call"
+      ],
+      "suggestion": "Move the LEMMA_ATTR regex loop from extractCollocateFromSnippet directly into extractCollocateLemma, then update extractCollocateFromSnippet to delegate to extractCollocateLemma (or delete it). This inverts the delegation direction so the new name owns the implementation.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "snippet_parser_api_migration"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "sef_dto_migration_deferred_indefinitely",
+      "summary": "SemanticFieldExplorer inner DTOs are documented as needing a model/ package move but have no completion criteria",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer javadoc lines 54-56: 'These should be extracted to a dedicated model/ package in a future refactor (see issue 28bc8918 / a430f585)'",
+        "WordSketchApiServer TODO(42e2a9a1) depends on that migration completing before its own imports can be cleaned up — two files in a holding pattern"
+      ],
+      "suggestion": "Create pl.marcinmilkowski.word_sketch.model package and move ExplorationResult, DiscoveredNoun, CoreCollocate, ComparisonResult, AdjectiveProfile, Edge, ExploreOptions into it. Update imports in both SemanticFieldExplorer and WordSketchApiServer. Remove both TODO comments once done.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "sef_boundary_leakage"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The BlackLabSnippetParser 'clean API' section was added in a naming refactor pass that introduced replacements but did not update callers or invert the implementation ownership",
+      "The SEF model/ migration was scoped as a future task with issue references but no gating condition, leaving two files in a mutual wait state"
+    ],
+    "likely_symptoms": ["deprecated_methods_still_called", "clean_api_still_delegates_to_deprecated"],
+    "possible_false_positives": []
+  }
+}

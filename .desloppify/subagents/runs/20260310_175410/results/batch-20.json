@@ -1,0 +1,77 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 72.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "All HTTP endpoints have no authentication or authorization — this is the consistent design for a local corpus research tool; no route has an auth decorator and no route is missing one relative to its siblings",
+        "Access-Control-Allow-Origin: * is set on every response via HttpApiUtils.sendJsonResponse, sendError, sendBinaryResponse, and sendOptionsResponse — CORS policy is uniformly open and consistently applied",
+        "Input validation is inconsistent across sibling endpoints: handleSemanticFieldExplore (line 468-473) and handleSemanticFieldExploreMulti (line 606-610) wrap numeric param parsing in try/catch(NumberFormatException); handleSemanticField (lines 708-709), handleSemanticFieldExamples (line 786), and handleConcordanceExamples (line 813) do not",
+        "The /api/bcql POST endpoint passes the user-supplied BCQL query string directly to CorpusQueryLanguageParser.parse() without length limits or sanitization — intentional for a local tool but inconsistent with the required-param validation in /api/sketch/{lemma} and /api/concordance/examples",
+        "Word1/word2 presence is validated in handleConcordanceExamples (returns 400 if missing), but the seed parameter in handleSemanticFieldExplore only returns an empty result if blank rather than a 400 error — inconsistent error signaling for missing required input",
+        "No admin/privileged routes exist — there is no asymmetry between protected and unprotected routes to exploit",
+        "The server binds to 0.0.0.0 implicitly via InetSocketAddress(port) — it listens on all interfaces, not just localhost, which means the no-auth design is wider in scope than a localhost-only binding would imply"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "There are no partial-auth situations — no route has auth while its siblings do not; the no-auth design is applied uniformly",
+        "CORS headers are set via shared HttpApiUtils helpers on every response type (JSON, binary, error, options), ensuring the open-CORS policy is consistently applied without per-handler drift",
+        "The tool has no user accounts, roles, or permissions — no permission strings exist as magic literals or constants because none are needed"
+      ],
+      "issue_character": "Authorization consistency is structurally sound (no auth by design), but the trust boundary is inconsistently applied: some endpoints validate required inputs and return 400, others silently accept missing/invalid params, and the server binds to all interfaces rather than localhost despite carrying no auth.",
+      "score_rationale": "The no-auth design is intentional and consistent for a local research tool, so the authorization dimension is largely N/A in the classic sense. The score is held below 80 by two genuine trust-boundary inconsistencies: numeric parameter validation is applied in some handlers and omitted in siblings (allowing NumberFormatException at runtime), and missing required inputs are signaled differently (400 vs. empty result) across sibling handlers. A tool explicitly documented as localhost-only would also benefit from binding to 127.0.0.1 rather than 0.0.0.0."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "missing_required_input_inconsistent_signal",
+      "summary": "Missing required input parameters produce inconsistent responses across sibling endpoints: some return 400, others return an empty/partial result",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleConcordanceExamples: if (word1 == null || word1.isEmpty() || word2 == null || word2.isEmpty()) { HttpApiUtils.sendError(exchange, 400, \"Missing required parameters\"); return; } — returns 400",
+        "handleSemanticFieldExplore: if (seed == null || seed.isBlank()) returns ExplorationResult.empty(seed) — the handler returns 200 with an empty result instead of 400",
+        "handleSemanticFieldExploreMulti: if seeds.length < 2 returns 400 — consistent with concordance examples but not with single-seed explore",
+        "A caller sending a blank seed to /api/semantic-field/explore receives a 200 with empty results and no indication that the input was invalid"
+      ],
+      "suggestion": "Standardize: return 400 with a descriptive error message whenever a required parameter is missing or blank, across all endpoints. Update handleSemanticFieldExplore to check seed.isBlank() and return 400 before calling the explorer.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "server_binds_all_interfaces",
+      "summary": "The HTTP server binds to all network interfaces (0.0.0.0) rather than localhost, making the unauthenticated API reachable from other hosts on the network",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(port), 0) — InetSocketAddress(port) binds to the wildcard address (0.0.0.0), not InetSocketAddress(InetAddress.getLoopbackAddress(), port)",
+        "The API has no authentication and passes BCQL queries directly to the index parser — reachable from any host on the LAN with no guard",
+        "CLAUDE.md and README.md describe the server as a local tool; the binding does not match the intended trust boundary"
+      ],
+      "suggestion": "Change to: new InetSocketAddress(InetAddress.getLoopbackAddress(), port) or new InetSocketAddress(\"127.0.0.1\", port) to restrict to localhost. If external access is needed, document it explicitly and note the no-auth implication.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The tool was designed for local use but was not hardened to actually enforce that boundary at the network layer",
+      "Endpoint validation was added incrementally and the convention (400 vs empty-result for missing input) was never normalized across all handlers"
+    ],
+    "likely_symptoms": ["missing_required_input_inconsistent_signal"],
+    "possible_false_positives": []
+  }
+}

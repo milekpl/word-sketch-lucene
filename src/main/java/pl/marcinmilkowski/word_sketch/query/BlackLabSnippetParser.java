@@ -181,6 +181,20 @@ public class BlackLabSnippetParser {
     }
 
     /**
+     * Extract a word by position from plain whitespace-separated text.
+     *
+     * @param text      whitespace-separated token string
+     * @param position  1-based position of the word to extract
+     * @return the word at that position, or {@code null} if out of range
+     */
+    static String extractPlainTextTokenAt(String text, int position) {
+        if (text == null || text.isEmpty() || position < 1) return null;
+        String[] words = text.trim().split("\\s+");
+        if (position > words.length) return null;
+        return words[position - 1];
+    }
+
+    /**
      * Extract the collocate lemma from matched text using the labeled position.
      * @param matchOnly The matched text (parts[1] from concordance)
      * @param labelPos The 1-based position of the label (e.g., 3 for "2:" in pattern with 3 tokens)
@@ -317,6 +331,12 @@ public class BlackLabSnippetParser {
      * @return The collocate lemma, or {@code null}
      */
     static String extractCollocateLemma(String matchXml) {
-        return extractCollocateFromSnippet(matchXml);
+        if (matchXml == null || matchXml.isEmpty()) return null;
+        java.util.regex.Matcher m = LEMMA_ATTR.matcher(matchXml);
+        String lastLemma = null;
+        while (m.find()) {
+            lastLemma = m.group(1);
+        }
+        return lastLemma;
     }
 }

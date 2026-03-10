@@ -44,7 +44,6 @@ import java.util.regex.Pattern;
 public class GrammarConfigLoader {
     private static final Logger logger = LoggerFactory.getLogger(GrammarConfigLoader.class);
 
-    private final List<String> copulas;
     private final List<RelationConfig> relations;
     private final Map<String, RelationConfig> relationsById;
     private final String version;
@@ -81,9 +80,6 @@ public class GrammarConfigLoader {
                 "Copulas must be embedded in CQL patterns using [lemma=\"be|appear|seem|...\"]. " +
                 "See noun_adj_predicates for example.");
         }
-
-        // Copulas are now derived from CQL patterns - no separate array needed
-        this.copulas = Collections.emptyList();
 
         // Load relations
         JSONArray relationsArray = root.getJSONArray("relations");
@@ -162,8 +158,8 @@ public class GrammarConfigLoader {
         this.relations = Collections.unmodifiableList(loadedRelations);
         this.relationsById = Collections.unmodifiableMap(loadedRelationsById);
 
-        logger.info("Loaded grammar config version {}: {} copulas, {} relations from {}",
-            version, copulas.size(), relations.size(), configPath);
+        logger.info("Loaded grammar config version {}: {} relations from {}",
+            version, relations.size(), configPath);
     }
 
     /**
@@ -291,8 +287,6 @@ public class GrammarConfigLoader {
         JSONObject root = new JSONObject();
         root.put("version", version);
         root.put("config_path", configPath.toString());
-        root.put("copulas", new JSONArray(copulas));
-
         JSONArray relationsArray = new JSONArray();
         for (RelationConfig rel : relations) {
             relationsArray.add(rel.toJson());

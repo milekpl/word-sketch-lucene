@@ -65,7 +65,4 @@ public interface QueryExecutor extends Closeable {
         return this.getClass().getSimpleName();
     }
 
-    default boolean isReady() {
-        return true;
-    }
 }

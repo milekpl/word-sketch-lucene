@@ -41,7 +41,7 @@ public class BlackLabSnippetParser {
      */
     static String extractPosFromMatch(String matchText) {
         if (matchText == null || matchText.isEmpty()) {
-            return "unknown";
+            return null;
         }
         // Try xpos first
         java.util.regex.Matcher m = XPOS_ATTR.matcher(matchText);
@@ -53,7 +53,7 @@ public class BlackLabSnippetParser {
         if (m.find()) {
             return m.group(1);
         }
-        return "unknown";
+        return null;
     }
 
     /**
@@ -155,18 +155,6 @@ public class BlackLabSnippetParser {
             return null;
         }
         return tokens[position - 1].toLowerCase();
-    }
-
-    /**
-     * Extract collocate lemma from the BCQL pattern for a given hit index.
-     * Uses the position labeled "2:" in the pattern.
-     */
-    static String extractCollocateFromPattern(String bcqlPattern, int hitIndex) {
-        int pos2Index = findLabelPosition(bcqlPattern, 2);
-        if (pos2Index <= 0) {
-            return "unknown";
-        }
-        return "unknown";
     }
 
     /**

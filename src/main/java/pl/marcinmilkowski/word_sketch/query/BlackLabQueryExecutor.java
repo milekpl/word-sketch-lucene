@@ -531,7 +531,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             .toList();
     }
 
-        public long getCorpusSize() throws IOException {
+    public long getCorpusSize() throws IOException {
         return 0L;
     }
 

@@ -194,7 +194,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 String[] parts = conc.parts();
                 String snippet = parts[0] + parts[1] + parts[2];
 
-                results.add(new QueryResults.ConcordanceResult(
+                results.add(QueryResults.ConcordanceResult.forSnippet(
                     snippet, hit.start(), hit.end(), String.valueOf(hit.doc())));
             }
 
@@ -296,7 +296,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 String plainText = BlackLabSnippetParser.trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
 
                 results.add(new QueryResults.ConcordanceResult(
-                    plainText, rec.xmlSnippet(), rec.start(), rec.end(), String.valueOf(rec.docId()),
+                    plainText, rec.xmlSnippet(), null, null, null,
+                    rec.start(), rec.end(), String.valueOf(rec.docId()),
                     collocateLemma, f_xy, logDice));
             }
 
@@ -323,6 +324,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             TermFrequencyList tfl = blackLabIndex.termFrequencies(sensitivity, null, Set.of(lemma.toLowerCase()));
             return tfl.frequency(lemma.toLowerCase());
         } catch (Exception e) {
+            logger.warn("Failed to retrieve frequency for lemma '{}': {}", lemma, e.getMessage(), e);
             return 0L;
         }
     }

@@ -1,8 +1,5 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,8 +7,6 @@ import java.util.List;
  * Static helpers for substituting collocates into CQL patterns.
  */
 public class PatternSubstitution {
-
-    private static final Logger logger = LoggerFactory.getLogger(PatternSubstitution.class);
 
     private PatternSubstitution() {}
 
@@ -47,32 +42,23 @@ public class PatternSubstitution {
             }
         }
 
-        logger.debug("substituteCollocate: patternPositions.size()={}, collocatePosition={}", patternPositions.size(), collocatePosition);
-        logger.debug("Pattern positions: {}", patternPositions);
-
         if (collocatePosition > patternPositions.size()) {
-            logger.debug("Returning early - position > size");
             return pattern;
         }
 
         // Replace the constraint at collocatePosition with lemma constraint for the collocate
         String originalConstraint = patternPositions.get(collocatePosition - 1);
-        logger.debug("originalConstraint at position {}: {}", collocatePosition, originalConstraint);
         // Extract xpos/tag from original and merge with lemma
         String xposPattern = extractXposFromConstraint(originalConstraint);
-        logger.debug("xposPattern: {}", xposPattern);
         StringBuilder newConstraint = new StringBuilder();
         newConstraint.append("[lemma=\"").append(escapeForRegex(collocate)).append("\"");
         if (xposPattern != null) {
             newConstraint.append(" & ").append(xposPattern);
         }
         newConstraint.append("]");
-        logger.debug("newConstraint: {}", newConstraint);
 
         patternPositions.set(collocatePosition - 1, newConstraint.toString());
-        String result = String.join(" ", patternPositions);
-        logger.debug("final result: {}", result);
-        return result;
+        return String.join(" ", patternPositions);
     }
 
     public static String extractXposFromConstraint(String constraint) {

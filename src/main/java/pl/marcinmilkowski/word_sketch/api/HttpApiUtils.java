@@ -3,6 +3,8 @@ package pl.marcinmilkowski.word_sketch.api;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.sun.net.httpserver.HttpExchange;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -13,6 +15,8 @@ import java.util.Map;
  * Static HTTP utility helpers for the REST API server.
  */
 public class HttpApiUtils {
+
+    private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
 
     private HttpApiUtils() {}
 
@@ -95,7 +99,7 @@ public class HttpApiUtils {
                         java.net.URLDecoder.decode(keyValue[1], "UTF-8")
                     );
                 } catch (Exception e) {
-                    // Skip invalid parameters
+                    logger.warn("Failed to decode query parameter '{}': {}", pair, e.getMessage(), e);
                 }
             }
         }

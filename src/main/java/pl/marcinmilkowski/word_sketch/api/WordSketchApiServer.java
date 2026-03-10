@@ -107,12 +107,10 @@ public class WordSketchApiServer {
                 }
             });
 
-            // Get available relations - from grammar config filtered by SURFACE type
             server.createContext("/api/relations", exchange -> {
                 if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
                 JSONArray relations = new JSONArray();
 
-                // Use grammarConfig if available, filter by SURFACE type
                 if (grammarConfig != null) {
                     for (var rel : grammarConfig.getRelations()) {
                         if ("SURFACE".equals(rel.relationType())) {
@@ -264,12 +262,10 @@ public class WordSketchApiServer {
         response.put("lemma", lemma);
         JSONObject patterns = new JSONObject();
 
-        // Query each relation from grammar config
         if (grammarConfig != null) {
             for (var rel : grammarConfig.getRelations()) {
                 if ("SURFACE".equals(rel.relationType())) {
                     try {
-                        // Substitute headword into BCQL pattern
                         String fullPattern = rel.getFullPattern(lemma);
                         List<QueryResults.WordSketchResult> results =
                             executor.executeSurfacePattern(
@@ -309,12 +305,10 @@ public class WordSketchApiServer {
     private void handleRelationQuery(com.sun.net.httpserver.HttpExchange exchange, String lemma, String relation) throws IOException {
         List<QueryResults.WordSketchResult> results = new ArrayList<>();
 
-        // Try to find the relation in grammar config
         if (grammarConfig != null) {
             var rel = grammarConfig.getRelation(relation).orElse(null);
             if (rel != null && "SURFACE".equals(rel.relationType())) {
                 try {
-                    // Substitute headword into BCQL pattern
                     String fullPattern = rel.getFullPattern(lemma);
                     results = executor.executeSurfacePattern(
                         lemma, fullPattern,
@@ -364,10 +358,9 @@ public class WordSketchApiServer {
                         String deprel = rel.getDeprel();
                         if (deprel == null) continue;
 
-                        // Use the pattern from config with headword substitution
                         String fullPattern = rel.getFullPattern(lemma);
                         
-                        // Execute using surface pattern method (DEP relations use surface patterns with deprel constraints)
+                        // DEP relations use surface patterns with [deprel="..."] constraints
                         List<QueryResults.WordSketchResult> results =
                             executor.executeSurfacePattern(
                                 lemma, fullPattern,
@@ -417,10 +410,7 @@ public class WordSketchApiServer {
             var rel = grammarConfig.getRelation(relationId).orElse(null);
             if (rel != null && "DEP".equals(rel.relationType())) {
                 try {
-                    // Use the pattern from config with headword substitution
                     String fullPattern = rel.getFullPattern(lemma);
-                    
-                    // Execute using surface pattern method
                     results = executor.executeSurfacePattern(
                         lemma, fullPattern,
                         rel.headPosition(), rel.collocatePosition(),
@@ -465,8 +455,7 @@ public class WordSketchApiServer {
             return;
         }
 
-        // Parse relation - look up from grammar config
-        String relationId = normalizeRelationId(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        String relationId = resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
 
         if (grammarConfig == null) {
             HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
@@ -487,12 +476,10 @@ public class WordSketchApiServer {
         int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
         double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
 
-        // Run semantic field exploration using the BCQL pattern from grammar config
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(this.executor);
         
-        // Get the BCQL pattern with headword substituted at the head position
         String bcqlPattern = relationConfig.get().getFullPattern(seed);
-        String simplePattern = relationConfig.get().collocatePosGroup().equals("adj") ? 
+        String simplePattern = relationConfig.get().collocatePosGroup().equals(PosGroup.ADJ) ? 
             "[xpos=\"JJ.*\"]" : "[xpos=\"NN.*|VB.*\"]";
         int headPos = relationConfig.get().headPosition();
         int collocatePos = relationConfig.get().collocatePosition();
@@ -502,13 +489,11 @@ public class WordSketchApiServer {
             bcqlPattern, simplePattern, relationName, headPos, collocatePos);
         explorer.close();
 
-        // Format response
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("seed", result.seed);
         response.put("relation_type", relationType);
 
-        // Parameters used
         Map<String, Object> paramsUsed = new HashMap<>();
         paramsUsed.put("relation", relationType);
         paramsUsed.put("top", topCollocates);
@@ -517,7 +502,6 @@ public class WordSketchApiServer {
         paramsUsed.put("min_logdice", minLogDice);
         response.put("parameters", paramsUsed);
 
-        // Seed collocates
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         if (result.seedAdjectives != null) {
             for (Map.Entry<String, Double> colloc : result.seedAdjectives.entrySet()) {
@@ -530,7 +514,6 @@ public class WordSketchApiServer {
         response.put("seed_collocates", seedCollocs);
         response.put("seed_collocates_count", seedCollocs.size());
 
-        // Discovered nouns
         List<Map<String, Object>> nouns = new ArrayList<>();
         if (result.discoveredNouns != null) {
             for (DiscoveredNoun dn : result.discoveredNouns) {
@@ -546,7 +529,6 @@ public class WordSketchApiServer {
         response.put("discovered_nouns", nouns);
         response.put("discovered_nouns_count", nouns.size());
 
-        // Core collocates
         List<Map<String, Object>> coreCollocs = new ArrayList<>();
         if (result.coreAdjectives != null) {
             for (CoreAdjective ca : result.coreAdjectives) {
@@ -562,7 +544,6 @@ public class WordSketchApiServer {
         response.put("core_collocates", coreCollocs);
         response.put("core_collocates_count", coreCollocs.size());
 
-        // Edges for visualization
         List<Map<String, Object>> edges = new ArrayList<>();
         if (result.getEdges() != null) {
             for (SemanticFieldExplorer.Edge edge : result.getEdges()) {
@@ -610,8 +591,7 @@ public class WordSketchApiServer {
             return;
         }
 
-        // Parse relation
-        String relationId = normalizeRelationId(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        String relationId = resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
 
         if (grammarConfig == null) {
             HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
@@ -631,14 +611,12 @@ public class WordSketchApiServer {
         int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
         double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "2.0"));
 
-        // Get the BCQL pattern from grammar config
         String bcqlPattern = relationConfig.get().pattern();
-        String simplePattern = relationConfig.get().collocatePosGroup().equals("adj") ? 
+        String simplePattern = relationConfig.get().collocatePosGroup().equals(PosGroup.ADJ) ? 
             "[xpos=\"JJ.*\"]" : "[xpos=\"NN.*|VB.*\"]";
         int headPos = relationConfig.get().headPosition();
         int collocatePos = relationConfig.get().collocatePosition();
 
-        // Run multi-seed exploration using the BCQL pattern from grammar config
         Map<String, List<QueryResults.WordSketchResult>> seedToCollocates = new HashMap<>();
         Set<String> commonCollocates = null;
 
@@ -664,7 +642,6 @@ public class WordSketchApiServer {
             commonCollocates = new HashSet<>();
         }
 
-        // Format response
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("seeds", new ArrayList<>(seeds));
@@ -678,7 +655,6 @@ public class WordSketchApiServer {
         paramsUsed.put("min_logdice", minLogDice);
         response.put("parameters", paramsUsed);
 
-        // Discovered collocates
         List<Map<String, Object>> discoveredCollocs = new ArrayList<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : seedToCollocates.entrySet()) {
             for (QueryResults.WordSketchResult wsr : entry.getValue()) {
@@ -697,7 +673,6 @@ public class WordSketchApiServer {
         response.put("discovered_nouns", new ArrayList<>());
         response.put("discovered_nouns_count", 0);
 
-        // Edges
         List<Map<String, Object>> edges = new ArrayList<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : seedToCollocates.entrySet()) {
             String seed = entry.getKey();
@@ -834,8 +809,8 @@ public class WordSketchApiServer {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String word1 = params.get("word1"); // headword (e.g., "theory")
-        String word2 = params.get("word2"); // collocate (e.g., "good")
+        String word1 = params.get("word1");
+        String word2 = params.get("word2");
         // URL decode (browsers encode & as &amp; in HTML)
         if (word1 != null) word1 = word1.replace("&amp;", "&");
         if (word2 != null) word2 = word2.replace("&amp;", "&");
@@ -847,16 +822,13 @@ public class WordSketchApiServer {
             return;
         }
 
-        // Get BCQL pattern from grammar config
         String bcqlQuery = null;
         if (grammarConfig != null) {
             var rel = grammarConfig.getRelation(relation);
             if (rel.isPresent()) {
-                // Substitute headword to get the full BCQL pattern
                 String patternWithHead = rel.get().getFullPattern(word1);
                 logger.debug("After getFullPattern: {}", patternWithHead);
                 logger.debug("collocatePosition = {}", rel.get().collocatePosition());
-                // Now also substitute the collocate at collocate_position
                 bcqlQuery = PatternSubstitution.substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
                 logger.debug("After substituteCollocate: {}", bcqlQuery);
             } else {
@@ -866,7 +838,6 @@ public class WordSketchApiServer {
             logger.debug("grammarConfig is null");
         }
 
-        // Fallback to generic proximity query if relation not found or query is empty
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
                 word1.toLowerCase(), word2.toLowerCase());
@@ -980,15 +951,12 @@ public class WordSketchApiServer {
             List<Map<String, Object>> resultsList = new ArrayList<>();
             for (QueryResults.ConcordanceResult r : results) {
                 Map<String, Object> resultMap = new HashMap<>();
-                // Plain text sentence (default)
                 resultMap.put("sentence", r.getSentence());
-                // Raw XML always available (for toggle)
                 if (r.getRawXml() != null) {
                     resultMap.put("raw", r.getRawXml());
                 }
                 resultMap.put("matchStart", r.getStartOffset());
                 resultMap.put("matchEnd", r.getEndOffset());
-                // Add grouped BCQL fields
                 if (r.getCollocateLemma() != null) {
                     resultMap.put("collocateLemma", r.getCollocateLemma());
                     resultMap.put("frequency", r.getFrequency());
@@ -1012,7 +980,7 @@ public class WordSketchApiServer {
         }
     }
 
-    private static String normalizeRelationId(String relation) {
+    private static String resolveRelationAlias(String relation) {
         if (relation == null) return null;
         return switch (relation) {
             case "adj_modifier", "modifier" -> "noun_modifiers";

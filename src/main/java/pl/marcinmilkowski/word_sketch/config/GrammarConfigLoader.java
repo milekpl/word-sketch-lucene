@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pl.marcinmilkowski.word_sketch.query.PosGroup;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -509,19 +510,19 @@ public class GrammarConfigLoader {
         /** Map a constraint string to a POS group label. */
         private String posGroupFromConstraint(String s) {
             // xpos (Penn Treebank — used by current grammar)
-            if (s.contains("xpos=\"jj") || s.contains("xpos=jj")) return "adj";
-            if (s.contains("xpos=\"vb") || s.contains("xpos=vb")) return "verb";
-            if (s.contains("xpos=\"nn") || s.contains("xpos=nn")) return "noun";
-            if (s.contains("xpos=\"rb") || s.contains("xpos=rb")) return "adv";
+            if (s.contains("xpos=\"jj") || s.contains("xpos=jj")) return PosGroup.ADJ;
+            if (s.contains("xpos=\"vb") || s.contains("xpos=vb")) return PosGroup.VERB;
+            if (s.contains("xpos=\"nn") || s.contains("xpos=nn")) return PosGroup.NOUN;
+            if (s.contains("xpos=\"rb") || s.contains("xpos=rb")) return PosGroup.ADV;
             if (s.contains("xpos=\"in") || s.contains("xpos=in")) return "prep";
             if (s.contains("xpos=\"rp") || s.contains("xpos=rp")
              || s.contains("xpos=\"to") || s.contains("xpos=to")) return "part";
             // tag (legacy / alternative attribute name)
-            if (s.contains("tag=\"jj") || s.contains("tag=jj")) return "adj";
-            if (s.contains("tag=\"vb") || s.contains("tag=vb")) return "verb";
+            if (s.contains("tag=\"jj") || s.contains("tag=jj")) return PosGroup.ADJ;
+            if (s.contains("tag=\"vb") || s.contains("tag=vb")) return PosGroup.VERB;
             if (s.contains("tag=\"nn") || s.contains("tag=nn")
-             || s.contains("tag=\"pos") || s.contains("tag=pos")) return "noun";
-            if (s.contains("tag=\"rb") || s.contains("tag=rb")) return "adv";
+             || s.contains("tag=\"pos") || s.contains("tag=pos")) return PosGroup.NOUN;
+            if (s.contains("tag=\"rb") || s.contains("tag=rb")) return PosGroup.ADV;
             if (s.contains("tag=\"in") || s.contains("tag=in")) return "prep";
             if (s.contains("tag=\"rp") || s.contains("tag=rp")
              || s.contains("tag=\"to") || s.contains("tag=to")) return "part";

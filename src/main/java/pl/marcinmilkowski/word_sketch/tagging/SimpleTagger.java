@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.tagging;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pl.marcinmilkowski.word_sketch.query.PosGroup;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -397,10 +398,10 @@ public class SimpleTagger {
             if (tag == null) return "other";
             char firstChar = tag.charAt(0);
             switch (firstChar) {
-                case 'N': return "noun";
-                case 'V': return "verb";
-                case 'J': return "adj";
-                case 'R': return "adv";
+                case 'N': return PosGroup.NOUN;
+                case 'V': return PosGroup.VERB;
+                case 'J': return PosGroup.ADJ;
+                case 'R': return PosGroup.ADV;
                 case 'D': return "det";
                 case 'P': return "pron";
                 case 'I': return "prep";

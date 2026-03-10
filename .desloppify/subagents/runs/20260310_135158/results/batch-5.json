@@ -1,0 +1,109 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 5,
+  "assessments": {
+    "design_coherence": 63.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "WordSketchApiServer.start() spans ~200 lines registering 10+ HTTP contexts, starting the server, and logging every endpoint — three distinct responsibilities in one method",
+        "The collocation-to-JSONObject serialization loop (lemma, frequency, logDice, pos) is copy-pasted verbatim in handleFullSketch (lines 290-299), handleRelationQuery (lines 335-342), handleFullDependencySketch (lines 388-397), and handleDependencyRelationQuery (lines 440-447) — four identical 8-line blocks with no shared helper",
+        "handleVisualRadial (lines 912-918) and handleBcqlQueryPost (lines 967-973) each contain identical 10-line CORS preflight / method-guard blocks — no shared guard abstraction",
+        "executeBcqlQuery in BlackLabQueryExecutor is ~130 lines (lines 209-311) combining BCQL parsing, query execution, hit windowing, concordance extraction, collocate lemma detection with two fallback paths, frequency map accumulation, logDice calculation, and result sorting — all in one method body",
+        "handleSemanticFieldExplore (~120 lines, 461-583) bundles parameter parsing, grammar config validation, explorer instantiation, exploration invocation, and full multi-section response construction (seed_collocates, discovered_nouns, core_collocates, edges) inline",
+        "buildAndRankCollocates is correctly extracted and shared by three callers — shows awareness of extraction principle that is not applied consistently elsewhere"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "buildAndRankCollocates is properly extracted and reused by findCollocations, executeSurfacePattern, and executeDependencyPattern — a clear shared abstraction that reduces duplication",
+        "HTTP route lambdas in start() delegate immediately to named handler methods — no business logic inline in the registration wiring",
+        "Small focused helpers extractDependentLemmaFromGroup, extractPosFromGroup, and normalizeRelationId each have a single narrow responsibility",
+        "Handler methods follow a consistent parse-validate-execute-respond structure, making it easy to trace the flow of a new request"
+      ],
+      "issue_character": "The issues are systemic repetition patterns rather than isolated one-offs: the same collocation serialization loop appears in four sibling handlers, the same CORS guard appears in two POST handlers, and the same oversized-method smell appears in both files (start(), executeBcqlQuery, handleSemanticFieldExplore) — all pointing to a missing layer of small shared helpers.",
+      "score_rationale": "The codebase sits in the 60-70 range. There are genuine structural extractions (buildAndRankCollocates, small helpers) that show design awareness, but the dominant pattern a developer encounters is copy-pasted blocks and multi-responsibility methods. The four-way repeated collocation serialization and the ~130-line executeBcqlQuery are concrete friction points any developer would hit when making changes. This is below 'solid but uneven' (80) because the repetition is not isolated — it appears across multiple sibling handlers and both seed files — but above 60 because the overall flow is traceable and some abstractions are well-placed."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "collocation_json_serialization_repeated",
+      "summary": "Collocation-to-JSONObject serialization loop copy-pasted in 4 sibling handler methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Identical 8-line loop converting WordSketchResult to JSONObject (lemma, frequency, logDice, pos fields) appears verbatim in handleFullSketch (~line 290), handleRelationQuery (~line 335), handleFullDependencySketch (~line 388), and handleDependencyRelationQuery (~line 440)"
+      ],
+      "suggestion": "Extract a private static helper: `static JSONObject collocateToJson(QueryResults.WordSketchResult r)` and replace all four call sites with a stream collect or a simple for-loop calling the helper.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "missing_response_serialization_helpers"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "cors_method_guard_duplicated",
+      "summary": "Identical CORS preflight / method-not-allowed guard duplicated in handleVisualRadial and handleBcqlQueryPost",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 912-918 and lines 967-973 each contain an identical OPTIONS-check block setting Access-Control-Allow-Origin/Methods/Headers and returning 204, followed by a POST-only method guard — neither references a shared utility"
+      ],
+      "suggestion": "Add a method `boolean handleCorsPreflightAndMethodGuard(HttpExchange exchange, String requiredMethod)` in HttpApiUtils (or in WordSketchApiServer) that returns true when the caller should return early, and call it at the top of both POST handlers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "missing_response_serialization_helpers"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "start_method_multiple_responsibilities",
+      "summary": "WordSketchApiServer.start() mixes route registration, server lifecycle, and endpoint logging in ~200 lines",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() (lines 60-263) registers 10+ HTTP contexts, calls server.start(), then emits a multi-line log block listing all endpoints — three distinct concerns making the method difficult to extend or test independently"
+      ],
+      "suggestion": "Extract `private void registerRoutes()` for context registration, and optionally `private void logEndpoints()` for the startup log, leaving start() as a 5-line orchestration method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "execute_bcql_query_over_large",
+      "summary": "executeBcqlQuery in BlackLabQueryExecutor is ~130 lines mixing six distinct sub-tasks",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 209-311: single method performs BCQL parsing, query execution, hit windowing, concordance extraction with two fallback collocate paths, per-hit frequency map accumulation, logDice calculation, and result sorting/limiting — the inline `record HitRecord` declaration signals that the method has grown beyond a single responsibility"
+      ],
+      "suggestion": "Extract at minimum: (1) `List<HitRecord> collectHitRecords(Hits hits, int sampleSize, int collocatePos)` for the concordance-extraction loop, and (2) `List<ConcordanceResult> rankAndLimitResults(List<HitRecord>, Map<String,Long>, long headwordFreq, int maxResults)` for the scoring/sorting pass.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No shared response-serialization layer: each handler builds its own JSONObject maps from domain objects, causing repeated serialization code to accumulate as new handlers are added",
+      "HTTP handler infrastructure (CORS, method dispatch) is handled ad-hoc per endpoint rather than via a consistent filter or wrapper abstraction"
+    ],
+    "likely_symptoms": [
+      "collocation_json_serialization_repeated",
+      "cors_method_guard_duplicated"
+    ],
+    "possible_false_positives": []
+  }
+}

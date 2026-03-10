@@ -1,0 +1,129 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {
+    "high_level_elegance": 58.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages (grammar, query, api, indexer, tagging, utils, viz, config) map legibly to domain capabilities — a new engineer can immediately see where CQL parsing vs query execution vs HTTP handling lives.",
+        "WordSketchApiServer.java is 1042 lines and registers 10+ HTTP endpoints, each with full business logic inline (multi-seed exploration, concordance, radial visualization, BCQL queries, semantic field, dependency sketches). There is no handler/controller separation.",
+        "The query package mixes three distinct concerns: query execution infrastructure (QueryExecutor interface, BlackLabQueryExecutor), token predicate types (AbstractPatternPredicate, AndPredicate, OrPredicate, LemmaPredicate, TagPredicate, NotPredicate, PosGroupPredicate, WordPredicate), and higher-level domain logic (SemanticFieldExplorer, CQLVerifier). A developer looking for 'where do I add a new predicate type' and 'where do I add a new semantic exploration algorithm' are led to the same package.",
+        "CQLParser re-exports CQLPattern.AgreementRule and CQLPattern.PatternElement as inner subclasses (CQLParser.AgreementRule, CQLParser.PatternElement). This creates two almost-identical public types for the same concept, blurring where ownership of the parse tree data model lives.",
+        "WordSketchApiServer imports SemanticFieldExplorer inner classes directly (SemanticFieldExplorer.ComparisonResult, SemanticFieldExplorer.AdjectiveProfile, SemanticFieldExplorer.ExplorationResult, etc.), tightly coupling the API layer to a concrete implementation class rather than to the QueryExecutor abstraction.",
+        "SemanticFieldExplorer's primary constructor instantiates BlackLabQueryExecutor directly by path, hardcoding a concrete dependency inside a class that elsewhere accepts a QueryExecutor via constructor injection, breaking the interface-based design pattern used in the rest of the codebase."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Top-level package layout (grammar, query, api, indexer, tagging, utils, viz, config) maps directly to domain capabilities; a new engineer can orient quickly.",
+        "QueryExecutor interface establishes a clean abstraction boundary that separates the API layer from specific backend implementations and enables testability via mock injection.",
+        "The grammar package trio (CQLParser, CQLPattern, CQLParseException) forms a tightly cohesive, self-contained module with clear ownership of the CQL parsing concern.",
+        "Small cross-cutting utilities (LogDiceCalculator, LongIntHashMap) are correctly isolated in utils rather than embedded in larger classes."
+      ],
+      "issue_character": "The issues are structurally systemic in two hotspots — an oversized god-class API server that absorbs all handler logic with no delegation layer, and a query package that conflates token-level predicate infrastructure with higher-level domain exploration — rather than being scattered style nits.",
+      "score_rationale": "The codebase has an honest, domain-aligned top-level structure and a well-defined executor abstraction that pushes the score into the 55-65 range rather than lower. However, WordSketchApiServer at 1042 lines containing 10+ inline endpoint handlers with full business logic is a significant ownership-boundary failure: change any HTTP contract or query strategy and you must touch the same massive file. The query package's mingling of token predicates, execution infrastructure, and semantic exploration makes subsystem decomposition unclear. These two issues are deep enough to noticeably drag down a developer's ability to predict where a change belongs, placing the score at 58."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_server_god_class",
+      "summary": "WordSketchApiServer is a 1042-line god class registering and implementing 10+ HTTP endpoints inline with no handler delegation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "The file has 1042 LOC and registers endpoints for /health, /api/sketch/, /api/relations, /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, /api/bcql — all in one class.",
+        "Handler methods like handleSemanticFieldExploreMulti (lines 589-724) and handleSemanticField (lines 725-803) contain full business logic, JSON response building, and parameter validation, with no separation between routing, handler dispatch, and domain logic.",
+        "The class imports SemanticFieldExplorer.ComparisonResult, AdjectiveProfile, ExplorationResult, DiscoveredNoun, CoreAdjective directly — five inner types from one collaborating class — tightly coupling routing code to a specific domain implementation."
+      ],
+      "suggestion": "Extract each endpoint's logic into a dedicated handler class (e.g., SemanticFieldHandler, SketchHandler, ConcordanceHandler) that accepts QueryExecutor and GrammarConfigLoader via constructor. WordSketchApiServer becomes a thin router that wires contexts to handler instances. This localizes each endpoint's change surface and makes ownership predictable.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_handler_layer"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "query_package_mixed_responsibilities",
+      "summary": "The query package conflates token predicate infrastructure, query execution, and high-level semantic exploration in one namespace",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AndPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/OrPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/LemmaPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TagPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/NotPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroupPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/WordPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "The query package contains 8 token predicate classes (AbstractPatternPredicate, AndPredicate, OrPredicate, LemmaPredicate, TagPredicate, NotPredicate, PosGroupPredicate, WordPredicate) alongside query execution infrastructure (QueryExecutor interface, BlackLabQueryExecutor) and a high-level semantic algorithm (SemanticFieldExplorer).",
+        "Token predicates are low-level matching primitives used by CQLVerifier; SemanticFieldExplorer is a discovery algorithm operating at the semantic-field level — these have different change cadences and collaborators.",
+        "A developer adding a new grammatical relation or exploration strategy and a developer adding a new token constraint type are both directed to the same package, making the change boundary unpredictable."
+      ],
+      "suggestion": "Split into sub-packages: query.predicate (token predicate types), query.executor (QueryExecutor, BlackLabQueryExecutor, BlackLabQueryExecutor, BlackLabSnippetParser), and query.explore (SemanticFieldExplorer). Alternatively, move predicate classes to grammar.predicate since they implement CQL-level matching semantics.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "flat_package_conflation"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "cqlparser_type_reexport",
+      "summary": "CQLParser re-exports CQLPattern.AgreementRule and CQLPattern.PatternElement as extending inner classes, creating dual ownership of parse tree types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLPattern.java"
+      ],
+      "evidence": [
+        "CQLParser contains inner classes CQLParser.AgreementRule extends CQLPattern.AgreementRule and CQLParser.PatternElement extends CQLPattern.PatternElement — both are effectively empty wrappers that only delegate constructors.",
+        "This means callers can receive either CQLParser.AgreementRule or CQLPattern.AgreementRule for the same concept, and the grammar package has two public entry points for what should be a single data model.",
+        "The ParsedCQL inner class stores List<CQLPattern.PatternElement> and List<CQLPattern.AgreementRule>, not the re-exported subclasses, making the re-exports appear unused except as convenience aliases."
+      ],
+      "suggestion": "Remove CQLParser.AgreementRule and CQLParser.PatternElement. Use CQLPattern.AgreementRule and CQLPattern.PatternElement directly everywhere inside CQLParser. If callers need short-form imports, they can import CQLPattern.* or use static imports. This gives CQLPattern sole ownership of the parse tree data model.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "flat_package_conflation"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semantic_explorer_bypasses_abstraction",
+      "summary": "SemanticFieldExplorer's primary constructor instantiates BlackLabQueryExecutor directly, bypassing the QueryExecutor abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(String indexPath) constructor calls new BlackLabQueryExecutor(indexPath) directly, hardcoding the concrete backend.",
+        "A separate SemanticFieldExplorer(QueryExecutor executor) constructor exists and is used in tests, showing the pattern was intended — but the primary production path bypasses it.",
+        "WordSketchApiServer instantiates SemanticFieldExplorer via new SemanticFieldExplorer(this.executor), so the string-path constructor is redundant and misleading about how the class is used in production."
+      ],
+      "suggestion": "Remove the SemanticFieldExplorer(String indexPath) constructor or make it package-private. In production, always pass a QueryExecutor. This removes a hidden concrete dependency and makes the abstraction boundary consistent throughout the subsystem.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "missing_handler_layer"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No handler/controller layer was ever introduced between the HTTP routing layer and business logic, causing the API server to absorb all handler code as the feature set grew.",
+      "The query package was used as a catch-all for all backend code rather than being decomposed as new subsystems (predicate model, exploration) were added."
+    ],
+    "likely_symptoms": [
+      "api_server_god_class is a symptom of missing handler layer; the root cause is architectural (no handler abstraction), not a code smell in isolation."
+    ],
+    "possible_false_positives": []
+  }
+}

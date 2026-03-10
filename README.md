@@ -108,8 +108,15 @@ Algorithm: PRECOMPUTED (O(1) instant lookup)
 Endpoints:
   GET /health
   GET /api/sketch/{lemma}
+  GET /api/relations
+  GET /api/relations/dep
   GET /api/semantic-field/explore
   GET /api/semantic-field/explore-multi
+  GET /api/semantic-field
+  GET /api/semantic-field/examples
+  GET /api/concordance/examples
+  GET /api/visual/radial
+  GET /api/bcql
 ```
 
 ### 4. Start Web Interface
@@ -135,7 +142,7 @@ And you use some semantic exploration features:
 
 ```bash
 # Find adjectives describing "house"
-curl "http://localhost:8080/api/sketch/house?pos=noun"
+curl "http://localhost:8080/api/sketch/house"
 
 # Get example sentences for "house" + "big"
 curl "http://localhost:8080/api/concordance/examples?word1=house&word2=big&limit=5"
@@ -263,10 +270,8 @@ The grammar configuration (relations, copulas, CQL patterns) is externalized in 
 - `exploration_enabled` - Whether usable for semantic field exploration
 
 **API endpoint:**
-```bash
-# Get active grammar configuration
-curl http://localhost:8080/api/grammar/active
-```
+
+To view active relations, use `GET /api/relations`.
 
 To modify relations or add new ones, edit `grammars/relations.json` and restart the server.
 
@@ -279,7 +284,7 @@ curl http://localhost:8080/health
 
 #### Get Word Sketch
 ```bash
-curl "http://localhost:8080/api/sketch/house?pos=noun,verb&limit=15"
+curl "http://localhost:8080/api/sketch/house"
 ```
 
 Response:
@@ -587,18 +592,10 @@ G2 = 2 * f(A,B) * log(f(A,B) / expected)
 - `N` = total tokens in corpus
 
 **Query API:**
+
+The server uses logDice scoring by default. Simply query the sketch endpoint:
 ```bash
-# Default logDice
-curl "http://localhost:8080/api/sketch/house?scoring=logDice"
-
-# MI3 scoring
-curl "http://localhost:8080/api/sketch/house?scoring=mi3"
-
-# T-Score
-curl "http://localhost:8080/api/sketch/house?scoring=tscore"
-
-# Log-Likelihood
-curl "http://localhost:8080/api/sketch/house?scoring=loglikelihood"
+curl "http://localhost:8080/api/sketch/house"
 ```
 
 ---
@@ -610,30 +607,30 @@ concept-sketch/
 ├── src/main/java/pl/marcinmilkowski/word_sketch/
 │   ├── Main.java                    # CLI entry point
 │   ├── api/
-│   │   └── WordSketchApiServer.java # REST API server
+│   │   ├── WordSketchApiServer.java # REST API server
+│   │   ├── HttpApiUtils.java        # HTTP utilities
+│   │   └── PatternSubstitution.java # Pattern substitution
+│   ├── config/
+│   │   └── GrammarConfigLoader.java # Grammar config loading
 │   ├── grammar/
 │   │   ├── CQLParser.java           # CQL pattern parsing
-│   │   └── CQLPattern.java          # Pattern representation
+│   │   ├── CQLPattern.java          # Pattern representation
+│   │   └── CQLParseException.java   # Parse exception type
 │   ├── indexer/
-│   │   ├── hybrid/
-│   │   │   ├── HybridIndexer.java   # HYBRID index creation
-│   │   │   ├── TokenSequenceCodec.java # Token encoding/decoding
-│   │   │   ├── CollocationsBuilder.java # Precomputed collocations
-│   │   │   └── SentenceDocument.java # Document model
-│   │   └── LuceneIndexer.java       # Legacy indexer
+│   │   └── blacklab/
+│   │       └── BlackLabConllUIndexer.java # CoNLL-U corpus indexer
 │   ├── query/
-│   │   ├── CQLToLuceneCompiler.java # CQL → Lucene translation
-│   │   ├── HybridQueryExecutor.java # Query execution (PRECOMPUTED)
-│   │   ├── ConcordanceExplorer.java # Concordance examples (SpanQuery)
-│   │   ├── SemanticFieldExplorer.java # Single-seed exploration
-│   │   ├── SnowballCollocations.java # Multi-seed exploration
-│   │   └── WordSketchQueryExecutor.java # Legacy executor
+│   │   ├── BlackLabQueryExecutor.java    # BlackLab query executor
+│   │   ├── BlackLabSnippetParser.java    # BlackLab XML snippet parser
+│   │   ├── SemanticFieldExplorer.java    # Semantic field exploration
+│   │   ├── QueryExecutor.java            # Query executor interface
+│   │   ├── QueryResults.java             # Result DTOs
+│   │   └── PosGroup.java                 # POS group constants
 │   ├── tagging/
-│   │   ├── SimpleTagger.java        # Rule-based tagger
-│   │   ├── ConllUProcessor.java     # CoNLL-U parsing
-│   │   └── UDPipeTagger.java        # UDPipe wrapper
+│   │   └── SimpleTagger.java        # Rule-based tagger
 │   └── utils/
-│       └── LogDiceCalculator.java   # logDice scoring
+│       ├── LogDiceCalculator.java   # logDice scoring
+│       └── LongIntHashMap.java      # Compact long→int hash map
 ├── webapp/
 │   ├── index.html                   # Web UI (D3.js visualization)
 │   └── assets/                      # CSS, D3.js

@@ -187,39 +187,40 @@ public class CQLParser {
     }
 
     /**
-     * Split a string by | character, but ignore | inside quoted strings.
-     * This distinguishes between:
-     *   - Field-level OR: tag="JJ"|tag="RB" -> ["tag=\"JJ\"", "tag=\"RB\""]
-     *   - Value-level regex: word="be|remain|seem" -> ["word=\"be|remain|seem\""]
-     * 
-     * @param str The constraint string to split
-     * @return List of parts split by | outside quotes
+     * Split a string by the given delimiter, ignoring occurrences inside quoted strings.
+     *
+     * <p>Examples (delimiter='|'):
+     * <ul>
+     *   <li>Field-level OR: {@code tag="JJ"|tag="RB"} → {@code ["tag=\"JJ\"", "tag=\"RB\""]}</li>
+     *   <li>Value-level regex: {@code word="be|remain|seem"} → {@code ["word=\"be|remain|seem\""]}</li>
+     * </ul>
+     *
+     * @param str       the string to split
+     * @param delimiter the character to split on when outside quotes
+     * @return list of trimmed parts
      */
-    private List<String> splitByOrOutsideQuotes(String str) {
+    private List<String> splitByDelimiterOutsideQuotes(String str, char delimiter) {
         List<String> parts = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         boolean inQuote = false;
-        
+
         for (int i = 0; i < str.length(); i++) {
             char c = str.charAt(i);
-            
             if (c == '"') {
                 inQuote = !inQuote;
                 current.append(c);
-            } else if (c == '|' && !inQuote) {
-                // Split here - this is an OR operator between constraints
-                parts.add(current.toString());
+            } else if (c == delimiter && !inQuote) {
+                parts.add(current.toString().trim());
                 current = new StringBuilder();
             } else {
                 current.append(c);
             }
         }
-        
-        // Add the last part
+
         if (current.length() > 0) {
-            parts.add(current.toString());
+            parts.add(current.toString().trim());
         }
-        
+
         return parts;
     }
 
@@ -275,7 +276,7 @@ public class CQLParser {
         }
 
         // Split by OR operator (but respect quoted strings)
-        List<String> partsList = splitByOrOutsideQuotes(constraintStr);
+        List<String> partsList = splitByDelimiterOutsideQuotes(constraintStr, '|');
         String[] parts = partsList.toArray(new String[0]);
 
         if (parts.length == 1) {
@@ -329,7 +330,7 @@ public class CQLParser {
      */
     private CQLPattern.Constraint parseAndConstraint(String constraintStr, boolean outerNegated) throws CQLParseException {
         // Split by &, but not & inside quoted strings
-        List<String> andParts = splitByAnd(constraintStr);
+        List<String> andParts = splitByDelimiterOutsideQuotes(constraintStr, '&');
 
         List<CQLPattern.Constraint> andConstraints = new ArrayList<>();
         boolean allNegated = true;
@@ -382,26 +383,6 @@ public class CQLParser {
                                           new ArrayList<>(), andConstraints);
     }
 
-    /**
-     * Split by & while respecting quoted strings.
-     */
-    private List<String> splitByAnd(String s) {
-        List<String> parts = new ArrayList<>();
-        int start = 0;
-        boolean inQuote = false;
-
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '"') {
-                inQuote = !inQuote;
-            } else if (!inQuote && c == '&') {
-                parts.add(s.substring(start, i).trim());
-                start = i + 1;
-            }
-        }
-        parts.add(s.substring(start).trim());
-        return parts;
-    }
 
     private CQLPattern buildCQLPattern(ParsedCQL parsed) {
         CQLPattern pattern = new CQLPattern();

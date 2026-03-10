@@ -1,0 +1,446 @@
+{
+  "session": {
+    "id": "ext_20260310_142751_eebadc31",
+    "token": "84d413591037fc14a4d8242d27de8356"
+  },
+  "assessments": {
+    "cross_module_architecture": 63.0,
+    "high_level_elegance": 52.0,
+    "abstraction_fitness": 56.0,
+    "dependency_health": 68.0,
+    "low_level_elegance": 57.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "The layering api->query->utils is respected and no obvious import cycles exist.",
+        "The `query` package has become a hub: it contains the BlackLab executor, the snippet parser, the semantic explorer, the predicate mini-framework (7 classes), the CQL verifier, result types, and token types — 16 classes with at least 4 distinct concerns.",
+        "WordSketchApiServer imports five inner result types directly from SemanticFieldExplorer (ComparisonResult, AdjectiveProfile, ExplorationResult, DiscoveredNoun, CoreAdjective), coupling the API layer to implementation internals of the query layer.",
+        "BlackLabQueryExecutor stores `indexPath` as a field but never reads it after the constructor — a dead field that signals copy-paste growth.",
+        "A leftover temp file `HybridQueryExecutor.java.tmp.16216.1771545912963` sits alongside production sources, and `blacklab-core-pom.xml` is an orphaned secondary POM in the project root.",
+        "CQLParser and CQLPattern (grammar package) are used only by CQLVerifier (query package), which itself is not on the main BlackLab execution path — a parallel CQL path whose role from an architecture perspective is opaque."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "high_level_elegance": {
+      "evidence": [
+        "Most top-level packages (api, config, grammar, indexer, utils, viz, tagging) map to clear domain capabilities.",
+        "The `query` package is overloaded: 16 classes mixing BlackLab execution, snippet parsing, semantic exploration, predicate matching, token types, and result DTOs. A new engineer cannot predict what belongs here.",
+        "WordSketchApiServer is 1042 lines with all handler logic inlined as anonymous lambda bodies, blurring the boundary between routing and business logic and making ownership hard to describe.",
+        "CQLVerifier and its 7-class predicate framework (TokenPredicate, AbstractPatternPredicate, AndPredicate, OrPredicate, NotPredicate, LemmaPredicate, TagPredicate, PosGroupPredicate, WordPredicate) form a self-contained in-memory query engine inside the query package, but are disconnected from the active BlackLab execution path — their purpose is unclear without reading tests.",
+        "SimpleTagger exists in the tagging package with no PosTagger interface to implement against; CLAUDE.md lists tagging/PosTagger.java as an existing interface but the file does not exist.",
+        "QueryResults is a utility class whose only purpose is to namespace inner types WordSketchResult and ConcordanceResult — a structural accident, not a domain concept."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "abstraction_fitness": {
+      "evidence": [
+        "CQLParser declares inner subclasses AgreementRule and PatternElement that extend the corresponding CQLPattern inner classes with zero added behavior — their sole purpose is re-export convenience, blurring the grammar/query boundary.",
+        "QueryExecutor interface declares executeBcqlQuery, executeSurfacePattern, and isReady as default methods that either forward to another interface method or return a constant — these defaults weaken the contract and make it unclear what the interface actually requires.",
+        "AbstractPatternPredicate.test() calls wildcardToRegex() and Pattern.matches() on every invocation without caching the compiled Pattern — an abstraction that fails to deliver the performance its name implies.",
+        "CQLPattern.Constraint represents three mutually exclusive structural variants (simple, OR, AND) in one class, using orConstraints/andConstraints list emptiness as a discriminant — callers must consult isOr() and isAnd() to understand which shape they have rather than relying on types.",
+        "TokenPredicate.negate() is a default method returning a lambda, but NotPredicate is a separate explicit class doing the same thing — parallel ways to express negation without a stated reason.",
+        "delegation_density: BlackLabSnippetParser exposes ~15 public static methods including two public Pattern constants (LEMMA_ATTR, XPOS_ATTR, UPOS_ATTR) that callers (BlackLabQueryExecutor) access directly — the class is a low-cohesion static dump."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "dependency_health": {
+      "evidence": [
+        "The postgresql JDBC driver (org.postgresql:postgresql:42.7.1) is declared as a runtime dependency but no JDBC or SQL code is present anywhere in the production source tree — unused dependency bloats the shaded jar.",
+        "Four source files are excluded from compilation in pom.xml (CQLToLuceneCompiler, HybridQueryExecutor, ConcordanceExplorer, CollocationWitnessTool) — they remain in the source tree but cannot be built, signalling an incomplete migration.",
+        "HybridQueryExecutor.java.tmp.16216.1771545912963 is a leftover temp file in the query source directory.",
+        "blacklab-core-pom.xml exists alongside the authoritative pom.xml in the project root with no reference from the build — orphaned artifact.",
+        "The two BlackLab dependencies (blacklab-engine and blacklab-query-parser) are clearly necessary and distinct.",
+        "fastjson2 (com.alibaba), slf4j, and JUnit 5 are lean and appropriate for the purpose; no obvious duplicate-library conflicts."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "AbstractPatternPredicate.test() calls wildcardToRegex() then Pattern.matches() (which compiles a fresh Pattern object) on every invocation — no caching of the compiled regex despite the pattern string being immutable.",
+        "PatternSubstitution.substituteCollocate() contains a hand-rolled CQL tokenizer (the while-loop over i) that handles only '[...]' and '\"...\"' cases, silently skipping distance modifiers, numbered prefixes, and anything outside those two forms — fragile with no error signalling.",
+        "WordSketchApiServer inlines all handler logic as anonymous lambdas inside start(), producing deeply nested closures across 1042 lines; individual handler paths are hard to test or trace in isolation.",
+        "ConcordanceResult has 5 constructors, each null-filling a different subset of 11 fields — accretive growth in lieu of distinct result types; callers cannot know which fields are populated without reading all constructors.",
+        "BlackLabQueryExecutor.getCorpusSize() has a formatting artifact (body starts at column 0, misaligned with the rest of the class) and returns a hard-coded 0L stub — visible incomplete implementation.",
+        "RadialPlot.toSVG() mixes raw string concatenation (svg.append(\"<svg ...>\" + width + ...)) with String.format() calls in the same method without a stated style preference.",
+        "GrammarConfigLoader.RelationConfig.substituteHeadword() is a 60-line static method embedded in a Java record — complex parsing logic residing in a type that is supposed to be a data carrier."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "query_hub_package",
+      "summary": "query package is a hub mixing 4+ distinct concerns across 16 classes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TokenPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "The package contains: BlackLab execution (BlackLabQueryExecutor), snippet parsing (BlackLabSnippetParser), semantic exploration (SemanticFieldExplorer), a 7-class predicate mini-framework (TokenPredicate through WordPredicate), CQL in-memory verification (CQLVerifier), result DTOs (QueryResults), and token value types (Token, TokenWindow) — 16 files, 4+ concerns.",
+        "The predicate framework and CQLVerifier are disconnected from the active BlackLab execution path; they form a self-contained parallel query evaluator whose blast radius would be wide if the package is refactored."
+      ],
+      "suggestion": "Extract sub-packages: query/execution (BlackLabQueryExecutor, QueryExecutor, QueryResults), query/verify (CQLVerifier, TokenPredicate, predicate classes, Token, TokenWindow), query/exploration (SemanticFieldExplorer). Move BlackLabSnippetParser into query/execution as a package-private helper. This narrows change blast radius and makes each sub-package's purpose self-evident.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "package_bloat"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_imports_explorer_internals",
+      "summary": "WordSketchApiServer imports 5 inner result types directly from SemanticFieldExplorer, coupling API to query implementation internals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.java lines 13-17 import SemanticFieldExplorer.ComparisonResult, SemanticFieldExplorer.AdjectiveProfile, SemanticFieldExplorer.ExplorationResult, SemanticFieldExplorer.DiscoveredNoun, SemanticFieldExplorer.CoreAdjective.",
+        "These are inner classes of an implementation class, not an interface or DTO package — any refactor of SemanticFieldExplorer requires editing the API layer."
+      ],
+      "suggestion": "Move the five result types to a dedicated query/results or query/exploration package as top-level classes. Reference them by their own types in both SemanticFieldExplorer and WordSketchApiServer. This breaks the direct import dependency on the implementation class.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "package_bloat"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "dead_indexpath_field",
+      "summary": "BlackLabQueryExecutor stores indexPath field but never reads it after construction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Line 54: `private final String indexPath;` — field is assigned in constructor and passed to BlackLab.open(), but the field itself is never accessed after construction.",
+        "Storing a value only for a one-time side-effect suggests accretive growth (possibly needed by a previous implementation)."
+      ],
+      "suggestion": "Remove the indexPath field. Use the constructor parameter directly in the BlackLab.open() call and discard it afterwards.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "orphaned_source_artifacts",
+      "summary": "Temp file and secondary POM left in source tree alongside production files",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/HybridQueryExecutor.java.tmp.16216.1771545912963",
+        "blacklab-core-pom.xml"
+      ],
+      "evidence": [
+        "HybridQueryExecutor.java.tmp.16216.1771545912963 is a raw editor temp file with a PID/timestamp suffix sitting in the query source directory.",
+        "blacklab-core-pom.xml exists in the project root but is not referenced by the main pom.xml or any build script."
+      ],
+      "suggestion": "Delete both files. Add *.tmp and *.tmp.* patterns to .gitignore to prevent future temp file commits.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_server_god_class",
+      "summary": "WordSketchApiServer is a 1042-line god class mixing routing, parameter parsing, and business logic for 10+ endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "The file is 1042 lines. All handler logic lives as anonymous lambda bodies inside start(), creating deep nesting and preventing independent testability of individual endpoints.",
+        "The class handles: health check, full word sketch, per-relation sketch, dependency sketch, relations list, semantic field exploration, comparison, radial plot SVG, concordance, and grammar config endpoints — ownership spans the entire API surface."
+      ],
+      "suggestion": "Extract each endpoint group into a dedicated handler class (e.g., SketchHandler, SemanticFieldHandler, ConcordanceHandler) following a HandlerContext pattern that receives QueryExecutor and GrammarConfigLoader. WordSketchApiServer becomes a thin router that registers them. Each handler class is independently testable.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "package_bloat"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "disconnected_predicate_framework",
+      "summary": "7-class in-memory predicate framework (CQLVerifier + predicates) lives in query package but is disconnected from the active execution path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TokenPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AndPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/OrPredicate.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor never imports or references CQLVerifier, TokenPredicate, or any predicate class — the main execution path goes entirely through BlackLab's own parser.",
+        "CQLVerifier imports CQLPattern from the grammar package and constructs predicates, but nothing in the production path calls verify() outside of tests. This creates a parallel in-memory query evaluation subsystem whose role is invisible to a reader of the production code."
+      ],
+      "suggestion": "Either (a) document explicitly that CQLVerifier is a test-only utility and move it to src/test, or (b) integrate it into the production path where it provides value (e.g., pre-flight validation before sending to BlackLab). Move the predicate classes to the same location so the framework's scope is clear.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "missing_postagger_interface",
+      "summary": "SimpleTagger has no PosTagger interface despite CLAUDE.md documenting one as existing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "CLAUDE.md lists `tagging/PosTagger.java` as a `PosTagger interface` in the code structure table.",
+        "No PosTagger.java file exists anywhere in the source tree. SimpleTagger declares tagSentence, tagSentences, getName, getTagset methods but implements no named interface.",
+        "Without the interface, SimpleTagger cannot be substituted or mocked — the documentation contract drifts from the runtime reality."
+      ],
+      "suggestion": "Create PosTagger.java in the tagging package declaring tagSentence, tagSentences, getName, getTagset. Have SimpleTagger implement it. Update CLAUDE.md to reflect the actual state until this is done, or create the interface immediately.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "queryresults_structural_accident",
+      "summary": "QueryResults utility class exists only to namespace inner types, not as a domain concept",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "QueryResults has a private constructor and two inner static classes: WordSketchResult and ConcordanceResult. The class itself adds no behavior — it is a Java package-equivalent using a class as a namespace.",
+        "Callers use QueryResults.WordSketchResult and QueryResults.ConcordanceResult — the outer class name adds noise without communicating domain meaning."
+      ],
+      "suggestion": "Promote WordSketchResult and ConcordanceResult to top-level classes in the query package (or a query/results subpackage). Delete the QueryResults wrapper. This removes false indirection and makes imports cleaner.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "package_bloat"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "cqlparser_reexport_subclasses",
+      "summary": "CQLParser.AgreementRule and CQLParser.PatternElement subclass their CQLPattern counterparts with zero added behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLPattern.java"
+      ],
+      "evidence": [
+        "CQLParser.AgreementRule extends CQLPattern.AgreementRule with only a constructor that calls super() — no fields, no methods, no overrides.",
+        "CQLParser.PatternElement extends CQLPattern.PatternElement with only two constructors that call super() — no fields, no methods, no overrides.",
+        "These exist solely so that callers can write CQLParser.AgreementRule instead of CQLPattern.AgreementRule, which blurs which package owns these types."
+      ],
+      "suggestion": "Remove CQLParser.AgreementRule and CQLParser.PatternElement. Callers should reference CQLPattern.AgreementRule and CQLPattern.PatternElement directly. Update ParsedCQL to use CQLPattern.PatternElement in its list.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "abstraction_overhead"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "queryexecutor_default_methods_weaken_contract",
+      "summary": "QueryExecutor interface has 3 default methods that fall back to other methods, weakening what the interface actually requires",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "executeBcqlQuery default: `return executeQuery(bcqlPattern, maxResults)` — the comment says 'backward compatibility'.",
+        "executeSurfacePattern default: `return findCollocations(...)` — ignores position hints entirely.",
+        "isReady default: `return true` — silently succeeds for all implementations.",
+        "With 3 of 7 non-close methods having defaults, an implementor can satisfy the interface by implementing only 3 methods while the others silently fall back, making the contract untrustworthy."
+      ],
+      "suggestion": "Remove the default implementations for executeBcqlQuery and executeSurfacePattern. Promote them to abstract methods or separate them into a richer interface (e.g., SurfacePatternExecutor extends QueryExecutor). Keep isReady as a default only if all callers truly treat false as optional.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "abstraction_overhead"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "constraint_overloaded_discriminated_union",
+      "summary": "CQLPattern.Constraint encodes three mutually exclusive structural variants in one class using list-emptiness as discriminant",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLPattern.java"
+      ],
+      "evidence": [
+        "CQLPattern.Constraint has both orConstraints and andConstraints lists plus isOr() and isAnd() boolean methods.",
+        "Three variants: simple (both lists empty), OR (orConstraints non-empty), AND (andConstraints non-empty). Callers must query both predicates to determine which variant they hold.",
+        "The and() factory method returns different types depending on constraints.length — either the single element or a new Constraint with andConstraints populated, conflating factory with constructor."
+      ],
+      "suggestion": "Model the three variants as a sealed hierarchy: SimpleConstraint(field, pattern, negated), OrConstraint(List<SimpleConstraint>), AndConstraint(List<SimpleConstraint>). Use a sealed interface or sealed abstract class Constraint. This makes variant dispatch type-safe and eliminates the isOr/isAnd predicates.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "abstraction_overhead"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "abstract_predicate_no_regex_cache",
+      "summary": "AbstractPatternPredicate compiles a new Pattern on every test() call without caching",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java"
+      ],
+      "evidence": [
+        "test() calls wildcardToRegex(effectivePattern) and Pattern.matches(regex, value) on every invocation. Pattern.matches() compiles a new Pattern object internally each time.",
+        "The pattern string is immutable (set once in constructor), so the compiled Pattern could be cached as a final field."
+      ],
+      "suggestion": "Compute the compiled Pattern in the constructor and store it as a final field: `private final Pattern compiled = Pattern.compile(wildcardToRegex(...))`. Replace the Pattern.matches() call with `compiled.matcher(value).matches()`. This makes test() O(1) in regex compilation cost.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "abstraction_overhead"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "unused_postgresql_dependency",
+      "summary": "PostgreSQL JDBC driver declared as runtime dependency but no database code exists in production sources",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml declares `org.postgresql:postgresql:42.7.1` with `<scope>runtime</scope>`.",
+        "Grep of all .java files in src/main finds no import of java.sql, javax.sql, or org.postgresql — no JDBC code is present.",
+        "The dependency adds ~1MB to the shaded jar with no functional benefit."
+      ],
+      "suggestion": "Remove the postgresql dependency from pom.xml. If database support is planned, add it at the time it is needed and document the intent.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_deps"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "excluded_source_files_incomplete_migration",
+      "summary": "Four source files are excluded from compilation in pom.xml, leaving dead uncompilable code in the source tree",
+      "related_files": [
+        "pom.xml",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/HybridQueryExecutor.java.tmp.16216.1771545912963"
+      ],
+      "evidence": [
+        "pom.xml maven-compiler-plugin excludes: CQLToLuceneCompiler.java, HybridQueryExecutor.java, ConcordanceExplorer.java, CollocationWitnessTool.java — described as 'Legacy Lucene 10 code not compatible with BlackLab Lucene 8.11.1'.",
+        "These files exist in the source tree but cannot be built, tested, or refactored — they create confusion about what is live code.",
+        "HybridQueryExecutor.java.tmp.* is an additional uncompilable artifact in the same directory."
+      ],
+      "suggestion": "Move excluded files to a clearly marked `src/main/java-legacy/` directory or a git branch, and delete the .tmp file. If the migration to BlackLab is complete, remove them entirely. Update the exclusions list in pom.xml accordingly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "dead_deps"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "pattern_recompiled_every_test",
+      "summary": "AbstractPatternPredicate.test() recompiles wildcard-to-regex and Pattern on every invocation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java"
+      ],
+      "evidence": [
+        "test(): `String regex = wildcardToRegex(effectivePattern); return Pattern.matches(regex, value.toLowerCase());`",
+        "wildcardToRegex iterates the pattern string; Pattern.matches() compiles a new Pattern object. Both are called on every token test, even though the pattern is fixed at construction time."
+      ],
+      "suggestion": "Cache the compiled Pattern as a final field in the constructor. Use `compiled.matcher(value.toLowerCase()).matches()` in test(). This makes each test() call O(1) instead of O(pattern.length).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "low_level_slop"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "pattern_substitution_fragile_tokenizer",
+      "summary": "PatternSubstitution.substituteCollocate() uses a fragile hand-rolled CQL tokenizer that silently drops unrecognised syntax",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "The while-loop over `i` only recognises `[...]` and `\"...\"` tokens. Everything else increments i one character at a time without adding a position, silently ignoring distance modifiers ({0,3}), numbered prefixes (1:), and other CQL syntax.",
+        "If the pattern has a distance modifier between positions, the position count will be wrong and the substitution will target the wrong token silently."
+      ],
+      "suggestion": "Reuse the CQLParser from the grammar package to tokenise the pattern instead of re-implementing tokenisation. PatternSubstitution should call CQLParser.parseFull() and reconstruct the pattern from the parsed elements, substituting at the correct element index. Alternatively, add an explicit failure path when unrecognised syntax is encountered.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "low_level_slop"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "concordanceresult_five_constructors",
+      "summary": "ConcordanceResult has 5 constructors null-filling different field subsets, signalling accretive growth rather than intentional design",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "ConcordanceResult has constructors with 7, 7 (grouped), 8 (with rawXml), 6 (no docId), and 4 (snippet-only) parameters.",
+        "Each constructor null-fills a different subset of the 11 fields (sentence, rawXml, lemma, tag, word, startOffset, endOffset, docId, collocateLemma, frequency, logDice).",
+        "Callers cannot determine which fields are populated without reading all 5 constructors. At least two structural variants exist: a per-hit concordance result and a grouped collocate result."
+      ],
+      "suggestion": "Separate into two distinct classes: ConcordanceResult (sentence context per hit: sentence, rawXml, start, end, docId) and CollocateResult (collocate-grouped: collocateLemma, frequency, logDice, examples). Each has one canonical constructor. This eliminates null-filled fields and makes each type's contract self-evident.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "low_level_slop"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "getcorpussize_stub_misaligned",
+      "summary": "BlackLabQueryExecutor.getCorpusSize() is a stub returning 0L with a formatting artifact (wrong indentation)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "The method body starts at column 0 unlike all other methods in the class, indicating a copy-paste or accidental edit.",
+        "The method returns 0L unconditionally — a stub that silently lies to any caller asking for the corpus size."
+      ],
+      "suggestion": "Either implement getCorpusSize() using blackLabIndex.tokens() / blackLabIndex.docs() (whichever BlackLab 4 exposes), or throw UnsupportedOperationException to fail loudly if called. Fix the indentation either way.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "low_level_slop"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "radialplot_mixed_string_building_style",
+      "summary": "RadialPlot.toSVG() mixes raw string concatenation and String.format() in the same method without a consistent style",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "`svg.append(\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" width=\\\"\" + width + \"\\\" height=\\\"\" + height + ...)` — raw concatenation.",
+        "`svg.append(String.format(\"    <circle class=\\\"guide-circle\\\" cx=\\\"%s\\\" cy=\\\"%s\\\" r=\\\"%s\\\"/>\\n\", fmt(cx), ...))` — String.format.",
+        "The inconsistency makes the method harder to scan and edit safely."
+      ],
+      "suggestion": "Standardise on String.format() (or a text block if Java 15+) throughout toSVG(). Replace all concatenation-based appends with format calls that use named variables for dimensions.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "low_level_slop"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "grammarconfigloader_record_complex_method",
+      "summary": "GrammarConfigLoader.RelationConfig record contains a 60-line static substituteHeadword() parsing method inside a data type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationConfig is a Java record (a data carrier) but contains substituteHeadword() — a 60-line static method with its own inner loop that tokenises CQL patterns by scanning characters.",
+        "The method re-implements CQL position extraction logic that already exists in CQLParser and PatternSubstitution.",
+        "Records are idiomatic for immutable data carriers; embedding complex parsing logic inside one violates the extraction level balance the dimension looks for."
+      ],
+      "suggestion": "Extract substituteHeadword() to PatternSubstitution (or a dedicated PatternHeadwordSubstitution class) that reuses CQLParser for tokenisation. RelationConfig.getFullPattern() can delegate to the extracted helper. This makes RelationConfig a pure data record and centralises CQL pattern manipulation.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "low_level_slop"
+    }
+  ]
+}

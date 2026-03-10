@@ -1,0 +1,140 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 8,
+  "assessments": {
+    "convention_outlier": 68.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "AbstractPatternPredicate is package-private ('abstract class AbstractPatternPredicate') while all four concrete subclasses (LemmaPredicate, TagPredicate, WordPredicate, PosGroupPredicate) are declared 'public class' — visibility asymmetry within the same predicate hierarchy.",
+        "DTO representation strategy is mixed without documented rationale: QueryResults.WordSketchResult and ConcordanceResult use private-fields-with-getters (traditional Java bean style); GrammarConfigLoader.RelationConfig uses a Java record; RadialPlot.Item uses public final fields with no getters at all; SimpleTagger.TaggedToken uses private-fields-with-getters.",
+        "escapeForRegex() is duplicated verbatim: PatternSubstitution.escapeForRegex (public static, api package) and GrammarConfigLoader.RelationConfig.escapeForRegex (private static, config package) — identical one-liner.",
+        "CQL constraint xpos/tag extraction is duplicated: PatternSubstitution.extractXposFromConstraint() and GrammarConfigLoader.RelationConfig.extractXposPattern()/extractConstraintAttribute() solve the same problem independently in separate packages.",
+        "CLAUDE.md lists 'tagging/PosTagger.java' as a component, but no PosTagger interface file exists — SimpleTagger has no interface, inconsistent with the QueryExecutor interface pattern used in the query package.",
+        "LogDiceCalculator (utils package) is a static-only utility class but has no private constructor, diverging from the pattern established by HttpApiUtils and PatternSubstitution which both do suppress instantiation.",
+        "Java naming conventions (PascalCase classes, camelCase methods) are applied uniformly across all packages — no snake_case drift or mixed casing."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Java naming conventions (PascalCase classes, camelCase methods, UPPER_SNAKE_CASE constants) are applied uniformly across all packages with no drift.",
+        "Package organisation follows a clear domain split: api, config, grammar, indexer, query, tagging, utils, viz — no orphaned files at the root level.",
+        "Static utility classes (HttpApiUtils, PatternSubstitution) consistently use private constructors and static-only methods, establishing a clear pattern for most of the codebase.",
+        "The predicate hierarchy (AbstractPatternPredicate + four subclasses) follows a single, consistent structural pattern: each leaf overrides extractValue() and toString() only."
+      ],
+      "issue_character": "Issues are not isolated one-offs but fall into two cross-cutting patterns: inconsistent data-representation strategy for domain objects (record vs bean vs public-field) applied ad-hoc, and duplicated CQL-string utility logic that escaped extraction into a shared helper.",
+      "score_rationale": "The codebase scores well on naming and package structure — a developer can navigate without disorientation. The drag comes from two moderate but cross-cutting inconsistencies: mixed DTO styles (record, bean, public-field) applied without a discernible rule, and duplicated escapeForRegex/extractXpos logic split across the api and config packages. The AbstractPatternPredicate visibility asymmetry and the missing PosTagger interface are smaller but real signals that conventions were not enforced systematically. At 80 this would be 'solid but uneven'; the duplicate utility logic and mixed DTO strategy push it to the 65-70 range, landing at 68."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "mixed_dto_strategy",
+      "summary": "Domain objects use three different representation strategies (record, private-field bean, public-field struct) without documented rationale",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "QueryResults.WordSketchResult and ConcordanceResult: private final fields + getters (Java bean style)",
+        "GrammarConfigLoader.RelationConfig: Java record (line 306: 'public record RelationConfig(')",
+        "RadialPlot.Item: 'public final String label; public final double score;' — public fields, no getters",
+        "SimpleTagger.TaggedToken: private final fields + getters (bean style)"
+      ],
+      "suggestion": "Pick one strategy for immutable domain objects (records are idiomatic for modern Java) and migrate consistently; document the chosen convention in a brief ADR or comment if intentional variation is kept.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "duplicate_escape_regex_helper",
+      "summary": "escapeForRegex() is duplicated verbatim in PatternSubstitution and GrammarConfigLoader.RelationConfig",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.java line 101: 'public static String escapeForRegex(String s) { if (s == null) return \"\"; return s.replace(\"...'",
+        "GrammarConfigLoader.java line 475: 'private static String escapeForRegex(String s) { if (s == null) return \"\"; return s.replace(\"...' — identical implementation, different access modifier"
+      ],
+      "suggestion": "Extract escapeForRegex into a shared CqlStringUtils class in the utils package and have both callers delegate to it.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "duplicate_xpos_extraction",
+      "summary": "CQL xpos/tag constraint extraction logic is duplicated across PatternSubstitution and GrammarConfigLoader.RelationConfig",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.extractXposFromConstraint(): scans for xpos=\"...\" then tag=\"...\" in a constraint string",
+        "GrammarConfigLoader.RelationConfig.extractXposPattern() delegates to extractConstraintAttribute(constraint, 'xpos'), and extractPosPattern() to extractConstraintAttribute(constraint, 'tag') — same logical operation, different implementation style"
+      ],
+      "suggestion": "Consolidate into the same CqlStringUtils helper as escapeForRegex, exposing extractXposPattern(String) and extractTagPattern(String) as shared static methods.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "abstract_predicate_visibility_asymmetry",
+      "summary": "AbstractPatternPredicate is package-private while all four of its public subclasses extend it, creating an unexpected visibility asymmetry",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/AbstractPatternPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/LemmaPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TagPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/WordPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroupPredicate.java"
+      ],
+      "evidence": [
+        "AbstractPatternPredicate.java line 8: 'abstract class AbstractPatternPredicate' — no public modifier",
+        "All four subclasses declare 'public class LemmaPredicate extends AbstractPatternPredicate' etc. — public, yet the base is package-private"
+      ],
+      "suggestion": "Declare AbstractPatternPredicate as 'public abstract class' to match the visibility of its subclasses, or intentionally keep it package-private and document why.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "missing_postagger_interface",
+      "summary": "No PosTagger interface exists despite QueryExecutor establishing the pattern; SimpleTagger is a concrete class with no abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "The tagging/ directory contains only SimpleTagger.java — no interface file",
+        "CLAUDE.md lists 'tagging/PosTagger.java' as a component but it does not exist",
+        "QueryExecutor is a well-defined interface in the query package; the tagging package lacks a parallel abstraction"
+      ],
+      "suggestion": "Create a PosTagger interface with tagSentence()/tagSentences() and getName()/getTagset(), and have SimpleTagger implement it, consistent with the QueryExecutor pattern.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No enforced style guide for DTO representation: records, beans, and public-field structs were added as features evolved without a team decision on the preferred pattern.",
+      "Cross-package utility code was written inline rather than extracted, leading to escapeForRegex and xpos-extraction helpers living in two separate packages."
+    ],
+    "likely_symptoms": [
+      "missing_postagger_interface — may be a documentation drift artefact rather than a code-quality defect; the CLAUDE.md reference could be aspirational."
+    ],
+    "possible_false_positives": []
+  }
+}

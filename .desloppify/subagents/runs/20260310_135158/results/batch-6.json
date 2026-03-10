@@ -1,0 +1,125 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 6,
+  "assessments": {"api_surface_coherence": 54.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor interface: all methods have Javadoc with @param/@return/@throws, consistent (String, String, double, int) parameter ordering for collocation methods",
+        "HttpApiUtils: 3 static helpers with uniform signatures — all complete public-API helpers with no hidden error contracts",
+        "Handler methods uniformly follow (HttpExchange exchange) + throws IOException signature throughout WordSketchApiServer",
+        "SemanticFieldExplorer.exploreByPattern() has 10 parameters: seed, topPredicates, nounsPerPredicate, minShared, minLogDice, bcqlPattern, simplePattern, relationName, headPos, collocatePos — a clear API boundary violation",
+        "Single-seed handler delegates to SemanticFieldExplorer.exploreByPattern(); multi-seed handler (handleSemanticFieldExploreMulti) reimplements the collocate-intersection logic inline, bypassing SemanticFieldExplorer entirely — asymmetric design",
+        "Explore endpoint uses ?seed= (singular) and defaults min_logdice=3.0; explore-multi uses ?seeds= and defaults min_logdice=2.0; nouns_per param exists only on single-seed endpoint — inconsistent parameter vocabulary between sibling endpoints",
+        "findDependencyCollocations() exists on BlackLabQueryExecutor as a concrete public method but is absent from the QueryExecutor interface; DEP handlers call executeSurfacePattern instead, leaking a dual-path into the implementation",
+        "PatternSubstitution.extractXposFromConstraint() and escapeForRegex() are public but undocumented and carry no error contract",
+        "executeSurfacePattern interface method has 6 parameters, just above the 5-parameter threshold",
+        "handleConcordanceExamples manually strips &amp; after parseQueryParams already ran URLDecoder — redundant and inconsistent decode path"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "QueryExecutor interface is well-documented with @param/@return/@throws on every method, and default methods provide explicit backward-compatibility contracts",
+        "HttpApiUtils static helpers (sendJsonResponse, sendError, parseQueryParams) have a clean, narrow shape with no overloading",
+        "HTTP handler methods use a uniform (HttpExchange exchange) throws IOException signature, and error responses consistently delegate to HttpApiUtils.sendError()",
+        "WordSketchApiServer constructor is honest and explicit: 4 clearly named dependencies, no hidden state"
+      ],
+      "issue_character": "Issues cluster around the semantic-field subsystem: the explore vs explore-multi pair is the primary offender, with an asymmetric delegation pattern, inconsistent query-parameter vocabulary, and a 10-parameter public method — the rest of the API surface is largely coherent.",
+      "score_rationale": "The QueryExecutor interface and HttpApiUtils layer score well — documented, consistently shaped, honest error contracts. However, the semantic-field API introduces several real coherence problems: the 10-parameter exploreByPattern() is a clear API boundary failure, single-seed and multi-seed endpoints share a conceptual purpose but differ in parameter names and defaults, and the multi-seed handler reimplements business logic instead of delegating. These are not cosmetic inconsistencies; they create friction for any developer trying to extend or test the semantic-field subsystem. At the 80-range anchor ('solid but uneven'), the good infrastructure pieces offset the worst offenders, but the asymmetries and the parameter-count violation pull the score meaningfully below that, landing around 54."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_by_pattern_param_count",
+      "summary": "SemanticFieldExplorer.exploreByPattern() has 10 parameters, far exceeding the readable-API threshold",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Method signature: exploreByPattern(String seed, int topPredicates, int nounsPerPredicate, int minShared, double minLogDice, String bcqlPattern, String simplePattern, String relationName, int headPos, int collocatePos)",
+        "All 10 arguments are positional with no named structure; callers in WordSketchApiServer.java construct them inline from 7+ local variables"
+      ],
+      "suggestion": "Introduce an ExplorationConfig value object (or record) grouping bcqlPattern, simplePattern, relationName, headPos, collocatePos, minLogDice, and the limit parameters; reduce exploreByPattern to (String seed, ExplorationConfig config)",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_multi_inline_logic",
+      "summary": "Multi-seed handler bypasses SemanticFieldExplorer and reimplements collocate-intersection logic inline",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore() delegates to explorer.exploreByPattern(); handleSemanticFieldExploreMulti() builds seedToCollocates + commonCollocates directly, never calling SemanticFieldExplorer",
+        "SemanticFieldExplorer has an exploreMulti-style comparison capability (compare()) that is not used here"
+      ],
+      "suggestion": "Add an exploreMulti(Set<String> seeds, ExplorationConfig config) method to SemanticFieldExplorer and delegate from handleSemanticFieldExploreMulti; keep the HTTP handler thin",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_vs_exploremulti_param_inconsistency",
+      "summary": "Sibling explore and explore-multi endpoints use different parameter names, defaults, and available options",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "explore: ?seed= (singular), min_logdice default 3.0, nouns_per param supported",
+        "explore-multi: ?seeds= (plural), min_logdice default 2.0, no nouns_per param"
+      ],
+      "suggestion": "Unify parameter names: use seeds= for both (accept single value as a one-element set), standardise defaults to the same value, and support the same optional params on both endpoints",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dependency_collocations_not_on_interface",
+      "summary": "findDependencyCollocations() is a public method on BlackLabQueryExecutor but absent from QueryExecutor interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.findDependencyCollocations(String headword, String deprel, double minLogDice, int maxResults) is public but not declared in QueryExecutor",
+        "DEP relation handlers reach it indirectly through executeSurfacePattern, not through a named dependency-aware method"
+      ],
+      "suggestion": "Add findDependencyCollocations(String headword, String deprel, double minLogDice, int maxResults) as a default method on QueryExecutor (throwing UnsupportedOperationException by default) so that DEP-aware callers can type-check or dispatch properly",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "concordance_double_decode",
+      "summary": "handleConcordanceExamples decodes &amp; manually after parseQueryParams already ran URLDecoder",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Lines: `if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");` applied after HttpApiUtils.parseQueryParams() has already URLDecoded the value",
+        "No other handler applies this secondary decode"
+      ],
+      "suggestion": "Remove the manual &amp; stripping; if HTML-entity-encoded URLs are a real edge case, handle it centrally in parseQueryParams",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The semantic-field subsystem was added incrementally (single-seed first, then multi-seed) without a shared abstraction to anchor both paths",
+      "SemanticFieldExplorer was designed as a stateful exploration engine but its public method grew to accept all caller-side config inline rather than through a config object"
+    ],
+    "likely_symptoms": [
+      "explore_multi_inline_logic — duplicated intersection code is likely a symptom of missing multi-seed method on SemanticFieldExplorer",
+      "explore_vs_exploremulti_param_inconsistency — likely a symptom of the two handlers being written in separate increments"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 4,
+  "assessments": {"incomplete_migration": 67.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "HybridQueryExecutor.java.tmp.16216.1771545912963 (68KB) lives in src/main/java/…/query/ — a full implementation of the old hybrid executor, not compiled but present as a migration artifact with @Deprecated enum values (SAMPLE_SCAN, SPAN_COUNT), a deprecated constructor, and a deprecated setCollocationPath method.",
+        "QueryExecutor.java interface Javadoc still reads 'Allows different implementations (legacy, hybrid, BlackLab) to be used interchangeably' — the 'legacy' and 'hybrid' implementations no longer exist in active source.",
+        "QueryExecutor.executeBcqlQuery() has a default that says '// Default: treat BCQL as CQL (for backward compatibility)' — but the sole active implementation (BlackLabQueryExecutor) overrides it, making the shim vestigial.",
+        "QueryExecutor.getExecutorType() Javadoc lists return examples as '\"legacy\", \"hybrid\"' — stale references to removed executor types.",
+        "SimpleTagger in tagging/ package has no callers in production source (only SimpleTaggerTest); it was used as a fallback before UDPipe/Stanza became the tagging pipeline.",
+        "LongIntHashMap in utils/ package has no production callers (only LongIntHashMapTest); appears to be a data structure from the old hybrid indexer era.",
+        "HybridAlgorithmTest.java is a test class named after the removed hybrid executor, but its test body now tests GrammarConfigLoader — a misleading name left over from migration.",
+        "src/test/resources/baseline/metadata.txt contains 'Executor: legacy' — stale label from before the BlackLab migration.",
+        "QueryResults.ConcordanceResult has a 'Simplified constructor without docId for backward compatibility' note, but no active code calls it (all callers use the full constructor)."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The active code path (Main.java → BlackLabQueryExecutor → BlackLabConllUIndexer) is exclusively on the new BlackLab API with no dual-mode coexistence in hot paths.",
+        "The QueryExecutor interface provides a clean abstraction boundary; the migration settled on a single concrete implementation without any conditional 'if legacy else new' branching in production.",
+        "GrammarConfigLoader actively rejects old config formats (throws if 'copulas' key is present), enforcing migration rather than silently supporting old input."
+      ],
+      "issue_character": "Issues are scattered migration residue — dead code classes, a stale temp file, stale interface comments and shim defaults — rather than a structural dual-API coexistence problem; the core migration is done but the cleanup pass was incomplete.",
+      "score_rationale": "The migration to BlackLab is structurally complete: no deprecated-but-called code exists in any production execution path, and the system has a single coherent API surface in use. What pulls the score below 80 is a cluster of unremoved artifacts: a 68KB .tmp file of the old HybridQueryExecutor sitting in the source tree, two dead utility/helper classes (SimpleTagger, LongIntHashMap) with no production callers, stale interface comments that still reference removed executor types, a vestigial backward-compat default method, a misleadingly named test class, and a stale test baseline label. These are classic 'migration done, cleanup skipped' patterns — not severe enough for the 60s anchor of 'significant drag' on day-to-day development, but numerous enough to prevent a score above 75."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "hybrid_executor_tmp_file",
+      "summary": "Old HybridQueryExecutor left as a .tmp file in production source directory",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/HybridQueryExecutor.java.tmp.16216.1771545912963"],
+      "evidence": [
+        "68KB file present at src/…/query/HybridQueryExecutor.java.tmp.16216.1771545912963",
+        "Contains full implementation of old hybrid executor with @Deprecated(since=\"2.0\", forRemoval=true) on SAMPLE_SCAN and SPAN_COUNT enum values",
+        "Contains deprecated constructor and deprecated setCollocationPath method",
+        "Not a .java file so does not compile, but pollutes the source tree with the entire old implementation"
+      ],
+      "suggestion": "Delete the file entirely; if it needs to be preserved for reference, move it to a docs/ or archive/ directory outside src/.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "migration_cleanup"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "simple_tagger_dead_code",
+      "summary": "SimpleTagger class has no production callers after UDPipe/Stanza migration",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"],
+      "evidence": [
+        "No import of pl.marcinmilkowski.word_sketch.tagging.SimpleTagger anywhere in src/main/java/ (excluding .tmp files)",
+        "Class is tested by SimpleTaggerTest but never called from Main.java or any API/query path",
+        "Was the pre-BlackLab fallback tagger; UDPipe/Stanza now handles all tagging externally"
+      ],
+      "suggestion": "Remove SimpleTagger.java and its test unless there is a documented plan to reintroduce in-process tagging; if removal is deferred, add a comment naming the tracked issue.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "migration_cleanup"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "query_executor_stale_shim_and_comments",
+      "summary": "QueryExecutor interface retains stale 'legacy/hybrid' references and a vestigial backward-compat default method",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "Line 9: Javadoc reads 'Allows different implementations (legacy, hybrid, BlackLab) to be used interchangeably' — legacy and hybrid implementations no longer exist",
+        "Line 46: executeBcqlQuery() default body comment says '// Default: treat BCQL as CQL (for backward compatibility)' — only BlackLabQueryExecutor exists and it overrides this method, making the shim dead",
+        "Line 82: getExecutorType() Javadoc example values include '\"legacy\"' and '\"hybrid\"'"
+      ],
+      "suggestion": "Update the class-level Javadoc to reflect only BlackLab; remove or update stale return-value examples in getExecutorType(); if executeBcqlQuery's default is truly never needed, consider making it abstract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "migration_cleanup"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "long_int_hashmap_dead_code",
+      "summary": "LongIntHashMap utility class has no production callers after hybrid indexer removal",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/utils/LongIntHashMap.java"],
+      "evidence": [
+        "No import or use of LongIntHashMap in any file under src/main/java/ (only in LongIntHashMapTest)",
+        "Utility was part of the precomputed collocations path in the old hybrid indexer which was removed"
+      ],
+      "suggestion": "Remove LongIntHashMap.java and its test unless planned for future use; if kept, add a comment stating its intended consumer.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "migration_cleanup"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "hybrid_algorithm_test_misnaming",
+      "summary": "HybridAlgorithmTest.java tests GrammarConfigLoader but retains the old hybrid executor name",
+      "related_files": ["src/test/java/pl/marcinmilkowski/word_sketch/query/HybridAlgorithmTest.java"],
+      "evidence": [
+        "Class named HybridAlgorithmTest; body imports only GrammarConfigLoader and has no reference to any hybrid executor",
+        "All tests in the class verify grammar config loading and relation patterns",
+        "The name is a leftover from when this test file exercised HybridQueryExecutor algorithms"
+      ],
+      "suggestion": "Rename to GrammarRelationsTest or GrammarConfigTest to accurately reflect the tested subject.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "migration_cleanup"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Migration cleanup pass was not completed after the BlackLab adoption: temp files, dead classes, and stale comments were not removed before the code was declared done.",
+      "The HybridQueryExecutor was externalized to a .tmp file rather than deleted, suggesting an incomplete or interrupted cleanup step."
+    ],
+    "likely_symptoms": [
+      "hybrid_algorithm_test_misnaming",
+      "query_executor_stale_shim_and_comments"
+    ],
+    "possible_false_positives": []
+  }
+}

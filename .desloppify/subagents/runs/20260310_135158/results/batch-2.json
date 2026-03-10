@@ -1,0 +1,91 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {
+    "abstraction_fitness": 83.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "AbstractPatternPredicate base class provides wildcard-to-regex conversion and case-insensitivity logic; concrete subclasses (LemmaPredicate, TagPredicate, WordPredicate, PosGroupPredicate) are 3-5 lines each — template method applied correctly.",
+        "TokenPredicate is a @FunctionalInterface with a default negate() method (returns lambda), yet NotPredicate exists as a named class implementing the same inversion. CQLVerifier uses new NotPredicate(pred) at line 196; the interface's negate() is never called. Two mechanisms for the same operation.",
+        "QueryExecutor has one production implementation (BlackLabQueryExecutor). The interface enables test injection — SemanticFieldExplorer accepts a mock executor via its second constructor. The default methods (executeBcqlQuery, executeSurfacePattern, isReady) provide fallback behaviour that BlackLabQueryExecutor overrides, giving the interface real policy value.",
+        "WordSketchApiServer constructor accepts and stores indexPath (field line 48, assigned line 55), but the field is never read anywhere in the 1042-line class. The stored value is dead.",
+        "HttpApiUtils and PatternSubstitution are coherent static-utility classes with focused responsibilities — no dumping-ground pattern.",
+        "RadialPlot encapsulates spiral layout computation, SVG generation, and scale normalisation in one class — justified single-class design with real layout domain logic.",
+        "CQLPattern.Constraint static factory Constraint.and() stores the AND-list under the first operand's field/pattern slot, creating a structurally ambiguous object: the 'field' and 'pattern' fields of the AND-node have no meaning at that level."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 87.0,
+        "indirection_cost": 78.0,
+        "interface_honesty": 82.0,
+        "delegation_density": 95.0,
+        "definition_directness": 85.0,
+        "type_discipline": 90.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "Template Method via AbstractPatternPredicate gives five concrete predicates with near-zero duplication — each subclass is 3-5 lines.",
+        "TokenPredicate is a functional interface with composable algebra (And, Or, Not predicates) — the combinator layer is clean and discoverable.",
+        "QueryExecutor interface is justified by test injection: SemanticFieldExplorer's second constructor accepts any executor, enabling mock-based unit tests.",
+        "HttpApiUtils and PatternSubstitution are tightly scoped utility classes that enforce policy (CORS headers, JSON encoding) on every response — not dumping grounds.",
+        "SemanticFieldExplorer separates exploration domain logic from HTTP concerns cleanly; it accepts a QueryExecutor rather than a path, keeping it testable."
+      ],
+      "issue_character": "Issues are isolated redundancies rather than systemic abstraction drag: a duplicated negation mechanism and a dead constructor parameter — neither creates broad indirection cost for a developer navigating the codebase.",
+      "score_rationale": "The codebase sits in the 80-85 band. Most abstractions pay for themselves: the predicate hierarchy, the functional combinator layer, and the QueryExecutor injection point all reduce complexity for callers. What pulls the score below 90 is a pair of focused friction points — NotPredicate duplicates TokenPredicate.negate() (two ways to negate, one never used), and WordSketchApiServer stores indexPath in a field that is never read, widening the constructor signature without benefit. These are 'solid but uneven' defects per the global anchors: a developer would notice them but they don't cascade."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "duplicate_negation_mechanism",
+      "summary": "NotPredicate class duplicates TokenPredicate.negate() default — two mechanisms for the same operation, one unused",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/TokenPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/NotPredicate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"
+      ],
+      "evidence": [
+        "TokenPredicate declares 'default TokenPredicate negate() { return token -> !this.test(token); }' (TokenPredicate.java line 14).",
+        "NotPredicate implements TokenPredicate and wraps a child predicate to invert it — identical semantics, adds only a toString().",
+        "CQLVerifier line 196 uses 'new NotPredicate(pred)'; the interface's negate() method is never called anywhere in the codebase."
+      ],
+      "suggestion": "Remove NotPredicate and replace its single call site in CQLVerifier with 'pred.negate()'. If the toString representation matters for debugging, add a named lambda or annotate the negate() default to include type info. This collapses two mechanisms into one.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "predicate_layer_redundancy"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "dead_indexpath_field_api_server",
+      "summary": "WordSketchApiServer stores indexPath constructor parameter in a field that is never read",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Field declared: 'private final String indexPath;' (line 48).",
+        "Assigned in constructor: 'this.indexPath = indexPath;' (line 55).",
+        "No other reference to 'indexPath' anywhere in the 1042-line class — the field is never read after assignment."
+      ],
+      "suggestion": "Remove the indexPath parameter from WordSketchApiServer's constructor and delete the field. Update the call site in Main.java (line 330) accordingly. If indexPath is needed for future health or diagnostics endpoints, store it then.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental addition of abstractions without pruning: the negate() default was added to the interface after NotPredicate was already in use, leaving both in place.",
+      "Constructor parameter leakage from an earlier design where the server may have used indexPath directly (e.g., to create its own executor) before the executor was injected externally."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

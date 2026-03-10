@@ -1,0 +1,310 @@
+{
+  "session": {
+    "id": "ext_20260310_142751_eebadc31",
+    "token": "84d413591037fc14a4d8242d27de8356"
+  },
+  "assessments": {
+    "error_consistency": 42.0,
+    "convention_outlier": 68.0,
+    "test_strategy": 38.0,
+    "api_surface_coherence": 55.0,
+    "authorization_consistency": 78.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "api/ package mixes strategies heavily: 17 try-catch blocks alongside 3 returns_null and 1 throw, with no consistent policy",
+        "query/ package uses all four strategies simultaneously: 16 returns_null, 9 try-catch, 8 throws, 6 result_type — no dominant approach",
+        "getTotalFrequency() in BlackLabQueryExecutor silently swallows all exceptions (catch(Exception e) { return 0L; }) without logging, hiding index access failures",
+        "HttpApiUtils.parseQueryParams() silently skips invalid URL parameters (catch block is a comment-only no-op: 'Skip invalid parameters'), losing decode errors",
+        "BlackLabQueryExecutor constructor wraps and rethrows with context (throw new IOException('...', e)) — good pattern — but is not used consistently elsewhere",
+        "handleFullSketch() catches Exception broadly and only logs at DEBUG level (logger.debug()), not WARN/ERROR, so relation failures are invisible in production",
+        "Integer.parseInt() / Double.parseDouble() called bare (no try-catch) on raw query parameters in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleConcordanceExamples — a NumberFormatException from a bad request produces an unhandled 500 instead of a 400",
+        "config/ uses throws + returns_null (7 cases) for field-not-found cases; query/ uses Optional returns for some lookups (grammarConfig.getRelation()) but null checks for others — inconsistent boundary contract"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "convention_outlier": {
+      "evidence": [
+        "BlackLabSnippetParser fields (LEMMA_ATTR, XPOS_ATTR, etc.) are package-private (no modifier) instead of private — breaks the expected Java convention of private static final for internal constants; other classes use private for similar patterns",
+        "WordSketchApiServer uses fully-qualified type com.sun.net.httpserver.HttpServer and com.sun.net.httpserver.HttpExchange inline in method signatures instead of importing them at the top of the file — inconsistent with the rest of the codebase's import style",
+        "BlackLabQueryExecutor has two public methods (findDependencyCollocations, executeDependencyPattern) that are NOT in the QueryExecutor interface — they form a wider public API that only callers using the concrete type can access, violating the interface-based abstraction pattern used everywhere else",
+        "SemanticFieldExplorer has two constructors: one taking indexPath (String) that creates its own BlackLabQueryExecutor, and one taking QueryExecutor for injection — the first constructor is a factory-style outlier vs. the dependency-injection pattern used in WordSketchApiServer and tests",
+        "handleVisualRadial() doc comment contains 'Render radial plot.' duplicated twice in the Javadoc — copy-paste artifact not present in sibling handlers",
+        "Regex patterns in BlackLabSnippetParser use Java-standard java.util.regex.Pattern.compile() but are declared as package-private fields rather than private, creating an inconsistency with all other utility classes in utils/ that keep internals private"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "WordSketchApiServer (1042 LOC, 10+ endpoint handlers) has zero dedicated tests — the most complex and user-facing class in the codebase is entirely untested",
+        "SemanticFieldExplorer (core business logic for the /explore and /explore-multi endpoints) has no unit tests whatsoever, despite having a testable constructor that accepts a mock QueryExecutor",
+        "All BlackLab integration tests (BlackLabBcqlConcordanceTest, BlackLabDummyTest, DependencySketchTest) are guarded by assumeTrue on a hardcoded Windows path ('D:\\corpora_philsci\\bi') that does not exist in CI — they effectively never run in automated builds",
+        "GrammarConfigLoader is tested only through HybridAlgorithmTest which calls createDefaultEnglish() — there are no tests for the constructor that takes a Path (the production codepath), missing coverage for invalid configs, missing version, copulas key present, empty relations array",
+        "CQLVerifierTest provides meaningful unit coverage for the CQLVerifier but does NOT test negative/edge cases: empty pattern, null window, patterns with no matching tokens",
+        "No cross-module integration test exists that exercises the full request→query→score→response pipeline even with a mock index",
+        "Integer.parseInt() / Double.parseDouble() calls on untrusted input in API handlers have no tests for malformed input (e.g., top=abc), meaning the 500-instead-of-400 bug is not caught by the test suite",
+        "LogDiceCalculatorTest (241 lines) and LongIntHashMapTest (80 lines) show good unit test quality for pure utility classes — the test strategy works well when applied, but is not applied to the higher-risk business logic"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor interface omits findDependencyCollocations and executeDependencyPattern — these are public methods on BlackLabQueryExecutor only, leaking implementation-specific surface outside the abstraction",
+        "The /api/sketch/{lemma} endpoint returns a top-level 'patterns' key containing relation data, but /api/sketch/{lemma}/{relation} returns a top-level 'collocations' key — sibling endpoints with different shapes for what is conceptually the same resource",
+        "handleFullDependencySketch returns a 'relations' key, handleRelationQuery returns a 'collocations' key, and handleDependencyRelationQuery also returns a 'collocations' key — three response shapes for analogous operations with no documented contract",
+        "Numeric query parameters (top, min_logdice, min_shared, nouns_per, limit, max) are parsed with Integer.parseInt/Double.parseDouble without validation or error messages — the API does not communicate what valid ranges are and silently crashes on bad input",
+        "handleSemanticFieldExploreMulti uses bcqlPattern = relationConfig.get().pattern() (the raw pattern) while handleSemanticFieldExplore uses bcqlPattern = relationConfig.get().getFullPattern(seed) (with head substituted) — inconsistent treatment of the same config object in sibling handlers",
+        "POST endpoints (/api/bcql, /api/visual/radial) explicitly validate the HTTP method and return 405, but GET endpoints do not — a POST to /api/sketch/{lemma} silently processes the request",
+        "executeSurfacePattern is a default method on QueryExecutor that falls back to findCollocations, but BlackLabQueryExecutor overrides it with a different algorithm — callers using the QueryExecutor interface get different behavior than those using BlackLabQueryExecutor directly, without documentation"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "authorization_consistency": {
+      "evidence": [
+        "The application is a single-user local research tool with no multi-user or network-facing deployment requirement documented — absence of authentication is intentional by design",
+        "All endpoints serve read-only corpus query results; there are no write operations, user data, or sensitive resources exposed",
+        "CORS is set to Access-Control-Allow-Origin: * on all responses — appropriate for a local tool, but would be a finding if this were a shared/production deployment",
+        "No user input reaches file-system paths directly — index path is set at server startup from CLI args, not from request parameters",
+        "The tool operates entirely on a pre-built read-only Lucene index; there are no admin endpoints, no configuration mutation endpoints, and no authentication bypass paths"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_swallow_getfreq",
+      "summary": "getTotalFrequency silently swallows all exceptions, hiding index access failures",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "catch (Exception e) { return 0L; } — no logging, no rethrow; callers receive 0 and silently produce logDice=0.0 for all collocates when the index is degraded"
+      ],
+      "suggestion": "Add at minimum logger.warn('Failed to get frequency for lemma {}: {}', lemma, e.getMessage()); before return 0L, or rethrow as IOException if frequency lookup failure should be a hard error.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_catch"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_swallow_queryparams",
+      "summary": "parseQueryParams silently discards URL decode errors with a comment-only catch block",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "catch (Exception e) { // Skip invalid parameters } — no logging; malformed percent-encoding in a parameter silently drops it, causing confusing downstream 'missing parameter' errors"
+      ],
+      "suggestion": "Log the exception at DEBUG level: logger.debug('Skipping malformed query parameter: {}', pair, e); This preserves the skip behaviour while making problems diagnosable.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_catch"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_unguarded_parseint",
+      "summary": "Bare Integer.parseInt / Double.parseDouble on user query params throws uncaught NumberFormatException as a 500",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "int topCollocates = Integer.parseInt(params.getOrDefault(\"top\", \"15\")); — repeated across handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleConcordanceExamples, handleSemanticField without try-catch",
+        "A request with top=abc causes NumberFormatException to bubble up to the outer catch(Exception e) handler which returns HTTP 500 instead of 400"
+      ],
+      "suggestion": "Extract a helper parseIntParam(params, key, defaultValue) that catches NumberFormatException and either returns the default or calls sendError(exchange, 400, 'Invalid integer parameter: ' + key). Apply consistently to all numeric param parsing.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "input_validation"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "err_debug_swallow_relation",
+      "summary": "handleFullSketch and handleFullDependencySketch log relation failures at DEBUG, masking production errors",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "catch (Exception e) { logger.debug(\"Relation {} failed for lemma {}\", rel.id(), lemma, e); } — using DEBUG means a broken relation in production leaves no visible trace in default logging configuration"
+      ],
+      "suggestion": "Promote to logger.warn() for unexpected failures so that relation-level errors surface in default log output. Reserve DEBUG for expected misses (e.g., no results).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_catch"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "conv_package_private_constants",
+      "summary": "BlackLabSnippetParser static Pattern fields are package-private instead of private",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "static final java.util.regex.Pattern LEMMA_ATTR = ...; — no access modifier, so package-private by default",
+        "All other utility-class constants in the codebase (LogDiceCalculator, LongIntHashMap) use private static final"
+      ],
+      "suggestion": "Add private modifier to all Pattern fields in BlackLabSnippetParser (LEMMA_ATTR, LEMMA_ATTR_ANY, XPOS_ATTR, UPOS_ATTR, SENT_BOUND_LEFT, SENT_BOUND_RIGHT, XML_SENT_OPEN, XML_SENT_CLOSE). If BlackLabQueryExecutor uses them directly, expose them via package-private accessor methods instead.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "access_modifier_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "conv_inline_fqn_imports",
+      "summary": "WordSketchApiServer uses inline fully-qualified com.sun.net.httpserver types instead of imports",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "private com.sun.net.httpserver.HttpServer server; and private void handleFullSketch(com.sun.net.httpserver.HttpExchange exchange, ...) — the type is referenced by FQN in 10+ method signatures rather than imported",
+        "All other external types in the same file use standard imports at the top"
+      ],
+      "suggestion": "Add import com.sun.net.httpserver.HttpServer; and import com.sun.net.httpserver.HttpExchange; at the top of WordSketchApiServer.java and replace all inline FQN usages.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "import_style_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "conv_impl_public_methods_not_in_interface",
+      "summary": "BlackLabQueryExecutor exposes public methods not declared in QueryExecutor interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "findDependencyCollocations() and executeDependencyPattern() are public on BlackLabQueryExecutor but absent from QueryExecutor",
+        "API server casts directly to BlackLabQueryExecutor to call executeDependencyPattern() or relies on the wider type, defeating interface abstraction"
+      ],
+      "suggestion": "Either promote these methods to the QueryExecutor interface (with a default empty implementation or documented as optional capability) or keep them package-private and add a DependencyCapableExecutor sub-interface that BlackLabQueryExecutor implements.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_abstraction_drift"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_no_api_server_tests",
+      "summary": "WordSketchApiServer (1042 LOC, 10+ endpoints) has zero tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "No test class named *ApiServer* or *ApiTest* exists in src/test/",
+        "The server handles all user-facing functionality including input parsing, error responses, and response shape — all untested"
+      ],
+      "suggestion": "Add WordSketchApiServerTest using a mock QueryExecutor (already supported by the constructor) and an embedded HttpServer instance. Test: (1) 400 on missing required params, (2) 400 on malformed numeric params, (3) response shape for /api/sketch/{lemma}, (4) 500 on executor IOException.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_coverage"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_no_semantic_explorer_tests",
+      "summary": "SemanticFieldExplorer has no tests despite having a mock-friendly constructor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(QueryExecutor executor) constructor is available and used by the API server — trivially testable with a mock",
+        "The explore and exploreByPattern methods contain non-trivial aggregation logic (intersection of collocate sets, minShared filtering) that is high-value to test"
+      ],
+      "suggestion": "Add SemanticFieldExplorerTest with a stub QueryExecutor that returns controlled collocation lists. Test: (1) intersection logic, (2) minShared=1 returns all collocates, (3) empty seeds list, (4) single-seed returns non-empty result.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_coverage"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_hardcoded_windows_path",
+      "summary": "Integration tests guard on a hardcoded Windows path that never exists in CI",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java"
+      ],
+      "evidence": [
+        "private static final String INDEX_PATH = \"D:\\\\corpora_philsci\\\\bi\"; — Windows absolute path in all three files",
+        "Tests skip via assumeTrue(indexDir.exists()) so they never fail but also never run in any automated build"
+      ],
+      "suggestion": "Read the index path from a system property or environment variable: String.getProperty('test.index.path', null). Document in README that setting this property enables integration tests. This allows local runs with a real index while keeping CI green without skipping.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "test_fragility"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_inconsistent_response_shapes",
+      "summary": "Sibling sketch endpoints return different top-level keys for equivalent data",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "/api/sketch/{lemma} returns { lemma, patterns: { relId: { collocations: [...] } } }",
+        "/api/sketch/{lemma}/{relation} returns { lemma, relation, collocations: [...] } — flat, no wrapping",
+        "/api/sketch/{lemma}/dep returns { lemma, type, relations: { relId: { collocations: [...] } } } — uses 'relations' not 'patterns'",
+        "Clients cannot write a unified parser for the same conceptual resource across these three endpoints"
+      ],
+      "suggestion": "Standardize on a single envelope: { lemma, relation_type, relations: [ { id, name, collocations: [ { lemma, logDice, frequency } ] } ] }. The single-relation endpoint becomes a filtered view of the same shape with one element in 'relations'.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "response_shape_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_no_http_method_validation_get",
+      "summary": "GET endpoints do not validate HTTP method; POST/PATCH requests are silently processed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "POST /api/bcql and POST /api/visual/radial both check exchange.getRequestMethod() and return 405 if not POST",
+        "All GET endpoints (/api/sketch, /api/relations, /api/semantic-field/explore, etc.) have no method check — a POST to these endpoints will execute the handler normally"
+      ],
+      "suggestion": "Add a shared guard in HttpApiUtils: static boolean requireMethod(HttpExchange exchange, String method) throws IOException — returns false and sends 405 if the method doesn't match. Call at the top of all GET handlers.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "response_shape_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_explore_vs_explore_multi_pattern_inconsistency",
+      "summary": "explore and explore-multi handlers use different pattern-substitution paths for the same config object",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: bcqlPattern = relationConfig.get().getFullPattern(seed) — head already substituted",
+        "handleSemanticFieldExploreMulti: bcqlPattern = relationConfig.get().pattern() — raw pattern, head NOT substituted, substitution deferred to executeSurfacePattern",
+        "This produces different effective queries for the same relation, making results incomparable across the two endpoints"
+      ],
+      "suggestion": "Unify: both handlers should use the same codepath. Since explore-multi loops over seeds, move head substitution into the loop: String bcqlPattern = relationConfig.get().getFullPattern(seed); before calling executeSurfacePattern. Remove the raw pattern reference in explore-multi.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "logic_inconsistency"
+    }
+  ]
+}

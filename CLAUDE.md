@@ -110,19 +110,8 @@ src/main/java/pl/marcinmilkowski/word_sketch/
 │   ├── BlackLabQueryExecutor.java      # BlackLab-backed query executor
 │   ├── BlackLabSnippetParser.java      # Parses BlackLab XML snippets
 │   ├── SemanticFieldExplorer.java      # Single-seed semantic field exploration
-│   ├── CQLVerifier.java                # CQL pattern verifier (used in tests)
 │   ├── QueryResults.java               # Result DTOs: WordSketchResult, ConcordanceResult
-│   ├── Token.java                      # Token representation
-│   ├── TokenWindow.java                # Sliding token window
-│   ├── TokenPredicate.java             # Token predicate interface
-│   ├── AbstractPatternPredicate.java   # Base predicate class
-│   ├── AndPredicate.java               # Logical AND predicate
-│   ├── OrPredicate.java                # Logical OR predicate
-│   ├── NotPredicate.java               # Logical NOT predicate
-│   ├── LemmaPredicate.java             # Lemma-matching predicate
-│   ├── TagPredicate.java               # POS tag predicate
-│   ├── PosGroupPredicate.java          # POS group predicate
-│   └── WordPredicate.java              # Word-form predicate
+│   └── PosGroup.java                   # POS group constants
 ├── tagging/
 │   ├── PosTagger.java                  # POS tagger interface
 │   └── SimpleTagger.java               # Rule-based POS tagger
@@ -146,7 +135,7 @@ src/main/java/pl/marcinmilkowski/word_sketch/
 | SUBJECT_OF | X VERBs | "theory suggests" |
 | OBJECT_OF | VERB X | "develop theory" |
 
-### Multi-Seed Exploration (SemanticFieldExplorer.java + SnowballCollocations.java)
+### Multi-Seed Exploration (SemanticFieldExplorer.java)
 
 1. For each seed, find collocates using specified relation
 2. Calculate intersection (common collocates)
@@ -209,7 +198,6 @@ Test coverage:
 
 - Max heap: `-Xmx2g` in MAVEN_OPTS for large builds
 - Worker threads: `NUM_WORKERS` in CollocationsBuilderV2
-- Batch size: `BATCH_SIZE` in HybridLuceneIndexer
 
 ---
 
@@ -277,11 +265,10 @@ Where `f(AB)` = collocate frequency, `f(A)` = headword frequency, `f(B)` = collo
 
 - **[Main.java](src/main/java/pl/marcinmilkowski/word_sketch/Main.java)**: CLI entry point
 - **[grammar/CQLParser.java](src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java)**: CQL pattern parser
-- **[query/CQLToLuceneCompiler.java](src/main/java/pl/marcinmilkowski/word_sketch/query/CQLToLuceneCompiler.java)**: Compiles CQL to Lucene SpanQueries
-- **[query/WordSketchQueryExecutor.java](src/main/java/pl/marcinmilkowski/word_sketch/query/WordSketchQueryExecutor.java)**: Query executor with logDice scoring
+- **[query/BlackLabQueryExecutor.java](src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java)**: Query executor with logDice scoring
 - **[tagging/SimpleTagger.java](src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java)**: Rule-based POS tagger
 - **[api/WordSketchApiServer.java](src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java)**: REST API endpoints
-- **[sketchgrammar.wsdef.m4](sketchgrammar.wsdef.m4)**: English Penn Treebank 3.3 grammar in m4 macro format
+- **[sketchgrammar.wsdef.m4](grammars/sketchgrammar.wsdef.m4)**: English Penn Treebank 3.3 grammar in m4 macro format
 
 ## POS Tagging Pipeline
 

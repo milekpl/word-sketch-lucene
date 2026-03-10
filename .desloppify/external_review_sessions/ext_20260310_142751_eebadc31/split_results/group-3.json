@@ -1,0 +1,473 @@
+{
+  "session": {
+    "id": "ext_20260310_142751_eebadc31",
+    "token": "84d413591037fc14a4d8242d27de8356"
+  },
+  "assessments": {
+    "design_coherence": 55.0,
+    "contract_coherence": 60.0,
+    "logic_clarity": 68.0,
+    "type_safety": 62.0,
+    "naming_quality": 62.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "WordSketchApiServer.java is 1042 lines with 11+ handler methods, each containing inline parameter parsing AND manual JSONObject response construction — routing, parsing, and serialization are not separated.",
+        "Five or more handlers (handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery, handleSemanticField) contain structurally identical collocation-list building code: loop over results, create JSONObject, put lemma/frequency/logDice/pos — copy-pasted without extraction to a helper.",
+        "handleSemanticFieldExploreMulti (lines 648-718) embeds the collocate-intersection algorithm inline: accumulates seedToCollocates, computes commonCollocates via retainAll — business logic that belongs in SemanticFieldExplorer.",
+        "SemanticFieldExplorer.java (690 lines) houses five result data classes (ExplorationResult, DiscoveredNoun, CoreAdjective, ComparisonResult, AdjectiveProfile, Edge) that logically belong alongside QueryResults.WordSketchResult/ConcordanceResult in QueryResults.java.",
+        "GrammarConfigLoader.RelationConfig record has grown to 8+ methods (getFullPattern, substituteHeadword, mergeLemmaConstraint, extractXposPattern, extractPosPattern, extractConstraintAttribute, collocatePosGroup, getDeprel) — a data record has become a service object with pattern-manipulation responsibilities.",
+        "BlackLabQueryExecutor contains extractDependentLemmaFromGroup and extractPosFromGroup (lines 404-446) that duplicate BlackLabSnippetParser.LEMMA_ATTR/XPOS_ATTR parsing logic already available on the parser class."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "contract_coherence": {
+      "evidence": [
+        "BlackLabSnippetParser.extractCollocateFromPattern (lines 164-170) is documented as 'Extract collocate lemma from the BCQL pattern' but always returns the string literal 'unknown' — the computed pos2Index value is never used.",
+        "BlackLabQueryExecutor.getCorpusSize (lines 532-534) returns 0L always with no documentation of stub/not-implemented status, silently breaking any caller expecting corpus-size data.",
+        "QueryResults.ConcordanceResult has 5 constructors that produce objects with different combinations of null fields (lemma, tag, word, rawXml, collocateLemma). The type cannot distinguish a 'full concordance result' from a 'grouped collocate result'; callers using getLemma() on a grouped result always receive null.",
+        "CQLVerifier.verify and CQLVerifier.verifyForCollocate (lines 77-118) have identical implementations — same buildSteps call, same matchSequence call, same return — suggesting they honour a fictional contract difference.",
+        "GrammarConfigLoader.createDefaultEnglish wraps IOException in an unchecked IllegalStateException without documenting this conversion, silently changing the checked/unchecked contract visible to callers."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "logic_clarity": {
+      "evidence": [
+        "BlackLabSnippetParser.extractCollocateFromPattern computes pos2Index via findLabelPosition then discards the result and returns 'unknown' unconditionally — dead code in the branch.",
+        "CQLVerifier.matchSequence (lines 224-253): window.findInRange is called identically in every iteration of the 'rep' loop (for rep = step.minRep to step.maxRep) even though the candidate list is independent of rep — redundant repeated work.",
+        "SimpleTagger.determineVerbForm returns 'VBD' (past tense) for the word 'am' (line 354), but 'am' is present tense and should map to 'VBP' — a logic error in the tagger fallback.",
+        "handleSemanticFieldExploreMulti initialises commonCollocates to null, then at line 666-668 has a null-guard 'if (commonCollocates == null) commonCollocates = new HashSet<>()' that can only trigger when seeds is empty — but the seeds.size() < 2 guard at line 611 already exits before the loop for empty seeds, making the null-guard unreachable.",
+        "handleBcqlQueryPost declares 'boolean raw = obj.getBooleanValue(\"raw\")' (line 984) but the variable is never read in the method body — dead variable whose presence misleads the reader."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "type_safety": {
+      "evidence": [
+        "relationType in GrammarConfigLoader.RelationConfig is a plain String (nullable), yet every handler filters by the literals 'SURFACE' and 'DEP' — no enum means typos are invisible to the compiler.",
+        "RelationConfig.explorationEnabled is declared as boxed Boolean (nullable), not boolean. The value's absence is not documented; callers must null-check but nothing in the record forces them to do so.",
+        "QueryResults.ConcordanceResult exposes getLemma(), getTag(), getWord(), getRawXml(), getCollocateLemma() — all of which may return null depending on which constructor was used. The Java type system cannot prevent callers from using the wrong getter on the wrong constructor's result.",
+        "POS group values ('adj', 'verb', 'noun', 'adv', 'prep', 'other') are scattered as raw string literals across SemanticFieldExplorer, GrammarConfigLoader, and SimpleTagger with no enum or constant to tie them together.",
+        "relation type sentinel 'unknown' returned from BlackLabSnippetParser methods (e.g., extractPosFromMatch returns 'unknown', extractCollocateFromPattern returns 'unknown') mixes a sentinel string into String return types without a wrapper type."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "naming_quality": {
+      "evidence": [
+        "SemanticFieldExplorer result data classes — AdjectiveProfile, CoreAdjective, DiscoveredNoun — and their fields (seedAdjectives, sharedAdjectives, coreAdjectives) hard-code 'Adjective/Noun' even though the explorer is now generic and driven by any BCQL relation (could discover verb collocates, etc.).",
+        "BlackLabSnippetParser.extractCollocateFromPattern: name says 'extract' but the method always returns 'unknown' — name/behavior mismatch.",
+        "WordSketchApiServer.normalizeRelationId: 'normalize' is vague; the method is an alias resolver mapping user-facing strings ('adj_predicate', 'modifier') to internal relation IDs. Better name: resolveRelationAlias or mapRelationAlias.",
+        "CQLVerifier.verify and CQLVerifier.verifyForCollocate have different names suggesting different contracts, but their implementations are identical.",
+        "BlackLabSnippetParser is a name suggesting XML snippet parsing, but the class also handles plain-text extraction (extractPlainTextFromXml, detokenize), BCQL pattern inspection (findLabelPosition, extractHeadword), and collocate extraction from plain text — the name under-describes the class scope.",
+        "Duplicate Javadoc comment in WordSketchApiServer at line 903-904: 'Render radial plot.' repeated twice on consecutive lines."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "api_server_mixed_concerns",
+      "summary": "WordSketchApiServer mixes HTTP routing, parameter parsing, and JSON response construction in one 1042-line class",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Each of the 11 handler methods begins with params = HttpApiUtils.parseQueryParams(...) and ends with a manual JSONObject/HashMap construction loop before sendJsonResponse — routing and serialization are not separated.",
+        "Five handlers (handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery) contain structurally identical code: for (var result : results) { JSONObject word = new JSONObject(); word.put(\"lemma\", ...); word.put(\"frequency\", ...); word.put(\"logDice\", ...); word.put(\"pos\", ...); collocations.add(word); }"
+      ],
+      "suggestion": "Extract a CollocationResponseBuilder helper that turns List<WordSketchResult> into JSONArray. Extract a RequestParams wrapper around HttpApiUtils.parseQueryParams to standardise parameter access. Each handler method should only call the executor and delegate serialization.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_structure"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "multi_seed_business_logic_in_server",
+      "summary": "handleSemanticFieldExploreMulti embeds collocate-intersection algorithm directly in the API server handler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 648-664 in WordSketchApiServer: the for-loop accumulating seedToCollocates and computing commonCollocates via retainAll is business logic (multi-seed intersection algorithm) that duplicates exploration intent from SemanticFieldExplorer.",
+        "SemanticFieldExplorer already has an exploreByPattern method for single-seed; multi-seed intersection is a natural extension of that API."
+      ],
+      "suggestion": "Add a SemanticFieldExplorer.exploreMultiSeed(Set<String> seeds, ...) method that returns a structured result. Move the intersection logic there. The API handler becomes a thin delegator.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_structure"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "result_classes_in_wrong_file",
+      "summary": "SemanticFieldExplorer hosts five result data classes that belong with QueryResults",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "ExplorationResult, DiscoveredNoun, CoreAdjective, ComparisonResult, AdjectiveProfile, and Edge (6 inner classes) are defined inside SemanticFieldExplorer.java, inflating it to 690 lines.",
+        "QueryResults.java already houses WordSketchResult and ConcordanceResult — the existing pattern for shared result DTOs."
+      ],
+      "suggestion": "Move ExplorationResult, DiscoveredNoun, CoreAdjective, ComparisonResult, AdjectiveProfile, and Edge into QueryResults.java as static inner classes. SemanticFieldExplorer then only contains algorithm logic.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "structure"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "relation_config_god_record",
+      "summary": "GrammarConfigLoader.RelationConfig record has accumulated 8+ methods covering pattern substitution, POS extraction, and deprel derivation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationConfig record defines getFullPattern, substituteHeadword, mergeLemmaConstraint, extractXposPattern, extractPosPattern, extractConstraintAttribute, collocatePosGroup, extractLabelContent, posGroupFromConstraint, getDeprel — effectively a service object inside a record.",
+        "substituteHeadword and mergeLemmaConstraint are pattern-manipulation logic that could live alongside PatternSubstitution.java in the api package."
+      ],
+      "suggestion": "Extract pattern-substitution logic (substituteHeadword, mergeLemmaConstraint, extractXposPattern) into PatternSubstitution or a new RelationPatternHelper class. RelationConfig should be a pure data record.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "structure"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "snippet_parser_duplicate_extraction",
+      "summary": "BlackLabQueryExecutor duplicates BlackLabSnippetParser extraction logic in private helpers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractDependentLemmaFromGroup (lines 404-422) iterates LEMMA_ATTR matcher on group identity — identical to BlackLabSnippetParser.extractCollocateFromSnippet.",
+        "extractPosFromGroup (lines 429-446) iterates XPOS_ATTR then UPOS_ATTR — identical to BlackLabSnippetParser.extractPosFromMatch."
+      ],
+      "suggestion": "Delete extractDependentLemmaFromGroup and extractPosFromGroup from BlackLabQueryExecutor; call BlackLabSnippetParser.extractCollocateFromSnippet and BlackLabSnippetParser.extractPosFromMatch directly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "duplication"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "extract_collocate_from_pattern_stub",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern always returns 'unknown' despite documenting that it extracts the collocate lemma",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "Lines 164-170: the method computes pos2Index = findLabelPosition(bcqlPattern, 2), checks whether pos2Index <= 0, but both branches unconditionally return 'unknown'. The computed pos2Index is never used.",
+        "Javadoc says 'Extract collocate lemma from the BCQL pattern for a given hit index' — the implementation violates this contract completely."
+      ],
+      "suggestion": "Either implement the method properly (use pos2Index and hitIndex to extract the collocate from matching hits), or remove it and its callers entirely if it is dead. If unimplemented intentionally, mark it @Deprecated and throw UnsupportedOperationException with a clear comment.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "get_corpus_size_returns_zero",
+      "summary": "BlackLabQueryExecutor.getCorpusSize always returns 0L with no documentation that it is a stub",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 532-534: public long getCorpusSize() throws IOException { return 0L; }",
+        "No @deprecated tag, no TODO comment, no UnsupportedOperationException. Any caller relying on corpus size data silently receives zero."
+      ],
+      "suggestion": "Implement using blackLabIndex.metadata().tokenCount() or equivalent BlackLab API call, or mark the method as not-implemented with a clear // TODO comment and a log warning if called.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "incomplete_implementation"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "concordance_result_constructor_null_fields",
+      "summary": "QueryResults.ConcordanceResult has five constructors that produce objects with different null fields, making it impossible to know which getters are safe to call",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "Constructor (String snippet, int start, int end, String docId) sets lemma, tag, word, rawXml, collocateLemma all to null.",
+        "Constructor (String sentence, String rawXml, int start, int end, String docId, String collocateLemma, long frequency, double logDice) sets lemma, tag, word to null.",
+        "Constructor (String sentence, String lemma, String tag, String word, int startOffset, int endOffset, String docId) sets rawXml, collocateLemma to null.",
+        "There is no type-level distinction between a 'full concordance result' and a 'grouped collocate result' — callers must know the construction path to safely call getters."
+      ],
+      "suggestion": "Split ConcordanceResult into two distinct classes: ConcordanceResult (sentence, start, end, docId, optional rawXml) and CollocateResult (collocateLemma, frequency, logDice, sentence). This makes the contract explicit at the type level.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "type_design"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "verify_and_verify_for_collocate_identical",
+      "summary": "CQLVerifier.verify and CQLVerifier.verifyForCollocate have identical implementations, creating a false contract distinction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"
+      ],
+      "evidence": [
+        "verify (lines 77-95) and verifyForCollocate (lines 101-118) both call buildSteps(elements) then matchSequence(window, headwordPosition, steps, 0, new HashMap<>(), 0) with the same arguments and return the same VerificationResult.",
+        "The only documented distinction is 'looking for collocates' vs general verification, but the implementations are byte-for-byte identical."
+      ],
+      "suggestion": "Delete verifyForCollocate and replace all call sites with verify. If distinct semantics are needed in the future, implement them as an actual difference.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "extract_collocate_dead_branch",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern computes pos2Index but never uses it, making both branches dead",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "Line 165: int pos2Index = findLabelPosition(bcqlPattern, 2);",
+        "Line 166-167: if (pos2Index <= 0) { return 'unknown'; }",
+        "Line 168-169: return 'unknown'; // this branch is only reached when pos2Index > 0, yet still returns 'unknown'",
+        "pos2Index is computed but not passed to any extraction call — the conditional is structurally dead."
+      ],
+      "suggestion": "If the method is intended to extract by position, use pos2Index to index into the pattern hit. If it is permanently unimplemented, mark it clearly or remove it.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "match_sequence_redundant_find_in_range",
+      "summary": "CQLVerifier.matchSequence recomputes findInRange identically on each iteration of the repetition loop",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"
+      ],
+      "evidence": [
+        "Lines 224-253: for (int rep = step.minRep; rep <= step.maxRep; rep++) { List<Token> candidates = window.findInRange(headwordPosition, effectiveMinDist, effectiveMaxDist); ... }",
+        "findInRange arguments (headwordPosition, effectiveMinDist, effectiveMaxDist) are all invariant with respect to rep. The list is rebuilt from scratch on every loop iteration."
+      ],
+      "suggestion": "Hoist the findInRange call above the rep loop: List<Token> candidates = window.findInRange(...); for (int rep = step.minRep; rep <= step.maxRep; rep++) { for (Token candidate : candidates) { ... } }",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "redundant_computation"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "simple_tagger_am_wrong_tag",
+      "summary": "SimpleTagger.determineVerbForm returns VBD (past tense) for 'am', which is a present-tense form",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+      ],
+      "evidence": [
+        "Line 354: if (word.equals(\"am\")) return \"VBD\";",
+        "'am' is the first-person present tense of 'be'. The Penn Treebank tag for present-tense non-3rd-person verb is VBP, not VBD (which is past tense).",
+        "AUX_VERBS set includes 'am' so tagWord dispatches to determineVerbForm for 'am' after none of the suffix patterns match."
+      ],
+      "suggestion": "Change line 354 to: if (word.equals(\"am\")) return \"VBP\"; — or add 'am' directly to VERB_FORMS with tag 'VBP' (consistent with how 'is' maps to VBZ there).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "tagger_logic"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_raw_variable",
+      "summary": "handleBcqlQueryPost declares boolean raw but never reads it",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 984: boolean raw = obj.getBooleanValue(\"raw\"); // Add raw output option",
+        "The variable 'raw' is never referenced again in the method body — no conditional on it, no passing to executor."
+      ],
+      "suggestion": "Either implement the raw-output toggle (if the feature is intended), or remove the declaration and the comment.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "unreachable_null_guard_common_collocates",
+      "summary": "handleSemanticFieldExploreMulti has an unreachable null guard for commonCollocates after seeds.size() >= 2 is already enforced",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 611: if (seeds.size() < 2) { sendError(...); return; } — guarantees at least 2 seeds.",
+        "Lines 648-663: for (String seed : seeds) { ... if (commonCollocates == null) { commonCollocates = seedCollocates; } else { commonCollocates.retainAll(...) } }",
+        "Lines 666-668: if (commonCollocates == null) { commonCollocates = new HashSet<>(); } — this null guard can only be reached if seeds is empty, which is already excluded."
+      ],
+      "suggestion": "Initialize commonCollocates before the loop using the first seed: Set<String> commonCollocates = new HashSet<>(collocatesFor(seeds.iterator().next())); then retainAll in subsequent iterations. Remove the post-loop null guard.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "redundant_guard"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "relation_type_string_not_enum",
+      "summary": "relationType is a raw String compared against magic literals 'SURFACE' and 'DEP' throughout the codebase",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.RelationConfig record: String relationType field.",
+        "WordSketchApiServer.handleFullSketch, handleFullDependencySketch, and /api/relations handlers all compare with \"SURFACE\".equals(rel.relationType()) and \"DEP\".equals(rel.relationType()).",
+        "A typo in any comparison ('SURFACES', 'Dep') would compile silently and filter incorrectly."
+      ],
+      "suggestion": "Define a RelationType enum with SURFACE and DEP values. Change RelationConfig.relationType to RelationType (non-nullable). Replace all string comparisons with enum equality.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "enum_bypass"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "exploration_enabled_nullable_boolean",
+      "summary": "RelationConfig.explorationEnabled is boxed Boolean (nullable) with no documented null semantics",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Record definition: Boolean explorationEnabled — boxed type means null is a valid value.",
+        "toJson() guards with 'if (explorationEnabled != null)', but no other code documents what null means semantically (disabled? not configured?).",
+        "Callers who test explorationEnabled == true will silently skip entries where the JSON had no 'exploration_enabled' field."
+      ],
+      "suggestion": "Change to primitive boolean with a documented default. Either read it with relObj.getBooleanValue(\"exploration_enabled\", false) and store as boolean, or use Optional<Boolean> to make optionality explicit in the type.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "nullable_primitive"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "pos_group_raw_strings",
+      "summary": "POS group values are raw string literals scattered across multiple classes with no shared constant or enum",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.posGroupFromConstraint returns 'adj', 'verb', 'noun', 'adv', 'prep', 'part', 'other' as String literals.",
+        "WordSketchApiServer.handleSemanticFieldExplore and handleSemanticFieldExploreMulti compare collocatePosGroup().equals(\"adj\") to choose simplePattern.",
+        "SimpleTagger.TaggedToken.getPosGroup returns 'noun', 'verb', 'adj', 'adv', 'det', 'pron', 'prep', 'conj', 'punct', 'other'.",
+        "The sets do not align (e.g., SimpleTagger has 'det'/'pron'/'conj'/'punct' but GrammarConfigLoader does not)."
+      ],
+      "suggestion": "Define a PosGroup enum (or shared constants class) with all valid values. Use it in GrammarConfigLoader, SimpleTagger, SemanticFieldExplorer, and the API server. This also surfaces the vocabulary divergence between the two POS-group schemas.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "enum_bypass"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "adjective_noun_names_in_generic_explorer",
+      "summary": "SemanticFieldExplorer result classes and field names hard-code 'Adjective'/'Noun' even though the explorer is BCQL-pattern-driven and can work with any collocate type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Inner classes: AdjectiveProfile, CoreAdjective, DiscoveredNoun.",
+        "ExplorationResult fields: seedAdjectives (Map<String,Double>), coreAdjectives (List<CoreAdjective>).",
+        "DiscoveredNoun field: sharedAdjectives (Map<String,Double>).",
+        "exploreByPattern accepts a bcqlPattern parameter and a relationName, and the grammar config already supports verb-object and other non-adjective relations — but all result naming implies adjectival modification only."
+      ],
+      "suggestion": "Rename: AdjectiveProfile → CollocateProfile, CoreAdjective → CoreCollocate, DiscoveredNoun → DiscoveredWord, seedAdjectives → seedCollocates, sharedAdjectives → sharedCollocates, coreAdjectives → coreCollocates. This removes the false assumption and aligns the API with the grammar-config-driven approach.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "naming_assumption"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "extract_collocate_from_pattern_misnamed",
+      "summary": "BlackLabSnippetParser.extractCollocateFromPattern is misnamed — it always returns 'unknown' and extracts nothing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "Method named 'extractCollocateFromPattern' with Javadoc 'Extract collocate lemma from the BCQL pattern for a given hit index'.",
+        "Both code paths return the string literal 'unknown' — the name is a complete misnomer."
+      ],
+      "suggestion": "Fix the implementation to actually extract (see contract_coherence issue extract_collocate_from_pattern_stub), then the name will match. If removing the method, also remove all call sites.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "normalize_relation_id_vague_name",
+      "summary": "WordSketchApiServer.normalizeRelationId is vaguely named — it maps user-facing alias strings to internal relation IDs",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Method body (lines 1032-1039) is a switch mapping 'adj_modifier'/'modifier' → 'noun_modifiers', 'adj_predicate'/'predicate' → 'noun_adj_predicates', etc.",
+        "'normalize' suggests formatting/casing changes; this is alias resolution with semantic mapping to internal IDs."
+      ],
+      "suggestion": "Rename to resolveRelationAlias or mapRelationIdAlias to communicate what the method actually does.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "naming"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "verify_for_collocate_misleading_name",
+      "summary": "CQLVerifier.verifyForCollocate implies different behavior from verify, but both methods are identical",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CQLVerifier.java"
+      ],
+      "evidence": [
+        "verifyForCollocate Javadoc: 'Verify a CQL pattern against a token window, looking for collocates. The headword is at position 0 (conceptually).'",
+        "Both verify and verifyForCollocate call buildSteps and matchSequence with identical arguments and produce identical results."
+      ],
+      "suggestion": "Remove verifyForCollocate (see contract_coherence issue verify_and_verify_for_collocate_identical). One well-named method is clearer than two with artificial naming distinctions.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dead_code"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "blacklab_snippet_parser_scope_mismatch",
+      "summary": "BlackLabSnippetParser name implies XML snippet parsing but the class also handles plain-text extraction and BCQL pattern inspection",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractPlainTextFromXml, detokenize, extractCollocateFromPlainText, extractCollocateFromMatchText — plain-text operations, not snippet parsing.",
+        "findLabelPosition, extractHeadword — BCQL pattern inspection, operating on query strings not XML snippets.",
+        "extractCollocateFromXmlByPosition, extractLemmaFromMatch — genuine XML snippet parsing."
+      ],
+      "suggestion": "Split the class: keep BlackLabSnippetParser for the XML-parsing methods; extract CqlPatternInspector (or inline into BlackLabQueryExecutor) for findLabelPosition/extractHeadword; move text utilities into a TextUtils class.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "naming_assumption"
+    }
+  ]
+}

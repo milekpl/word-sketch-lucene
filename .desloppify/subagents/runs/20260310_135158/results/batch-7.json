@@ -1,0 +1,115 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 7,
+  "assessments": {
+    "test_strategy": 38.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "WordSketchApiServer.java (1042 lines, main REST API) has zero test coverage — no test file exists for it",
+        "SemanticFieldExplorer.java (690 lines, core business logic for semantic exploration) has zero test coverage",
+        "PatternSubstitution.java, HttpApiUtils.java, BlackLabSnippetParser.java, RadialPlot.java all have zero test coverage",
+        "BlackLabDummyTest, DependencySketchTest, BlackLabBcqlConcordanceTest are hardcoded to D:\\corpora_philsci\\bi and always skip in any CI/developer environment without that path",
+        "CQLParserTest covers 25+ parsing scenarios thoroughly including edge cases and real grammar patterns",
+        "LogDiceCalculatorTest covers edge cases, symmetry, monotonicity, overflow protection, and real corpus scenarios",
+        "PredicatesTest and TokenAndWindowTest cover predicate combinations and token window boundary behavior",
+        "14 test files exist for 30 production files, but the 14 test files are concentrated on utilities/parsing rather than core business logic"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "CQLParserTest provides thorough coverage of parsing: 25+ test cases covering constraints, wildcards, distance operators, OR/AND/NOT combinators, regex-in-value patterns, and real grammar patterns",
+        "LogDiceCalculatorTest covers edge cases (zero inputs, negative values, overflow), symmetry property, monotonicity, and real corpus scenarios with explicit expected ranges",
+        "PredicatesTest and TokenAndWindowTest verify logical predicate combinations (And, Or, Not) and window boundary clamping with concrete assertions",
+        "Environment-gated integration tests (BlackLabDummyTest, DependencySketchTest) use JUnit Assumptions correctly so they skip gracefully rather than fail in CI"
+      ],
+      "issue_character": "Testing effort is concentrated on low-risk utility and parsing code while the two largest, most complex production classes (WordSketchApiServer at 1042 lines and SemanticFieldExplorer at 690 lines) have zero coverage; the only tests touching the BlackLab executor are permanently skipped in any environment without a specific local Windows path.",
+      "score_rationale": "The codebase sits well below the 60 threshold for 'significant drag'. While the utility/parsing layer has genuinely good tests (CQLParser, LogDice, Predicates), the critical paths — the REST API server, semantic field exploration algorithm, snippet parsing, and pattern substitution — have no tests at all. The always-skipping integration tests provide false confidence: they look like coverage but never execute. This is not uneven quality (80-range); it is a structural gap where the highest-complexity, highest-risk code is entirely unverified."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "api_server_no_tests",
+      "summary": "WordSketchApiServer (1042 lines, main REST API) has zero test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "grep -r 'WordSketchApiServer' src/test returns no results",
+        "The file is 1042 lines containing all REST endpoint handlers, request routing, error handling, and response formatting — all untested"
+      ],
+      "suggestion": "Add unit tests using a mock QueryExecutor to test request routing, parameter validation, error responses, and JSON serialisation for each endpoint; use MockitoAnnotations or manual stubs since the class accepts QueryExecutor via constructor",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "semantic_explorer_no_tests",
+      "summary": "SemanticFieldExplorer (690 lines, core semantic logic) has zero test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "grep -r 'SemanticFieldExplorer' src/test returns no results",
+        "SemanticFieldExplorer contains the multi-seed exploration algorithm (intersection logic, scoring, thresholding) but no tests verify its correctness"
+      ],
+      "suggestion": "Create SemanticFieldExplorerTest using a stub QueryExecutor that returns controlled WordSketchResult lists; test intersection logic, minimum shared threshold filtering, and edge cases (empty seed, no overlap, single seed)",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "always_skipping_integration_tests",
+      "summary": "Integration tests using BlackLab are hardcoded to a local Windows path and always skip outside that environment",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "All three files contain: String INDEX_PATH = \"D:\\\\corpora_philsci\\\\bi\"",
+        "Tests use Assumptions.assumeTrue(indexDir.exists()) or @EnabledIf(\"indexExists\"), so they never execute in any developer or CI environment without that exact path",
+        "This creates an illusion of integration coverage where none actually executes"
+      ],
+      "suggestion": "Replace with tests that build a small in-memory BlackLab index from embedded test CoNLL-U data (a few sentences) using BlackLab's testing utilities, so integration tests always run without external dependencies",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "snippet_parser_no_tests",
+      "summary": "BlackLabSnippetParser has no tests despite parsing complex XML into structured results",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "grep -r 'BlackLabSnippetParser' src/test returns no results",
+        "Snippet parsing is a fragile text-processing step where correctness bugs would silently corrupt query results"
+      ],
+      "suggestion": "Add unit tests with representative BlackLab XML snippet strings as test fixtures; verify that head positions, collocate lemmas, and sentence text are extracted correctly",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Test effort appears to have been applied bottom-up (utilities → parsers) but never extended to the integration and API layers",
+      "The BlackLab executor dependency makes integration testing non-trivial, which likely discouraged testing of any class that touches it, including SemanticFieldExplorer and WordSketchApiServer"
+    ],
+    "likely_symptoms": [
+      "always_skipping_integration_tests"
+    ],
+    "possible_false_positives": []
+  }
+}

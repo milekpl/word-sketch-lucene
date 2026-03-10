@@ -29,12 +29,22 @@ public interface QueryExecutor extends Closeable {
      * Find collocations for a lemma using a CQL pattern.
      * Groups hits by collocate identity and ranks results by logDice.
      *
+     * <p>The {@code cqlPattern} must follow one of two conventions:
+     * <ul>
+     *   <li><strong>Placeholder form</strong>: contains {@code %s}, which is replaced with the
+     *       escaped lemma before parsing, e.g. {@code "[lemma=\"%s\"] [xpos=\"JJ.*\"]"}</li>
+     *   <li><strong>Suffix form</strong>: starts with {@code [}, and is treated as a collocate
+     *       constraint to be appended after the lemma token, e.g. {@code "[xpos=\"JJ.*\"]"}</li>
+     * </ul>
+     * Any other format throws {@link IllegalArgumentException}.
+     *
      * @param lemma       The head lemma to search for
-     * @param cqlPattern  CQL pattern defining the collocate constraints (no labeled positions)
+     * @param cqlPattern  CQL pattern defining the collocate constraints (see above)
      * @param minLogDice  Minimum logDice score threshold (0 for no minimum)
      * @param maxResults  Maximum number of results to return
      * @return List of collocation results, sorted by logDice descending
      * @throws IOException if index access fails
+     * @throws IllegalArgumentException if {@code cqlPattern} is not in a recognized format
      */
     List<QueryResults.WordSketchResult> findCollocations(String lemma, String cqlPattern,
                                              double minLogDice, int maxResults) throws IOException;
@@ -72,14 +82,14 @@ public interface QueryExecutor extends Closeable {
 
     /**
      * Execute a surface pattern query for word sketches using a labeled BCQL pattern.
-     * The head token is at {@code headPosition} and the collocate at {@code collocatePosition}
-     * (both 1-based). Unlike {@link #findCollocations}, position hints are used to correctly
-     * extract the collocate from multi-token patterns.
+     * The collocate position is derived from the {@code 2:} label in {@code bcqlPattern};
+     * {@code headPosition} and {@code collocatePosition} are retained for interface
+     * compatibility but are not used by the current implementation.
      *
      * @param lemma             The head lemma (already substituted into {@code bcqlPattern})
      * @param bcqlPattern       BCQL pattern with labeled positions (1: head, 2: collocate)
-     * @param headPosition      1-based position of the head token in the pattern
-     * @param collocatePosition 1-based position of the collocate token in the pattern
+     * @param headPosition      1-based position of the head token (currently unused)
+     * @param collocatePosition 1-based position of the collocate token (currently unused)
      * @param minLogDice        Minimum logDice score threshold (0 for no minimum)
      * @param maxResults        Maximum number of results to return
      * @return Collocate results ranked by logDice descending

@@ -1,0 +1,117 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 2,
+  "assessments": {
+    "low_level_elegance": 64.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExplore is ~130 lines; ~70 of those are manual Map<String, Object> construction with Math.round(x * 100.0) / 100.0 repeated 13 times across the file and 16 new HashMap() calls — no private serialization helpers are extracted",
+        "handleSemanticFieldExploreMulti repeats the same inline map-building pattern for a second endpoint, creating structural duplication at the method body level",
+        "handleSemanticField (semantic field comparison) adds a third 80-line map-construction block with identical rounding idioms for AdjectiveProfile fields — the pattern is systematic across all three explore handlers",
+        "WordSketchApiServer.start() registers 5 GET routes with identical inlined try/catch(IOException)/catch(Exception) blocks (lines 68-71, 81-84, 93-96, 105-108, 117-120), each 6-7 lines, with only the handler method call differing",
+        "CqlUtils.java lines 22-35: Javadoc intended for splitCqlTokens is immediately followed by a second /** block (lines 36-42) for escapeForRegex, leaving splitCqlTokens with no effective Javadoc and the first block orphaned",
+        "BlackLabSnippetParser exposes extractLemmaAt (delegates to extractCollocateFromXmlByPosition), extractCollocateLemma (delegates to extractLastLemma), and extractLemmaFromMatch (also delegates to extractLastLemma) — three near-identical thin wrappers with subtly different names, making call-site choice non-obvious"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer.exploreByPattern decomposes its algorithm into clearly named steps (Step 1 find collocates, Step 2 reverse lookup, Step 3 scoring, Step 4 core identification), making the intent readable despite the method's length",
+        "BlackLabQueryExecutor.executeBcqlQuery is cleanly split into three named phases (collectHits, scoreHits, rank/limit) with private methods for each — extraction level is well-balanced there",
+        "Model classes (ExplorationResult, ComparisonResult, DiscoveredNoun, AdjectiveProfile) are focused, appropriately sized, and free of side effects — individual methods are straightforward",
+        "Guard clauses and early-return patterns are used consistently at method entry points across the codebase (e.g., null/empty checks in BlackLabQueryExecutor, requireParam in HttpApiUtils)"
+      ],
+      "issue_character": "The primary issue is a systematic pattern in the API handler layer: large methods bloated by inline Map<String, Object> construction with no private helpers to serialize domain objects, creating verbose repetitive code that obscures the handler's actual intent across three closely related methods.",
+      "score_rationale": "The core query and model layers are clean and well-factored, but a developer working in the handler layer (ExplorationHandlers especially) encounters methods where 60-70% of lines are mechanical map-building with repeated rounding idioms rather than intent-expressing logic — this is a recurring friction that matches the '80: developer regularly encounters local complexity' anchor. The duplicated error-handling wrappers in server startup and the orphaned Javadoc in CqlUtils are additional but secondary. The score sits below 70 because the map-construction pattern spans three handler methods (not a single isolated case) and the lack of any serialization helpers is a systematic extraction gap."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_handler_inline_map_construction",
+      "summary": "ExplorationHandlers: three explore methods each contain 60-80 lines of manual Map<String,Object> building with repeated Math.round(x*100.0)/100.0 rounding idiom — no private serialization helpers extracted",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (lines ~70-130): builds seedCollocs, nouns, coreCollocs, and edges lists entirely inline with 13 Math.round(x * 100.0) / 100.0 expressions and no helper methods",
+        "handleSemanticFieldExploreMulti and handleSemanticField repeat the same pattern — Map<String, Object> construction for each domain object is inlined in all three handlers, making each method 100-130 lines of which the majority is serialization boilerplate",
+        "The rounding idiom `Math.round(x * 100.0) / 100.0` appears 13 times across the file with no shared utility"
+      ],
+      "suggestion": "Extract private helper methods: `Map<String,Object> serializeDiscoveredNoun(DiscoveredNoun dn)`, `Map<String,Object> serializeCoreCollocate(CoreCollocate ca)`, `Map<String,Object> serializeEdge(Edge e)`, `double round2(double v)`. Each handler then builds its response by calling these helpers, reducing the three bloated methods to their intent-expressing scaffolding (parameter parsing, delegation to explorer, response assembly).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "handler_serialization_sprawl"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "server_start_duplicated_error_wrappers",
+      "summary": "WordSketchApiServer.start() inlines identical try/catch(IOException)/catch(Exception) blocks for five route registrations, each differing only in the handler call",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 60-122: five `registerGetHandler` calls each wrap the handler in an identical pattern: try { handler.method(exchange) } catch (IOException e) { logger.error(...); sendError(500, ...) } catch (Exception e) { logger.error(...); sendError(500, ...) }",
+        "The only variation across the five blocks is the error message prefix string and the handler method called — all other structure is copy-pasted"
+      ],
+      "suggestion": "Extract a `safeHandle(HttpExchange exchange, String endpointName, IOHandler handler)` wrapper that performs the try/catch and delegates to a `@FunctionalInterface IOHandler { void handle(HttpExchange e) throws IOException; }`. Then each route registration becomes a one-liner: `registerGetHandler(server, \"/api/semantic-field/explore\", ex -> safeHandle(ex, \"Semantic field explore\", explorationHandlers::handleSemanticFieldExplore));`",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "handler_serialization_sprawl"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "cqlutils_orphaned_javadoc",
+      "summary": "CqlUtils.splitCqlTokens has no effective Javadoc — its doc comment is immediately followed by a second /** block (for escapeForRegex), making the first block orphaned",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "Lines 22-35: a /** ... */ block documents splitCqlTokens with examples and @param/@return",
+        "Line 36: a second `/**` immediately follows with no intervening code — this is the Javadoc for escapeForRegex (lines 36-42)",
+        "Java's Javadoc tool attaches a /** block to the next declaration; the first block (lines 22-35) therefore attaches to escapeForRegex, not splitCqlTokens, leaving splitCqlTokens with no Javadoc at all"
+      ],
+      "suggestion": "Move the escapeForRegex Javadoc comment to appear directly above the escapeForRegex method declaration, and move the splitCqlTokens Javadoc to appear directly above the splitCqlTokens declaration (line 48). After the fix: `/** escapeForRegex doc */ public static String escapeForRegex(...) { ... }  /** splitCqlTokens doc */ public static List<String> splitCqlTokens(...) { ... }`",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "snippet_parser_thin_wrapper_proliferation",
+      "summary": "BlackLabSnippetParser exposes three near-identical thin wrappers (extractLemmaFromMatch, extractCollocateLemma, extractLemmaAt) that all ultimately call extractLastLemma or extractCollocateFromXmlByPosition, making call-site choice non-obvious",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractLemmaFromMatch(String matchText): calls extractLastLemma and lowercases result",
+        "extractCollocateLemma(String matchXml): calls extractLastLemma, preserves original case — differs from extractLemmaFromMatch only in lowercasing",
+        "extractLemmaAt(String xml, int position): delegates to extractCollocateFromXmlByPosition — an alias with no added behavior",
+        "The distinction between 'fromMatch', 'collocateLemma', and 'lemmaAt' is unclear from names alone; callers must read all three implementations to choose correctly"
+      ],
+      "suggestion": "Collapse to two clearly named public methods: `extractLastLemmaLower(String xml)` (replaces extractLemmaFromMatch) and `extractLastLemma(String xml)` (replaces extractCollocateLemma, made package-visible or public as needed). Remove extractLemmaAt as a redundant alias for extractCollocateFromXmlByPosition and call extractCollocateFromXmlByPosition directly at call sites. Update callers in BlackLabQueryExecutor accordingly.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "No response serialization layer: the project uses raw Map<String,Object> for JSON responses throughout the API, pushing formatting and rounding concerns into handler method bodies and causing systematic code bloat",
+      "The HTTP handler abstraction (registerGetHandler) handles method gating but not error wrapping, leaving error handling inlined at each registration site"
+    ],
+    "likely_symptoms": [
+      "explore_handler_inline_map_construction",
+      "server_start_duplicated_error_wrappers"
+    ],
+    "possible_false_positives": []
+  }
+}

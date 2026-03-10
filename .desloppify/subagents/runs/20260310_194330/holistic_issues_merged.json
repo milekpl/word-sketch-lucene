@@ -1,0 +1,404 @@
+{
+  "assessments": {
+    "contract_coherence": 63.8,
+    "high_level_elegance": 36.7,
+    "low_level_elegance": 48.1,
+    "mid_level_elegance": 53.8
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package layout (api, config, query, model, indexer, tagging, utils, viz) maps cleanly to domain capabilities with no obvious historical accidents.",
+        "model/ package owns all domain DTOs (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult, ExploreOptions) with no cross-cutting concerns.",
+        "Handler split into SketchHandlers and ExplorationHandlers within the api package shows intentional grouping by feature area.",
+        "QueryExecutor interface provides a clean abstraction boundary between the API layer and the BlackLab backend.",
+        "CLAUDE.md code structure section lists a non-existent grammar/ package (CQLParser.java, CQLPattern.java, CQLParseException.java) and wrong package for PosGroup (says query/PosGroup.java but it lives in utils/PosGroup.java). The entire model/ package is absent from the listing, as are api/SketchHandlers.java, api/ExplorationHandlers.java, config/RelationType.java, utils/CqlUtils.java, and utils/PatternSubstitution.java.",
+        "api/PatternSubstitution.java is a deprecated wrapper-only class that still resides in the api package (which is otherwise pure HTTP handlers), blurring what the api package owns.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti() directly calls executor.executeSurfacePattern() and manually builds set intersection logic, bypassing SemanticFieldExplorer. SemanticFieldExplorer.compareCollocateProfiles() covers the analogous single-vs-multi comparison for /api/semantic-field, but the /api/semantic-field/explore-multi endpoint does not route through SemanticFieldExplorer at all.",
+        "README (line 119) lists GET /api/bcql but the server registers it via server.createContext (not registerGetHandler) and the startup log prints POST /api/bcql, making the public endpoint contract documentation inconsistent.",
+        "SemanticFieldExplorer Javadoc references @link #compareSeeds but no such method exists; only compareCollocateProfiles exists."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExplore is ~130 lines; ~70 of those are manual Map<String, Object> construction with Math.round(x * 100.0) / 100.0 repeated 13 times across the file and 16 new HashMap() calls \u2014 no private serialization helpers are extracted",
+        "handleSemanticFieldExploreMulti repeats the same inline map-building pattern for a second endpoint, creating structural duplication at the method body level",
+        "handleSemanticField (semantic field comparison) adds a third 80-line map-construction block with identical rounding idioms for AdjectiveProfile fields \u2014 the pattern is systematic across all three explore handlers",
+        "WordSketchApiServer.start() registers 5 GET routes with identical inlined try/catch(IOException)/catch(Exception) blocks (lines 68-71, 81-84, 93-96, 105-108, 117-120), each 6-7 lines, with only the handler method call differing",
+        "CqlUtils.java lines 22-35: Javadoc intended for splitCqlTokens is immediately followed by a second /** block (lines 36-42) for escapeForRegex, leaving splitCqlTokens with no effective Javadoc and the first block orphaned",
+        "BlackLabSnippetParser exposes extractLemmaAt (delegates to extractCollocateFromXmlByPosition), extractCollocateLemma (delegates to extractLastLemma), and extractLemmaFromMatch (also delegates to extractLastLemma) \u2014 three near-identical thin wrappers with subtly different names, making call-site choice non-obvious"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "handleSemanticFieldExploreMulti calls executor.executeSurfacePattern() directly (line 230 of ExplorationHandlers.java) and performs set-intersection of collocates inline, while handleSemanticFieldExplore delegates cleanly to semanticFieldExplorer.exploreByPattern(). Domain logic leaks into the handler for the multi-seed path.",
+        "Math.round(x * 100.0) / 100.0 rounding pattern appears 13 times across three handler methods. The edge-serialization block (source/target/log_dice/type put into a new HashMap) is duplicated verbatim in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticField. 22 Map<String,Object> instantiations for ad-hoc response construction across ExplorationHandlers.",
+        "api/PatternSubstitution.java is a 3-method deprecated delegation wrapper for utils/PatternSubstitution. It still exists in the api package, leaving the api/utils seam boundary ambiguous for a developer arriving at api/.",
+        "handleSemanticFieldExploreMulti hardcodes response.put('discovered_nouns', new ArrayList<>()) and response.put('discovered_nouns_count', 0) as static stubs to match single-seed response shape. The multi-seed explorer never actually computes discovered nouns.",
+        "ExploreOptions record cleanly bundles 7 cross-boundary parameters (vs. previous positional arg lists). QueryExecutor interface documents each method's contract with precise Javadoc. Model package (ExplorationResult, ComparisonResult, AdjectiveProfile, etc.) provides named domain types for handoffs."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface methods have precise, accurate Javadoc matching implementation behavior: parameter names, return semantics, and IOException declarations all match.",
+        "BlackLabQueryExecutor.getTotalFrequency() Javadoc states 'Logs and returns 0 on unexpected failures (rather than propagating, since callers use this for scoring and should degrade gracefully)' \u2014 but the implementation throws RuntimeException directly and wraps other exceptions in IOException, never logging-and-returning-0.",
+        "WordSketchApiServer class Javadoc lists only 4 endpoints but start() registers 11: /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, and /api/bcql are all absent from the stated public surface.",
+        "Deprecated api.PatternSubstitution class Javadoc says '@deprecated Use pl.marcinmilkowski.word_sketch.utils.PatternSubstitution instead' but its escapeForRegex method delegates to utils.CqlUtils.escapeForRegex, not utils.PatternSubstitution \u2014 the migration target is wrong for one of the three methods.",
+        "CqlUtils has two consecutive Javadoc blocks (lines 22-35 and 36-42); the first, describing splitCqlTokens, is orphaned because it is immediately followed by the second block which attaches to escapeForRegex instead. splitCqlTokens ends up with no Javadoc."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package decomposition is domain-aligned: api, config, query, model, indexer, tagging, utils, viz each map to a recognisable capability.",
+        "A dedicated model/ package cleanly owns all domain DTOs with no cross-cutting responsibilities.",
+        "QueryExecutor interface provides a single, well-documented contract that separates the HTTP layer from the corpus backend.",
+        "Handler classes (SketchHandlers, ExplorationHandlers) partition the growing API surface by feature area, making the change boundary predictable."
+      ],
+      "issue_character": "The primary issues are documentation drift (the canonical architecture reference in CLAUDE.md describes a codebase that no longer exists) and a domain-logic split for multi-seed exploration that places business logic directly in the HTTP handler layer rather than in the dedicated SemanticFieldExplorer service.",
+      "score_rationale": "Structurally the codebase is well above average: packages are named after domain concepts, there is a proper model layer, and the query abstraction is clean. However, the high_level_elegance rubric explicitly requires that 'project contracts and reference docs match runtime reality' \u2014 and CLAUDE.md's code-structure map is substantially wrong (fictitious grammar/ package, missing model/ package, wrong class locations). Additionally, multi-seed exploration logic is split across ExplorationHandlers (inlined set intersection) and SemanticFieldExplorer (used only for single-seed), violating subsystem localization. These two issues \u2014 untrustworthy architecture docs and a fragmented domain capability \u2014 pull the score into the mid-50s despite the sound skeletal structure."
+    },
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer.exploreByPattern decomposes its algorithm into clearly named steps (Step 1 find collocates, Step 2 reverse lookup, Step 3 scoring, Step 4 core identification), making the intent readable despite the method's length",
+        "BlackLabQueryExecutor.executeBcqlQuery is cleanly split into three named phases (collectHits, scoreHits, rank/limit) with private methods for each \u2014 extraction level is well-balanced there",
+        "Model classes (ExplorationResult, ComparisonResult, DiscoveredNoun, AdjectiveProfile) are focused, appropriately sized, and free of side effects \u2014 individual methods are straightforward",
+        "Guard clauses and early-return patterns are used consistently at method entry points across the codebase (e.g., null/empty checks in BlackLabQueryExecutor, requireParam in HttpApiUtils)"
+      ],
+      "issue_character": "The primary issue is a systematic pattern in the API handler layer: large methods bloated by inline Map<String, Object> construction with no private helpers to serialize domain objects, creating verbose repetitive code that obscures the handler's actual intent across three closely related methods.",
+      "score_rationale": "The core query and model layers are clean and well-factored, but a developer working in the handler layer (ExplorationHandlers especially) encounters methods where 60-70% of lines are mechanical map-building with repeated rounding idioms rather than intent-expressing logic \u2014 this is a recurring friction that matches the '80: developer regularly encounters local complexity' anchor. The duplicated error-handling wrappers in server startup and the orphaned Javadoc in CqlUtils are additional but secondary. The score sits below 70 because the map-construction pattern spans three handler methods (not a single isolated case) and the lack of any serialization helpers is a systematic extraction gap."
+    },
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreOptions record bundles 7 cross-boundary parameters into a single typed value object, eliminating long arg lists at the handler-explorer seam.",
+        "QueryExecutor interface has per-method Javadoc that precisely distinguishes the contracts of findCollocations, executeSurfacePattern, executeBcqlQuery, and executeDependencyPattern across the executor boundary.",
+        "Model package provides named domain types (ExplorationResult, ComparisonResult, AdjectiveProfile, CoreCollocate) as the formal outputs of the domain layer, rather than leaking raw maps across the boundary.",
+        "HttpApiUtils centralizes all low-level HTTP mechanics (CORS headers, status code writing, OPTIONS preflight, parameter validation) in a single place."
+      ],
+      "issue_character": "The issues are concentrated at the API-domain handoff: one path (multi-seed) bypasses the domain layer entirely, and all paths lack a serialization seam, scattering model-to-JSON translation across every handler with duplicated boilerplate.",
+      "score_rationale": "The codebase has real structural wins at the executor and model boundaries, which pushes it above the 60 anchor. However, the multi-seed handler bypasses the SemanticFieldExplorer entirely and performs domain logic (intersection) inline, which is exactly the kind of tangled back-and-forth that defines a seam problem. The complete absence of a model-to-response translation layer means boundary translation recurs at every handler, causing 13 rounding repetitions and three copies of the edge-serialization block. These two patterns together put mid_level_elegance solidly in the 60-75 range \u2014 better than 'significant drag' overall but with recurring friction at the API-domain seam that a developer would hit regularly."
+    },
+    "contract_coherence": {
+      "strengths": [
+        "The QueryExecutor interface has precise, detailed Javadoc for all methods: parameter semantics, return conventions, IOException conditions, and distinctions between overlapping methods (findCollocations vs executeSurfacePattern) are explicitly documented and match the BlackLabQueryExecutor implementation.",
+        "Method names throughout the codebase accurately reflect behavior: executeSurfacePattern, executeDependencyPattern, buildAndRankCollocates \u2014 callers can predict what they do without reading the body.",
+        "The GrammarConfigLoader constructors are accurately documented: checked exceptions are declared, factory methods explain their resolution strategy, and the fromReader factory includes a working usage example.",
+        "HttpApiUtils helper contracts are honest: requireParam clearly states 'Caller must check for null return', and sendError/sendJsonResponse have no hidden side-effects."
+      ],
+      "issue_character": "The issues are isolated rather than systemic: one method Javadoc makes a specific claim about error behaviour that the code contradicts, one class-level summary has grown stale as new endpoints were added, and one deprecated facade gives an incorrect migration target for a single method.",
+      "score_rationale": "The codebase sits solidly in the 75-80 range. Interface contracts are generally trustworthy and well-aligned with implementations, which is the bulk of what contract_coherence measures. However, the getTotalFrequency Javadoc actively misleads callers about error behaviour (saying 'graceful degradation' when the method throws), and the WordSketchApiServer class comment presents a public surface that omits the majority of registered endpoints \u2014 both qualify as the 80-anchor's 'APIs surprise them' moment. These are real but localized; a developer would be misled in specific spots rather than finding contracts routinely unreliable across the codebase."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "stale_architecture_docs",
+      "summary": "CLAUDE.md code-structure map describes a fictitious grammar/ package and omits the actual model/ package and several real classes",
+      "confidence": "high",
+      "suggestion": "Regenerate the code-structure listing in CLAUDE.md from the actual source tree (e.g., `find src/main/java -name '*.java' | sort`). Remove the grammar/ entries, add the model/ package with all DTOs, correct the utils/PosGroup path, and list the two handler classes. Consider automating this section from a script to prevent future drift.",
+      "related_files": [
+        "CLAUDE.md",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/CoreCollocate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "CLAUDE.md lists grammar/CQLParser.java, grammar/CQLPattern.java, grammar/CQLParseException.java \u2014 no grammar/ package exists on disk.",
+        "CLAUDE.md lists query/PosGroup.java \u2014 PosGroup is actually at utils/PosGroup.java.",
+        "CLAUDE.md omits the entire model/ package (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult, ExploreOptions).",
+        "CLAUDE.md omits api/SketchHandlers.java, api/ExplorationHandlers.java, config/RelationType.java, utils/CqlUtils.java, utils/PatternSubstitution.java."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "deprecated_zombie_in_wrong_package",
+      "summary": "api/PatternSubstitution.java is a deprecated delegation-only wrapper that belongs to api/ (HTTP handlers), polluting its ownership boundary",
+      "confidence": "high",
+      "suggestion": "Delete api/PatternSubstitution.java and its test file once SketchHandlers (the only remaining caller inside api/) is confirmed to import utils/PatternSubstitution directly (it already does). Verify no external callers reference the api-package version before deletion.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitutionTest.java"
+      ],
+      "evidence": [
+        "api/PatternSubstitution.java carries @Deprecated and is a pure delegate to utils/PatternSubstitution (all three public methods forward directly).",
+        "The api package otherwise contains only HTTP handler classes (WordSketchApiServer, SketchHandlers, ExplorationHandlers, HttpApiUtils) \u2014 CQL pattern utilities have no business there.",
+        "A parallel test file src/test/.../api/PatternSubstitutionTest.java exists alongside the deprecated class, meaning the zombie tests an already-moved concept."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "multiseed_logic_bypasses_explorer",
+      "summary": "Multi-seed collocate-intersection logic is inlined in ExplorationHandlers rather than owned by SemanticFieldExplorer",
+      "confidence": "high",
+      "suggestion": "Add a compareSeeds(Set<String> seeds, RelationConfig relation, int top, double minLogDice) method to SemanticFieldExplorer that encapsulates the per-seed query loop and set-intersection logic. Reduce handleSemanticFieldExploreMulti to a thin HTTP adapter that calls that method and serialises the result, matching the pattern established by handleSemanticFieldExplore.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExploreMulti() directly calls executor.executeSurfacePattern() in a loop and manually computes commonCollocates via retainAll \u2014 all domain logic inlined in an HTTP handler.",
+        "SemanticFieldExplorer owns compareCollocateProfiles() (used by handleSemanticField) and exploreByPattern() (used by handleSemanticFieldExplore), but handleSemanticFieldExploreMulti bypasses SemanticFieldExplorer entirely.",
+        "The class-level Javadoc on SemanticFieldExplorer mentions 'Comparison Mode (multi-seed)' and 'See {@link #compareSeeds}' but no compareSeeds method exists \u2014 evidence that the intended design had multi-seed logic in the explorer but it was never completed.",
+        "A developer changing multi-seed scoring logic must know to look in both ExplorationHandlers (actual implementation) and SemanticFieldExplorer (where the method should live) \u2014 ownership is split."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "readme_endpoint_method_mismatch",
+      "summary": "README documents GET /api/bcql but the server registers it as a POST-only endpoint",
+      "confidence": "high",
+      "suggestion": "Correct the README endpoint table to show 'POST /api/bcql' instead of 'GET /api/bcql'. Optionally consolidate the startup log entry with the README to prevent future drift.",
+      "related_files": [
+        "README.md",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "README.md line 119 lists '  GET /api/bcql' in the server startup endpoint table.",
+        "WordSketchApiServer.java uses server.createContext(\"/api/bcql\", ...) (not registerGetHandler) and the startup logger prints 'POST /api/bcql - Execute BCQL query' at line 159.",
+        "The handler reads a JSON body (POST semantics); a GET request would receive no body."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_handler_inline_map_construction",
+      "summary": "ExplorationHandlers: three explore methods each contain 60-80 lines of manual Map<String,Object> building with repeated Math.round(x*100.0)/100.0 rounding idiom \u2014 no private serialization helpers extracted",
+      "confidence": "high",
+      "suggestion": "Extract private helper methods: `Map<String,Object> serializeDiscoveredNoun(DiscoveredNoun dn)`, `Map<String,Object> serializeCoreCollocate(CoreCollocate ca)`, `Map<String,Object> serializeEdge(Edge e)`, `double round2(double v)`. Each handler then builds its response by calling these helpers, reducing the three bloated methods to their intent-expressing scaffolding (parameter parsing, delegation to explorer, response assembly).",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (lines ~70-130): builds seedCollocs, nouns, coreCollocs, and edges lists entirely inline with 13 Math.round(x * 100.0) / 100.0 expressions and no helper methods",
+        "handleSemanticFieldExploreMulti and handleSemanticField repeat the same pattern \u2014 Map<String, Object> construction for each domain object is inlined in all three handlers, making each method 100-130 lines of which the majority is serialization boilerplate",
+        "The rounding idiom `Math.round(x * 100.0) / 100.0` appears 13 times across the file with no shared utility"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "server_start_duplicated_error_wrappers",
+      "summary": "WordSketchApiServer.start() inlines identical try/catch(IOException)/catch(Exception) blocks for five route registrations, each differing only in the handler call",
+      "confidence": "high",
+      "suggestion": "Extract a `safeHandle(HttpExchange exchange, String endpointName, IOHandler handler)` wrapper that performs the try/catch and delegates to a `@FunctionalInterface IOHandler { void handle(HttpExchange e) throws IOException; }`. Then each route registration becomes a one-liner: `registerGetHandler(server, \"/api/semantic-field/explore\", ex -> safeHandle(ex, \"Semantic field explore\", explorationHandlers::handleSemanticFieldExplore));`",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Lines 60-122: five `registerGetHandler` calls each wrap the handler in an identical pattern: try { handler.method(exchange) } catch (IOException e) { logger.error(...); sendError(500, ...) } catch (Exception e) { logger.error(...); sendError(500, ...) }",
+        "The only variation across the five blocks is the error message prefix string and the handler method called \u2014 all other structure is copy-pasted"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "cqlutils_orphaned_javadoc",
+      "summary": "CqlUtils.splitCqlTokens has no effective Javadoc \u2014 its doc comment is immediately followed by a second /** block (for escapeForRegex), making the first block orphaned",
+      "confidence": "high",
+      "suggestion": "Move the escapeForRegex Javadoc comment to appear directly above the escapeForRegex method declaration, and move the splitCqlTokens Javadoc to appear directly above the splitCqlTokens declaration (line 48). After the fix: `/** escapeForRegex doc */ public static String escapeForRegex(...) { ... }  /** splitCqlTokens doc */ public static List<String> splitCqlTokens(...) { ... }`",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "Lines 22-35: a /** ... */ block documents splitCqlTokens with examples and @param/@return",
+        "Line 36: a second `/**` immediately follows with no intervening code \u2014 this is the Javadoc for escapeForRegex (lines 36-42)",
+        "Java's Javadoc tool attaches a /** block to the next declaration; the first block (lines 22-35) therefore attaches to escapeForRegex, not splitCqlTokens, leaving splitCqlTokens with no Javadoc at all"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "snippet_parser_thin_wrapper_proliferation",
+      "summary": "BlackLabSnippetParser exposes three near-identical thin wrappers (extractLemmaFromMatch, extractCollocateLemma, extractLemmaAt) that all ultimately call extractLastLemma or extractCollocateFromXmlByPosition, making call-site choice non-obvious",
+      "confidence": "medium",
+      "suggestion": "Collapse to two clearly named public methods: `extractLastLemmaLower(String xml)` (replaces extractLemmaFromMatch) and `extractLastLemma(String xml)` (replaces extractCollocateLemma, made package-visible or public as needed). Remove extractLemmaAt as a redundant alias for extractCollocateFromXmlByPosition and call extractCollocateFromXmlByPosition directly at call sites. Update callers in BlackLabQueryExecutor accordingly.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractLemmaFromMatch(String matchText): calls extractLastLemma and lowercases result",
+        "extractCollocateLemma(String matchXml): calls extractLastLemma, preserves original case \u2014 differs from extractLemmaFromMatch only in lowercasing",
+        "extractLemmaAt(String xml, int position): delegates to extractCollocateFromXmlByPosition \u2014 an alias with no added behavior",
+        "The distinction between 'fromMatch', 'collocateLemma', and 'lemmaAt' is unclear from names alone; callers must read all three implementations to choose correctly"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "multi-seed-handler-bypasses-explorer-layer",
+      "summary": "handleSemanticFieldExploreMulti performs intersection and calls executor directly, bypassing SemanticFieldExplorer",
+      "confidence": "high",
+      "suggestion": "Add a multi-seed method to SemanticFieldExplorer (e.g., exploreMultiSeed(Set<String> seeds, RelationConfig relation, ExploreOptions opts)) that handles per-seed pattern execution, intersection, and result assembly. handleSemanticFieldExploreMulti should delegate to it the same way handleSemanticFieldExplore delegates to exploreByPattern, keeping the handler responsible only for HTTP parameter parsing and response serialization.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 230 of ExplorationHandlers.java: executor.executeSurfacePattern() is called directly inside handleSemanticFieldExploreMulti, while handleSemanticFieldExplore delegates the equivalent call to semanticFieldExplorer.exploreByPattern().",
+        "Lines 236-244: commonCollocates set-intersection logic is implemented inline in the handler. SemanticFieldExplorer has no multi-seed overload despite already encapsulating single-seed exploration logic.",
+        "Lines 278-279: response.put('discovered_nouns', new ArrayList<>()) and response.put('discovered_nouns_count', 0) are hardcoded stubs because the domain logic that would compute them was never delegated to the explorer."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "no-model-to-response-serialization-layer",
+      "summary": "Domain model serialization is duplicated inline across every handler with no shared translation point",
+      "confidence": "high",
+      "suggestion": "Extract a ResponseMapper class (or static helpers in HttpApiUtils) with methods like toJson(Edge), toJson(DiscoveredNoun), toJson(CoreCollocate), toJson(AdjectiveProfile) that centralize model-to-map translation. Each handler calls these helpers rather than building maps inline, ensuring boundary translation happens in one place and rounding policy is applied consistently.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Math.round(x * 100.0) / 100.0 appears 13 times across handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticField.",
+        "The Edge serialization block (new HashMap; put source, target, log_dice, type) is duplicated verbatim in all three handler methods.",
+        "22 Map<String,Object> instantiations are used for ad-hoc response construction, with no method or class responsible for translating AdjectiveProfile, DiscoveredNoun, CoreCollocate, or Edge to their JSON shape."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "deprecated-api-patternsubstitution-facade",
+      "summary": "api/PatternSubstitution.java is a lingering delegation stub that blurs the api/utils seam",
+      "confidence": "high",
+      "suggestion": "Delete api/PatternSubstitution.java. Verify with grep that no callers reference it (it has no internal callers beyond the delegation stubs themselves), then remove the file to complete the migration to utils/PatternSubstitution.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "api/PatternSubstitution is annotated @Deprecated and its three methods each delegate 1-for-1 to utils/PatternSubstitution or utils/CqlUtils with no added logic.",
+        "A developer arriving at the api/ package sees PatternSubstitution and must check whether to use the api or utils version \u2014 both exist for the same purpose."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "get_total_frequency_doc_lie",
+      "summary": "getTotalFrequency Javadoc claims it logs and returns 0 on failure but implementation throws",
+      "confidence": "high",
+      "suggestion": "Either fix the implementation to match the doc (catch all exceptions, log.warn, return 0L) or fix the doc to match the implementation (remove the 'Logs and returns 0' claim and say 'throws IOException on unexpected failures'). Given that all callers already handle IOException, fixing the Javadoc is the lower-risk option: remove the misleading sentence and keep 'throws IOException if index access fails'.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Javadoc says: 'Logs and returns 0 on unexpected failures (rather than propagating, since callers use this for scoring and should degrade gracefully).'",
+        "Implementation at line ~321: catch (RuntimeException e) { throw e; } catch (Exception e) { throw new IOException(..., e); } \u2014 it never logs-and-returns-0; it always propagates.",
+        "The method is declared 'throws IOException' on both interface and implementation, contradicting the 'does not propagate' promise."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "api_server_stale_endpoint_javadoc",
+      "summary": "WordSketchApiServer class Javadoc lists 4 endpoints but start() registers 11",
+      "confidence": "high",
+      "suggestion": "Update the class-level Javadoc to list all registered endpoints, matching the format already used: add entries for /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial (GET), and /api/bcql (POST).",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Class Javadoc declares: /health, /api/sketch/{lemma}, /api/sketch/{lemma}/{relation}, /api/relations.",
+        "start() also registers: /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, /api/bcql \u2014 none mentioned in the class comment."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "deprecated_facade_wrong_migration_target",
+      "summary": "api.PatternSubstitution @deprecated points to utils.PatternSubstitution but escapeForRegex lives in utils.CqlUtils",
+      "confidence": "medium",
+      "suggestion": "Update the class-level deprecation note to reflect that escapeForRegex migrated to utils.CqlUtils: '@deprecated substituteCollocate and extractXposFromConstraint: use utils.PatternSubstitution. escapeForRegex: use utils.CqlUtils.escapeForRegex.'",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "Class Javadoc: '@deprecated Use pl.marcinmilkowski.word_sketch.utils.PatternSubstitution instead.'",
+        "escapeForRegex delegates to pl.marcinmilkowski.word_sketch.utils.CqlUtils.escapeForRegex \u2014 not to utils.PatternSubstitution, which does not define escapeForRegex.",
+        "A developer following the migration note would look for escapeForRegex in utils.PatternSubstitution and not find it."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cqlutils_orphaned_splitcqltokens_javadoc",
+      "summary": "CqlUtils has two consecutive Javadoc blocks; the first (describing splitCqlTokens) is orphaned and splitCqlTokens ends up undocumented",
+      "confidence": "medium",
+      "suggestion": "Move the splitCqlTokens Javadoc block (lines 22-35) to immediately above the splitCqlTokens method (line 48), after the escapeForRegex method and its own Javadoc.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "Lines 22-35: a full Javadoc block describing splitCqlTokens, with @param and @return tags.",
+        "Lines 36-42: a second Javadoc block immediately follows, describing escapeForRegex \u2014 this second block attaches to the escapeForRegex method, and the first block is orphaned.",
+        "splitCqlTokens at line 48 has no Javadoc."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "review_quality": {
+    "batch_count": 4,
+    "dimension_coverage": 1.0,
+    "evidence_density": 1.667,
+    "high_score_missing_issue_note": 0,
+    "issue_pressure": 24.618,
+    "dimensions_with_issues": 4
+  },
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "run_stamp": "20260310_194330",
+    "created_at": "2026-03-10T19:50:51+00:00",
+    "batch_count": 4,
+    "batch_indexes": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "603174964713d46f384647ec4b8c8625c6eda469873feec973bbe97fc5a5deef"
+  }
+}

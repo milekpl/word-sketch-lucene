@@ -15,10 +15,20 @@ import java.util.Collections;
  * REST API server for word sketch queries using BlackLab backend.
  *
  * Endpoints:
- * - GET /health - Health check
- * - GET /api/sketch/{lemma} - Get full word sketch with all grammatical relations
- * - GET /api/sketch/{lemma}/{relation} - Get specific grammatical relation
- * - GET /api/relations - List available grammatical relations
+ * - GET  /health                            - Health check
+ * - GET  /api/sketch/{lemma}                - Full word sketch (all grammatical relations)
+ * - GET  /api/sketch/{lemma}/{relation}     - Specific grammatical relation
+ * - GET  /api/sketch/{lemma}/dep            - Full dependency sketch
+ * - GET  /api/sketch/{lemma}/dep/{deprel}   - Specific dependency relation
+ * - GET  /api/relations                     - List surface relations
+ * - GET  /api/relations/dep                 - List dependency relations
+ * - GET  /api/semantic-field/explore        - Single-seed semantic field exploration
+ * - GET  /api/semantic-field/explore-multi  - Multi-seed semantic field exploration
+ * - GET  /api/semantic-field                - Semantic field overview
+ * - GET  /api/semantic-field/examples       - Semantic field concordance examples
+ * - GET  /api/concordance/examples          - Concordance examples for a word pair
+ * - GET  /api/visual/radial                 - Radial plot (also accepts POST)
+ * - POST /api/bcql                          - Arbitrary BCQL query
  */
 public class WordSketchApiServer {
 

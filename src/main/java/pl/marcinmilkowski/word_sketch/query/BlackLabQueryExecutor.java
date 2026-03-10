@@ -306,8 +306,11 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
     /**
      * Returns total token frequency for the given lemma in the index.
-     * Returns 0 if the lemma is not found. Logs and returns 0 on unexpected failures
-     * (rather than propagating, since callers use this for scoring and should degrade gracefully).
+     * Returns {@code 0L} if the lemma annotation is not found.
+     * Propagates {@link RuntimeException} directly and wraps any other checked
+     * exception as {@link IOException}.
+     *
+     * @throws IOException if an unexpected non-runtime failure occurs
      */
     @Override
     public long getTotalFrequency(String lemma) throws IOException {

@@ -93,31 +93,42 @@ Requires:
 src/main/java/pl/marcinmilkowski/word_sketch/
 ├── Main.java                           # CLI entry point
 ├── api/
-│   ├── WordSketchApiServer.java        # REST API server (10+ endpoints)
-│   ├── HttpApiUtils.java               # HTTP utility: sendJsonResponse, sendError, parseQueryParams
-│   └── PatternSubstitution.java        # Pattern substitution utilities
+│   ├── WordSketchApiServer.java        # REST API server (14 endpoints)
+│   ├── HttpApiUtils.java               # HTTP utility: sendJsonResponse, sendError, parseQueryParams, requireParam
+│   ├── ExplorationHandlers.java        # Handlers for semantic field exploration endpoints
+│   ├── SketchHandlers.java             # Handlers for sketch, concordance, BCQL, radial endpoints
+│   └── PatternSubstitution.java        # @Deprecated — use utils.PatternSubstitution
 ├── config/
-│   └── GrammarConfigLoader.java        # Grammar config loading from JSON
-├── grammar/
-│   ├── CQLParser.java                  # CQL pattern parser
-│   ├── CQLPattern.java                 # CQL pattern representation
-│   └── CQLParseException.java          # Parse exception type
+│   ├── GrammarConfigLoader.java        # Grammar config loading from JSON
+│   └── RelationType.java               # Enum: SURFACE | DEP
 ├── indexer/
 │   └── blacklab/
 │       └── BlackLabConllUIndexer.java  # CoNLL-U corpus indexer for BlackLab
+├── model/
+│   ├── AdjectiveProfile.java           # Adjective collocate profile for SEF comparison
+│   ├── ComparisonResult.java           # Result DTO for compareCollocateProfiles()
+│   ├── CoreCollocate.java              # High-coverage shared collocate
+│   ├── DiscoveredNoun.java             # Noun discovered via shared adjectives
+│   ├── Edge.java                       # Graph edge for D3.js visualization
+│   ├── ExploreOptions.java             # Options for semantic field exploration
+│   └── ExplorationResult.java          # Top-level result DTO for SEF exploration
 ├── query/
 │   ├── QueryExecutor.java              # Query executor interface
 │   ├── BlackLabQueryExecutor.java      # BlackLab-backed query executor
 │   ├── BlackLabSnippetParser.java      # Parses BlackLab XML snippets
 │   ├── SemanticFieldExplorer.java      # Single-seed semantic field exploration
-│   ├── QueryResults.java               # Result DTOs: WordSketchResult, ConcordanceResult
-│   └── PosGroup.java                   # POS group constants
+│   ├── CQLVerifier.java                # CQL pattern verifier (used in tests)
+│   └── QueryResults.java               # Result DTOs: WordSketchResult, ConcordanceResult
 ├── tagging/
 │   ├── PosTagger.java                  # POS tagger interface
-│   └── SimpleTagger.java               # Rule-based POS tagger
+│   ├── SimpleTagger.java               # Rule-based POS tagger (implements PosTagger)
+│   └── TaggedToken.java                # Single tagged token with word, lemma, tag, position
 ├── utils/
+│   ├── CqlUtils.java                   # CQL parsing: splitCqlTokens, escapeForRegex
 │   ├── LogDiceCalculator.java          # logDice scoring
-│   └── LongIntHashMap.java             # Compact long→int hash map
+│   ├── LongIntHashMap.java             # Compact long→int hash map
+│   ├── PatternSubstitution.java        # CQL pattern head/collocate substitution
+│   └── PosGroup.java                   # POS group constants (NOUN, VERB, ADJ, ADV, OTHER)
 └── viz/
     └── RadialPlot.java                 # Radial plot data builder
 ```
@@ -264,11 +275,12 @@ Where `f(AB)` = collocate frequency, `f(A)` = headword frequency, `f(B)` = collo
 ## Key Components
 
 - **[Main.java](src/main/java/pl/marcinmilkowski/word_sketch/Main.java)**: CLI entry point
-- **[grammar/CQLParser.java](src/main/java/pl/marcinmilkowski/word_sketch/grammar/CQLParser.java)**: CQL pattern parser
+- **[config/GrammarConfigLoader.java](src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java)**: Grammar config loading and CQL pattern substitution
 - **[query/BlackLabQueryExecutor.java](src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java)**: Query executor with logDice scoring
-- **[tagging/SimpleTagger.java](src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java)**: Rule-based POS tagger
-- **[api/WordSketchApiServer.java](src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java)**: REST API endpoints
-- **[sketchgrammar.wsdef.m4](grammars/sketchgrammar.wsdef.m4)**: English Penn Treebank 3.3 grammar in m4 macro format
+- **[tagging/SimpleTagger.java](src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java)**: Rule-based POS tagger (implements PosTagger)
+- **[api/WordSketchApiServer.java](src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java)**: REST API server (14 endpoints)
+- **[utils/CqlUtils.java](src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java)**: CQL token parsing and regex escaping
+- **[grammars/](grammars/)**: Grammar definition files in JSON and m4 macro format
 
 ## POS Tagging Pipeline
 

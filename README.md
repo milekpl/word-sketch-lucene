@@ -116,7 +116,7 @@ Endpoints:
   GET /api/semantic-field/examples
   GET /api/concordance/examples
   GET /api/visual/radial
-  GET /api/bcql
+  GET /api/bcql (POST)
 ```
 
 ### 4. Start Web Interface

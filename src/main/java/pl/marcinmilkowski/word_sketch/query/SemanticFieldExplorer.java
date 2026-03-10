@@ -54,7 +54,7 @@ import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
  * <h2>Comparison Mode (multi-seed)</h2>
  * <p>Given multiple seed words, compares their collocate profiles to reveal
  * which collocates are shared across all seeds (the semantic core) and which
- * are distinctive to individual seeds. See {@link #compareSeeds}.</p>
+ * are distinctive to individual seeds. See {@link #compareCollocateProfiles}.</p>
  *
  * <h2>Result classes</h2>
  * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},

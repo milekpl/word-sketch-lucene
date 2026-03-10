@@ -1,0 +1,100 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 3,
+  "assessments": {
+    "mid_level_elegance": 67.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "handleSemanticFieldExploreMulti calls executor.executeSurfacePattern() directly (line 230 of ExplorationHandlers.java) and performs set-intersection of collocates inline, while handleSemanticFieldExplore delegates cleanly to semanticFieldExplorer.exploreByPattern(). Domain logic leaks into the handler for the multi-seed path.",
+        "Math.round(x * 100.0) / 100.0 rounding pattern appears 13 times across three handler methods. The edge-serialization block (source/target/log_dice/type put into a new HashMap) is duplicated verbatim in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticField. 22 Map<String,Object> instantiations for ad-hoc response construction across ExplorationHandlers.",
+        "api/PatternSubstitution.java is a 3-method deprecated delegation wrapper for utils/PatternSubstitution. It still exists in the api package, leaving the api/utils seam boundary ambiguous for a developer arriving at api/.",
+        "handleSemanticFieldExploreMulti hardcodes response.put('discovered_nouns', new ArrayList<>()) and response.put('discovered_nouns_count', 0) as static stubs to match single-seed response shape. The multi-seed explorer never actually computes discovered nouns.",
+        "ExploreOptions record cleanly bundles 7 cross-boundary parameters (vs. previous positional arg lists). QueryExecutor interface documents each method's contract with precise Javadoc. Model package (ExplorationResult, ComparisonResult, AdjectiveProfile, etc.) provides named domain types for handoffs."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreOptions record bundles 7 cross-boundary parameters into a single typed value object, eliminating long arg lists at the handler-explorer seam.",
+        "QueryExecutor interface has per-method Javadoc that precisely distinguishes the contracts of findCollocations, executeSurfacePattern, executeBcqlQuery, and executeDependencyPattern across the executor boundary.",
+        "Model package provides named domain types (ExplorationResult, ComparisonResult, AdjectiveProfile, CoreCollocate) as the formal outputs of the domain layer, rather than leaking raw maps across the boundary.",
+        "HttpApiUtils centralizes all low-level HTTP mechanics (CORS headers, status code writing, OPTIONS preflight, parameter validation) in a single place."
+      ],
+      "issue_character": "The issues are concentrated at the API-domain handoff: one path (multi-seed) bypasses the domain layer entirely, and all paths lack a serialization seam, scattering model-to-JSON translation across every handler with duplicated boilerplate.",
+      "score_rationale": "The codebase has real structural wins at the executor and model boundaries, which pushes it above the 60 anchor. However, the multi-seed handler bypasses the SemanticFieldExplorer entirely and performs domain logic (intersection) inline, which is exactly the kind of tangled back-and-forth that defines a seam problem. The complete absence of a model-to-response translation layer means boundary translation recurs at every handler, causing 13 rounding repetitions and three copies of the edge-serialization block. These two patterns together put mid_level_elegance solidly in the 60-75 range — better than 'significant drag' overall but with recurring friction at the API-domain seam that a developer would hit regularly."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "multi-seed-handler-bypasses-explorer-layer",
+      "summary": "handleSemanticFieldExploreMulti performs intersection and calls executor directly, bypassing SemanticFieldExplorer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 230 of ExplorationHandlers.java: executor.executeSurfacePattern() is called directly inside handleSemanticFieldExploreMulti, while handleSemanticFieldExplore delegates the equivalent call to semanticFieldExplorer.exploreByPattern().",
+        "Lines 236-244: commonCollocates set-intersection logic is implemented inline in the handler. SemanticFieldExplorer has no multi-seed overload despite already encapsulating single-seed exploration logic.",
+        "Lines 278-279: response.put('discovered_nouns', new ArrayList<>()) and response.put('discovered_nouns_count', 0) are hardcoded stubs because the domain logic that would compute them was never delegated to the explorer."
+      ],
+      "suggestion": "Add a multi-seed method to SemanticFieldExplorer (e.g., exploreMultiSeed(Set<String> seeds, RelationConfig relation, ExploreOptions opts)) that handles per-seed pattern execution, intersection, and result assembly. handleSemanticFieldExploreMulti should delegate to it the same way handleSemanticFieldExplore delegates to exploreByPattern, keeping the handler responsible only for HTTP parameter parsing and response serialization.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing-explorer-delegation"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "no-model-to-response-serialization-layer",
+      "summary": "Domain model serialization is duplicated inline across every handler with no shared translation point",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Math.round(x * 100.0) / 100.0 appears 13 times across handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticField.",
+        "The Edge serialization block (new HashMap; put source, target, log_dice, type) is duplicated verbatim in all three handler methods.",
+        "22 Map<String,Object> instantiations are used for ad-hoc response construction, with no method or class responsible for translating AdjectiveProfile, DiscoveredNoun, CoreCollocate, or Edge to their JSON shape."
+      ],
+      "suggestion": "Extract a ResponseMapper class (or static helpers in HttpApiUtils) with methods like toJson(Edge), toJson(DiscoveredNoun), toJson(CoreCollocate), toJson(AdjectiveProfile) that centralize model-to-map translation. Each handler calls these helpers rather than building maps inline, ensuring boundary translation happens in one place and rounding policy is applied consistently.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing-serialization-layer"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "deprecated-api-patternsubstitution-facade",
+      "summary": "api/PatternSubstitution.java is a lingering delegation stub that blurs the api/utils seam",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "api/PatternSubstitution is annotated @Deprecated and its three methods each delegate 1-for-1 to utils/PatternSubstitution or utils/CqlUtils with no added logic.",
+        "A developer arriving at the api/ package sees PatternSubstitution and must check whether to use the api or utils version — both exist for the same purpose."
+      ],
+      "suggestion": "Delete api/PatternSubstitution.java. Verify with grep that no callers reference it (it has no internal callers beyond the delegation stubs themselves), then remove the file to complete the migration to utils/PatternSubstitution.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SemanticFieldExplorer was extended for multi-seed use but the handler was written independently rather than delegating, creating a divergent second path that skips the domain layer.",
+      "No serialization layer was established when the model package was introduced; response-building code grew incrementally in each handler."
+    ],
+    "likely_symptoms": [
+      "multi-seed-handler-bypasses-explorer-layer",
+      "no-model-to-response-serialization-layer"
+    ],
+    "possible_false_positives": []
+  }
+}

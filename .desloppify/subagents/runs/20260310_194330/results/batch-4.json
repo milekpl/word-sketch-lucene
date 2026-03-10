@@ -1,0 +1,113 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 4,
+  "assessments": {
+    "contract_coherence": 77.5
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface methods have precise, accurate Javadoc matching implementation behavior: parameter names, return semantics, and IOException declarations all match.",
+        "BlackLabQueryExecutor.getTotalFrequency() Javadoc states 'Logs and returns 0 on unexpected failures (rather than propagating, since callers use this for scoring and should degrade gracefully)' — but the implementation throws RuntimeException directly and wraps other exceptions in IOException, never logging-and-returning-0.",
+        "WordSketchApiServer class Javadoc lists only 4 endpoints but start() registers 11: /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, and /api/bcql are all absent from the stated public surface.",
+        "Deprecated api.PatternSubstitution class Javadoc says '@deprecated Use pl.marcinmilkowski.word_sketch.utils.PatternSubstitution instead' but its escapeForRegex method delegates to utils.CqlUtils.escapeForRegex, not utils.PatternSubstitution — the migration target is wrong for one of the three methods.",
+        "CqlUtils has two consecutive Javadoc blocks (lines 22-35 and 36-42); the first, describing splitCqlTokens, is orphaned because it is immediately followed by the second block which attaches to escapeForRegex instead. splitCqlTokens ends up with no Javadoc."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "The QueryExecutor interface has precise, detailed Javadoc for all methods: parameter semantics, return conventions, IOException conditions, and distinctions between overlapping methods (findCollocations vs executeSurfacePattern) are explicitly documented and match the BlackLabQueryExecutor implementation.",
+        "Method names throughout the codebase accurately reflect behavior: executeSurfacePattern, executeDependencyPattern, buildAndRankCollocates — callers can predict what they do without reading the body.",
+        "The GrammarConfigLoader constructors are accurately documented: checked exceptions are declared, factory methods explain their resolution strategy, and the fromReader factory includes a working usage example.",
+        "HttpApiUtils helper contracts are honest: requireParam clearly states 'Caller must check for null return', and sendError/sendJsonResponse have no hidden side-effects."
+      ],
+      "issue_character": "The issues are isolated rather than systemic: one method Javadoc makes a specific claim about error behaviour that the code contradicts, one class-level summary has grown stale as new endpoints were added, and one deprecated facade gives an incorrect migration target for a single method.",
+      "score_rationale": "The codebase sits solidly in the 75-80 range. Interface contracts are generally trustworthy and well-aligned with implementations, which is the bulk of what contract_coherence measures. However, the getTotalFrequency Javadoc actively misleads callers about error behaviour (saying 'graceful degradation' when the method throws), and the WordSketchApiServer class comment presents a public surface that omits the majority of registered endpoints — both qualify as the 80-anchor's 'APIs surprise them' moment. These are real but localized; a developer would be misled in specific spots rather than finding contracts routinely unreliable across the codebase."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "get_total_frequency_doc_lie",
+      "summary": "getTotalFrequency Javadoc claims it logs and returns 0 on failure but implementation throws",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Javadoc says: 'Logs and returns 0 on unexpected failures (rather than propagating, since callers use this for scoring and should degrade gracefully).'",
+        "Implementation at line ~321: catch (RuntimeException e) { throw e; } catch (Exception e) { throw new IOException(..., e); } — it never logs-and-returns-0; it always propagates.",
+        "The method is declared 'throws IOException' on both interface and implementation, contradicting the 'does not propagate' promise."
+      ],
+      "suggestion": "Either fix the implementation to match the doc (catch all exceptions, log.warn, return 0L) or fix the doc to match the implementation (remove the 'Logs and returns 0' claim and say 'throws IOException on unexpected failures'). Given that all callers already handle IOException, fixing the Javadoc is the lower-risk option: remove the misleading sentence and keep 'throws IOException if index access fails'.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "api_server_stale_endpoint_javadoc",
+      "summary": "WordSketchApiServer class Javadoc lists 4 endpoints but start() registers 11",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Class Javadoc declares: /health, /api/sketch/{lemma}, /api/sketch/{lemma}/{relation}, /api/relations.",
+        "start() also registers: /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, /api/bcql — none mentioned in the class comment."
+      ],
+      "suggestion": "Update the class-level Javadoc to list all registered endpoints, matching the format already used: add entries for /api/relations/dep, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial (GET), and /api/bcql (POST).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "deprecated_facade_wrong_migration_target",
+      "summary": "api.PatternSubstitution @deprecated points to utils.PatternSubstitution but escapeForRegex lives in utils.CqlUtils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "Class Javadoc: '@deprecated Use pl.marcinmilkowski.word_sketch.utils.PatternSubstitution instead.'",
+        "escapeForRegex delegates to pl.marcinmilkowski.word_sketch.utils.CqlUtils.escapeForRegex — not to utils.PatternSubstitution, which does not define escapeForRegex.",
+        "A developer following the migration note would look for escapeForRegex in utils.PatternSubstitution and not find it."
+      ],
+      "suggestion": "Update the class-level deprecation note to reflect that escapeForRegex migrated to utils.CqlUtils: '@deprecated substituteCollocate and extractXposFromConstraint: use utils.PatternSubstitution. escapeForRegex: use utils.CqlUtils.escapeForRegex.'",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cqlutils_orphaned_splitcqltokens_javadoc",
+      "summary": "CqlUtils has two consecutive Javadoc blocks; the first (describing splitCqlTokens) is orphaned and splitCqlTokens ends up undocumented",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "Lines 22-35: a full Javadoc block describing splitCqlTokens, with @param and @return tags.",
+        "Lines 36-42: a second Javadoc block immediately follows, describing escapeForRegex — this second block attaches to the escapeForRegex method, and the first block is orphaned.",
+        "splitCqlTokens at line 48 has no Javadoc."
+      ],
+      "suggestion": "Move the splitCqlTokens Javadoc block (lines 22-35) to immediately above the splitCqlTokens method (line 48), after the escapeForRegex method and its own Javadoc.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Documentation written to describe intended/aspirational behavior (getTotalFrequency was likely planned to degrade gracefully) but implementation diverged and the doc was not updated.",
+      "Class-level API surface comments not maintained as new endpoints were added incrementally over time."
+    ],
+    "likely_symptoms": [
+      "get_total_frequency_doc_lie",
+      "api_server_stale_endpoint_javadoc"
+    ],
+    "possible_false_positives": []
+  }
+}

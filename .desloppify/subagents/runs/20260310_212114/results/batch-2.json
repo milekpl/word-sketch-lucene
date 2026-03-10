@@ -1,0 +1,153 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {"abstraction_fitness": 62.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface (query/QueryExecutor.java) has a single production implementation (BlackLabQueryExecutor) but is well-documented and enables testability; executeSurfacePattern Javadoc explicitly notes headPosition/collocatePosition are 'currently unused' — the interface leaks implementation detail through unused parameters that exist only for compatibility",
+        "CollocateProfileComparator (exploration/CollocateProfileComparator.java) Javadoc states 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold' — this is mechanical class-splitting for metrics, not a genuine domain concept; the class duplicates the ADJECTIVE_PATTERN constant from SemanticFieldExplorer and is only ever instantiated inside SemanticFieldExplorer",
+        "SemanticFieldExplorer.exploreMultiSeed (line 337) is a single-line pass-through: 'return comparator.exploreMultiSeed(seeds, relationConfig, minLogDice, topCollocates, minShared)' with zero added behaviour — the public API facade adds indirection depth without leverage",
+        "ExplorationHandlers (api/ExplorationHandlers.java) stores 'private final QueryExecutor executor' (assigned in constructor, line 40) but never calls any method on it — all execution flows through 'semanticFieldExplorer'; the field is dead constructor cargo",
+        "SemanticFieldExplorer has 'private final String indexPath' (line 77) that is always null in the primary DI constructor (line 103) and is never read in any method; it exists only as a relic of the now-deprecated String-path constructor",
+        "ExplorationResult (model/ExplorationResult.java) exposes its internals as 'public final' fields (seed, seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates) while sibling ComparisonResult (model/ComparisonResult.java) uses private fields with getters — no documented reason for the inconsistency; callers access 'result.seed' and 'result.seedCollocates' directly",
+        "RelationConfig record (config/RelationConfig.java) carries meaningful behaviour: getFullPattern, substituteHeadword, collocatePosGroup, getDeprel — abstraction earns its keep; similarly HttpApiUtils is a focused static utility that consistently enforces CORS + encoding policy across all endpoints",
+        "wrapHandler in WordSketchApiServer consistently enforces error-handling policy (IOException and Exception → HTTP 500) — a thin wrapper that earns its existence",
+        "CqlUtils provides a single well-defined primitive (splitCqlTokens, escapeForRegex) that genuinely reduces duplication across RelationConfig and GrammarConfigLoader"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 68.0,
+        "indirection_cost": 71.0,
+        "interface_honesty": 60.0,
+        "delegation_density": 72.0,
+        "definition_directness": 58.0,
+        "type_discipline": 63.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface provides a clean, well-documented seam that enables testability without deep indirection",
+        "RelationConfig record combines data and domain-specific behaviour (pattern substitution, POS-group derivation, deprel extraction) into one cohesive unit",
+        "HttpApiUtils and wrapHandler are thin wrappers that consistently enforce real cross-cutting policy (CORS, error serialisation, method validation) — they pay for themselves",
+        "CqlUtils isolates bracket-walking logic shared between multiple consumers without over-generalising",
+        "Handler split into SketchHandlers / ExplorationHandlers provides a reasonable size and responsibility boundary"
+      ],
+      "issue_character": "Mechanical decomposition and leftover scaffolding — classes split for line-count reasons rather than genuine domain boundaries, dead constructor fields carried forward from refactored deprecated paths, and a public-API facade that is a pure pass-through with no added behaviour.",
+      "score_rationale": "The codebase sits in the 60-65 band: most abstractions are legitimate and several are well-crafted, but there is a cluster of self-described mechanical extractions (CollocateProfileComparator), dead fields surviving deprecated constructors (indexPath, ExplorationHandlers.executor), and a public facade method (exploreMultiSeed) that adds zero leverage over direct delegation. These are not catastrophic — no god classes, no deep wrapper chains, and the core query/config abstractions are honest — but the pattern of metric-driven decomposition and residual constructor cargo consistently reduces definition directness and interface honesty below what the otherwise healthy design would suggest."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "mechanical_comparator_split",
+      "summary": "CollocateProfileComparator is a mechanical class-split from SemanticFieldExplorer to satisfy a line-count threshold, not a genuine domain abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "CollocateProfileComparator Javadoc: 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold'",
+        "ADJECTIVE_PATTERN constant '[xpos=\"JJ.*\"]' is duplicated verbatim in both SemanticFieldExplorer (line ~84) and CollocateProfileComparator (line ~18)",
+        "CollocateProfileComparator is only ever instantiated once, inside SemanticFieldExplorer's constructors — it has no independent users",
+        "SemanticFieldExplorer.exploreMultiSeed is a single-line pure delegation: 'return comparator.exploreMultiSeed(seeds, relationConfig, minLogDice, topCollocates, minShared)'"
+      ],
+      "suggestion": "Inline CollocateProfileComparator back into SemanticFieldExplorer (or a dedicated MultiSeedExplorer class with a real domain name), removing the duplicated constant. If SemanticFieldExplorer is genuinely too long, split by single-seed vs multi-seed responsibility rather than by line count.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "mechanical_decomposition"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "exploration_handlers_dead_executor_field",
+      "summary": "ExplorationHandlers stores a QueryExecutor field that is never called, making the constructor dependency invisible dead cargo",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers constructor (line 39) accepts QueryExecutor and assigns 'this.executor = executor'",
+        "No call site in ExplorationHandlers invokes 'executor.<anyMethod>' — all execution goes through 'this.semanticFieldExplorer'",
+        "WordSketchApiServer passes 'executor' to ExplorationHandlers constructor (alongside a SemanticFieldExplorer already constructed with the same executor) — the double-passing is the symptom of the dead field"
+      ],
+      "suggestion": "Remove the QueryExecutor parameter from ExplorationHandlers constructor and the corresponding field. The SemanticFieldExplorer already encapsulates executor access; ExplorationHandlers needs only grammarConfig and semanticFieldExplorer.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "leftover_scaffolding"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "semantic_explorer_dead_indexpath_field",
+      "summary": "SemanticFieldExplorer.indexPath is always null in the primary (non-deprecated) construction path and is never read",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Preferred DI constructor (line 103): 'this.indexPath = null' — indexPath is set to null and never read in any method",
+        "indexPath is only assigned in the @Deprecated String-path constructor (line 95): 'this.indexPath = indexPath'",
+        "No method in SemanticFieldExplorer reads 'this.indexPath' after construction"
+      ],
+      "suggestion": "Remove the indexPath field entirely. The deprecated constructor can be simplified or removed; if retained for backward compatibility, drop the field assignment since the value is never used.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "leftover_scaffolding"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "exploration_result_mixed_encapsulation",
+      "summary": "ExplorationResult exposes all state as public fields while sibling ComparisonResult uses private fields with getters — inconsistent model encapsulation with no documented rationale",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult declares: 'public final String seed; public final Map<String, Double> seedCollocates; public final Map<String, Long> seedCollocateFrequencies; public final List<DiscoveredNoun> discoveredNouns; public final List<CoreCollocate> coreCollocates'",
+        "ComparisonResult declares 'private final List<String> nouns; private final List<AdjectiveProfile> adjectives' with getters getNouns() / getAllAdjectives()",
+        "ExplorationHandlers accesses 'result.seed', 'result.seedCollocates', 'result.discoveredNouns' directly via field access — the abstraction boundary between result and consumer is absent"
+      ],
+      "suggestion": "Align ExplorationResult with ComparisonResult by making fields private and adding accessor methods (or converting to a record). This decouples callers from the internal storage shape and makes both result types consistent.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "mechanical_decomposition"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "query_executor_unused_interface_params",
+      "summary": "QueryExecutor.executeSurfacePattern declares headPosition and collocatePosition parameters documented as 'currently unused', leaking implementation detail through the interface contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeSurfacePattern Javadoc: 'headPosition 1-based position of the head token (currently unused)' and 'collocatePosition 1-based position of the collocate token (currently unused)'",
+        "BlackLabQueryExecutor.executeSurfacePattern ignores both int parameters and derives collocate position from the pattern label instead",
+        "The parameters exist for 'interface compatibility' per the Javadoc — compatibility with no other current implementation"
+      ],
+      "suggestion": "Remove headPosition and collocatePosition from the interface signature (they are not used) and derive collocate position internally in the implementation. If future implementations genuinely need positional hints, add them back with a concrete use case.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_honesty"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Line-count-driven decomposition: CollocateProfileComparator was extracted to satisfy a 400-line threshold rather than a domain boundary, producing a class with no independent identity",
+      "Incomplete refactoring cleanup: the transition from path-based to DI-based construction left dead fields (indexPath, ExplorationHandlers.executor) and a documented-unused-params smell in the interface",
+      "Inconsistent model design conventions: ExplorationResult and ComparisonResult were likely written at different times without a shared convention for result object encapsulation"
+    ],
+    "likely_symptoms": [
+      "mechanical_comparator_split — the naming and line-count comment are strong signals; confirmed by duplicated constant",
+      "exploration_handlers_dead_executor_field — confirmed by grep showing no executor. calls in ExplorationHandlers body"
+    ],
+    "possible_false_positives": []
+  }
+}

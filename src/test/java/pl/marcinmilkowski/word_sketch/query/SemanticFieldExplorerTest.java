@@ -65,7 +65,7 @@ class SemanticFieldExplorerTest {
 
         @Override
         public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                String lemma, String bcqlPattern, int headPosition, int collocatePosition,
+                String lemma, String bcqlPattern,
                 double minLogDice, int maxResults) {
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }

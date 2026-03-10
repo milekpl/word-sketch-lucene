@@ -1,0 +1,104 @@
+{
+  "batch": "type_safety",
+  "batch_index": 5,
+  "assessments": {"type_safety": 68.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "RelationConfig.relationType() is declared as returning RelationType but GrammarConfigLoader.parseRelationType() can return null; ExplorationHandlers lines 69 and 180 call .relationType().name() without a null guard, giving a concrete NPE path when a relation has no type field.",
+        "RelationConfig.getFullPattern() returns null when pattern is null (explicit null return in first guard), and CollocateProfileComparator.exploreMultiSeed() passes the result directly to executor.executeSurfacePattern(seed, bcqlPattern, ...) without checking for null; executeSurfacePattern has no null check on bcqlPattern before calling CorpusQueryLanguageParser.parse(bcqlPattern, ...).",
+        "ExplorationHandlers line 100 contains an unchecked downcast: ((Map<String, Object>) response.get("parameters")).put(...) — fetching a value from a Map<String,Object> as Object and casting it to Map<String,Object> suppresses the type check; the cast is safe in practice only because buildBaseExploreResponse always inserts the same type, but this is not enforced by the type system.",
+        "All API response construction throughout ExplorationHandlers and SketchHandlers uses Map<String, Object> — typed domain records (DiscoveredNoun, CoreCollocate, AdjectiveProfile, Edge) are immediately dissolved into untyped maps via private format* helpers, so the shape of the JSON response is invisible to the type system.",
+        "BlackLabSnippetParser static helper methods (extractLemmaFromMatch, extractPosFromMatch, extractCollocateLemma) return nullable String without any annotation or contract; callers in BlackLabQueryExecutor do guard consistently, but callers in new code could silently skip the check.",
+        "Positive: sealed interface ConcordanceResult with permits clause (SnippetResult, KwicResult, CollocateResult) provides exhaustive type checking for pattern matching — correct use of Java's type system.",
+        "Positive: Optional<RelationConfig> returned from GrammarConfigLoader.getRelation() is used correctly with .isEmpty() checks at every call site before .get().",
+        "Positive: record types used for immutable data (RelationConfig, HitRecord, KwicResult, SnippetResult, CollocateResult, ExploreParams) remove the risk of partial construction.",
+        "Positive: QueryExecutor interface uses precise generic return types throughout (List<QueryResults.WordSketchResult>, List<QueryResults.CollocateResult>) rather than raw List."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Sealed ConcordanceResult hierarchy (SnippetResult, KwicResult, CollocateResult) enables exhaustive pattern-matching and correct permits-based type checking.",
+        "Optional<RelationConfig> from GrammarConfigLoader.getRelation() is used correctly — every call site checks isEmpty() before unwrapping.",
+        "Record types for immutable DTOs (RelationConfig, HitRecord, ExploreParams, the three ConcordanceResult subtypes) eliminate partial-construction risk.",
+        "QueryExecutor interface uses specific generic signatures throughout instead of raw types or Object returns."
+      ],
+      "issue_character": "The issues fall into two patterns: nullable fields not captured in the type contract leading to concrete NPE paths (relationType(), getFullPattern()), and a systemic choice to dissolve typed domain objects into Map<String, Object> at the API layer, making the response shape invisible to the type system.",
+      "score_rationale": "The domain model layer is well-typed — sealed interfaces, records, Optional, and precise generics are used correctly. However, two concrete null-propagation bugs exist in the production path (relationType().name() and getFullPattern() → executeSurfacePattern without null guard), and the entire API response layer erases type information by converting rich domain objects into Map<String, Object>. Against a scale where 80 = solid-but-uneven and 60 = significant drag, this codebase sits slightly below 'solid' because the nullable-without-contract pattern on a record component (relationType) is a structural dishonesty — the record promises a non-null enum but the system allows null — and the Map<String, Object> response pattern means runtime-only feedback on any structural mistake in the API shape."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "relation_type_nullable_npe",
+      "summary": "RelationConfig.relationType() is nullable but callers invoke .name() without null guard, risking NPE",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "RelationConfig record declares 'RelationType relationType' as a component — the type signature implies non-null.",
+        "GrammarConfigLoader.parseRelationType() returns null when the JSON field is absent or unrecognised (line ~204).",
+        "ExplorationHandlers lines 69 and 180: 'String relationType = relationConfig.get().relationType().name()' — no null check before .name(); if relationType is null this is a NPE on any relation without a type field."
+      ],
+      "suggestion": "Either add a null guard ('relationType() != null ? relationType().name() : \"SURFACE\"') at both call sites, or make the record compact constructor validate non-null and throw at load time — the latter is safer because it surfaces misconfiguration early.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "get_full_pattern_null_propagation",
+      "summary": "RelationConfig.getFullPattern() can return null, which propagates to executeSurfacePattern without a null check",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "RelationConfig.getFullPattern(): 'if (pattern == null) return null' — explicit null return on first line.",
+        "CollocateProfileComparator.exploreMultiSeed(): 'String bcqlPattern = relationConfig.getFullPattern(seed); executor.executeSurfacePattern(seed, bcqlPattern, ...)' — no null check between assignment and use.",
+        "BlackLabQueryExecutor.executeSurfacePattern(): no null check on bcqlPattern before 'CorpusQueryLanguageParser.parse(bcqlPattern, \"lemma\")' — will throw NullPointerException if bcqlPattern is null."
+      ],
+      "suggestion": "Return Optional<String> from getFullPattern() to make nullability explicit, or add a precondition check in executeSurfacePattern ('if (bcqlPattern == null) return Collections.emptyList()') and add a guard in exploreMultiSeed before the call.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "response_map_type_erasure",
+      "summary": "API response layer systematically uses Map<String, Object> instead of typed DTOs, hiding response shape from the type system",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "All format* helpers in ExplorationHandlers (formatSeedCollocate, formatDiscoveredNoun, formatCoreCollocate, formatEdge, formatAdjectiveProfile, buildBaseExploreResponse) return Map<String, Object>, dissolving typed domain records.",
+        "The unchecked cast on line 100, '((Map<String, Object>) response.get(\"parameters\")).put(\"nouns_per\", nounsPerCollocate)', is a direct consequence — the returned map loses its type as soon as it enters the response map.",
+        "DiscoveredNoun, CoreCollocate, AdjectiveProfile, and Edge are all well-typed domain classes that already contain the needed fields; they could be serialized directly."
+      ],
+      "suggestion": "Define typed response record classes (e.g., ExploreResponse, SeedCollocateEntry) or annotate the existing domain records with the JSON serialization library's annotations so fastjson2 can serialize them directly; this would eliminate the format* helpers and the unchecked cast.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RelationConfig is a Java record, which syntactically looks non-nullable, but one component (relationType) was intentionally made nullable to represent 'absent'; this mismatch between Java's structural promise and the actual contract propagates to call sites that assume non-null.",
+      "The API layer was built incrementally with ad-hoc Map<String, Object> response building rather than defining typed response objects upfront, leading to type erasure at the boundary and the associated unchecked-cast smell."
+    ],
+    "likely_symptoms": [
+      "relation_type_nullable_npe — NPE only manifests when a grammar config omits the relation_type field, which may be rare in practice but untested",
+      "get_full_pattern_null_propagation — null pattern paths are guarded at construction time in GrammarConfigLoader, so this fires only if RelationConfig is instantiated outside the loader"
+    ],
+    "possible_false_positives": []
+  }
+}

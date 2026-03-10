@@ -1,0 +1,82 @@
+{
+  "batch": "delegation_density",
+  "batch_index": 12,
+  "assessments": {
+    "delegation_density": 75.0
+  },
+  "dimension_notes": {
+    "delegation_density": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles (line 295-300) is a single-line pass-through to comparator.compareCollocateProfiles with identical signature and zero added behavior (no logging, defaulting, validation, or enrichment).",
+        "SemanticFieldExplorer.exploreMultiSeed (line 331-338) is similarly a pure 1-line relay to comparator.exploreMultiSeed; ExplorationHandlers calls both of these directly via the explorer, making SemanticFieldExplorer a partial relay class for 2 of its 5 public methods.",
+        "RelationConfig.escapeForRegex(String) (private method) is a zero-behavior single-line wrapper around CqlUtils.escapeForRegex; the private relay buys nothing — CqlUtils could be called directly at the two call sites.",
+        "Mechanical scan: 0 delegation-heavy classes detected, consistent with the localized nature of these findings.",
+        "SketchHandlers and ExplorationHandlers each hold a QueryExecutor and GrammarConfigLoader and use them directly with genuine added behavior (parameter parsing, error handling, response construction) — no relay pattern.",
+        "WordSketchApiServer constructs SemanticFieldExplorer inline and injects it into ExplorationHandlers, adding value through lifecycle management and wiring — not a delegation concern.",
+        "QueryExecutor interface has a single implementation (BlackLabQueryExecutor); PosTagger has a single implementation (SimpleTagger). These are single-impl interfaces (interface_honesty concern) but not delegation-density issues."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "delegation_density": {
+      "strengths": [
+        "Handler classes (SketchHandlers, ExplorationHandlers) add genuine value at each layer: parameter validation, error wrapping, JSON serialisation, and response shaping — not mere forwarding.",
+        "WordSketchApiServer delegates cleanly to SketchHandlers and ExplorationHandlers while retaining ownership of server lifecycle and route registration.",
+        "The mechanical scan found zero delegation-heavy classes, confirming the absence of widespread forwarding patterns across the codebase.",
+        "CollocateProfileComparator was intentionally extracted for size reasons and owns its logic fully — the class boundary carries real cohesion, even if SemanticFieldExplorer's relay methods dilute that benefit."
+      ],
+      "issue_character": "Isolated, architecturally motivated relay methods in SemanticFieldExplorer that forward to an inner collaborator with zero added value; the pattern is small in scope but visible because SemanticFieldExplorer is the main facade callers use.",
+      "score_rationale": "The codebase is largely free of delegation-heavy patterns — the mechanical detector found nothing, and most class boundaries carry real behavior. The score is pulled below 80 by two pure pass-through public methods in SemanticFieldExplorer (compareCollocateProfiles and exploreMultiSeed) that make the class a partial relay, and by a trivial private relay in RelationConfig. These are localized issues in an otherwise direct codebase, placing it in the 70-80 band: better than 'significant drag' (60) but short of 'solid but uneven' (80) because the SemanticFieldExplorer facade pattern is a concrete structural choice that obscures the real owner of the logic."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "delegation_density",
+      "identifier": "sfe_pure_relay_methods",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles and exploreMultiSeed are zero-behavior relays to CollocateProfileComparator",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles (line ~299): `return comparator.compareCollocateProfiles(seedNouns, minLogDice, maxPerNoun);` — identical parameters, no validation, no logging, no defaulting.",
+        "SemanticFieldExplorer.exploreMultiSeed (line ~337): `return comparator.exploreMultiSeed(seeds, relationConfig, minLogDice, topCollocates, minShared);` — same pattern.",
+        "ExplorationHandlers calls both methods exclusively through semanticFieldExplorer, so the relay adds a hop but zero value for callers of these two operations."
+      ],
+      "suggestion": "Either (a) have ExplorationHandlers depend on CollocateProfileComparator directly for those two operations, exposing it alongside SemanticFieldExplorer; or (b) add genuine value in the relay methods — e.g., parameter defaulting, a debug log, or result post-processing — to justify SemanticFieldExplorer as a facade. Option (a) is cleaner if the comparator is considered a stable API; option (b) is preferable if SemanticFieldExplorer is intentionally the single entry point into exploration logic.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "delegation_density",
+      "identifier": "relation_config_escape_relay",
+      "summary": "RelationConfig.escapeForRegex is a private no-op relay to CqlUtils.escapeForRegex",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "RelationConfig (private method): `private static String escapeForRegex(String s) { return CqlUtils.escapeForRegex(s); }` — wraps CqlUtils with identical signature and no transformation."
+      ],
+      "suggestion": "Remove the private relay and call `CqlUtils.escapeForRegex(headword)` directly at the two call sites inside `mergeLemmaConstraint`. The indirection adds noise without adding meaning.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SemanticFieldExplorer was refactored to meet a class-size threshold by extracting CollocateProfileComparator, but the pass-through public methods were retained to preserve the existing API surface, resulting in a thin relay layer.",
+      "The private relay in RelationConfig is likely a historical artifact from an earlier refactor that moved escaping logic to CqlUtils without cleaning up the private wrapper."
+    ],
+    "likely_symptoms": [
+      "sfe_pure_relay_methods"
+    ],
+    "possible_false_positives": []
+  }
+}

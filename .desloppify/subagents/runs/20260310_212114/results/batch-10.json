@@ -1,0 +1,105 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 10,
+  "assessments": {"design_coherence": 72.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Package decomposition is clean: api/, config/, exploration/, model/, query/, indexer/, tagging/, utils/, viz/ each have a coherent single domain responsibility.",
+        "Model classes (AdjectiveProfile, ComparisonResult, CoreCollocate, ExplorationResult) are pure data holders — no service logic bleeds into them.",
+        "HttpApiUtils has tightly-scoped utility methods (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse, requireMethod, requireParam, parseQueryParams), each doing exactly one HTTP-level thing.",
+        "WordSketchApiServer delegates all domain logic to SketchHandlers and ExplorationHandlers; the server itself only wires routes and provides error-wrapping infrastructure.",
+        "QueryExecutor.executeSurfacePattern declares headPosition and collocatePosition parameters but its own javadoc says 'currently unused'; BlackLabQueryExecutor ignores them and re-derives collocate position from the pattern string. Every call site must pass dummy values that mean nothing.",
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti both contain four structurally identical for-loops that convert ExplorationResult sub-collections into response maps (seedCollocs, nouns, coreCollocs, edges). ~80 lines of near-verbatim duplication exist between the two handlers.",
+        "handleSemanticFieldExplore assembles the BCQL pattern, reverse collocate pattern, head/collocate positions, and ExploreOptions entirely inside the HTTP handler, rather than delegating this to SemanticFieldExplorer or RelationConfig. The handler must understand domain internals (collocatePosGroup, getFullPattern, headPosition, collocatePosition) that belong in the service layer.",
+        "SemanticFieldExplorer.exploreByPattern (~130 lines) interleaves algorithm steps with dense debug-log blocks; the logging is not extractable without also extracting the data, coupling presentation (log output) with computation in a way that makes the algorithm harder to trace.",
+        "CollocateProfileComparator was already extracted from SemanticFieldExplorer to keep classes manageable, showing design-awareness, but the class still holds both 'build raw profiles' and 'build profile list' as private methods with a shared mutable state pattern."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Package structure cleanly separates api, config, exploration, model, query, indexer, tagging, utils, and viz — each has a coherent single responsibility with no cross-cutting concern mixing.",
+        "Model classes are honest data holders; no service logic leaks into them, and they carry appropriate utility methods (getEdges, getTopNouns) without becoming god-objects.",
+        "HttpApiUtils extracts all HTTP-level concerns into single-purpose static methods, letting handlers stay focused on domain logic.",
+        "WordSketchApiServer is a thin routing layer — it creates handlers, registers routes, and provides error-wrapping; all domain decisions live elsewhere.",
+        "QueryExecutor interface distinguishes its methods precisely (findCollocations vs executeSurfacePattern vs executeBcqlQuery vs executeDependencyPattern) with javadoc explaining the distinctions."
+      ],
+      "issue_character": "Issues are concentrated at the API-to-service boundary: two HTTP handlers duplicate a structural response-building pattern, one interface carries dead parameters that every call site must stub, and one handler pulls domain assembly logic (pattern construction, options building) that belongs in the service layer — all pointing to an integration seam that was not fully abstracted.",
+      "score_rationale": "The overall architecture is sound and well-decomposed; a developer navigating any single layer finds focused, readable code. What pulls the score down is a pattern of leaky abstraction at the exploration API boundary: the duplicate for-loops across two handlers are mechanical noise that a shared helper would eliminate, and the 'currently unused' interface parameters represent an honest-interface failure that affects the public contract of QueryExecutor. These are real structural problems, not style preferences, but they are isolated to one subsystem rather than pervasive. Against the global anchors this lands around 72: clearly above the 'significant drag' threshold (60) because the codebase is largely well-structured, but short of 'solid but uneven' (80) because the integration seam shows a consistent pattern of incomplete abstraction rather than one-off lapses."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "dead_interface_params_surface_pattern",
+      "summary": "executeSurfacePattern declares headPosition/collocatePosition but both are documented as currently unused, making the interface dishonest",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeSurfacePattern javadoc: '@param headPosition 1-based position of the head token (currently unused)' and '@param collocatePosition 1-based position of the collocate token (currently unused)'",
+        "BlackLabQueryExecutor.executeSurfacePattern ignores both parameters entirely and re-derives collocatePos from the pattern string via BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2)",
+        "ExplorationHandlers.handleSemanticFieldExplore extracts headPos and collocatePos from RelationConfig only to pass them as dead arguments to executeSurfacePattern"
+      ],
+      "suggestion": "Remove headPosition and collocatePosition from the QueryExecutor interface and all call sites. The implementation already derives collocate position from the labeled BCQL pattern ('2:'); make that the sole source of truth. This eliminates a dishonest contract and 3+ call sites of dead argument passing.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "leaky_api_boundary"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "duplicate_explore_response_assembly",
+      "summary": "handleSemanticFieldExplore and handleSemanticFieldExploreMulti each contain four structurally identical for-loops to convert ExplorationResult into a response map",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Both handlers iterate result.seedCollocates to build seedCollocs, iterate result.coreCollocates to build coreCollocs, iterate result.discoveredNouns to build nouns/discoveredNounsList, and iterate result.getEdges() to build edges — approximately 80 lines of near-verbatim duplication",
+        "The only difference between the two edge-building blocks is variable naming (nouns vs discoveredNounsList); the formatting helpers (formatSeedCollocate, formatDiscoveredNoun, formatCoreCollocate, formatEdge) are already extracted, but the looping structure is still repeated twice"
+      ],
+      "suggestion": "Extract a private method buildExploreResponseBody(Map<String,Object> response, ExplorationResult result) that populates seedCollocs, coreCollocs, discoveredNouns, and edges into the response map. Both handlers call buildBaseExploreResponse then buildExploreResponseBody, differing only in the seed/seeds keys they add before that call.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "leaky_api_boundary"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "domain_logic_in_http_handler",
+      "summary": "handleSemanticFieldExplore assembles domain objects (BCQL pattern, reverse pattern, ExploreOptions) inside the HTTP handler rather than delegating to the service layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore calls relationConfig.get().getFullPattern(seed), then derives reverseCollocatePattern by inspecting collocatePosGroup(), then extracts headPos and collocatePos to construct ExploreOptions — domain assembly logic spread over ~10 lines inside the handler",
+        "SemanticFieldExplorer.exploreByPattern already accepts a pre-built bcqlPattern and simplePattern, so the handler must know how to construct both; a higher-level exploreByRelation(seed, RelationConfig, opts) overload would remove this knowledge from the handler",
+        "handleSemanticFieldExploreMulti does not repeat this pattern (it passes RelationConfig directly to exploreMultiSeed), showing an inconsistency in how much domain knowledge handlers are expected to carry"
+      ],
+      "suggestion": "Add an overload SemanticFieldExplorer.exploreByRelation(String seed, RelationConfig rel, ExploreOptions opts) that internally calls getFullPattern, derives the reverse pattern from collocatePosGroup, and delegates to exploreByPattern. The handler then only needs to parse params, build ExploreOptions, and call the service — mirroring the simpler pattern already used by handleSemanticFieldExploreMulti.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "leaky_api_boundary"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration API boundary was built incrementally: single-seed came first, multi-seed was added later, and the response-assembly code was copied rather than extracted, leaving the seam visible as duplicate loops and inconsistent handler responsibilities.",
+      "The executeSurfacePattern interface signature was apparently designed for a position-explicit implementation that was later superseded by pattern-label parsing; the old parameters were retained for compatibility rather than removed, accumulating dead API surface."
+    ],
+    "likely_symptoms": [
+      "dead_interface_params_surface_pattern is a symptom of an interface that grew beyond its original design and was not pruned when the implementation changed",
+      "duplicate_explore_response_assembly is a symptom of a feature added by copy-paste from an existing handler without extracting a shared builder first"
+    ],
+    "possible_false_positives": []
+  }
+}

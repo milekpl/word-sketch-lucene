@@ -138,7 +138,6 @@ class SketchHandlers {
                         List<QueryResults.WordSketchResult> results =
                             executor.executeSurfacePattern(
                                 lemma, fullPattern,
-                                rel.headPosition(), rel.collocatePosition(),
                                 0.0, 20);
 
                         if (!results.isEmpty()) {
@@ -175,7 +174,7 @@ class SketchHandlers {
             response.put("type", "dependency");
             response.put("relations", byRelation);
         } else {
-            response.put("patterns", byRelation);
+            response.put("relations", byRelation);
         }
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -205,7 +204,6 @@ class SketchHandlers {
             String fullPattern = rel.getFullPattern(lemma);
             results = executor.executeSurfacePattern(
                 lemma, fullPattern,
-                rel.headPosition(), rel.collocatePosition(),
                 0.0, 50);
         } catch (IOException e) {
             logger.error("Query failed", e);
@@ -277,7 +275,7 @@ class SketchHandlers {
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
                 word1.toLowerCase(), word2.toLowerCase());
-            logger.debug("Using fallback BCQL: {}", bcqlQuery);
+            logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", relation, bcqlQuery);
         }
 
         List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, limit);
@@ -295,7 +293,6 @@ class SketchHandlers {
         for (QueryResults.CollocateResult r : results) {
             Map<String, Object> exMap = new HashMap<>();
             exMap.put("sentence", r.getSentence());
-            exMap.put("highlighted", r.getSentence());
             exMap.put("raw", r.rawXml() != null ? r.rawXml() : r.sentence());
             examplesList.add(exMap);
         }
@@ -372,16 +369,12 @@ class SketchHandlers {
             for (QueryResults.CollocateResult r : results) {
                 Map<String, Object> resultMap = new HashMap<>();
                 resultMap.put("sentence", r.getSentence());
-                if (r.rawXml() != null) {
-                    resultMap.put("raw", r.rawXml());
-                }
+                resultMap.put("raw", r.rawXml() != null ? r.rawXml() : "");
                 resultMap.put("match_start", r.getStartOffset());
                 resultMap.put("match_end", r.getEndOffset());
-                if (r.collocateLemma() != null) {
-                    resultMap.put("collocate_lemma", r.collocateLemma());
-                    resultMap.put("frequency", r.frequency());
-                    resultMap.put("log_dice", r.logDice());
-                }
+                resultMap.put("collocate_lemma", r.collocateLemma() != null ? r.collocateLemma() : "");
+                resultMap.put("frequency", r.frequency());
+                resultMap.put("log_dice", r.logDice());
                 resultsList.add(resultMap);
             }
             response.put("results", resultsList);

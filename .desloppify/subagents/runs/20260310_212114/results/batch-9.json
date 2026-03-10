@@ -1,0 +1,107 @@
+{
+  "batch": "definition_directness",
+  "batch_index": 9,
+  "assessments": {"definition_directness": 68.0},
+  "dimension_notes": {
+    "definition_directness": {
+      "evidence": [
+        "QueryExecutor.executeSurfacePattern documents headPosition and collocatePosition as 'currently unused' but retains them for 'interface compatibility', making the interface contract misleading",
+        "GrammarConfigLoader uses throwMissing(Path) — a method declared to return String but always throws — purely to enable constructor chaining inside a ternary; indirect and surprising to readers",
+        "SemanticFieldExplorer carries an ownsExecutor boolean and indexPath field purely to support the @Deprecated constructor path; the DI constructor sets indexPath to null, meaning a field that is always null in normal usage",
+        "RelationConfig.posGroupFromConstraint is 20+ lines of chained String.contains checks repeated once for xpos= and again for tag=, with logger.warn() calls inlined into the return lines; the two-pass structure obscures the simple POS→enum mapping",
+        "Model classes (AdjectiveProfile, ComparisonResult, CoreCollocate, ExplorationResult, Edge) use clear final fields, focused constructors, and helper query methods with no leaking concerns",
+        "PosGroup enum is a clean, direct definition with a well-behaved fromString factory",
+        "QueryExecutor interface has thorough Javadoc that explicitly distinguishes findCollocations, executeBcqlQuery, and executeSurfacePattern to prevent misuse",
+        "ExplorationHandlers correctly uses a private record ExploreParams and parseExploreParams to avoid repeating parameter parsing logic across two handler methods",
+        "CqlUtils is a focused utility final class with a single named primitive splitCqlTokens and escapeForRegex; its own Javadoc notes the boundary with GrammarConfigLoader"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 72.0,
+        "indirection_cost": 60.0,
+        "interface_honesty": 58.0,
+        "delegation_density": 74.0,
+        "definition_directness": 68.0,
+        "type_discipline": 72.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "definition_directness": {
+      "strengths": [
+        "Model layer (AdjectiveProfile, ComparisonResult, CoreCollocate, ExplorationResult, Edge) uses direct, immutable final-field definitions with focused constructors and no leaking responsibilities",
+        "PosGroup enum and CqlUtils are textbook direct definitions: named constants, a clear factory, a single-purpose utility method, and Javadoc that states scope limits",
+        "QueryExecutor interface compensates for its surface complexity with explicit Javadoc that names the exact semantic difference between four similar-looking methods, letting callers choose correctly",
+        "ExplorationHandlers uses a private record ExploreParams and a single parseExploreParams helper to avoid duplicating tri-param extraction in two code paths — a direct, DRY definition"
+      ],
+      "issue_character": "Issues are concentrated in a small number of definition-layer tricks and parameter-retention compromises that introduce indirection or dishonesty to work around API-evolution constraints, rather than being a codebase-wide pattern.",
+      "score_rationale": "The model and config layers are well-defined and honest; most classes say what they are and do what they say. However, three specific definition-level problems meaningfully pull the score down: the unused-but-retained parameters in QueryExecutor.executeSurfacePattern create an interface that actively misleads callers about its contract; the throwMissing trick in GrammarConfigLoader requires the reader to reason past an unexpected type guarantee; and RelationConfig.posGroupFromConstraint duplicates a positional mapping as chained string checks rather than a lookup table, obscuring its intent. These are isolated but structurally significant because they appear on heavily-used code paths. Against a 80=solid-but-uneven anchor, the strong model layer earns partial credit but the interface honesty gap and the positional-map pattern keep the overall score below solid."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "definition_directness",
+      "identifier": "unused_interface_params",
+      "summary": "QueryExecutor.executeSurfacePattern retains headPosition/collocatePosition parameters documented as unused, making the interface contract dishonest",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java line 92-93: '@param headPosition 1-based position of the head token (currently unused)' and '@param collocatePosition 1-based position of the collocate token (currently unused)'",
+        "The interface declares parameters that implementations are explicitly told to ignore, but callers cannot know without reading both the Javadoc and the implementation"
+      ],
+      "suggestion": "Remove headPosition and collocatePosition from the executeSurfacePattern signature. If positional information is embedded in the BCQL pattern (which the Javadoc implies), rely on that alone. If future use is genuinely anticipated, define a separate overload or a configuration object, so the base interface does not carry dead weight.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_evolution_debt"
+    },
+    {
+      "dimension": "definition_directness",
+      "identifier": "throwmissing_type_lie",
+      "summary": "GrammarConfigLoader.throwMissing() is declared to return String but always throws, used solely to enable a constructor-chaining ternary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.java line 88-90: 'private static String throwMissing(Path p) throws IOException { throw new IOException(\"Grammar config file not found: \" + p); }' — method signature lies about its return type",
+        "Used in the public constructor as: 'Files.exists(configPath) ? Files.readString(configPath) : throwMissing(configPath)' — the ternary trick forces the compiler to accept a method that never returns a String"
+      ],
+      "suggestion": "Replace the ternary trick with a straightforward guard clause: if (!Files.exists(configPath)) throw new IOException(\"...\"); String content = Files.readString(configPath); return new GrammarConfigLoader(content, configPath);. This makes the public constructor honest and the control flow explicit.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "interface_evolution_debt"
+    },
+    {
+      "dimension": "definition_directness",
+      "identifier": "posgroup_repetitive_string_matching",
+      "summary": "RelationConfig.posGroupFromConstraint duplicates POS-tag string matching for xpos= and tag= as chained contains() chains instead of a lookup table",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "posGroupFromConstraint lines 144-162: six POS categories are matched twice — once for 'xpos=' and once for 'tag=' — using String.contains() checks in a 20-line chain, with logger.warn() calls embedded inline into return statements for the deprecated path",
+        "The logical structure (xpos prefix → PosGroup) is obscured by the two-pass repetition and inlined side effects"
+      ],
+      "suggestion": "Define a private static final Map<String, PosGroup> keyed on the two-character xpos prefix (e.g., 'jj'→ADJ, 'vb'→VERB). Extract the attribute value from both xpos= and tag= using the existing extractConstraintAttribute helper, then do a single map lookup. Move the deprecation warning to a separate validation step or to the config loader so the mapping function is pure.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Interface evolution debt: parameters and methods accumulated to preserve backwards compatibility but were not cleaned up once the implementation diverged, leaving callers with misleading contracts",
+      "Clever-code preference: both the throwMissing trick and the chained contains() approach solve real problems (constructor chaining, pattern matching) but favour brevity over directness"
+    ],
+    "likely_symptoms": [
+      "unused_interface_params",
+      "throwmissing_type_lie"
+    ],
+    "possible_false_positives": []
+  }
+}

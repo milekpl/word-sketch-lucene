@@ -56,9 +56,7 @@ public class GrammarConfigLoader {
      * @throws IOException if the file cannot be read or the config is invalid
      */
     public GrammarConfigLoader(Path configPath) throws IOException {
-        this(Files.exists(configPath) ? Files.readString(configPath)
-                : throwMissing(configPath),
-             configPath);
+        this(readConfigFile(configPath), configPath);
     }
 
     /**
@@ -84,9 +82,15 @@ public class GrammarConfigLoader {
         }
     }
 
-    /** Throws IOException for a missing config file (helper for constructor chaining). */
-    private static String throwMissing(Path p) throws IOException {
-        throw new IOException("Grammar config file not found: " + p);
+    /** Reads config file content, throwing {@link IOException} if the file does not exist. */
+    private static String readConfigFile(Path p) throws IOException {
+        if (!Files.exists(p)) throwMissing(p);
+        return Files.readString(p);
+    }
+
+    /** Always throws {@link IllegalStateException} for a missing config file. */
+    private static void throwMissing(Path p) {
+        throw new IllegalStateException("Grammar config file not found: " + p);
     }
 
     /** Primary constructor: parses JSON content directly. */

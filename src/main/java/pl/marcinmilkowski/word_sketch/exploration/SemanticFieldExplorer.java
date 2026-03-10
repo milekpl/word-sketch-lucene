@@ -77,7 +77,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
     private final CollocateProfileComparator comparator;
 
     // Patterns for finding collocates by POS (using xpos field from CoNLL-U index)
-    private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
     private static final String NOUN_PATTERN = "[xpos=\"NN.*\"]";
 
 
@@ -112,8 +111,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
         int nounsPerPredicate = opts.nounsPerCollocate();
         double minLogDice = opts.minLogDice();
         int minShared = opts.minShared();
-        int headPos = opts.headPos();
-        int collocatePos = opts.collocatePos();
 
         if (seed == null || seed.isEmpty()) {
             return ExplorationResult.empty(seed);
@@ -125,25 +122,14 @@ public class SemanticFieldExplorer implements AutoCloseable {
         logger.debug("Seed: {}", seed);
         logger.debug("Relation: {}", relationName);
         logger.debug("Pattern: {}", bcqlPattern);
-        logger.debug("Head position: {}, Collocate position: {}", headPos, collocatePos);
         logger.debug("Parameters: top={}, nounsPerRel={}, minShared={}, minLogDice={}", topPredicates, nounsPerPredicate, minShared, minLogDice);
         logger.debug("------------------------------------------------------------");
 
         // Step 1: Get predicates/collocates for the seed noun using the BCQL pattern
         logger.debug("\nStep 1: Finding collocates for '{}'...", seed);
 
-        // Use executeSurfacePattern which properly handles labeled BCQL patterns
-        List<QueryResults.WordSketchResult> seedRelations;
-        seedRelations = executor.executeSurfacePattern(
-                seed, bcqlPattern, headPos, collocatePos, minLogDice, topPredicates);
-
-        if (seedRelations.isEmpty()) {
-            logger.debug("  No results found for seed word.");
-            // Try fallback to simple pattern
-            logger.debug("  Trying fallback to simple pattern...");
-            seedRelations = executor.findCollocations(
-                seed, simplePattern, minLogDice, topPredicates);
-        }
+        List<QueryResults.WordSketchResult> seedRelations = fetchSeedCollocates(
+            seed, bcqlPattern, simplePattern, minLogDice, topPredicates);
 
         if (seedRelations.isEmpty()) {
             logger.debug("  Still no results. Seed may be too rare.");
@@ -163,88 +149,18 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
         // Step 2: For each collocate, find nouns it collocates with
         logger.debug("\nStep 2: Finding nouns for each collocate...");
-
-        // noun -> {collocate -> logDice}
-        Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
-
-        for (String colloc : seedCollocScores.keySet()) {
-            // For adjectives, find nouns they modify (reverse relation)
-            List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
-                colloc, NOUN_PATTERN, minLogDice, nounsPerPredicate);
-
-            logger.debug("  {}: {} nouns", colloc, nouns.size());
-
-            for (QueryResults.WordSketchResult r : nouns) {
-                String noun = r.getLemma().toLowerCase();
-                if (noun.equals(seed)) continue;
-
-                nounProfiles
-                    .computeIfAbsent(noun, k -> new LinkedHashMap<>())
-                    .put(colloc, r.getLogDice());
-            }
-        }
-
+        Map<String, Map<String, Double>> nounProfiles = buildNounProfiles(
+            seedCollocScores, seed, minLogDice, nounsPerPredicate);
         logger.debug("  Total candidate nouns: {}", nounProfiles.size());
 
         // Step 3: Score nouns by shared collocate count
         logger.debug("\nStep 3: Scoring nouns by shared {}...", relationName);
-
-        List<DiscoveredNoun> discoveredNouns = new ArrayList<>();
-
-        for (Map.Entry<String, Map<String, Double>> entry : nounProfiles.entrySet()) {
-            String noun = entry.getKey();
-            Map<String, Double> collocScores = entry.getValue();
-
-            int sharedCount = collocScores.size();
-            if (sharedCount < minShared) continue;
-
-            double cumulativeScore = collocScores.values().stream()
-                .mapToDouble(Double::doubleValue).sum();
-            double avgLogDice = cumulativeScore / sharedCount;
-            double similarityScore = sharedCount * avgLogDice;
-
-            discoveredNouns.add(new DiscoveredNoun(
-                noun, collocScores, sharedCount,
-                cumulativeScore, avgLogDice, similarityScore
-            ));
-        }
-
+        List<DiscoveredNoun> discoveredNouns = scoreNouns(nounProfiles, minShared);
         discoveredNouns.sort((a, b) -> Double.compare(b.similarityScore, a.similarityScore));
-
         logger.debug("  Nouns with {}+ shared: {}", minShared, discoveredNouns.size());
 
         // Step 4: Identify core collocates
-
-        Map<String, Integer> collocFrequency = new LinkedHashMap<>();
-        Map<String, Double> collocTotalScore = new LinkedHashMap<>();
-
-        for (DiscoveredNoun dn : discoveredNouns) {
-            for (Map.Entry<String, Double> colloc : dn.sharedCollocates.entrySet()) {
-                collocFrequency.merge(colloc.getKey(), 1, Integer::sum);
-                collocTotalScore.merge(colloc.getKey(), colloc.getValue(), Double::sum);
-            }
-        }
-
-        List<CoreCollocate> coreCollocates = new ArrayList<>();
-        int minNounsForCore = Math.max(2, discoveredNouns.size() / 3);
-
-        for (String colloc : seedCollocScores.keySet()) {
-            int freq = collocFrequency.getOrDefault(colloc, 0);
-            double totalScore = collocTotalScore.getOrDefault(colloc, 0.0);
-            double seedScore = seedCollocScores.get(colloc);
-
-            if (freq >= minNounsForCore || freq >= 2) {
-                coreCollocates.add(new CoreCollocate(
-                    colloc, freq, discoveredNouns.size(),
-                    seedScore, totalScore / Math.max(1, freq)
-                ));
-            }
-        }
-
-        coreCollocates.sort((a, b) -> {
-            int cmp = Integer.compare(b.sharedByCount, a.sharedByCount);
-            return cmp != 0 ? cmp : Double.compare(b.avgLogDice, a.avgLogDice);
-        });
+        List<CoreCollocate> coreCollocates = identifyCoreCollocates(seedCollocScores, discoveredNouns);
 
         // Print results
         logger.debug("\n--- RESULTS ---");
@@ -261,6 +177,96 @@ public class SemanticFieldExplorer implements AutoCloseable {
         logger.debug("------------------------------------------------------------");
 
         return new ExplorationResult(seed, seedCollocScores, seedCollocFrequencies, discoveredNouns, coreCollocates);
+    }
+
+    // ==================== EXPLORATION PHASE HELPERS ====================
+
+    /**
+     * Phase 1: Fetch seed collocates using the BCQL pattern, with fallback to simplePattern.
+     */
+    private List<QueryResults.WordSketchResult> fetchSeedCollocates(
+            String seed, String bcqlPattern, String simplePattern,
+            double minLogDice, int topPredicates) throws IOException {
+        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(
+            seed, bcqlPattern, minLogDice, topPredicates);
+        if (results.isEmpty()) {
+            logger.debug("  No results found for seed word. Trying fallback to simple pattern...");
+            results = executor.findCollocations(seed, simplePattern, minLogDice, topPredicates);
+        }
+        return results;
+    }
+
+    /**
+     * Phase 2: For each collocate, find nouns it collocates with (reverse lookup).
+     * Returns a map of noun → {collocate → logDice}.
+     */
+    private Map<String, Map<String, Double>> buildNounProfiles(
+            Map<String, Double> seedCollocScores, String seed,
+            double minLogDice, int nounsPerPredicate) throws IOException {
+        Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
+        for (String colloc : seedCollocScores.keySet()) {
+            List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
+                colloc, NOUN_PATTERN, minLogDice, nounsPerPredicate);
+            logger.debug("  {}: {} nouns", colloc, nouns.size());
+            for (QueryResults.WordSketchResult r : nouns) {
+                String noun = r.getLemma().toLowerCase();
+                if (noun.equals(seed)) continue;
+                nounProfiles.computeIfAbsent(noun, k -> new LinkedHashMap<>())
+                    .put(colloc, r.getLogDice());
+            }
+        }
+        return nounProfiles;
+    }
+
+    /**
+     * Phase 3: Score candidate nouns by how many shared collocates they have.
+     * Nouns below {@code minShared} are filtered out.
+     */
+    private List<DiscoveredNoun> scoreNouns(
+            Map<String, Map<String, Double>> nounProfiles, int minShared) {
+        List<DiscoveredNoun> discoveredNouns = new ArrayList<>();
+        for (Map.Entry<String, Map<String, Double>> entry : nounProfiles.entrySet()) {
+            String noun = entry.getKey();
+            Map<String, Double> collocScores = entry.getValue();
+            int sharedCount = collocScores.size();
+            if (sharedCount < minShared) continue;
+            double cumulativeScore = collocScores.values().stream().mapToDouble(Double::doubleValue).sum();
+            double avgLogDice = cumulativeScore / sharedCount;
+            discoveredNouns.add(new DiscoveredNoun(
+                noun, collocScores, sharedCount, cumulativeScore, avgLogDice, sharedCount * avgLogDice));
+        }
+        return discoveredNouns;
+    }
+
+    /**
+     * Phase 4: Identify core collocates — those shared by enough discovered nouns.
+     */
+    private List<CoreCollocate> identifyCoreCollocates(
+            Map<String, Double> seedCollocScores, List<DiscoveredNoun> discoveredNouns) {
+        Map<String, Integer> collocFrequency = new LinkedHashMap<>();
+        Map<String, Double> collocTotalScore = new LinkedHashMap<>();
+        for (DiscoveredNoun dn : discoveredNouns) {
+            for (Map.Entry<String, Double> colloc : dn.sharedCollocates.entrySet()) {
+                collocFrequency.merge(colloc.getKey(), 1, Integer::sum);
+                collocTotalScore.merge(colloc.getKey(), colloc.getValue(), Double::sum);
+            }
+        }
+        int minNounsForCore = Math.max(2, discoveredNouns.size() / 3);
+        List<CoreCollocate> coreCollocates = new ArrayList<>();
+        for (String colloc : seedCollocScores.keySet()) {
+            int freq = collocFrequency.getOrDefault(colloc, 0);
+            if (freq >= minNounsForCore || freq >= 2) {
+                double totalScore = collocTotalScore.getOrDefault(colloc, 0.0);
+                double seedScore = seedCollocScores.get(colloc);
+                coreCollocates.add(new CoreCollocate(
+                    colloc, freq, discoveredNouns.size(), seedScore, totalScore / Math.max(1, freq)));
+            }
+        }
+        coreCollocates.sort((a, b) -> {
+            int cmp = Integer.compare(b.sharedByCount, a.sharedByCount);
+            return cmp != 0 ? cmp : Double.compare(b.avgLogDice, a.avgLogDice);
+        });
+        return coreCollocates;
     }
 
     // ==================== COMPARISON MODE ====================

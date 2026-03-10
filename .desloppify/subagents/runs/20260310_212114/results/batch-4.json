@@ -1,0 +1,142 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 4,
+  "assessments": {"mid_level_elegance": 65.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreOptions record cleanly bundles 7 tuning+positional parameters for the handler→SemanticFieldExplorer boundary, collapsing a previously sprawling argument list into one explicit, named object.",
+        "The model package (ExplorationResult, DiscoveredNoun, CoreCollocate, AdjectiveProfile, Edge) defines stable DTOs that cross the exploration→API seam without leaking internals.",
+        "HttpApiUtils centralises all HTTP machinery (sendJsonResponse, sendError, sendOptionsResponse, requireParam, parseQueryParams) for both handler classes, keeping the seam clean.",
+        "GrammarConfigLoader exposes getRelation(id): Optional<RelationConfig>, a minimal, unsurprising lookup contract that hides its internal map from callers.",
+        "WordSketchApiServer is a thin router; SketchHandlers and ExplorationHandlers receive their dependencies via constructor injection and carry no routing logic.",
+        "ExplorationResult.empty() initialises seedCollocates/seedCollocateFrequencies/discoveredNouns/coreCollocates as Map.of()/List.of() (never null), but handleSemanticFieldExplore and handleSemanticFieldExploreMulti both null-check every one of those fields before iterating — the handlers do not trust the model's own contract.",
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti each independently iterate result.seedCollocates, result.coreCollocates, and result.getEdges() into List<Map<String,Object>> using the same private format helpers; the multi-seed variant also iterates result.coreCollocates a second time to build a separate 'common_collocates' (strings-only) list — the ExplorationResult→JSON translation is duplicated across both methods rather than centralised.",
+        "In handleSemanticFieldExplore the handler itself computes: String reverseCollocatePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ? \"[xpos=\\\"JJ.*\\\"]\" : \"[xpos=\\\"NN.*|VB.*\\\"]\"; — this PosGroup→CQL-regex translation belongs in RelationConfig (which already owns collocatePosGroup()), not in an HTTP handler.",
+        "handleConcordanceExamples silently falls back to a proximity pattern (\"word1\" []{0,5} \"word2\") when grammarConfig is null or the relation is absent, returning the fallback response with no field indicating that a completely different search type was used — the API boundary contract is opaque.",
+        "The nullable grammarConfig is independently guarded (if grammarConfig == null → sendError 500) in handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleRelationsImpl; the WordSketchApiServer constructor logs a warning but does not fail fast, so partial-initialisation state propagates into multiple handlers."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreOptions record provides an explicit, minimal, named bundle at the handler→SemanticFieldExplorer boundary.",
+        "The model package defines stable, seam-crossing DTOs (ExplorationResult, DiscoveredNoun, Edge, etc.) without exposing exploration internals to the API layer.",
+        "HttpApiUtils centralises all HTTP-boundary machinery in one place, eliminating per-handler duplication of JSON serialisation and error formatting.",
+        "GrammarConfigLoader exposes a minimal, Optional-returning lookup surface (getRelation) that hides internal storage from callers.",
+        "WordSketchApiServer is a thin router with dependency-injected handler objects, producing clean, readable composition at the top of the API seam."
+      ],
+      "issue_character": "The seam problems are localised to the exploration-endpoint boundary: duplicated result-to-response translation, a handler that breaks abstraction by computing CQL regex from a PosGroup enum, a model contract that callers do not trust, and two lifecycle/contract surprises (silent fallback, propagated nullable config) — each a distinct failure mode at the same layer transition.",
+      "score_rationale": "The structural foundations are solid: clean DTOs, a thin router, centralised HTTP utilities, and an ExploreOptions record show intentional seam design. However, the exploration endpoint boundary accumulates four distinct glue-code problems — duplicated response assembly, untrusted model nullability contract, a POS-regex computation that belongs in RelationConfig, and a silent concordance fallback — plus a scattered null-guard that should be a startup failure. The combination of good architectural bones with several specific, recurring mid-level seam failures places this in the 60–70 range; the clear structural wins prevent a lower score, but the seam issues are real friction for any developer extending the exploration or concordance paths."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_response_assembly_duplicated",
+      "summary": "ExplorationResult→JSON translation is duplicated across two explore handlers instead of centralised",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti each contain independent loops over result.seedCollocates, result.coreCollocates, and result.getEdges() using the same formatSeedCollocate/formatCoreCollocate/formatEdge helpers.",
+        "handleSemanticFieldExploreMulti iterates result.coreCollocates twice: once to build 'common_collocates' (strings) and again to build 'core_collocates' (full maps), adding ad-hoc boundary logic that does not exist in the single-seed path.",
+        "Both handlers share a ~30-line block of response assembly that differs only in a few endpoint-specific fields; any change to ExplorationResult serialisation must be made in two places."
+      ],
+      "suggestion": "Add a toResponseMap() or a dedicated ExplorationResultSerializer class that translates ExplorationResult into its canonical Map<String,Object> representation. Both handlers call that single translation; the multi-seed handler can layer its 'common_collocates' (strings) field on top of the shared base rather than re-iterating coreCollocates.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "exploration_result_null_contract_distrust",
+      "summary": "Handlers null-check ExplorationResult fields that ExplorationResult guarantees are non-null",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.empty() initialises seedCollocates with Map.of(), seedCollocateFrequencies with Map.of(), discoveredNouns with List.of(), and coreCollocates with List.of() — none can be null from any constructor path.",
+        "Both handleSemanticFieldExplore and handleSemanticFieldExploreMulti guard every iteration with 'if (result.seedCollocates != null)', 'if (result.discoveredNouns != null)', 'if (result.coreCollocates != null)', 'if (result.getEdges() != null)' — treating non-null guarantees as optional.",
+        "The inconsistency means the model's contract is not enforced: callers must mentally track whether the guarantee holds rather than relying on the type."
+      ],
+      "suggestion": "Make ExplorationResult's fields explicitly non-null by contract (add @NonNull annotations or enforce in the constructor with Objects.requireNonNull). Remove the null guards in the handlers. If a null-safe path is ever needed, let ExplorationResult.empty() be the canonical representation and rely on it.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "pos_regex_leaked_into_http_handler",
+      "summary": "CQL POS regex pattern derived from PosGroup enum inside an HTTP handler rather than RelationConfig",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/PosGroup.java"
+      ],
+      "evidence": [
+        "In handleSemanticFieldExplore: String reverseCollocatePattern = relationConfig.get().collocatePosGroup() == PosGroup.ADJ ? \"[xpos=\\\"JJ.*\\\"]\" : \"[xpos=\\\"NN.*|VB.*\\\"]\"; — the HTTP handler contains a switch over grammar domain knowledge.",
+        "RelationConfig already owns collocatePosGroup() and all POS-pattern logic (posGroupFromConstraint, extractLabelContent); the PosGroup→CQL-regex step is a natural extension of that existing responsibility.",
+        "This coupling means a change to the xpos prefix for adjectives (e.g., for a different corpus tagset) would require updating an HTTP handler instead of the grammar config layer."
+      ],
+      "suggestion": "Add a reverseCollocatePattern() method to RelationConfig (or PosGroup) that returns the appropriate CQL constraint string for the collocate's POS group. The handler simply calls relationConfig.get().reverseCollocatePattern() and passes it through.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "silent_concordance_fallback",
+      "summary": "handleConcordanceExamples silently substitutes a proximity query when the requested relation is absent",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "When grammarConfig is null or the relation is not found, the handler constructs a fallback: bcqlQuery = String.format('\"word1\" []{0,5} \"word2\"', ...) and proceeds to execute it.",
+        "The JSON response includes 'relation': the original relation ID requested, 'bcql': the fallback proximity pattern, and 'status': 'ok' — there is no 'fallback': true or warning field to inform the caller that a semantically different search was performed.",
+        "The caller asked for a relation-specific concordance (e.g., noun_adj_predicates) but receives proximity co-occurrence matches with no indication of the substitution."
+      ],
+      "suggestion": "Replace the silent fallback with an explicit 400 error when the relation is unknown. If a fallback proximity search is intentionally supported, include a 'fallback': true field and a 'fallback_reason': '...' field in the response so callers can distinguish the two cases.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "nullable_grammar_config_propagated",
+      "summary": "Nullable grammarConfig propagates to multiple handlers instead of failing fast at startup",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer constructor accepts a nullable grammarConfig and only logs a warning: 'WordSketchApiServer initialized without grammar configuration'.",
+        "handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleRelationsImpl each independently check 'if (grammarConfig == null) { sendError 500 }' — the same lifecycle guard is repeated three times across two classes.",
+        "Partial-initialisation state is observable only at request time, not at startup, making it harder to detect misconfiguration during server startup or in tests."
+      ],
+      "suggestion": "Require grammarConfig to be non-null in WordSketchApiServer (throw IllegalArgumentException or NullPointerException in the constructor). Remove the per-handler null guards. If a 'no grammar' mode is genuinely needed, introduce a NullGrammarConfig object or an Optional<GrammarConfigLoader> with a clearly named absent-config policy.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration API grew organically: single-seed was implemented first, then multi-seed was added by copying the single-seed handler rather than factoring out a shared translation layer — leaving duplicated glue code and diverging null-handling patterns at the same seam.",
+      "RelationConfig was designed as a grammar-config value object; the reverse-pattern CQL derivation was added incrementally in the handler layer rather than being pushed back into the config type that already owns all other pattern knowledge.",
+      "The grammarConfig nullable constructor path may have been intended for a lightweight 'no-grammar' startup mode, but the lack of a null-object pattern forces null checks to scatter across all grammar-dependent handlers."
+    ],
+    "likely_symptoms": [
+      "explore_response_assembly_duplicated is a symptom of the single→multi-seed code-copy growth pattern.",
+      "exploration_result_null_contract_distrust is likely a symptom of uncertain early-lifecycle guarantees in ExplorationResult that have since been resolved but whose defensive guards were never removed."
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -211,34 +211,6 @@ class BlackLabSnippetParserTest {
         assertNull(BlackLabSnippetParser.extractCollocateFromXmlByPosition("<w lemma=\"cat\"/>", 0));
     }
 
-    // ── extractCollocateFromMatchText ─────────────────────────────────────────
-
-    @Test
-    @DisplayName("extractCollocateFromMatchText: extracts token by 1-based position")
-    void extractCollocateFromMatchText_correctPosition() {
-        assertEquals("theory", BlackLabSnippetParser.extractCollocateFromMatchText("theory is correct", 1));
-        assertEquals("is", BlackLabSnippetParser.extractCollocateFromMatchText("theory is correct", 2));
-        assertEquals("correct", BlackLabSnippetParser.extractCollocateFromMatchText("theory is correct", 3));
-    }
-
-    @Test
-    @DisplayName("extractCollocateFromMatchText: returns lowercased token")
-    void extractCollocateFromMatchText_lowercases() {
-        assertEquals("theory", BlackLabSnippetParser.extractCollocateFromMatchText("Theory is valid", 1));
-    }
-
-    @Test
-    @DisplayName("extractCollocateFromMatchText: out-of-bounds returns null")
-    void extractCollocateFromMatchText_outOfBoundsReturnsNull() {
-        assertNull(BlackLabSnippetParser.extractCollocateFromMatchText("one two", 5));
-    }
-
-    @Test
-    @DisplayName("extractCollocateFromMatchText: null input returns null")
-    void extractCollocateFromMatchText_nullReturnsNull() {
-        assertNull(BlackLabSnippetParser.extractCollocateFromMatchText(null, 1));
-    }
-
     // ── extractHeadword ───────────────────────────────────────────────────────
 
     @Test

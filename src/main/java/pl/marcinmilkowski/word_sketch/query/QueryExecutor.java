@@ -89,8 +89,6 @@ public interface QueryExecutor extends Closeable {
      *
      * @param lemma             The head lemma (already substituted into {@code bcqlPattern})
      * @param bcqlPattern       BCQL pattern with labeled positions (1: head, 2: collocate)
-     * @param headPosition      1-based position of the head token (currently unused)
-     * @param collocatePosition 1-based position of the collocate token (currently unused)
      * @param minLogDice        Minimum logDice score threshold (0 for no minimum)
      * @param maxResults        Maximum number of results to return
      * @return Collocate results ranked by logDice descending
@@ -98,7 +96,6 @@ public interface QueryExecutor extends Closeable {
      */
     List<QueryResults.WordSketchResult> executeSurfacePattern(
             String lemma, String bcqlPattern,
-            int headPosition, int collocatePosition,
             double minLogDice, int maxResults) throws IOException;
 
     /**

@@ -70,9 +70,19 @@ java -jar concept-sketch.jar server --index data/index/ --port 8080
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /health` | Server health |
-| `GET /api/sketch/{lemma}` | Word sketch for lemma |
-| `GET /api/semantic-field/explore` | Single-seed exploration |
-| `GET /api/semantic-field/explore-multi` | **Multi-seed exploration (NEW)** |
+| `GET /api/sketch/{lemma}` | Full word sketch (all surface relations) |
+| `GET /api/sketch/{lemma}/{relation}` | Specific surface grammatical relation |
+| `GET /api/sketch/{lemma}/dep` | Full dependency sketch |
+| `GET /api/sketch/{lemma}/dep/{deprel}` | Specific dependency relation |
+| `GET /api/relations` | List available surface relations |
+| `GET /api/relations/dep` | List available dependency relations |
+| `GET /api/semantic-field/explore` | Single-seed semantic field exploration |
+| `GET /api/semantic-field/explore-multi` | Multi-seed semantic field exploration |
+| `GET /api/semantic-field` | Semantic field comparison across nouns |
+| `GET /api/semantic-field/examples` | Concordance examples for adjective-noun pair |
+| `GET /api/concordance/examples` | Concordance examples for a word pair |
+| `POST /api/visual/radial` | Render radial plot (SVG) |
+| `POST /api/bcql` | Execute arbitrary BCQL query |
 
 ### Multi-Seed Endpoint
 

@@ -1,0 +1,113 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 7,
+  "assessments": {
+    "convention_outlier": 74.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Naming is uniformly standard Java throughout all 32 files: camelCase methods/fields, PascalCase classes, UPPER_CASE constants — no snake_case or vocabulary drift anywhere.",
+        "model/ package has two distinct type strategies for sibling data-holder classes: AdjectiveProfile, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult all expose data via public final fields, while ComparisonResult uses private fields + getters (getNouns(), getAllAdjectives(), getFullyShared(), getPartiallyShared(), getSpecific(), getSpecificTo(), getEdges()).",
+        "ExploreOptions in model/ is a Java record, a third distinct pattern for holding domain data alongside the public-fields and getter-based approaches.",
+        "BlackLab indexer implementation is correctly isolated in indexer/blacklab/ (BlackLabConllUIndexer, ConlluConverter). BlackLab query implementation (BlackLabQueryExecutor, BlackLabSnippetParser) sits at the query/ package root alongside the QueryExecutor interface — a structural inconsistency versus the indexer convention.",
+        "ADJECTIVE_PATTERN constant ('[xpos=\"JJ.*\"]') is duplicated as a private static final in both SemanticFieldExplorer and CollocateProfileComparator, two sibling classes in the exploration/ package.",
+        "api/ package applies consistent package-private visibility for handler classes (ExplorationHandlers, SketchHandlers) with only the facade (WordSketchApiServer) and utilities (HttpApiUtils) being public — consistent across all four api/ files.",
+        "TaggedToken in tagging/ uses private fields + getters (getWord(), getLemma(), getTag(), getPosition()), while most model/ domain objects use public final fields — a mild style island in the tagging package."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Naming is uniformly standard Java camelCase/PascalCase/UPPER_CASE across all 32 files — a developer sees zero naming-style drift between packages.",
+        "api/ package applies a consistent encapsulation pattern: handler classes are package-private, only the server facade and stateless utilities are public.",
+        "Utility classes (CqlUtils, PatternSubstitution, LogDiceCalculator, QueryResults) uniformly use private constructors and static methods — one clear pattern throughout.",
+        "Package decomposition is logical and self-explanatory (model, api, config, query, exploration, indexer/blacklab, tagging, utils, viz) — a developer can predict where to look.",
+        "BlackLab indexer correctly isolates its implementation in a subdirectory (indexer/blacklab/), establishing a good convention that other packages could follow."
+      ],
+      "issue_character": "Convention drift is bounded to two areas — type-strategy inconsistency within the model package (public-fields vs. getter-based vs. record) and a structural divergence between how the indexer and the query packages organise their BlackLab-specific implementations.",
+      "score_rationale": "The codebase sits above the 70-point 'mixed' threshold because naming is fully consistent and most packages follow clear, uniform patterns. However, a developer working in the model layer will immediately face a 'which pattern do I follow?' question when ComparisonResult uses getters while five sibling classes expose public fields, and ExploreOptions is a record — this is genuine friction that places the score below 80. The indexer/query structural divergence adds a second point of confusion for orientation without being widespread enough to drop into the 60s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "model_type_strategy_inconsistency",
+      "summary": "ComparisonResult uses private fields + getters while 5 sibling model classes use public final fields",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/CoreCollocate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/DiscoveredNoun.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "AdjectiveProfile, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult all declare public final fields and expose data directly (e.g., adj.presentInCount, dn.sharedCount, ca.collocate).",
+        "ComparisonResult declares private final fields and exposes them via getters: getNouns(), getAllAdjectives(), getFullyShared(), getPartiallyShared(), getSpecific(), getSpecificTo(), getEdges().",
+        "ExploreOptions is a Java record — a third distinct pattern for value-holder classes in the same package.",
+        "ExplorationHandlers directly accesses public fields on DiscoveredNoun (dn.noun, dn.sharedCount) and calls getters on ComparisonResult (result.getAllAdjectives(), result.getFullyShared()), making the inconsistency visible to every caller."
+      ],
+      "suggestion": "Pick one pattern for the model/ package and apply it uniformly. The simplest migration is to convert ComparisonResult to use public final fields matching its siblings, replacing getNouns() with direct access to a public final List<String> nouns field, and so on. Alternatively, convert all data-holder classes to Java records (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult) for immutability and conciseness — ExploreOptions already demonstrates this approach.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "model_type_strategy"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "blacklab_query_not_in_subdirectory",
+      "summary": "BlackLab query implementation sits at query/ root; indexer correctly isolates its BlackLab code in indexer/blacklab/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "indexer/blacklab/ contains BlackLabConllUIndexer and ConlluConverter — the BlackLab implementation is isolated from any future non-BlackLab indexer.",
+        "query/ contains QueryExecutor (interface), BlackLabQueryExecutor, and BlackLabSnippetParser at the same level — the interface and its sole implementation are peers, not separated as in the indexer package.",
+        "A developer adding a second query backend (e.g., a Lucene-direct executor) would follow the indexer convention and create query/lucene/ or query/blacklab/, but there is no existing signal in the query/ package that this is the expected pattern."
+      ],
+      "suggestion": "Move BlackLabQueryExecutor and BlackLabSnippetParser into a new query/blacklab/ subpackage (package pl.marcinmilkowski.word_sketch.query.blacklab), mirroring the indexer/blacklab/ convention. QueryExecutor remains in query/ as the interface. Update the two import sites (WordSketchApiServer, SemanticFieldExplorer).",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "blacklab_placement"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "adjective_pattern_constant_duplicated",
+      "summary": "ADJECTIVE_PATTERN constant duplicated in two sibling classes in the exploration/ package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer defines: private static final String ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\";",
+        "CollocateProfileComparator defines: private static final String ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\"; — identical string in the same package.",
+        "NOUN_PATTERN is also defined in SemanticFieldExplorer but not in CollocateProfileComparator, suggesting the duplication is accidental rather than an intentional separation of concerns."
+      ],
+      "suggestion": "Extract shared pattern constants into a package-private constants class in the exploration/ package (e.g., ExplorationPatterns with public static final fields ADJECTIVE_PATTERN and NOUN_PATTERN). Both SemanticFieldExplorer and CollocateProfileComparator reference the shared constants.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "model_type_strategy"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental development: model classes added at different times adopted the pattern the author was thinking about at that moment (public fields early, getters for ComparisonResult, records for ExploreOptions when Java records were embraced).",
+      "The indexer/blacklab/ subdirectory was set up correctly upfront, but query/ was not reorganised to match when BlackLabQueryExecutor was introduced — possibly because there was only ever one executor implementation."
+    ],
+    "likely_symptoms": [
+      "model_type_strategy_inconsistency — the mixed accessor patterns are most visible to callers"
+    ],
+    "possible_false_positives": []
+  }
+}

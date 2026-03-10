@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpPrincipal;
 import org.junit.jupiter.api.Test;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
 
 import java.io.*;
 import java.net.InetSocketAddress;
@@ -87,7 +88,7 @@ class HandlersTest {
 
     @Test
     void handleSemanticFieldExplore_missingSeed_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, null);
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
         MockExchange ex = new MockExchange("http://localhost/api/semantic-field/explore");
         handlers.handleSemanticFieldExplore(ex);
         assertEquals(400, ex.statusCode);
@@ -95,7 +96,7 @@ class HandlersTest {
 
     @Test
     void handleSemanticFieldExploreMulti_missingSeeds_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, null);
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
         MockExchange ex = new MockExchange("http://localhost/api/semantic-field/explore-multi");
         handlers.handleSemanticFieldExploreMulti(ex);
         assertEquals(400, ex.statusCode);
@@ -103,7 +104,7 @@ class HandlersTest {
 
     @Test
     void handleSemanticFieldExploreMulti_oneSeed_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, null);
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
         MockExchange ex = new MockExchange("http://localhost/api/semantic-field/explore-multi?seeds=theory");
         handlers.handleSemanticFieldExploreMulti(ex);
         assertEquals(400, ex.statusCode);

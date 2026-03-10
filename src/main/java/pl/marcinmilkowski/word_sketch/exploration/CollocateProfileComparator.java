@@ -198,7 +198,6 @@ public class CollocateProfileComparator {
             String bcqlPattern = relationConfig.getFullPattern(seed);
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
                 seed, bcqlPattern,
-                relationConfig.headPosition(), relationConfig.collocatePosition(),
                 minLogDice, topCollocates);
             seedCollocateMap.put(seed, collocates);
 

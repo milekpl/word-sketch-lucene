@@ -218,22 +218,25 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         for (int idx = 0; idx < sampleSize; idx++) {
             Hit hit = sample.get(idx);
             Concordance conc = concordances.get(hit);
-            String leftText = "", matchText = "", rightText = "", xmlSnippet = "";
-            String collocateLemma = null;
 
-            if (conc != null) {
-                String[] parts = conc.parts();
-                if (parts != null && parts.length >= 3) {
-                    String leftXml  = parts[0] != null ? parts[0] : "";
-                    String matchXml = parts[1] != null ? parts[1] : "";
-                    String rightXml = parts[2] != null ? parts[2] : "";
-                    xmlSnippet = leftXml + matchXml + rightXml;
-                    leftText   = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
-                    matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
-                    rightText  = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
-                    collocateLemma = extractCollocateLemma(matchXml, collocatePos);
-                }
+            if (conc == null) {
+                records.add(new HitRecord("", "", "", "", null, hit.doc(), hit.start(), hit.end()));
+                continue;
             }
+            String[] parts = conc.parts();
+            if (parts == null || parts.length < 3) {
+                records.add(new HitRecord("", "", "", "", null, hit.doc(), hit.start(), hit.end()));
+                continue;
+            }
+
+            String leftXml  = parts[0] != null ? parts[0] : "";
+            String matchXml = parts[1] != null ? parts[1] : "";
+            String rightXml = parts[2] != null ? parts[2] : "";
+            String xmlSnippet = leftXml + matchXml + rightXml;
+            String leftText   = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
+            String matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
+            String rightText  = BlackLabSnippetParser.extractPlainTextFromXml(BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
+            String collocateLemma = extractCollocateLemma(matchXml, collocatePos);
 
             if (collocateLemma != null && !collocateLemma.isEmpty()) {
                 freqMapOut.merge(collocateLemma.toLowerCase(), 1L, Long::sum);
@@ -401,7 +404,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     @Override
     public List<QueryResults.WordSketchResult> executeSurfacePattern(
             String lemma, String bcqlPattern,
-            int headPosition, int collocatePosition,
             double minLogDice, int maxResults) throws IOException {
 
         if (lemma == null || lemma.isEmpty()) {

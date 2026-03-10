@@ -1,0 +1,121 @@
+{
+  "batch": "type_discipline",
+  "batch_index": 6,
+  "assessments": {"type_discipline": 62.0},
+  "dimension_notes": {
+    "type_discipline": {
+      "evidence": [
+        "AdjectiveProfile.getStrongestNoun() is declared to return String but uses .orElse(null), so null is a valid return value; callers such as ExplorationHandlers.formatAdjectiveProfile() pass the result directly into a map without a null check",
+        "HttpApiUtils.requireParam() is declared to return String but returns null when the parameter is missing (line 98); the javadoc warns callers to check for null but the type system does not enforce this — Optional<String> would encode nullability at the type level",
+        "ExplorationHandlers line 100: ((Map<String, Object>) response.get(\"parameters\")).put(\"nouns_per\", ...) is an unchecked cast from Object to Map<String, Object>; the parent map is built in buildBaseExploreResponse and the cast is guaranteed to succeed today but is fragile and generates an unchecked-cast warning",
+        "TaggedToken.getPosGroup() bypasses the PosGroup enum for five common categories: returns raw String literals \"det\", \"pron\", \"prep\", \"conj\", \"punct\" instead of PosGroup.OTHER or an extended enum value; PosGroup.fromString() is unable to round-trip these values back to enum constants",
+        "GrammarConfigLoader.parseRelationType() returns null (declared return type RelationType) when the value is absent or unrecognised; the RelationConfig record field 'RelationType relationType' therefore accepts null silently; SketchHandlers line 95 calls rel.relationType().name() without a null guard, which would throw NPE if any relation lacks a type"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 78.0,
+        "indirection_cost": 85.0,
+        "interface_honesty": 60.0,
+        "delegation_density": 88.0,
+        "definition_directness": 72.0,
+        "type_discipline": 62.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "type_discipline": {
+      "strengths": [
+        "GrammarConfigLoader.getRelation() returns Optional<RelationConfig>, correctly encoding nullability at the type level for a lookup that may not find a match",
+        "Generics are applied consistently throughout: no raw List or Map without type parameters anywhere in the seed files",
+        "RelationConfig is a Java record with fully typed fields; PosGroup enum includes a fromString() factory that guards against invalid string values",
+        "Model classes (ExplorationResult, ComparisonResult, AdjectiveProfile) expose final typed fields with no Object or unchecked types"
+      ],
+      "issue_character": "The issues are a recurring pattern of nullable-String returns that bypass Optional, localised to public-facing utility and model methods, plus one enum bypass in TaggedToken where the PosGroup type system was extended via raw strings rather than enum entries.",
+      "score_rationale": "The codebase sits solidly in the 60–70 band. Generics and records are used well throughout, and Optional appears where it matters most (getRelation). However, several public methods (getStrongestNoun, requireParam, getFullPattern, getDeprel) return String while silently returning null, defeating the type system in the same way @Nullable-unannotated Java code does. The TaggedToken.getPosGroup() enum bypass is the most structurally problematic issue: an enum exists but five categories simply fall back to raw literal strings, making PosGroup.fromString() a lossy round-trip. These are not catastrophic but they are consistent enough to pull the score below 65."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_discipline",
+      "identifier": "nullable_string_strongest_noun",
+      "summary": "AdjectiveProfile.getStrongestNoun() returns String but can return null via .orElse(null)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "AdjectiveProfile.getStrongestNoun() line 48: .orElse(null) makes null a valid return, but the declared return type is String",
+        "ExplorationHandlers.formatAdjectiveProfile() calls adj.getStrongestNoun() and puts the result into a map as adjMap.put(\"specific_to\", adj.getStrongestNoun()) without a null check — a null value would silently enter the JSON response"
+      ],
+      "suggestion": "Change the return type to Optional<String> and update all callers to handle the Optional explicitly (e.g., .ifPresent(n -> adjMap.put(\"specific_to\", n)))",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "pos_group_enum_bypass",
+      "summary": "TaggedToken.getPosGroup() returns raw string literals for five POS categories not covered by the PosGroup enum",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tagging/TaggedToken.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/PosGroup.java"
+      ],
+      "evidence": [
+        "TaggedToken.getPosGroup() returns \"det\", \"pron\", \"prep\", \"conj\", \"punct\" as raw String literals for D/P/I/C/U first-character POS tags",
+        "PosGroup enum defines only NOUN, VERB, ADJ, ADV, OTHER; PosGroup.fromString() maps none of the five raw literals back to an enum constant, returning OTHER for all of them — making the values unreachable via the enum type"
+      ],
+      "suggestion": "Either (a) extend PosGroup with DET, PRON, PREP, CONJ, PUNCT entries and return PosGroup from getPosGroup(), or (b) collapse all non-NOUN/VERB/ADJ/ADV cases to PosGroup.OTHER and return the enum type; callers that need fine-grained categories can call getTag() directly",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "unchecked_map_cast_exploration",
+      "summary": "ExplorationHandlers casts Object to Map<String, Object> without a type-safe alternative",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Line 100: ((Map<String, Object>) response.get(\"parameters\")).put(\"nouns_per\", nounsPerCollocate) — response is Map<String, Object>, so .get() returns Object; the cast is unchecked and will produce a compiler warning",
+        "The buildBaseExploreResponse helper stores the parameters sub-map as a plain Object entry, losing the type information immediately after construction"
+      ],
+      "suggestion": "Capture the parameters sub-map in a local variable before inserting it into the response: Map<String, Object> paramsMap = new HashMap<>(); ... response.put(\"parameters\", paramsMap); then reuse paramsMap for subsequent .put() calls, eliminating the cast entirely",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "nullable_relation_type_in_record",
+      "summary": "RelationConfig.relationType record field can hold null because parseRelationType() returns null on absent or invalid input",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.parseRelationType() lines 205-207: returns null for a blank/absent value and for an unrecognised enum name",
+        "RelationConfig record declares 'RelationType relationType' without @NonNull or Optional; the field is thus silently nullable",
+        "SketchHandlers line 95: rel.relationType().name() is called without a null guard — if any relation in the config omits 'relation_type', this throws NullPointerException at runtime"
+      ],
+      "suggestion": "Either (a) make relationType non-nullable by defaulting to RelationType.SURFACE in parseRelationType() instead of returning null, or (b) declare the field as Optional<RelationType> and guard all usages; option (a) is simpler and matches how the field is used in practice",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Nullable String returns are used as a lightweight sentinel pattern throughout utility methods (requireParam, getStrongestNoun, getFullPattern, getDeprel) rather than Optional, likely because Optional was not adopted uniformly when these methods were first written",
+      "The PosGroup enum was introduced to cover the main five grammar-relevant categories but was not extended when TaggedToken.getPosGroup() needed finer distinctions, leading to raw string fallbacks that bypass the type"
+    ],
+    "likely_symptoms": [
+      "nullable_string_strongest_noun",
+      "nullable_relation_type_in_record"
+    ],
+    "possible_false_positives": []
+  }
+}

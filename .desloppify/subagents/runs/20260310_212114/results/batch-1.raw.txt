@@ -1,0 +1,95 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {"high_level_elegance": 67.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Packages map tightly to domain capabilities: api (HTTP), config (grammar/relation config), exploration (semantic analysis), model (DTOs), query (corpus execution), tagging (POS), utils (math/CQL helpers), viz (SVG generation) — no catch-all or historically-named packages.",
+        "WordSketchApiServer.start() is a pure routing façade: it creates contexts and delegates every handler to either SketchHandlers or ExplorationHandlers with no business logic in the server class itself.",
+        "SketchHandlers owns word-sketch, concordance, BCQL and radial endpoints; ExplorationHandlers owns all semantic-field exploration endpoints — the split matches the two natural feature domains and localises change.",
+        "Config-driven relation design: GrammarConfigLoader.getRelation() + RelationConfig.getFullPattern() means adding a new grammatical relation requires only a JSON change to relations.json, not a code change.",
+        "model package cleanly contains all DTOs (ExplorationResult, DiscoveredNoun, CoreCollocate, AdjectiveProfile, ComparisonResult, Edge, ExploreOptions, QueryResults) with no logic from handlers or the query layer bleeding in.",
+        "CLAUDE.md API table (lines 70-75) lists only 4 of the 14 endpoints registered in WordSketchApiServer — omits /api/relations, /api/relations/dep, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial, /api/bcql. A developer reading the docs gets an incomplete and misleading picture of the API surface.",
+        "handleSemanticField (ExplorationHandlers line 259) silently accepts both 'seeds' and 'nouns' as parameter aliases via 'params.containsKey(\"seeds\") ? params.get(\"seeds\") : requireParam(exchange, params, \"nouns\")'. This undocumented shim creates an opaque compatibility alias; callers cannot determine the canonical parameter from docs or code signature.",
+        "SemanticFieldExplorer retains a @Deprecated String-path constructor alongside the preferred QueryExecutor constructor, leaving two competing initialization contracts in the exploration package until the old path is removed.",
+        "WordSketchApiServer constructor carries a TODO: 'Move HttpServer creation and route registration here so start() only calls server.start()' — an acknowledged split between construction-time and start-time registration that blurs the ownership of server lifecycle."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package hierarchy maps directly to domain capabilities (api, config, exploration, model, query, tagging, utils, viz) — a new engineer can orient instantly from the package list without reading any code.",
+        "Handler decomposition into SketchHandlers and ExplorationHandlers cleanly separates the two major feature domains; adding an endpoint requires touching only one handler class and one registration line in WordSketchApiServer.",
+        "WordSketchApiServer is a pure routing façade with no business logic — its only responsibility is creating HTTP contexts and delegating to typed handler objects.",
+        "Config-driven relation design makes adding new grammatical relations a data change (relations.json) rather than a code change, and that architectural decision is visible and consistent throughout the query and exploration layers.",
+        "The model package owns all DTOs without cross-cutting ownership — no handler or query class owns result types, so DTO changes have predictable blast radius."
+      ],
+      "issue_character": "Issues are concentrated in documentation accuracy and minor API contract fuzz rather than in the structural decomposition itself: the CLAUDE.md API table documents a small fraction of the real API surface, and one endpoint has an undocumented parameter alias; these do not invalidate the architecture but erode its trustworthiness as a reference for new engineers.",
+      "score_rationale": "The code architecture is genuinely clean and domain-aligned — package decomposition, handler delegation, config-driven design, and DTO ownership all demonstrate a coherent architectural vision, warranting a strong baseline near 80. The primary drag is that CLAUDE.md, the project's developer guide, lists only 4 of 14 registered endpoints, directly violating the 'reference docs match runtime reality' criterion; a developer relying on it misses most of the API surface entirely. Combined with the undocumented parameter alias in handleSemanticField and the retained deprecated constructor, these gaps in contract honesty pull the score to 67."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "incomplete_api_contract_docs",
+      "summary": "CLAUDE.md API table documents only 4 of 14 registered endpoints, misrepresenting the public API surface",
+      "related_files": ["CLAUDE.md", "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "CLAUDE.md lines 70-75: table lists only /health, /api/sketch/{lemma}, /api/semantic-field/explore, /api/semantic-field/explore-multi.",
+        "WordSketchApiServer.start() registers 14 contexts including /api/relations, /api/relations/dep, /api/semantic-field, /api/semantic-field/examples, /api/concordance/examples, /api/visual/radial (GET+POST), and /api/bcql — none of these appear in CLAUDE.md.",
+        "WordSketchApiServer class Javadoc does list all 14 endpoints, but developers consulting CLAUDE.md as the project guide get an incomplete picture."
+      ],
+      "suggestion": "Expand the CLAUDE.md API endpoint table to list all 14 registered endpoints, matching the class-level Javadoc on WordSketchApiServer. Alternatively, replace the partial table with a reference to the Javadoc and keep CLAUDE.md focused on the two or three most commonly used entry points, making the incompleteness explicit.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "dual_seeds_nouns_param_alias",
+      "summary": "handleSemanticField silently accepts both 'seeds' and 'nouns' as query parameters with no documentation, blurring the /api/semantic-field endpoint's contract",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "ExplorationHandlers.java line 259: 'String nounsParam = params.containsKey(\"seeds\") ? params.get(\"seeds\") : HttpApiUtils.requireParam(exchange, params, \"nouns\");'",
+        "The 'seeds' alias appears to be a compatibility shim for callers using the explore-endpoint parameter naming convention, but neither CLAUDE.md nor inline Javadoc documents it.",
+        "The endpoint's canonical concept is a noun comparison set; 'seeds' conflates it with the single-seed exploration vocabulary, making the parameter contract ambiguous."
+      ],
+      "suggestion": "Pick a single canonical parameter name for /api/semantic-field ('nouns' is semantically correct for comparison mode) and document it. If backward compatibility with 'seeds' must be kept, add an explicit comment and document the alias in CLAUDE.md. Alternatively, consolidate the alias into HttpApiUtils.requireParam with a documented fallback variant.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "deprecated_constructor_retained",
+      "summary": "SemanticFieldExplorer retains a deprecated String-path constructor alongside the preferred QueryExecutor injection constructor, leaving two competing initialization contracts",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "SemanticFieldExplorer.java: @Deprecated public SemanticFieldExplorer(String indexPath) — creates an owned BlackLabQueryExecutor internally.",
+        "Preferred constructor: SemanticFieldExplorer(QueryExecutor) — injected executor, no ownership.",
+        "The class-level Javadoc on the deprecated constructor says 'Prefer SemanticFieldExplorer(QueryExecutor) to avoid double-open of the same index (issue 297b2b52)' — the retained path carries a known correctness risk.",
+        "WordSketchApiServer already uses the preferred constructor (new SemanticFieldExplorer(executor)), so the deprecated path has no active callers in production."
+      ],
+      "suggestion": "Remove the deprecated constructor now that WordSketchApiServer uses the injection path exclusively. If removal is deferred, at minimum add a @SuppressWarnings boundary in the one test that still constructs via path, so the deprecation warning surface is explicit and bounded.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Documentation written in parallel with early feature development and not kept in sync as the API surface expanded beyond the initial four featured endpoints.",
+      "Organic backward-compatibility additions (parameter aliases, deprecated constructors) accumulated without a policy for when to remove the compat shim."
+    ],
+    "likely_symptoms": [
+      "incomplete_api_contract_docs — straightforward documentation gap, not a code design issue",
+      "dual_seeds_nouns_param_alias — symptom of two feature modes sharing one endpoint without a clean unified parameter vocabulary"
+    ],
+    "possible_false_positives": []
+  }
+}

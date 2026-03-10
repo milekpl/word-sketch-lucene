@@ -35,6 +35,9 @@ class ExplorationHandlers {
     private final SemanticFieldExplorer semanticFieldExplorer;
 
     ExplorationHandlers(GrammarConfigLoader grammarConfig, SemanticFieldExplorer semanticFieldExplorer) {
+        if (grammarConfig == null) {
+            throw new IllegalArgumentException("grammarConfig must not be null; exploration endpoints require a loaded grammar configuration");
+        }
         this.grammarConfig = grammarConfig;
         this.semanticFieldExplorer = semanticFieldExplorer;
     }
@@ -194,7 +197,6 @@ class ExplorationHandlers {
         Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice);
         response.put("seeds", new ArrayList<>(seeds));
         response.put("seed_count", seeds.size());
-        response.put("seed", result.getSeed());
 
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         if (result.getSeedCollocates() != null) {
@@ -253,9 +255,7 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String nounsParam = params.containsKey("seeds")
-            ? params.get("seeds")
-            : HttpApiUtils.requireParam(exchange, params, "nouns");
+        String nounsParam = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (nounsParam == null) return;
 
         Set<String> nouns = new LinkedHashSet<>(Arrays.asList(nounsParam.split(",")));

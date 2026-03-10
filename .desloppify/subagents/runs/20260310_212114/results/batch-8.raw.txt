@@ -1,0 +1,134 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 8,
+  "assessments": {
+    "api_surface_coherence": 52.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "GET /api/sketch/{lemma} returns top-level key 'patterns' while GET /api/sketch/{lemma}/dep returns 'relations' — parallel endpoints with different shapes (SketchHandlers.java lines 175-178)",
+        "/api/semantic-field accepts both 'seeds' and 'nouns' as input parameter aliases (ExplorationHandlers.java lines 259-261); no other endpoint has dual parameter names",
+        "handleSemanticFieldExploreMulti puts both 'seeds' (input set) and 'seed' (result.seed) in the same response (ExplorationHandlers.java lines 198-200), making the multi-seed response shape ambiguous",
+        "handleConcordanceExamples emits 'highlighted' and 'sentence' with identical values — exMap.put(\"highlighted\", r.getSentence()) mirrors exMap.put(\"sentence\", r.getSentence()) (SketchHandlers.java lines 297-298)",
+        "POST /api/bcql response conditionally includes 'raw', 'collocate_lemma', 'frequency', 'log_dice' fields only when non-null (SketchHandlers.java lines 375-384), making the response shape unpredictable",
+        "QueryExecutor.executeSurfacePattern declares headPosition and collocatePosition parameters documented as 'currently unused', yet they remain required at every call site (QueryExecutor.java)",
+        "AdjectiveProfile public constructor takes 10 positional parameters with no builder pattern, creating a fragile wide API surface (AdjectiveProfile.java)",
+        "Surface sketch per-relation data includes 'cql' and 'collocate_pos_group' fields; DEP sketch data includes 'deprel' and 'total_matches' but not 'cql' — sibling structures share only 'name' and 'collocations' (SketchHandlers.java handleFullSketchImpl)"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "All synchronous — no mixed sync/async in the public API surface",
+        "requireParam and parseExploreParams are consistent helpers applied across explore handlers, reducing per-endpoint variance for parameter extraction",
+        "Error responses all use a uniform JSON shape: {\"error\": \"...\"}  via HttpApiUtils.sendError",
+        "The four explore-adjacent endpoints share buildBaseExploreResponse, so the core response envelope (status, relation_type, parameters) is always shaped the same"
+      ],
+      "issue_character": "Issues are structural and systemic rather than isolated: parallel endpoints consistently use different field names for equivalent data (patterns/relations, seeds/nouns), and response shapes are conditionally populated in ways that require defensive client-side coding.",
+      "score_rationale": "The API has clear intent and consistent patterns within subsystems, but a developer writing a client against the full surface will encounter at least four naming divergences between related endpoints, a duplicate field, and conditionally present fields — all of which force client-side branching or inspection. These are not isolated quirks; they recur across the sketch, exploration, and concordance groups. This places the codebase squarely below the 'solid but uneven' range (80) and closer to 'significant drag' (60), as a developer must read implementation details to safely consume the API rather than rely on a coherent contract."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_key_inconsistency",
+      "summary": "GET /api/sketch/{lemma} uses 'patterns' key while GET /api/sketch/{lemma}/dep uses 'relations' for equivalent sketch data",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "handleFullSketchImpl: when relationType==SURFACE, puts result as response.put(\"patterns\", byRelation); when relationType==DEP, puts response.put(\"relations\", byRelation) (lines 175-178)",
+        "A client must branch on the presence of 'patterns' vs 'relations' to navigate the same conceptual data"
+      ],
+      "suggestion": "Use a single top-level key (e.g., 'sketch') for both surface and dependency responses; distinguish the type via the already-present 'type' field (which is only set for DEP today). Alternatively, unify both as 'relations' and always emit 'type'.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dual_param_nouns_seeds",
+      "summary": "GET /api/semantic-field accepts both 'seeds' and 'nouns' as aliases for the same input parameter",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticField: String nounsParam = params.containsKey(\"seeds\") ? params.get(\"seeds\") : HttpApiUtils.requireParam(exchange, params, \"nouns\") (lines 259-261)",
+        "The explore endpoints use 'seed' / 'seeds', and the comparison endpoint accepts 'seeds' silently before requiring 'nouns', creating an undocumented alias"
+      ],
+      "suggestion": "Standardise on 'seeds' across all exploration endpoints and remove the 'nouns' alias; if backward compatibility matters, document the alias explicitly and deprecate it.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "multi_seed_ambiguous_seed_field",
+      "summary": "Multi-seed explore response includes both 'seeds' (input list) and 'seed' (internal ExplorationResult.seed) at the same level",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticFieldExploreMulti: response.put(\"seeds\", new ArrayList<>(seeds)) followed immediately by response.put(\"seed\", result.seed) (lines 198-200)",
+        "A consumer cannot tell whether 'seed' is one of the input seeds or a derived representative; single-seed explore only emits 'seed'"
+      ],
+      "suggestion": "Remove 'seed' from the multi-seed response or rename it 'representative_seed' with documentation; it should not shadow the canonical 'seeds' field.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "duplicate_highlighted_field",
+      "summary": "Concordance examples response emits 'highlighted' with a value identical to 'sentence', adding API surface noise",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "exMap.put(\"sentence\", r.getSentence()) and exMap.put(\"highlighted\", r.getSentence()) both call getSentence() with no transformation (lines 297-298)",
+        "The 'highlighted' field implies markup or annotation, but it contains the same plain text"
+      ],
+      "suggestion": "Either remove 'highlighted' if it provides no additional value, or populate it with actual highlight markup (e.g., offset-based HTML). As-is it misleads clients into expecting a distinct format.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "bcql_conditional_response_fields",
+      "summary": "POST /api/bcql response conditionally includes 'raw', 'collocate_lemma', 'frequency', and 'log_dice' fields depending on runtime nulls",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "if (r.rawXml() != null) { resultMap.put(\"raw\", r.rawXml()); } — field present only when rawXml available (line 375)",
+        "if (r.collocateLemma() != null) { resultMap.put(\"collocate_lemma\", ...); resultMap.put(\"frequency\", ...); resultMap.put(\"log_dice\", ...); } — three fields gated on one null check (lines 380-383)"
+      ],
+      "suggestion": "Always include these fields in the response, using null (or empty string / 0.0) as sentinel values. Alternatively, define two distinct result shapes (concordance vs collocate) and use a 'result_type' discriminator so clients know which shape to expect.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "unused_interface_params",
+      "summary": "QueryExecutor.executeSurfacePattern declares headPosition and collocatePosition parameters documented as 'currently unused'",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "JavaDoc for executeSurfacePattern: 'headPosition — 1-based position of the head token (currently unused)' and 'collocatePosition — 1-based position of the collocate token (currently unused)'",
+        "All call sites must supply these values anyway, creating an interface that misrepresents its own contract"
+      ],
+      "suggestion": "Remove the unused parameters from the interface (and implementation) now, or promote them to 'used' by implementing the position hints. Retaining documented-unused required parameters violates interface honesty.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Organic endpoint growth: surface and DEP sketch endpoints were added separately and never unified under a shared response contract",
+      "Backward-compat workarounds accumulating in-place: the 'nouns'/'seeds' alias and the multi-seed 'seed' field both look like quick-fix additions that were not reflected in the other endpoints",
+      "Missing a shared response DTO layer: response maps are built ad-hoc in each handler rather than via typed response objects, so divergence is invisible until a client breaks"
+    ],
+    "likely_symptoms": [
+      "duplicate_highlighted_field — could be dead code if no client uses 'highlighted'",
+      "unused_interface_params — likely a refactor artifact; parameters may have been used in an earlier implementation"
+    ],
+    "possible_false_positives": []
+  }
+}

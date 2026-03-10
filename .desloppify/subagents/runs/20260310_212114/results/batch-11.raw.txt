@@ -1,0 +1,79 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 11,
+  "assessments": {
+    "error_consistency": 67.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "WordSketchApiServer.wrapHandler (lines 161-174) provides a uniform last-resort safety net: catches IOException and Exception for every registered handler, sending a 500 response with the exception message",
+        "BlackLabQueryExecutor consistently declares `throws IOException` on all public methods and wraps BlackLab's InvalidQuery and other checked exceptions into IOException with cause chain preserved (e.g. line 137: `throw new IOException(\"BCQL parse error: \" + e.getMessage(), e)`)",
+        "GrammarConfigLoader consistently throws IOException on all config validation errors, with detailed messages per violation",
+        "ExplorationHandlers mixes strategies within the same class: exploreMultiSeed is wrapped in a try-catch with a domain-specific message (\"Multi-seed exploration failed: ...\"), but exploreByPattern, compareCollocateProfiles, and fetchExamples are called bare — relying silently on wrapHandler for error propagation",
+        "SketchHandlers.handleFullSketchImpl swallows per-relation query failures silently: `catch (Exception e) { logger.warn(...) }` causes a failing relation to vanish from the response with no indicator to the caller that a partial result was returned",
+        "BlackLabSnippetParser returns null uniformly for all parsing failures without distinguishing between 'not found' and 'malformed input' — callers cannot distinguish absent data from parse error",
+        "Main.handleServerCommand wraps executor.close() IOException in a System.err.println during shutdown rather than a proper logger.error call, inconsistent with the rest of the shutdown hook logging pattern"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "WordSketchApiServer.wrapHandler provides a uniform last-resort safety net for the entire API layer, ensuring no unhandled exception leaks to the HTTP client",
+        "BlackLabQueryExecutor is internally consistent: every public method declares throws IOException, and every third-party exception is wrapped with cause chain preserved",
+        "GrammarConfigLoader validates config thoroughly and always throws IOException with specific diagnostic messages, never returning null on failure"
+      ],
+      "issue_character": "The issues are a mix of inconsistency within the API handler layer (some handlers catch locally with domain messages, others silently delegate to the safety net) and one genuine silent-swallow in the full-sketch relation loop that returns partial results without any client signal.",
+      "score_rationale": "The codebase has a solid safety net and consistent patterns in its infrastructure layer (query execution, config loading), which prevents the worst failures. However, the API handler layer shows real mixed strategies: exploreMultiSeed wraps IOException explicitly while sibling handlers (exploreByPattern, compareCollocateProfiles, fetchExamples) do not, and handleFullSketchImpl swallows per-relation failures silently producing partial results the caller cannot detect. This places the codebase at the lower end of the 'mixed' range (70) — a developer reading one handler cannot predict how the next one handles errors, and the silent-swallow finding is a genuine reliability concern that pulls the score below 70."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "silent_relation_swallow",
+      "summary": "handleFullSketchImpl silently swallows per-relation query failures, returning partial results with no client signal",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "In handleFullSketchImpl, the catch block `catch (Exception e) { logger.warn(\"Relation {} failed for lemma {}\", rel.id(), lemma, e); }` causes any failing relation to be omitted from the response silently — the caller receives a 200 OK with fewer relations than expected and no indication that any failed"
+      ],
+      "suggestion": "Add a `warnings` list to the response map and populate it when a relation fails (e.g. `warnings.add(\"Relation '\" + rel.id() + \"' unavailable: \" + e.getMessage())`). Return this list in the JSON response so callers can distinguish a complete result from a partial one.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "api_error_handling_inconsistency"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "inconsistent_handler_error_wrapping",
+      "summary": "ExplorationHandlers wraps exploreMultiSeed in try-catch but leaves exploreByPattern, compareCollocateProfiles, and fetchExamples bare",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti: `try { result = semanticFieldExplorer.exploreMultiSeed(...); } catch (IOException e) { HttpApiUtils.sendError(exchange, 500, \"Multi-seed exploration failed: \" + e.getMessage()); return; }` — domain-specific 500 message",
+        "handleSemanticFieldExplore line 94: `ExplorationResult result = semanticFieldExplorer.exploreByPattern(...)` — no try-catch; exception propagates to wrapHandler and produces a generic 'Semantic field explore failed' message",
+        "handleSemanticField line 277 and handleSemanticFieldExamples line 328 are similarly unwrapped — all three sibling handlers diverge from the multi-seed pattern"
+      ],
+      "suggestion": "Apply the same try-catch pattern used in handleSemanticFieldExploreMulti to handleSemanticFieldExplore, handleSemanticField, and handleSemanticFieldExamples, providing consistent domain-specific 500 error messages (e.g. 'Semantic field exploration failed: ...', 'Profile comparison failed: ...', 'Example fetch failed: ...').",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "api_error_handling_inconsistency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "api_error_handling_inconsistency: The API handler layer was written incrementally — exploreMultiSeed was added later and had explicit error handling, but earlier handlers were not updated to match, and the safety net in wrapHandler made the gap invisible at runtime"
+    ],
+    "likely_symptoms": [
+      "silent_relation_swallow — callers of the full sketch endpoint may see inconsistent result shapes that are actually partial results masked as complete ones"
+    ],
+    "possible_false_positives": []
+  }
+}

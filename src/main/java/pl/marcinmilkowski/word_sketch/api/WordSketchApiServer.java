@@ -48,7 +48,7 @@ public class WordSketchApiServer {
         this.grammarConfig = grammarConfig;
         if (grammarConfig == null) {
             logger.warn("WordSketchApiServer initialized without grammar configuration; " +
-                "relation-based endpoints (/api/sketch, /api/relations, /api/semantic-field/explore) will return 500");
+                "relation-based sketch/relations endpoints will return 500");
         }
         SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor);
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);

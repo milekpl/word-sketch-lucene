@@ -279,14 +279,15 @@ public class SemanticFieldExplorer implements AutoCloseable {
     // ==================== COMPARISON MODE ====================
 
     /**
-     * Compare adjective profiles across a set of seed nouns.
+     * Compare adjective collocate profiles across a set of seed nouns, revealing which
+     * adjectives are shared across seeds (commonality) and which are distinctive to individual seeds.
      *
      * @param seedNouns Nouns to compare (e.g., "theory", "model", "hypothesis")
      * @param minLogDice Minimum logDice score for adjective-noun pairs
      * @param maxPerNoun Maximum adjectives to retrieve per noun
      * @return ComparisonResult with graded adjective profiles
      */
-    public ComparisonResult compare(
+    public ComparisonResult compareCollocateProfiles(
             Set<String> seedNouns,
             double minLogDice,
             int maxPerNoun) throws IOException {
@@ -296,46 +297,66 @@ public class SemanticFieldExplorer implements AutoCloseable {
         }
 
         List<String> nounList = new ArrayList<>(seedNouns);
-        int nounCount = nounList.size();
 
         logger.debug("\n=== SEMANTIC FIELD COMPARISON ===");
         logger.debug("Nouns: {}", seedNouns);
         logger.debug("Min logDice: {}", minLogDice);
         logger.debug("------------------------------------------------------------");
 
-        // Phase 1: Build adjective profiles for each noun
-        // adjective -> {noun -> logDice}
-        Map<String, Map<String, Double>> adjectiveProfiles = new LinkedHashMap<>();
+        Map<String, Map<String, Double>> rawProfiles = buildRawAdjectiveProfiles(nounList, minLogDice, maxPerNoun);
+        List<AdjectiveProfile> profiles = buildAdjectiveProfileList(nounList, rawProfiles);
 
+        // Sort by commonality score (most shared first)
+        profiles.sort((a, b) -> Double.compare(b.commonalityScore, a.commonalityScore));
+
+        logger.debug("Total unique adjectives: {}", profiles.size());
+        logTopProfiles(profiles);
+        logger.debug("------------------------------------------------------------");
+
+        return new ComparisonResult(nounList, profiles);
+    }
+
+    /**
+     * Phase 1: Collect adjective collocates for each noun and index them by adjective.
+     *
+     * @return Map of adjective → (noun → logDice score)
+     */
+    private Map<String, Map<String, Double>> buildRawAdjectiveProfiles(
+            List<String> nounList, double minLogDice, int maxPerNoun) throws IOException {
+
+        Map<String, Map<String, Double>> adjectiveProfiles = new LinkedHashMap<>();
         for (String noun : nounList) {
             logger.debug("\nProfiling: {}", noun);
-
             List<QueryResults.WordSketchResult> adjectives = executor.findCollocations(
                 noun, ADJECTIVE_PATTERN, minLogDice, maxPerNoun);
-
             logger.debug("  Found {} adjectives", adjectives.size());
             if (!adjectives.isEmpty()) {
                 logger.debug("  Top 5: {}", adjectives.subList(0, Math.min(5, adjectives.size())));
             }
-
             for (QueryResults.WordSketchResult r : adjectives) {
-                String adj = r.getLemma().toLowerCase();
                 adjectiveProfiles
-                    .computeIfAbsent(adj, k -> new LinkedHashMap<>())
+                    .computeIfAbsent(r.getLemma().toLowerCase(), k -> new LinkedHashMap<>())
                     .put(noun, r.getLogDice());
             }
         }
+        return adjectiveProfiles;
+    }
 
-        // Phase 2: Build comparison profiles with graded scores
+    /**
+     * Phase 2: Build AdjectiveProfile objects from raw per-noun scores.
+     */
+    private List<AdjectiveProfile> buildAdjectiveProfileList(
+            List<String> nounList,
+            Map<String, Map<String, Double>> adjectiveProfiles) {
+
+        int nounCount = nounList.size();
         logger.debug("\n--- Building Comparison Profiles ---");
-
         List<AdjectiveProfile> profiles = new ArrayList<>();
 
         for (Map.Entry<String, Map<String, Double>> entry : adjectiveProfiles.entrySet()) {
             String adj = entry.getKey();
             Map<String, Double> nounScores = entry.getValue();
 
-            // Create full score map (0 for missing nouns)
             Map<String, Double> fullScores = new LinkedHashMap<>();
             for (String noun : nounList) {
                 fullScores.put(noun, nounScores.getOrDefault(noun, 0.0));
@@ -347,7 +368,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
             double maxScore = Arrays.stream(scores).max().orElse(0.0);
             double minScore = Arrays.stream(scores).min().orElse(0.0);
 
-            // Variance calculation
             double variance = 0.0;
             if (scores.length > 1) {
                 for (double s : scores) {
@@ -356,11 +376,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
                 variance /= scores.length;
             }
 
-            // Commonality score: rewards adjectives shared by many nouns with high scores
             double commonalityScore = presentIn * avgScore;
-
-            // Distinctiveness score: rewards adjectives specific to few nouns with high max score
-            // Also considers variance - high variance = more distinctive usage pattern
             double distinctivenessScore = maxScore * (1.0 - (double) presentIn / nounCount)
                                          + Math.sqrt(variance);
 
@@ -370,13 +386,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
                 commonalityScore, distinctivenessScore
             ));
         }
+        return profiles;
+    }
 
-        // Sort by commonality score (most shared first)
-        profiles.sort((a, b) -> Double.compare(b.commonalityScore, a.commonalityScore));
-
-        logger.debug("Total unique adjectives: {}", profiles.size());
-
-        // Show top shared
+    private void logTopProfiles(List<AdjectiveProfile> profiles) {
         logger.debug("\nTop SHARED (high commonality):");
         profiles.stream()
             .filter(p -> p.presentInCount >= 2)
@@ -384,7 +397,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
             .forEach(p -> logger.debug("  {} (in {}/{} nouns, avg={})", p.adjective,
                 p.presentInCount, p.totalNouns, String.format("%.2f", p.avgLogDice)));
 
-        // Show top distinctive
         logger.debug("\nTop DISTINCTIVE (specific to 1 noun):");
         profiles.stream()
             .filter(p -> p.presentInCount == 1)
@@ -397,10 +409,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
                     .findFirst().orElse("?");
                 logger.debug("  {} -> {} ({})", p.adjective, specificNoun, String.format("%.2f", p.maxLogDice));
             });
-
-        logger.debug("------------------------------------------------------------");
-
-        return new ComparisonResult(nounList, profiles);
     }
 
     /**

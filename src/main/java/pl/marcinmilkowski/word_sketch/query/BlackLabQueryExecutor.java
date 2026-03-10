@@ -84,11 +84,9 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             // BCQL requires proper sequence syntax
             bcql = String.format("\"%s\" %s", lemma.toLowerCase(), cqlPattern);
         } else {
-            // Unrecognized pattern format — log warning and fall back to single-token wildcard.
-            // This indicates a grammar config bug: patterns should contain '%s' or start with '['.
-            logger.warn("Unrecognized cqlPattern format for lemma '{}': '{}'. Falling back to wildcard query.",
-                lemma, cqlPattern);
-            bcql = String.format("\"%s\" []", lemma.toLowerCase());
+            // Unrecognized pattern format — patterns must contain '%s' or start with '['.
+            throw new IllegalArgumentException(
+                "Unrecognized CQL pattern format: " + cqlPattern);
         }
 
         try {
@@ -139,43 +137,14 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
     }
 
+    @Deprecated
     @Override
     public List<QueryResults.WordSketchResult> findDependencyCollocations(
             String lemma,
             String deprel,
             double minLogDice,
             int maxResults) throws IOException {
-
-        if (lemma == null || lemma.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        // BCQL syntax for dependency: "lemma" -deprel-> _
-        // This finds all words that have the specified dependency relation to lemma
-        String bcql = String.format("\"%s\" -%s-> _", lemma.toLowerCase(), deprel);
-
-        try {
-            TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcql, "lemma");
-            BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
-            
-            SearchHits searchHits = blackLabIndex.search().find(query);
-            HitProperty groupBy = new HitPropertyHitText(blackLabIndex, MatchSensitivity.SENSITIVE);
-            HitGroups groups = searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute();
-
-            long headwordFreq = getTotalFrequency(lemma);
-            Map<String, Long> freqMap = new LinkedHashMap<>();
-            for (HitGroup group : groups) {
-                String collocateLemma = group.identity().toString();
-                if (collocateLemma != null && !collocateLemma.isEmpty()) {
-                    freqMap.merge(collocateLemma, group.size(), Long::sum);
-                }
-            }
-
-            return buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
-
-        } catch (InvalidQuery e) {
-            throw new IOException("CQL parse error: " + e.getMessage(), e);
-        }
+        return executeDependencyPattern(lemma, deprel, null, minLogDice, maxResults);
     }
 
     @Override
@@ -313,8 +282,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
             String plainText = BlackLabSnippetParser.trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
 
-            results.add(new QueryResults.ConcordanceResult(
-                plainText, rec.xmlSnippet(), null, null, null,
+            results.add(QueryResults.ConcordanceResult.forCollocate(
+                plainText, rec.xmlSnippet(),
                 rec.start(), rec.end(), String.valueOf(rec.docId()),
                 collocateLemma, f_xy, logDice));
         }
@@ -351,9 +320,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             AnnotationSensitivity sensitivity = annotation.sensitivity(MatchSensitivity.INSENSITIVE);
             TermFrequencyList tfl = blackLabIndex.termFrequencies(sensitivity, null, Set.of(lemma.toLowerCase()));
             return tfl.frequency(lemma.toLowerCase());
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
-            logger.warn("Unexpected failure retrieving frequency for lemma '{}': {}", lemma, e.getMessage(), e);
-            return 0L;
+            throw new IOException("Unexpected failure retrieving frequency for lemma '" + lemma + "'", e);
         }
     }
 
@@ -503,7 +473,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
             if (logDice >= minLogDice) {
                 double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
-                String pos = posMap != null ? posMap.getOrDefault(collocateLemma, "unknown") : "unknown";
+                String pos = posMap != null ? posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS) : QueryResults.WordSketchResult.UNKNOWN_POS;
                 results.add(new QueryResults.WordSketchResult(
                     collocateLemma, pos, f_xy, logDice, relFreq, Collections.emptyList()));
             }

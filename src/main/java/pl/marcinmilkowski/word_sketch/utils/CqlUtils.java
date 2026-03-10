@@ -54,17 +54,38 @@ public final class CqlUtils {
         while (i < pattern.length()) {
             char c = pattern.charAt(i);
             if (c == '[') {
-                int end = pattern.indexOf(']', i);
-                if (end > i) {
-                    tokens.add(pattern.substring(i, end + 1));
-                    i = end + 1;
-                } else {
+                // Use depth-counting to handle nested brackets like [[a] & [b]]
+                int start = i;
+                int depth = 0;
+                while (i < pattern.length()) {
+                    char ch = pattern.charAt(i);
+                    if (ch == '"') {
+                        // Skip quoted string inside brackets
+                        i++;
+                        while (i < pattern.length() && pattern.charAt(i) != '"') {
+                            if (pattern.charAt(i) == '\\') i++; // skip escape
+                            i++;
+                        }
+                    } else if (ch == '[') {
+                        depth++;
+                    } else if (ch == ']') {
+                        depth--;
+                        if (depth == 0) {
+                            tokens.add(pattern.substring(start, i + 1));
+                            i++;
+                            break;
+                        }
+                    }
                     i++;
                 }
             } else if (c == '"') {
-                // Skip quoted string to avoid mistaking embedded content for tokens
-                int end = pattern.indexOf('"', i + 1);
-                i = (end > i) ? end + 1 : i + 1;
+                // Skip quoted string outside brackets to avoid mistaking content for tokens
+                i++;
+                while (i < pattern.length() && pattern.charAt(i) != '"') {
+                    if (pattern.charAt(i) == '\\') i++; // skip escape
+                    i++;
+                }
+                i++; // closing quote
             } else {
                 i++;
             }

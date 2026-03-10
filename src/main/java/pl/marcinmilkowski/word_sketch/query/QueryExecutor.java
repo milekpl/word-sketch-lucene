@@ -100,7 +100,10 @@ public interface QueryExecutor extends Closeable {
      * @param maxResults  Maximum number of results to return
      * @return List of collocation results, sorted by logDice descending
      * @throws IOException if index access fails
+     * @deprecated Use {@link #executeDependencyPattern(String, String, String, double, int)} with
+     *             {@code null} for the head POS constraint.
      */
+    @Deprecated
     List<QueryResults.WordSketchResult> findDependencyCollocations(String lemma, String deprel,
                                                                    double minLogDice, int maxResults) throws IOException;
 

@@ -9,16 +9,25 @@ package pl.marcinmilkowski.word_sketch.utils;
 public class LogDiceCalculator {
 
     /**
+     * Sentinel returned when the logDice score cannot be computed because one or more
+     * frequency inputs are invalid (zero or negative).  Callers should use
+     * {@link Double#isNaN(double)} to detect this state — it is distinct from a
+     * legitimately low (but computable) score of {@code 0.0}.
+     */
+    public static final double UNCOMPUTABLE = Double.NaN;
+
+    /**
      * Compute the logDice score for a collocation.
      *
      * @param collocateFreq Frequency of collocate with headword (f(AB))
      * @param headwordFreq Total frequency of headword (f(A))
      * @param collocateTotal Total frequency of collocate (f(B))
-     * @return logDice score (0 to ~14)
+     * @return logDice score (0 to ~14), or {@link #UNCOMPUTABLE} when {@code headwordFreq}
+     *         or {@code collocateTotal} are zero/negative
      */
     public static double compute(double collocateFreq, double headwordFreq, double collocateTotal) {
         if (headwordFreq <= 0 || collocateTotal <= 0) {
-            return 0.0;
+            return UNCOMPUTABLE;
         }
 
         double numerator = 2.0 * collocateFreq;

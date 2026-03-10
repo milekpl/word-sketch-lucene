@@ -328,7 +328,7 @@ class ExplorationHandlers {
         }
 
         ComparisonResult result;
-        result = semanticFieldExplorer.compare(nouns, minLogDice, maxPerNoun);
+        result = semanticFieldExplorer.compareCollocateProfiles(nouns, minLogDice, maxPerNoun);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");

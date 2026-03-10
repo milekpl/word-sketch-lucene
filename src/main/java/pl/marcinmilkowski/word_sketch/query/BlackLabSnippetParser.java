@@ -135,9 +135,13 @@ public class BlackLabSnippetParser {
 
     /**
      * Extract lemma from match text (space-separated tokens from Kwic.match()).
+     *
+     * @deprecated No production callers. Use {@link #extractLemmaAt(String, int)} for
+     *             XML-based positional extraction instead.
      * @param matchText Space-separated tokens from the match
      * @param position 1-based position within the match tokens
      */
+    @Deprecated
     static String extractCollocateFromMatchText(String matchText, int position) {
         if (matchText == null || matchText.isEmpty() || position < 1) {
             return null;

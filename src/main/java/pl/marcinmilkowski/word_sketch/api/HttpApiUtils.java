@@ -25,7 +25,8 @@ public class HttpApiUtils {
         byte[] bytes = json.getBytes("UTF-8");
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        // Dev-only: restrict to specific origins in production
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "http://localhost:3000");
         exchange.sendResponseHeaders(200, bytes.length);
 
         try (OutputStream os = exchange.getResponseBody()) {
@@ -40,7 +41,8 @@ public class HttpApiUtils {
         byte[] bytes = json.getBytes("UTF-8");
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        // Dev-only: restrict to specific origins in production
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "http://localhost:3000");
         exchange.sendResponseHeaders(code, bytes.length);
 
         try (OutputStream os = exchange.getResponseBody()) {
@@ -52,7 +54,8 @@ public class HttpApiUtils {
      * Responds to an OPTIONS preflight request with the appropriate CORS headers and 204 No Content.
      */
     public static void sendOptionsResponse(HttpExchange exchange, String allowedMethods) throws IOException {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        // Dev-only: restrict to specific origins in production
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "http://localhost:3000");
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", allowedMethods + ", OPTIONS");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
         exchange.sendResponseHeaders(204, -1);
@@ -63,7 +66,8 @@ public class HttpApiUtils {
      */
     public static void sendBinaryResponse(HttpExchange exchange, String contentType, byte[] bytes) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        // Dev-only: restrict to specific origins in production
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "http://localhost:3000");
         exchange.sendResponseHeaders(200, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);

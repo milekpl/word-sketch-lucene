@@ -257,13 +257,28 @@ public class GrammarConfigLoader {
                 return pos;
             }
             if (pattern.charAt(i) == '[') {
-                int end = pattern.indexOf(']', i);
-                if (end > i) {
-                    pos++;
-                    i = end + 1;
-                } else {
+                // Depth-count to find the matching close bracket, handling nested brackets
+                int depth = 0;
+                while (i < pattern.length()) {
+                    char ch = pattern.charAt(i);
+                    if (ch == '"') {
+                        i++;
+                        while (i < pattern.length() && pattern.charAt(i) != '"') {
+                            if (pattern.charAt(i) == '\\') i++;
+                            i++;
+                        }
+                    } else if (ch == '[') {
+                        depth++;
+                    } else if (ch == ']') {
+                        depth--;
+                        if (depth == 0) {
+                            i++;
+                            break;
+                        }
+                    }
                     i++;
                 }
+                pos++;
             } else {
                 i++;
             }
@@ -366,74 +381,13 @@ public class GrammarConfigLoader {
                 return pattern;
             }
 
-            // Split pattern into positions, preserving numbered prefixes like "1:" or "2:"
-            List<String> positions = new ArrayList<>();
-            int i = 0;
-            while (i < pattern.length()) {
-                // Skip whitespace
-                if (Character.isWhitespace(pattern.charAt(i))) {
-                    i++;
-                    continue;
-                }
-
-                // Check for numbered prefix like "1:" or "2:"
-                String prefix = "";
-                if (i < pattern.length() && Character.isDigit(pattern.charAt(i))) {
-                    int colonPos = pattern.indexOf(':', i);
-                    if (colonPos > i && colonPos < i + 3) {
-                        prefix = pattern.substring(i, colonPos + 1);
-                        i = colonPos + 1;
-                    }
-                }
-
-                if (i < pattern.length() && pattern.charAt(i) == '[') {
-                    int end = pattern.indexOf(']', i);
-                    if (end > i) {
-                        positions.add(prefix + pattern.substring(i, end + 1));
-                        i = end + 1;
-                    } else {
-                        i++;
-                    }
-                } else if (i < pattern.length() && pattern.charAt(i) == '"') {
-                    // Handle quoted strings outside brackets
-                    int end = pattern.indexOf('"', i + 1);
-                    if (end > i) {
-                        i = end + 1;
-                    } else {
-                        i++;
-                    }
-                } else {
-                    i++;
-                }
-            }
-
-            if (headPosition > positions.size()) {
+            List<String> tokens = CqlUtils.splitCqlTokens(pattern);
+            if (headPosition > tokens.size()) {
                 return pattern;
             }
 
-            // Get the constraint at headPosition and merge with lemma
-            String positionEntry = positions.get(headPosition - 1);
-            // Extract just the constraint part (after any "1:" prefix)
-            String constraint = positionEntry;
-            if (!positionEntry.isEmpty() && Character.isDigit(positionEntry.charAt(0))) {
-                int colon = positionEntry.indexOf(':');
-                if (colon > 0) {
-                    constraint = positionEntry.substring(colon + 1);
-                }
-            }
-            String newConstraint = mergeLemmaConstraint(constraint, headword);
-
-            // Replace with prefix + new constraint
-            String prefix = "";
-            if (!positionEntry.isEmpty() && Character.isDigit(positionEntry.charAt(0))) {
-                int colon = positionEntry.indexOf(':');
-                if (colon > 0) {
-                    prefix = positionEntry.substring(0, colon + 1);
-                }
-            }
-            positions.set(headPosition - 1, prefix + newConstraint);
-
-            return String.join(" ", positions);
+            tokens.set(headPosition - 1, mergeLemmaConstraint(tokens.get(headPosition - 1), headword));
+            return String.join(" ", tokens);
         }
 
         /**

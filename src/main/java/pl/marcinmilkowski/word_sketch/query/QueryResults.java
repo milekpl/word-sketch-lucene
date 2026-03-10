@@ -16,6 +16,9 @@ public class QueryResults {
      * Result of a word sketch query containing collocation information.
      */
     public static class WordSketchResult {
+        /** Sentinel for missing POS information returned by the tagger. */
+        public static final String UNKNOWN_POS = "unknown";
+
         private final String lemma;
         private final String pos;
         private final long frequency;
@@ -113,6 +116,36 @@ public class QueryResults {
         public static ConcordanceResult forSnippet(String sentence, int start, int end, String docId) {
             return new ConcordanceResult(sentence, null, null, null, null,
                                          start, end, docId, null, 0L, 0.0);
+        }
+
+        /**
+         * Factory for KWIC (keyword-in-context) results where left and right contexts are
+         * available separately.  The {@code word} surface form is stored in the
+         * {@code word} field; {@code rawXml}, {@code lemma}, {@code tag}, and
+         * {@code collocateLemma} will all be {@code null}; {@code frequency} and
+         * {@code logDice} will be 0 / 0.0.
+         *
+         * <p>The assembled sentence is {@code leftContext + word + rightContext}.
+         */
+        public static ConcordanceResult fromKwic(String word, String leftContext, String rightContext,
+                                                  int matchStart, int matchEnd, String docId) {
+            String sentence = leftContext + word + rightContext;
+            return new ConcordanceResult(sentence, null, null, null, word,
+                                         matchStart, matchEnd, docId, null, 0L, 0.0);
+        }
+
+        /**
+         * Factory for grouped collocate results produced by the scoring pipeline.
+         * Use this when you have a sentence snippet, an optional raw-XML snippet, a
+         * collocate lemma, and the associated frequency / logDice statistics.
+         * {@code lemma}, {@code tag}, and {@code word} will all be {@code null}.
+         */
+        public static ConcordanceResult forCollocate(String sentence, String rawXml,
+                                                      int start, int end, String docId,
+                                                      String collocateLemma,
+                                                      long frequency, double logDice) {
+            return new ConcordanceResult(sentence, rawXml, null, null, null,
+                                         start, end, docId, collocateLemma, frequency, logDice);
         }
 
         public String getSentence() { return sentence; }

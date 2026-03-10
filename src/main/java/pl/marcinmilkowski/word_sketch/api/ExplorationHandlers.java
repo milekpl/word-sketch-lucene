@@ -195,7 +195,7 @@ class ExplorationHandlers {
         SemanticFieldExplorer.MultiSeedCollocates multiResult;
         try {
             multiResult = semanticFieldExplorer.exploreMultiSeed(
-                seeds, relationConfig.get(), minLogDice, topCollocates);
+                seeds, relationConfig.get(), minLogDice, topCollocates, minShared);
         } catch (IOException e) {
             HttpApiUtils.sendError(exchange, 500, "Multi-seed exploration failed: " + e.getMessage());
             return;

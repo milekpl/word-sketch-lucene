@@ -1,0 +1,125 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 2,
+  "assessments": {"low_level_elegance": 63.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "executeBcqlQuery in BlackLabQueryExecutor cleanly delegates to three named phases: collectHits, scoreHits, and a sort/limit stream — intention-revealing and well-extracted.",
+        "BlackLabSnippetParser is a utility class with focused single-purpose static methods (extractLemmaFromMatch, trimLeftAtSentence, detokenize, etc.), all concise and properly guarded.",
+        "ExploreParams record in ExplorationHandlers is a good local extraction: numeric parameter parsing is isolated into parseExploreParams, keeping handler bodies readable.",
+        "handleSemanticFieldExplore is ~85 lines of mixed responsibility: parameter parsing, relation config lookup, BCQL pattern construction, business logic invocation, and 6+ separate response map assemblies — all inline with no extraction.",
+        "handleSemanticFieldExploreMulti duplicates the same response-assembly ceremony (~50 lines of Map.put calls) independently from handleSemanticFieldExplore, despite sharing structure: status, seeds, relation_type, parameters, seed_collocates, common_collocates, discovered_nouns, edges.",
+        "handleSemanticField in ExplorationHandlers has a ~30-line adjective serialization loop with multiple Math.round calls inline, category classification, conditional specific_to field — this is formatting logic that could be a formatAdjectiveProfile helper.",
+        "exploreByPattern in SemanticFieldExplorer is ~135 lines: steps 1-4 are interleaved with debug logging at every micro-step, and steps 3-4 (scoring/core-building) are not extracted into named helpers despite being conceptually distinct.",
+        "convertConlluToWplChunks in Main.java uses a null-initialized BufferedWriter managed with explicit null checks inside the main loop and finally block, creating scattered mutation-of-state across the method body.",
+        "buildAndRankCollocates is a clean, focused private helper in BlackLabQueryExecutor, properly extracted and reused from three call sites.",
+        "TaggedToken.getPosGroup() is an elegant switch-on-first-char approach — compact and direct."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "executeBcqlQuery uses named phase methods (collectHits, scoreHits) that make the three-step algorithm self-documenting without over-fragmenting.",
+        "BlackLabSnippetParser is a well-disciplined utility class: all methods are concise, guarded for null/empty, and named after their precise intent.",
+        "buildAndRankCollocates is properly extracted and reused across three query methods, eliminating duplication of the logDice-scoring loop.",
+        "parseExploreParams record extraction in ExplorationHandlers cleanly isolates numeric parsing failure handling from handler body logic.",
+        "Guard-clause style (null/empty early returns) is applied consistently throughout handlers and query methods, keeping happy-path flow unindented."
+      ],
+      "issue_character": "The primary drag is method-level monolithism in the handler and exploration layers: several handler methods combine parameter parsing, config resolution, business invocation, and full response assembly inline, and duplicated response-construction blocks appear across closely related handlers without extraction into a shared shape-builder.",
+      "score_rationale": "At the query-execution layer (BlackLabQueryExecutor, BlackLabSnippetParser, model classes) the code shows solid extraction instincts and direct control flow, placing that layer near 80. The handler and semantic-explorer layer pulls the overall score down: two major handlers (handleSemanticFieldExplore, handleSemanticFieldExploreMulti) each exceed 70-80 lines mixing multiple concerns, share uncollapsed response-assembly duplication, and exploreByPattern at 135 lines lacks sub-extraction for its scoring and core-building steps. These are real readability costs spread across the most feature-rich part of the codebase, anchoring the score in the 60-65 range consistent with 'solid foundations but uneven application of extraction discipline'."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_handler_monolith",
+      "summary": "handleSemanticFieldExplore mixes parameter parsing, config lookup, pattern building, and full JSON response assembly in one 85-line method",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Lines from 'String seed = ...' through 'HttpApiUtils.sendJsonResponse' include: param extraction, alias resolution, grammarConfig null check, relation lookup, ExploreParams parsing, nounsPerCollocate parsing, BCQL pattern building, executor call, and 6 separate response.put blocks assembling seedCollocs, nouns, coreCollocs, and edges.",
+        "The response-assembly section (building seedCollocs list, nouns list, coreCollocs list, edges list) occupies ~35 lines of identical for-loop + formatX() calls that are structurally duplicated in handleSemanticFieldExploreMulti."
+      ],
+      "suggestion": "Extract a private buildExploreResponse(ExplorationResult, ...) helper that accepts the result and parameters and returns a Map<String, Object>; this collapses the 35-line assembly block and enables reuse from handleSemanticFieldExploreMulti. The parameter-parsing preamble can stay inline or move to a record like ExploreContext.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "handler_response_assembly"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_multi_response_duplication",
+      "summary": "handleSemanticFieldExploreMulti duplicates the response-assembly ceremony from handleSemanticFieldExplore with no shared helper",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Both handlers create Map<String, Object> response, populate status/seeds/relation_type/parameters with identical keys, then iterate over collocates to build seedCollocs, iterate over edges, and call sendJsonResponse.",
+        "handleSemanticFieldExploreMulti adds discovered_nouns=empty and common_collocates stubs that parallel the same response keys produced from ExplorationResult in the single-seed handler — the shape is the same, the assembly is written twice."
+      ],
+      "suggestion": "Consolidate shared response keys into a buildBaseExploreResponse(String relationType, ExploreParams params) helper returning a pre-populated Map. Both handlers call this and then append their specific fields (edges, collocates). Alternatively, introduce a lightweight ExploreResponseBuilder that both handlers configure.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "handler_response_assembly"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_by_pattern_oversized",
+      "summary": "exploreByPattern in SemanticFieldExplorer is 135 lines with steps 3-4 (noun scoring and core-collocate selection) not extracted into named helpers",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Step 3 (building discoveredNouns list) and Step 4 (computing collocFrequency/collocTotalScore maps and constructing coreCollocates) are sequential ~30-line blocks that are conceptually independent scoring passes operating on different data structures.",
+        "Each step is preceded by a logger.debug call acting as an inline section header, signalling that these blocks are already mentally treated as named sub-procedures but not actually extracted."
+      ],
+      "suggestion": "Extract scoreNounsBySharedCollocates(Map<String,Map<String,Double>> nounProfiles, int minShared) -> List<DiscoveredNoun> and buildCoreCollocates(Map<String,Double> seedScores, List<DiscoveredNoun> nouns) -> List<CoreCollocate> as private helpers. This reduces exploreByPattern to ~60 lines of orchestration.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "extraction_discipline"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "semantic_field_adjective_serialization",
+      "summary": "handleSemanticField contains a 30-line adjective serialization loop with inline category classification, Math.round rounding, and conditional field injection",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "The for-loop over result.getAllAdjectives() performs: Math.round on 6 score fields, a ternary chain for category string, a nested loop over nounScores, a conditional adjMap.put(\"specific_to\", ...) — all inline at the same nesting level.",
+        "This formatting logic is not parallel to formatDiscoveredNoun/formatCoreCollocate/formatEdge which are correctly extracted as private static helpers in the same class."
+      ],
+      "suggestion": "Extract a private static formatAdjectiveProfile(AdjectiveProfile adj) -> Map<String,Object> following the pattern already established by formatDiscoveredNoun and formatCoreCollocate.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "handler_response_assembly"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_writer_null_state",
+      "summary": "convertConlluToWplChunks manages a null-initialized BufferedWriter with explicit null-checks scattered across the loop body and finally block",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "writer is declared as null outside the while loop, then conditionally allocated inside via 'if (writer == null) { ... writer = Files.newBufferedWriter(...); }', conditionally closed inside via 'if (sentencesInChunk >= sentencesPerChunk) { writer.close(); writer = null; ... }', and finally closed in the finally block with 'if (writer != null)'.",
+        "Three separate null-checks on writer across the 50-line method body means the mutation contract is implicit and requires careful reading to verify completeness."
+      ],
+      "suggestion": "Encapsulate chunk-file management in a small ChunkWriter helper or use a local openNextChunk() / closeChunk() pair of lambdas to make each state transition explicit. Alternatively, rewrite with a try-with-resources for each chunk file opened within a helper method, eliminating the null field entirely.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "extraction_discipline"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Handler methods in ExplorationHandlers grew incrementally with new features (multi-seed, comparison, examples) without a consistent response-building abstraction, leading to duplicated inline assembly patterns.",
+      "SemanticFieldExplorer.exploreByPattern uses debug-logging as implicit step delimiters rather than extracting named helpers, suggesting the step decomposition was identified but not fully implemented."
+    ],
+    "likely_symptoms": [
+      "explore_handler_monolith and explore_multi_response_duplication are partly symptoms of the same missing response-builder abstraction.",
+      "semantic_field_adjective_serialization is a symptom of the general pattern: formatX helpers were added for some types but not consistently applied to all."
+    ],
+    "possible_false_positives": []
+  }
+}

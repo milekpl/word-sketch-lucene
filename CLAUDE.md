@@ -116,8 +116,7 @@ src/main/java/pl/marcinmilkowski/word_sketch/
 │   ├── QueryExecutor.java              # Query executor interface
 │   ├── BlackLabQueryExecutor.java      # BlackLab-backed query executor
 │   ├── BlackLabSnippetParser.java      # Parses BlackLab XML snippets
-│   ├── SemanticFieldExplorer.java      # Single-seed semantic field exploration
-│   ├── CQLVerifier.java                # CQL pattern verifier (used in tests)
+│   ├── SemanticFieldExplorer.java      # Single-seed and multi-seed semantic field exploration
 │   └── QueryResults.java               # Result DTOs: WordSketchResult, ConcordanceResult
 ├── tagging/
 │   ├── PosTagger.java                  # POS tagger interface

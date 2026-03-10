@@ -1,0 +1,119 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {
+    "high_level_elegance": 71.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages api/, config/, indexer/, model/, query/, tagging/, utils/, viz/ are each explainable in one sentence — coherent domain decomposition at the first level.",
+        "model/ contains only exploration-specific DTOs (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExploreOptions, ExplorationResult) with no execution logic — clean separation.",
+        "query/SemanticFieldExplorer.java is a multi-step domain orchestration layer (adjective discovery, noun ranking, semantic class building) that lives alongside low-level execution infrastructure in the same package, blurring query/'s ownership.",
+        "query/QueryResults.java holds WordSketchResult and ConcordanceResult (result DTOs), while equivalent exploration-level DTOs live in model/ — two different homes for result value objects with no stated policy.",
+        "utils/PosGroup.java is a domain enum whose own Javadoc says it 'flows through the grammar-config loader and the API server' — it is not a utility, yet it lives in utils/ alongside LongIntHashMap and CqlUtils.",
+        "CLAUDE.md code-structure section lists CQLVerifier.java under query/ and api/PatternSubstitution.java (marked @Deprecated) — neither file exists in the source tree; a leftover .class file for PatternSubstitution is present in api/ but no source. These are the first things a new engineer reads.",
+        "tools/ directory exists in the package root but contains no source files — an orphan placeholder with no stated purpose.",
+        "SemanticFieldExplorer has a @Deprecated constructor that creates a BlackLabQueryExecutor internally, with a comment directing callers to use dependency injection; this incomplete migration leaves the ownership boundary between 'executor creation' and 'executor use' partially muddled."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "All eight top-level packages (api, config, indexer, model, query, tagging, utils, viz) are domain-meaningful — a new engineer can state the responsibility of each without reading implementation code.",
+        "model/ is a focused, responsibility-pure package: it contains only exploration-domain DTOs with no execution or parsing logic bleeding in.",
+        "QueryExecutor interface carries precise Javadoc that explicitly distinguishes four distinct query modes (findCollocations, executeQuery, executeBcqlQuery, executeSurfacePattern) with cross-references — contract ownership is clearly articulated.",
+        "config/ has a single, sharp responsibility (grammar relation loading and type enumeration) with no foreign concerns.",
+        "utils/ genuine utilities (CqlUtils, LogDiceCalculator, LongIntHashMap, PatternSubstitution) are shared low-level helpers with no domain decision-making — correctly scoped."
+      ],
+      "issue_character": "The structural issues are concentrated in two related misplacements — SemanticFieldExplorer and QueryResults belong conceptually above/alongside the query execution layer, not inside it — plus a stale reference document that directly misleads a new developer inspecting the package map.",
+      "score_rationale": "The first-level decomposition is genuinely navigable and domain-aligned, pushing the score well above 60. The main drag is that query/ acts as a catch-all for both low-level BlackLab execution infrastructure and high-level semantic exploration orchestration, a mixed-responsibility pattern that a new engineer would need to resolve explicitly when onboarding. The split home for result DTOs (some in model/, others in query/QueryResults) adds consistent friction whenever a developer needs to add or find a result type. The stale CLAUDE.md code-structure section — listing two non-existent source files as current — materially undermines the 'reference docs match runtime reality' criterion that is central to this dimension. Taken together, the codebase sits comfortably in the 70–75 band: broadly navigable with recurring, predictable friction rather than genuine confusion about ownership."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semantic_explorer_misplaced_in_query",
+      "summary": "SemanticFieldExplorer lives in query/ but is domain orchestration, not query infrastructure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer implements a multi-step semantic analysis algorithm (find adjectives → rank nouns → build semantic class) that orchestrates QueryExecutor results into domain model objects.",
+        "query/ also contains BlackLabQueryExecutor and BlackLabSnippetParser — low-level index/XML execution infrastructure — giving the package two distinct, unrelated responsibilities.",
+        "The class Javadoc's 'Result classes' section already acknowledges that result DTOs live in model/, implicitly admitting that the orchestrator belongs at a higher layer."
+      ],
+      "suggestion": "Move SemanticFieldExplorer to a new package, for example pl.marcinmilkowski.word_sketch.exploration, that owns the semantic field analysis domain. query/ would then have a single coherent responsibility: executing corpus queries via BlackLab. Update all import sites in api/ExplorationHandlers.java and test files.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "query_package_mixed_responsibility"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "query_results_dtos_not_in_model",
+      "summary": "QueryResults (WordSketchResult, ConcordanceResult) live in query/ while equivalent DTOs live in model/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "model/ owns AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, ExplorationResult, Edge, ExploreOptions — all domain result value objects.",
+        "query/QueryResults.java holds WordSketchResult and ConcordanceResult — also domain result value objects returned from the public API.",
+        "A developer adding a new result type has no policy for which package to choose; two precedents exist for the same category of object."
+      ],
+      "suggestion": "Move QueryResults.java (and its inner classes WordSketchResult and ConcordanceResult) into model/. Update imports in BlackLabQueryExecutor, SemanticFieldExplorer, and the api/ handlers. This unifies all domain result DTOs under one package with a clear ownership rule.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "query_package_mixed_responsibility"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "posgroup_misplaced_as_utility",
+      "summary": "PosGroup domain enum placed in utils/ despite being a domain concept used across config and API layers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PosGroup.java"
+      ],
+      "evidence": [
+        "PosGroup's own Javadoc states: 'flows through the grammar-config loader and the API server' — it is not a generic utility but a shared domain vocabulary term.",
+        "LongIntHashMap, CqlUtils, LogDiceCalculator, PatternSubstitution are genuine utilities with no domain knowledge; PosGroup is a categorization of linguistic POS groups."
+      ],
+      "suggestion": "Move PosGroup.java to pl.marcinmilkowski.word_sketch.config (alongside RelationType, which is the same category of domain enumeration) or to model/. Update imports in GrammarConfigLoader, tagging/, and api/ accordingly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "stale_reference_doc_code_structure",
+      "summary": "CLAUDE.md code structure section documents two non-existent source files, misleading new engineers",
+      "related_files": [
+        "CLAUDE.md"
+      ],
+      "evidence": [
+        "CLAUDE.md lists 'query/CQLVerifier.java  # CQL pattern verifier (used in tests)' — this file does not exist anywhere in src/main/java/.",
+        "CLAUDE.md lists 'api/PatternSubstitution.java  # @Deprecated — use utils.PatternSubstitution' — this source file does not exist; only a leftover PatternSubstitution.class is present in api/.",
+        "The code-structure tree in CLAUDE.md is the first authoritative reference a new engineer reads to understand the project layout; having phantom file entries breaks the 'reference docs match runtime reality' property central to this dimension."
+      ],
+      "suggestion": "Remove the CQLVerifier.java entry from the query/ tree in CLAUDE.md (and verify no test relies on it). Remove the api/PatternSubstitution.java entry (the source was already migrated to utils/; delete the leftover .class artifact from api/). If a CQLVerifier is still needed, create it or document that it was removed.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "query/ was used as the initial home for all corpus-related code before a model/ package was introduced; SemanticFieldExplorer and QueryResults were never migrated out.",
+      "The @Deprecated constructor on SemanticFieldExplorer and the leftover api/PatternSubstitution.class are remnants of earlier refactors that were not fully completed, leaving structural archaeology for future developers."
+    ],
+    "likely_symptoms": [
+      "stale_reference_doc_code_structure is a symptom of the incomplete refactor history rather than an independent architectural decision."
+    ],
+    "possible_false_positives": []
+  }
+}

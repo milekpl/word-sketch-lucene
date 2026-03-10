@@ -1,0 +1,136 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 5,
+  "assessments": {"api_surface_coherence": 59.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor interface is well-documented with distinct Javadoc for findCollocations, executeSurfacePattern, executeBcqlQuery, and executeDependencyPattern, explaining how they differ.",
+        "HttpApiUtils provides consistent sendJsonResponse/sendError/sendOptionsResponse/requireParam helpers used uniformly across all handler classes.",
+        "ConcordanceResult has four factory methods (forSnippet, fromKwic, forCollocate, primary constructor) reducing callsite complexity, but the 11-parameter primary constructor remains public alongside the factories.",
+        "In handleSemanticFieldExploreMulti (ExplorationHandlers.java line 192), minShared is parsed from params and echoed in the response under 'parameters', but is never actually passed to exploreMultiSeed or applied as a filter — the param is silently accepted but has no effect.",
+        "The seed_collocates key is used in both /api/semantic-field/explore and /api/semantic-field/explore-multi responses, but with different shapes: single-seed returns [{word, log_dice}] while multi-seed returns [{word, log_dice, frequency}] from a flat merge across all seeds.",
+        "explore endpoint returns populated discovered_nouns and core_collocates keys; explore-multi hardcodes discovered_nouns: [] and omits core_collocates entirely — two endpoints sharing /api/semantic-field/explore* prefix return structurally incompatible response bodies.",
+        "Parameter naming for the subject noun(s) differs across the three related endpoints: 'seed' (explore), 'seeds' (explore-multi), 'nouns' (semantic-field comparison) — no consistent convention.",
+        "QueryExecutor interface retains @Deprecated findDependencyCollocations alongside executeDependencyPattern, forcing every implementation to carry dead code on the public contract.",
+        "LogDiceCalculator.compute has two overloads (double, long) with the long overload simply casting and delegating — acceptable Java idiom, not a defect."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "QueryExecutor interface has thorough Javadoc distinguishing all five query variants, preventing accidental misuse.",
+        "HttpApiUtils helpers (sendJsonResponse, sendError, requireParam) are used consistently by every handler, giving the HTTP surface a uniform response envelope.",
+        "ConcordanceResult factory methods (forSnippet, fromKwic, forCollocate) provide named construction paths that hide the unwieldy 11-parameter constructor.",
+        "ExploreParams record centralises numeric parameter parsing for explore endpoints in one place.",
+        "resolveRelationAlias normalises four alias forms consistently so callers can use both short (adj_predicate) and canonical (noun_adj_predicates) identifiers."
+      ],
+      "issue_character": "The issues are concentrated in the HTTP layer's semantic-field exploration cluster: two endpoints that are clearly intended to be related share a URL prefix and several response keys but return incompatible shapes, and one accepted query parameter is silently ignored — suggesting the multi-seed endpoint was added by extending the single-seed handler without a contract review.",
+      "score_rationale": "The Java interface layer (QueryExecutor, SemanticFieldExplorer) is reasonably coherent and well-documented, which lifts the score above the floor. However the HTTP API has genuine consumer-visible inconsistencies: the same response key (seed_collocates) carries different shapes in explore vs explore-multi, the min_shared parameter is accepted and echoed but never applied in explore-multi, and discovered_nouns/core_collocates are present in one endpoint and absent in the other. These problems sit at the subsystem level and would cause real bugs in any client that treats the two explore endpoints symmetrically. This places the score at 59 — below 'solid but uneven' (80) and closer to 'significant drag' (60), because the defects are not isolated noise but a coherent failure to maintain contract consistency across a family of related endpoints."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_multi_phantom_param",
+      "summary": "min_shared parameter accepted and echoed in explore-multi response but never applied as a filter",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Line 192: int minShared = ep.minShared(); — parsed from query params",
+        "Line 216: paramsUsed.put(\"min_shared\", minShared); — echoed to caller in response",
+        "Lines 195-201: exploreMultiSeed call only passes minLogDice and topCollocates; minShared is not forwarded",
+        "The single-seed explore path does pass minShared to ExploreOptions (line 94), so the parameter has an effect there but not here"
+      ],
+      "suggestion": "Either pass minShared to exploreMultiSeed (or apply it as a post-filter on commonCollocates), or remove min_shared from the explore-multi parameter docs and 400 if it is supplied, so the contract is honest.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_vs_multi_seed_collocates_shape",
+      "summary": "seed_collocates response key has different item shapes in explore vs explore-multi",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "explore endpoint (line ~117): calls formatSeedCollocate(key, value) -> {word, log_dice}",
+        "explore-multi endpoint (line ~232): calls formatSeedCollocate then adds collocMap.put(\"frequency\", wsr.getFrequency()) -> {word, log_dice, frequency}",
+        "Any client iterating seed_collocates expecting a uniform shape will fail on one of the two endpoints"
+      ],
+      "suggestion": "Align the shapes: either always include frequency in formatSeedCollocate (add 0 for single-seed where frequency is not naturally available), or introduce distinct response keys (e.g. per_seed_collocates for multi-seed) to avoid the collision.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_multi_missing_response_keys",
+      "summary": "explore-multi omits core_collocates key and hardcodes discovered_nouns to empty, making the two /explore* endpoints structurally incompatible",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "explore returns: seed_collocates, discovered_nouns (populated), core_collocates, core_collocates_count, edges",
+        "explore-multi (lines 237-238): response.put(\"discovered_nouns\", new ArrayList<>()); response.put(\"discovered_nouns_count\", 0); — hardcoded empty",
+        "explore-multi has no core_collocates key at all",
+        "Both endpoints share /api/semantic-field/explore* prefix suggesting they are siblings, but a client cannot use a common response model"
+      ],
+      "suggestion": "Document the structural difference explicitly in both endpoint Javadoc. If these are intended to return compatible shapes, implement noun discovery and core-collocate extraction for the multi-seed path, or rename explore-multi to an endpoint path that signals it is a distinct operation (e.g. /api/semantic-field/compare).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "seed_param_naming_inconsistency",
+      "summary": "Subject noun parameter named differently across three related endpoints: seed, seeds, nouns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: requireParam(..., \"seed\")",
+        "handleSemanticFieldExploreMulti: requireParam(..., \"seeds\")",
+        "handleSemanticField: requireParam(..., \"nouns\")",
+        "All three accept the same concept (input lemma(s)) but under three different names"
+      ],
+      "suggestion": "Adopt a single parameter name family — e.g. 'seed' for single-input and 'seeds' for multi-input endpoints, replacing 'nouns' in handleSemanticField to match the rest of the family.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "deprecated_method_on_interface",
+      "summary": "QueryExecutor interface retains @Deprecated findDependencyCollocations forcing all implementations to carry dead public API",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java: @Deprecated List<WordSketchResult> findDependencyCollocations(String lemma, String deprel, double minLogDice, int maxResults)",
+        "QueryExecutor Javadoc: 'Use executeDependencyPattern(String, String, String, double, int) with null for the head POS constraint.'",
+        "BlackLabQueryExecutor.java: @Deprecated @Override findDependencyCollocations delegates to executeDependencyPattern — so both implementations carry the method"
+      ],
+      "suggestion": "Remove findDependencyCollocations from the interface and its implementation. If backward compatibility with external callers is required, provide a static utility method or a default interface method that delegates to executeDependencyPattern.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The multi-seed explore endpoint appears to have been added by copying the single-seed handler and stripping unimplemented fields rather than designing a shared response contract first.",
+      "The QueryExecutor interface accumulated deprecated methods without a cleanup pass, creating dual-entry API debt."
+    ],
+    "likely_symptoms": [
+      "explore_multi_phantom_param",
+      "explore_multi_missing_response_keys"
+    ],
+    "possible_false_positives": []
+  }
+}

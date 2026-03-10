@@ -91,26 +91,7 @@ public interface QueryExecutor extends Closeable {
             double minLogDice, int maxResults) throws IOException;
 
     /**
-     * Find collocations for a lemma using a dependency relation.
-     * Groups hits by collocate identity and ranks results by logDice.
-     *
-     * @param lemma       The head lemma to search for
-     * @param deprel      The dependency relation label (e.g., "nsubj", "obj")
-     * @param minLogDice  Minimum logDice score threshold (0 for no minimum)
-     * @param maxResults  Maximum number of results to return
-     * @return List of collocation results, sorted by logDice descending
-     * @throws IOException if index access fails
-     * @deprecated Use {@link #executeDependencyPattern(String, String, String, double, int)} with
-     *             {@code null} for the head POS constraint.
-     */
-    @Deprecated
-    List<QueryResults.WordSketchResult> findDependencyCollocations(String lemma, String deprel,
-                                                                   double minLogDice, int maxResults) throws IOException;
-
-    /**
      * Execute a dependency-pattern query for word sketches with an optional head POS constraint.
-     * This is the lower-level entry point used by the API layer; {@link #findDependencyCollocations}
-     * is the higher-level variant without the POS constraint parameter.
      *
      * @param lemma              The head lemma to search for
      * @param deprel             The dependency relation label (e.g., "nsubj", "obj")

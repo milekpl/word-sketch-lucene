@@ -1,0 +1,118 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 3,
+  "assessments": {"mid_level_elegance": 64.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "QueryExecutor interface (QueryExecutor.java) is well-designed with 7 clearly-documented methods that distinguish similar operations (findCollocations vs executeSurfacePattern vs executeDependencyPattern); each seam is explicit and explained",
+        "BlackLabSnippetParser consolidates all XML-to-text and positional-extraction logic in one utility class — data translation at the parse boundary happens in a single obvious place rather than scattered across callers",
+        "ExploreOptions record (ExploreOptions.java) bundles 7 exploration parameters into one type, eliminating a 7-argument method signature at the SemanticFieldExplorer boundary",
+        "executeSurfacePattern (BlackLabQueryExecutor.java:411-458) accepts both headPosition and collocatePosition but ignores both: it recomputes the collocate position internally via findLabelPosition(bcqlPattern, 2), and headPosition has zero references in the method body — dead parameters at a public interface boundary",
+        "ConcordanceResult (QueryResults.java) has 11 fields, 3 factory methods, and a class-level javadoc listing which fields are null for each factory — a union type forced through one seam requiring callers to consult documentation before using any nullable field",
+        "findCollocations (BlackLabQueryExecutor.java:66-138) routes on string shape at its entry seam: 'if (cqlPattern.contains(\"%s\"))' / 'else if (cqlPattern.startsWith(\"[\"))' / 'else throw IllegalArgumentException' — an implicit format contract not encoded in types, with a runtime exception on violation",
+        "Single-seed exploration routes through ExplorationResult (a rich domain model with typed fields and domain methods like getEdges(), getTopNouns()); multi-seed exploration returns MultiSeedCollocates (a minimal record with raw Map and Set) and ExplorationHandlers manually constructs edges — two different abstraction levels for the same conceptual boundary"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "QueryExecutor interface cleanly separates the BlackLab implementation from all callers; it is richly documented, distinguishing near-identical methods with explicit rationale for their differences",
+        "BlackLabSnippetParser centralizes all XML/text extraction and positional lookup in one package-private utility — boundary translation does not leak into callers",
+        "ExploreOptions record consolidates 7 exploration parameters into a named type, making the SemanticFieldExplorer handoff explicit and unsurprising",
+        "LogDiceCalculator provides a pure, stateless interface with an explicit UNCOMPUTABLE sentinel (Double.NaN) rather than a magic number, making the contract honest at the scoring boundary"
+      ],
+      "issue_character": "The issues are not random noise — they concentrate at handoff points where implicit contracts substitute for explicit type discipline: a dead-parameter interface, a union-type result DTO, and a string-format dispatch rule, each requiring out-of-band knowledge to use correctly.",
+      "score_rationale": "The codebase sits solidly in the 60-70 range. Its strongest seams (QueryExecutor interface, BlackLabSnippetParser, ExploreOptions) are genuinely well-designed and reduce cognitive load for developers crossing those boundaries. However, the executeSurfacePattern dead-parameter pair is a contract violation at the public interface boundary — callers derive and pass positional data that is silently discarded, which creates a correctness hazard and misleads future implementors of the interface. ConcordanceResult's union-type design creates boundary friction for every consumer of concordance results. The mismatch between how single-seed and multi-seed results surface through the API layer (rich model vs. raw map construction) is a predictability issue at the service/handler seam. These are real mid-level elegance defects, not just style preferences, pulling the score below the 70-80 'solid but uneven' band."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "dead_position_params_executeSurfacePattern",
+      "summary": "executeSurfacePattern accepts headPosition and collocatePosition but ignores both, re-deriving collocate position internally from the pattern string",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.java:424: 'int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);' — position is re-derived from the pattern label '2:', not from the collocatePosition parameter",
+        "BlackLabQueryExecutor.java:411-458: headPosition parameter (the 4th argument) has zero references in the method body",
+        "QueryExecutor.java interface documents both headPosition and collocatePosition as meaningful 1-based positions, but the only implementation ignores both"
+      ],
+      "suggestion": "Remove headPosition and collocatePosition from the executeSurfacePattern signature and document that the implementation derives positions from the '1:'/'2:' labels in the pattern. Alternatively, use the collocatePosition argument directly (passing it to extractCollocateFromXmlByPosition instead of calling findLabelPosition) and remove the redundant internal re-derivation. Align the interface contract with the actual implementation.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "concordance_result_union_type",
+      "summary": "ConcordanceResult is a union type with 11 fields, 3 factories, and extensive nullable-field documentation, forcing every consumer to check the docs before accessing any field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "QueryResults.java: ConcordanceResult has 11 fields; the class-level javadoc documents which fields are null for each factory: rawXml, lemma, tag, word, collocateLemma, docId may all be null depending on which factory created the instance",
+        "Three factory methods (forSnippet, fromKwic, forCollocate) correspond to three distinct result shapes being passed through one seam",
+        "SketchHandlers.java and ExplorationHandlers.java each access different subsets of fields without type-level guarantee that they are populated"
+      ],
+      "suggestion": "Split ConcordanceResult into two or three sealed subtypes (SnippetResult, KwicResult, CollocateResult) or use a sealed interface. This makes the shape of each result explicit at the type boundary. In the short term, at minimum the three factory methods are already a stepping stone — make them return distinct record types.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "findCollocations_implicit_pattern_contract",
+      "summary": "findCollocations dispatches on raw string shape (%s presence, '[' prefix) rather than a typed pattern input, with a runtime exception for unrecognized formats",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.java:79-90: 'if (cqlPattern.contains(\"%s\"))' / 'else if (cqlPattern.startsWith(\"[\"))' / 'else throw new IllegalArgumentException(\"Unrecognized CQL pattern format\")' — callers must follow an unwritten format convention",
+        "The QueryExecutor interface javadoc for findCollocations says 'CQL pattern defining the collocate constraints (no labeled positions)' but does not specify the %s-or-bracket contract that the implementation enforces"
+      ],
+      "suggestion": "Either encode the pattern type distinction in a small sealed type (PlaceholderPattern, ConstraintPattern) or collapse to a single format requirement in the interface javadoc and enforce it at all call sites. The dispatch logic should be eliminated so the boundary is self-describing.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "single_vs_multiseed_exploration_seam_inconsistency",
+      "summary": "Single-seed and multi-seed exploration use different abstraction levels at the API boundary: single-seed returns a rich domain model, multi-seed returns a minimal record and the API handler manually constructs edges",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java:95: single-seed calls 'semanticFieldExplorer.exploreByPattern(...)' returning ExplorationResult, which has domain methods like getEdges(), getTopNouns(), isEmpty()",
+        "ExplorationHandlers.java:197-243: multi-seed calls 'semanticFieldExplorer.exploreMultiSeed(...)' returning MultiSeedCollocates (a record with Map<String,List<WordSketchResult>> and Set<String>), then the handler manually constructs edges with 'new Edge(seed, wsr.getLemma(), ...)' inline",
+        "SemanticFieldExplorer.java: ExplorationResult.getEdges() already provides the edge-building logic for single-seed; multi-seed duplicates this logic inline in the handler"
+      ],
+      "suggestion": "Add a getEdges() method to MultiSeedCollocates (or a wrapper), mirroring ExplorationResult, so the API handler delegates edge construction to the domain layer in both cases. Alternatively, return ExplorationResult from both paths for consistency.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The interface boundary was defined ahead of a clean implementation contract: executeSurfacePattern's position parameters were added to the interface but the implementation evolved to use label-based extraction instead, leaving the interface stale",
+      "ConcordanceResult grew incrementally to serve multiple callers with different needs rather than being split at the first fork (snippet vs. collocate results), accumulating nullable fields",
+      "Multi-seed exploration was added after the single-seed path was already established but without extending the domain model to cover the new shape, so the handler absorbed the gap"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -451,21 +451,26 @@ public class SemanticFieldExplorer implements AutoCloseable {
     /**
      * Fetches collocates for each seed using the given relation and computes their
      * intersection.  The seeds are queried independently; the common-collocate set
-     * contains lemmas whose surface form appears in every seed's collocate list.
+     * contains lemmas whose surface form appears in at least {@code minShared} seeds'
+     * collocate lists.
      *
      * @param seeds          ordered seed words (at least 2)
      * @param relationConfig grammar relation to use for collocate lookup
      * @param minLogDice     minimum logDice threshold for inclusion
      * @param topCollocates  maximum collocates to fetch per seed
+     * @param minShared      minimum number of seeds a collocate must appear in to be
+     *                       included in {@code commonCollocates}; use {@code seeds.size()}
+     *                       to require presence in all seeds
      * @return per-seed collocate lists and their intersection
      */
     public MultiSeedCollocates exploreMultiSeed(
             Set<String> seeds,
             GrammarConfigLoader.RelationConfig relationConfig,
             double minLogDice,
-            int topCollocates) throws IOException {
+            int topCollocates,
+            int minShared) throws IOException {
         Map<String, List<QueryResults.WordSketchResult>> seedCollocates = new LinkedHashMap<>();
-        Set<String> commonCollocates = null;
+        Map<String, Integer> collocateSharedCount = new HashMap<>();
 
         for (String seed : seeds) {
             String bcqlPattern = relationConfig.getFullPattern(seed);
@@ -475,14 +480,16 @@ public class SemanticFieldExplorer implements AutoCloseable {
                 minLogDice, topCollocates);
             seedCollocates.put(seed, collocates);
 
-            Set<String> seedLemmas = new HashSet<>();
             for (QueryResults.WordSketchResult wsr : collocates) {
-                seedLemmas.add(wsr.getLemma());
+                collocateSharedCount.merge(wsr.getLemma(), 1, Integer::sum);
             }
-            if (commonCollocates == null) {
-                commonCollocates = new HashSet<>(seedLemmas);
-            } else {
-                commonCollocates.retainAll(seedLemmas);
+        }
+
+        int threshold = Math.min(minShared, seeds.size());
+        Set<String> commonCollocates = new HashSet<>();
+        for (Map.Entry<String, Integer> entry : collocateSharedCount.entrySet()) {
+            if (entry.getValue() >= threshold) {
+                commonCollocates.add(entry.getKey());
             }
         }
 

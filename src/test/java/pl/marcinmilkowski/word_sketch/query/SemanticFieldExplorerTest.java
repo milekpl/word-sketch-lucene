@@ -71,13 +71,6 @@ class SemanticFieldExplorerTest {
         @Override
         public void close() {}
 
-        @Deprecated
-        @Override
-        public List<QueryResults.WordSketchResult> findDependencyCollocations(
-                String lemma, String deprel, double minLogDice, int maxResults) {
-            throw new UnsupportedOperationException("findDependencyCollocations not supported in stub");
-        }
-
         @Override
         public List<QueryResults.WordSketchResult> executeDependencyPattern(
                 String lemma, String deprel, String headPosConstraint,

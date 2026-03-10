@@ -1,0 +1,554 @@
+{
+  "assessments": {
+    "api_surface_coherence": 35.0,
+    "design_coherence": 56.1,
+    "high_level_elegance": 48.9,
+    "low_level_elegance": 45.5,
+    "mid_level_elegance": 43.5
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages api/, config/, indexer/, model/, query/, tagging/, utils/, viz/ are each explainable in one sentence \u2014 coherent domain decomposition at the first level.",
+        "model/ contains only exploration-specific DTOs (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExploreOptions, ExplorationResult) with no execution logic \u2014 clean separation.",
+        "query/SemanticFieldExplorer.java is a multi-step domain orchestration layer (adjective discovery, noun ranking, semantic class building) that lives alongside low-level execution infrastructure in the same package, blurring query/'s ownership.",
+        "query/QueryResults.java holds WordSketchResult and ConcordanceResult (result DTOs), while equivalent exploration-level DTOs live in model/ \u2014 two different homes for result value objects with no stated policy.",
+        "utils/PosGroup.java is a domain enum whose own Javadoc says it 'flows through the grammar-config loader and the API server' \u2014 it is not a utility, yet it lives in utils/ alongside LongIntHashMap and CqlUtils.",
+        "CLAUDE.md code-structure section lists CQLVerifier.java under query/ and api/PatternSubstitution.java (marked @Deprecated) \u2014 neither file exists in the source tree; a leftover .class file for PatternSubstitution is present in api/ but no source. These are the first things a new engineer reads.",
+        "tools/ directory exists in the package root but contains no source files \u2014 an orphan placeholder with no stated purpose.",
+        "SemanticFieldExplorer has a @Deprecated constructor that creates a BlackLabQueryExecutor internally, with a comment directing callers to use dependency injection; this incomplete migration leaves the ownership boundary between 'executor creation' and 'executor use' partially muddled."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "executeBcqlQuery in BlackLabQueryExecutor cleanly delegates to three named phases: collectHits, scoreHits, and a sort/limit stream \u2014 intention-revealing and well-extracted.",
+        "BlackLabSnippetParser is a utility class with focused single-purpose static methods (extractLemmaFromMatch, trimLeftAtSentence, detokenize, etc.), all concise and properly guarded.",
+        "ExploreParams record in ExplorationHandlers is a good local extraction: numeric parameter parsing is isolated into parseExploreParams, keeping handler bodies readable.",
+        "handleSemanticFieldExplore is ~85 lines of mixed responsibility: parameter parsing, relation config lookup, BCQL pattern construction, business logic invocation, and 6+ separate response map assemblies \u2014 all inline with no extraction.",
+        "handleSemanticFieldExploreMulti duplicates the same response-assembly ceremony (~50 lines of Map.put calls) independently from handleSemanticFieldExplore, despite sharing structure: status, seeds, relation_type, parameters, seed_collocates, common_collocates, discovered_nouns, edges.",
+        "handleSemanticField in ExplorationHandlers has a ~30-line adjective serialization loop with multiple Math.round calls inline, category classification, conditional specific_to field \u2014 this is formatting logic that could be a formatAdjectiveProfile helper.",
+        "exploreByPattern in SemanticFieldExplorer is ~135 lines: steps 1-4 are interleaved with debug logging at every micro-step, and steps 3-4 (scoring/core-building) are not extracted into named helpers despite being conceptually distinct.",
+        "convertConlluToWplChunks in Main.java uses a null-initialized BufferedWriter managed with explicit null checks inside the main loop and finally block, creating scattered mutation-of-state across the method body.",
+        "buildAndRankCollocates is a clean, focused private helper in BlackLabQueryExecutor, properly extracted and reused from three call sites.",
+        "TaggedToken.getPosGroup() is an elegant switch-on-first-char approach \u2014 compact and direct."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "QueryExecutor interface (QueryExecutor.java) is well-designed with 7 clearly-documented methods that distinguish similar operations (findCollocations vs executeSurfacePattern vs executeDependencyPattern); each seam is explicit and explained",
+        "BlackLabSnippetParser consolidates all XML-to-text and positional-extraction logic in one utility class \u2014 data translation at the parse boundary happens in a single obvious place rather than scattered across callers",
+        "ExploreOptions record (ExploreOptions.java) bundles 7 exploration parameters into one type, eliminating a 7-argument method signature at the SemanticFieldExplorer boundary",
+        "executeSurfacePattern (BlackLabQueryExecutor.java:411-458) accepts both headPosition and collocatePosition but ignores both: it recomputes the collocate position internally via findLabelPosition(bcqlPattern, 2), and headPosition has zero references in the method body \u2014 dead parameters at a public interface boundary",
+        "ConcordanceResult (QueryResults.java) has 11 fields, 3 factory methods, and a class-level javadoc listing which fields are null for each factory \u2014 a union type forced through one seam requiring callers to consult documentation before using any nullable field",
+        "findCollocations (BlackLabQueryExecutor.java:66-138) routes on string shape at its entry seam: 'if (cqlPattern.contains(\"%s\"))' / 'else if (cqlPattern.startsWith(\"[\"))' / 'else throw IllegalArgumentException' \u2014 an implicit format contract not encoded in types, with a runtime exception on violation",
+        "Single-seed exploration routes through ExplorationResult (a rich domain model with typed fields and domain methods like getEdges(), getTopNouns()); multi-seed exploration returns MultiSeedCollocates (a minimal record with raw Map and Set) and ExplorationHandlers manually constructs edges \u2014 two different abstraction levels for the same conceptual boundary"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "design_coherence": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles extracts its phases into buildRawAdjectiveProfiles and buildAdjectiveProfileList, but exploreByPattern (~130 lines) inlines all four phases \u2014 seed fetch, noun profiling, noun scoring, and core collocate identification \u2014 in one method body, creating an asymmetry between the two parallel exploration modes.",
+        "handleSemanticFieldExplore (~90 lines) and handleSemanticFieldExploreMulti (~70 lines) mix parameter parsing, business logic invocation, and inline HashMap-building response assembly in the same method body; changing a response field shape requires reading through parameter validation code.",
+        "GET route handlers push OPTIONS preflight and method gating into registerGetHandler in WordSketchApiServer; POST handlers (handleVisualRadial, handleBcqlQueryPost) each begin with manual OPTIONS + requireMethod checks \u2014 the same cross-cutting concern is handled two different structural ways.",
+        "convertConlluToWplChunks (50+ lines, file format conversion with sentence chunking) lives in Main.java rather than the indexer package; Main orchestrates the CLI pipeline but should not contain conversion logic.",
+        "In handleSemanticFieldExplore, top/min_shared/min_logdice are extracted via parseExploreParams, but nouns_per is parsed inline immediately after, using a different try/catch site for the same category of numeric parameter."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": ""
+    },
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor interface is well-documented with distinct Javadoc for findCollocations, executeSurfacePattern, executeBcqlQuery, and executeDependencyPattern, explaining how they differ.",
+        "HttpApiUtils provides consistent sendJsonResponse/sendError/sendOptionsResponse/requireParam helpers used uniformly across all handler classes.",
+        "ConcordanceResult has four factory methods (forSnippet, fromKwic, forCollocate, primary constructor) reducing callsite complexity, but the 11-parameter primary constructor remains public alongside the factories.",
+        "In handleSemanticFieldExploreMulti (ExplorationHandlers.java line 192), minShared is parsed from params and echoed in the response under 'parameters', but is never actually passed to exploreMultiSeed or applied as a filter \u2014 the param is silently accepted but has no effect.",
+        "The seed_collocates key is used in both /api/semantic-field/explore and /api/semantic-field/explore-multi responses, but with different shapes: single-seed returns [{word, log_dice}] while multi-seed returns [{word, log_dice, frequency}] from a flat merge across all seeds.",
+        "explore endpoint returns populated discovered_nouns and core_collocates keys; explore-multi hardcodes discovered_nouns: [] and omits core_collocates entirely \u2014 two endpoints sharing /api/semantic-field/explore* prefix return structurally incompatible response bodies.",
+        "Parameter naming for the subject noun(s) differs across the three related endpoints: 'seed' (explore), 'seeds' (explore-multi), 'nouns' (semantic-field comparison) \u2014 no consistent convention.",
+        "QueryExecutor interface retains @Deprecated findDependencyCollocations alongside executeDependencyPattern, forcing every implementation to carry dead code on the public contract.",
+        "LogDiceCalculator.compute has two overloads (double, long) with the long overload simply casting and delegating \u2014 acceptable Java idiom, not a defect."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "All eight top-level packages (api, config, indexer, model, query, tagging, utils, viz) are domain-meaningful \u2014 a new engineer can state the responsibility of each without reading implementation code.",
+        "model/ is a focused, responsibility-pure package: it contains only exploration-domain DTOs with no execution or parsing logic bleeding in.",
+        "QueryExecutor interface carries precise Javadoc that explicitly distinguishes four distinct query modes (findCollocations, executeQuery, executeBcqlQuery, executeSurfacePattern) with cross-references \u2014 contract ownership is clearly articulated.",
+        "config/ has a single, sharp responsibility (grammar relation loading and type enumeration) with no foreign concerns.",
+        "utils/ genuine utilities (CqlUtils, LogDiceCalculator, LongIntHashMap, PatternSubstitution) are shared low-level helpers with no domain decision-making \u2014 correctly scoped."
+      ],
+      "issue_character": "The structural issues are concentrated in two related misplacements \u2014 SemanticFieldExplorer and QueryResults belong conceptually above/alongside the query execution layer, not inside it \u2014 plus a stale reference document that directly misleads a new developer inspecting the package map.",
+      "score_rationale": "The first-level decomposition is genuinely navigable and domain-aligned, pushing the score well above 60. The main drag is that query/ acts as a catch-all for both low-level BlackLab execution infrastructure and high-level semantic exploration orchestration, a mixed-responsibility pattern that a new engineer would need to resolve explicitly when onboarding. The split home for result DTOs (some in model/, others in query/QueryResults) adds consistent friction whenever a developer needs to add or find a result type. The stale CLAUDE.md code-structure section \u2014 listing two non-existent source files as current \u2014 materially undermines the 'reference docs match runtime reality' criterion that is central to this dimension. Taken together, the codebase sits comfortably in the 70\u201375 band: broadly navigable with recurring, predictable friction rather than genuine confusion about ownership."
+    },
+    "low_level_elegance": {
+      "strengths": [
+        "executeBcqlQuery uses named phase methods (collectHits, scoreHits) that make the three-step algorithm self-documenting without over-fragmenting.",
+        "BlackLabSnippetParser is a well-disciplined utility class: all methods are concise, guarded for null/empty, and named after their precise intent.",
+        "buildAndRankCollocates is properly extracted and reused across three query methods, eliminating duplication of the logDice-scoring loop.",
+        "parseExploreParams record extraction in ExplorationHandlers cleanly isolates numeric parsing failure handling from handler body logic.",
+        "Guard-clause style (null/empty early returns) is applied consistently throughout handlers and query methods, keeping happy-path flow unindented."
+      ],
+      "issue_character": "The primary drag is method-level monolithism in the handler and exploration layers: several handler methods combine parameter parsing, config resolution, business invocation, and full response assembly inline, and duplicated response-construction blocks appear across closely related handlers without extraction into a shared shape-builder.",
+      "score_rationale": "At the query-execution layer (BlackLabQueryExecutor, BlackLabSnippetParser, model classes) the code shows solid extraction instincts and direct control flow, placing that layer near 80. The handler and semantic-explorer layer pulls the overall score down: two major handlers (handleSemanticFieldExplore, handleSemanticFieldExploreMulti) each exceed 70-80 lines mixing multiple concerns, share uncollapsed response-assembly duplication, and exploreByPattern at 135 lines lacks sub-extraction for its scoring and core-building steps. These are real readability costs spread across the most feature-rich part of the codebase, anchoring the score in the 60-65 range consistent with 'solid foundations but uneven application of extraction discipline'."
+    },
+    "mid_level_elegance": {
+      "strengths": [
+        "QueryExecutor interface cleanly separates the BlackLab implementation from all callers; it is richly documented, distinguishing near-identical methods with explicit rationale for their differences",
+        "BlackLabSnippetParser centralizes all XML/text extraction and positional lookup in one package-private utility \u2014 boundary translation does not leak into callers",
+        "ExploreOptions record consolidates 7 exploration parameters into a named type, making the SemanticFieldExplorer handoff explicit and unsurprising",
+        "LogDiceCalculator provides a pure, stateless interface with an explicit UNCOMPUTABLE sentinel (Double.NaN) rather than a magic number, making the contract honest at the scoring boundary"
+      ],
+      "issue_character": "The issues are not random noise \u2014 they concentrate at handoff points where implicit contracts substitute for explicit type discipline: a dead-parameter interface, a union-type result DTO, and a string-format dispatch rule, each requiring out-of-band knowledge to use correctly.",
+      "score_rationale": "The codebase sits solidly in the 60-70 range. Its strongest seams (QueryExecutor interface, BlackLabSnippetParser, ExploreOptions) are genuinely well-designed and reduce cognitive load for developers crossing those boundaries. However, the executeSurfacePattern dead-parameter pair is a contract violation at the public interface boundary \u2014 callers derive and pass positional data that is silently discarded, which creates a correctness hazard and misleads future implementors of the interface. ConcordanceResult's union-type design creates boundary friction for every consumer of concordance results. The mismatch between how single-seed and multi-seed results surface through the API layer (rich model vs. raw map construction) is a predictability issue at the service/handler seam. These are real mid-level elegance defects, not just style preferences, pulling the score below the 70-80 'solid but uneven' band."
+    },
+    "design_coherence": {
+      "strengths": [
+        "QueryExecutor interface has clearly scoped method contracts with documented distinctions (findCollocations vs executeSurfacePattern vs executeBcqlQuery) \u2014 a developer knows which method to use for which purpose.",
+        "Model package (ExplorationResult, DiscoveredNoun, CoreCollocate, AdjectiveProfile, ComparisonResult) contains focused value objects with single responsibilities and no mixed concerns.",
+        "SketchHandlers / ExplorationHandlers split sensibly separates the two major handler domains, and the four format* static helpers in ExplorationHandlers are data-driven and consistent across response types.",
+        "CqlUtils and LogDiceCalculator are cohesive single-purpose utilities with no scope creep.",
+        "SemanticFieldExplorer.compareCollocateProfiles correctly extracts its two phases into named private methods, making the comparison pipeline readable."
+      ],
+      "issue_character": "The issues are structural inconsistencies in how similar problems are decomposed: one explorer mode extracts phases while the parallel mode inlines them, handlers mix response assembly with parsing, and the same cross-cutting concern (POST gating) is handled two different ways \u2014 each instance is local in damage but together they create a pattern of 'check how this one does it' rather than 'follow the pattern'.",
+      "score_rationale": "The codebase is well-structured at the package level and most individual classes have a clear purpose, which pushes the score above 65. However, a developer working on the exploration pipeline or API handlers would regularly encounter the asymmetry between exploreByPattern and compareCollocateProfiles, the mixed response-building in handlers, and the inconsistent POST/GET gating approach \u2014 enough friction to prevent a higher score. At 73 this sits in 'mixed': the developer can trust most patterns but hits recurring friction in the query and API layers specifically."
+    },
+    "api_surface_coherence": {
+      "strengths": [
+        "QueryExecutor interface has thorough Javadoc distinguishing all five query variants, preventing accidental misuse.",
+        "HttpApiUtils helpers (sendJsonResponse, sendError, requireParam) are used consistently by every handler, giving the HTTP surface a uniform response envelope.",
+        "ConcordanceResult factory methods (forSnippet, fromKwic, forCollocate) provide named construction paths that hide the unwieldy 11-parameter constructor.",
+        "ExploreParams record centralises numeric parameter parsing for explore endpoints in one place.",
+        "resolveRelationAlias normalises four alias forms consistently so callers can use both short (adj_predicate) and canonical (noun_adj_predicates) identifiers."
+      ],
+      "issue_character": "The issues are concentrated in the HTTP layer's semantic-field exploration cluster: two endpoints that are clearly intended to be related share a URL prefix and several response keys but return incompatible shapes, and one accepted query parameter is silently ignored \u2014 suggesting the multi-seed endpoint was added by extending the single-seed handler without a contract review.",
+      "score_rationale": "The Java interface layer (QueryExecutor, SemanticFieldExplorer) is reasonably coherent and well-documented, which lifts the score above the floor. However the HTTP API has genuine consumer-visible inconsistencies: the same response key (seed_collocates) carries different shapes in explore vs explore-multi, the min_shared parameter is accepted and echoed but never applied in explore-multi, and discovered_nouns/core_collocates are present in one endpoint and absent in the other. These problems sit at the subsystem level and would cause real bugs in any client that treats the two explore endpoints symmetrically. This places the score at 59 \u2014 below 'solid but uneven' (80) and closer to 'significant drag' (60), because the defects are not isolated noise but a coherent failure to maintain contract consistency across a family of related endpoints."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semantic_explorer_misplaced_in_query",
+      "summary": "SemanticFieldExplorer lives in query/ but is domain orchestration, not query infrastructure",
+      "confidence": "high",
+      "suggestion": "Move SemanticFieldExplorer to a new package, for example pl.marcinmilkowski.word_sketch.exploration, that owns the semantic field analysis domain. query/ would then have a single coherent responsibility: executing corpus queries via BlackLab. Update all import sites in api/ExplorationHandlers.java and test files.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer implements a multi-step semantic analysis algorithm (find adjectives \u2192 rank nouns \u2192 build semantic class) that orchestrates QueryExecutor results into domain model objects.",
+        "query/ also contains BlackLabQueryExecutor and BlackLabSnippetParser \u2014 low-level index/XML execution infrastructure \u2014 giving the package two distinct, unrelated responsibilities.",
+        "The class Javadoc's 'Result classes' section already acknowledges that result DTOs live in model/, implicitly admitting that the orchestrator belongs at a higher layer."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "query_results_dtos_not_in_model",
+      "summary": "QueryResults (WordSketchResult, ConcordanceResult) live in query/ while equivalent DTOs live in model/",
+      "confidence": "high",
+      "suggestion": "Move QueryResults.java (and its inner classes WordSketchResult and ConcordanceResult) into model/. Update imports in BlackLabQueryExecutor, SemanticFieldExplorer, and the api/ handlers. This unifies all domain result DTOs under one package with a clear ownership rule.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "model/ owns AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, ExplorationResult, Edge, ExploreOptions \u2014 all domain result value objects.",
+        "query/QueryResults.java holds WordSketchResult and ConcordanceResult \u2014 also domain result value objects returned from the public API.",
+        "A developer adding a new result type has no policy for which package to choose; two precedents exist for the same category of object."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "posgroup_misplaced_as_utility",
+      "summary": "PosGroup domain enum placed in utils/ despite being a domain concept used across config and API layers",
+      "confidence": "high",
+      "suggestion": "Move PosGroup.java to pl.marcinmilkowski.word_sketch.config (alongside RelationType, which is the same category of domain enumeration) or to model/. Update imports in GrammarConfigLoader, tagging/, and api/ accordingly.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PosGroup.java"
+      ],
+      "evidence": [
+        "PosGroup's own Javadoc states: 'flows through the grammar-config loader and the API server' \u2014 it is not a generic utility but a shared domain vocabulary term.",
+        "LongIntHashMap, CqlUtils, LogDiceCalculator, PatternSubstitution are genuine utilities with no domain knowledge; PosGroup is a categorization of linguistic POS groups."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "stale_reference_doc_code_structure",
+      "summary": "CLAUDE.md code structure section documents two non-existent source files, misleading new engineers",
+      "confidence": "high",
+      "suggestion": "Remove the CQLVerifier.java entry from the query/ tree in CLAUDE.md (and verify no test relies on it). Remove the api/PatternSubstitution.java entry (the source was already migrated to utils/; delete the leftover .class artifact from api/). If a CQLVerifier is still needed, create it or document that it was removed.",
+      "related_files": [
+        "CLAUDE.md"
+      ],
+      "evidence": [
+        "CLAUDE.md lists 'query/CQLVerifier.java  # CQL pattern verifier (used in tests)' \u2014 this file does not exist anywhere in src/main/java/.",
+        "CLAUDE.md lists 'api/PatternSubstitution.java  # @Deprecated \u2014 use utils.PatternSubstitution' \u2014 this source file does not exist; only a leftover PatternSubstitution.class is present in api/.",
+        "The code-structure tree in CLAUDE.md is the first authoritative reference a new engineer reads to understand the project layout; having phantom file entries breaks the 'reference docs match runtime reality' property central to this dimension."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_handler_monolith",
+      "summary": "handleSemanticFieldExplore mixes parameter parsing, config lookup, pattern building, and full JSON response assembly in one 85-line method",
+      "confidence": "high",
+      "suggestion": "Extract a private buildExploreResponse(ExplorationResult, ...) helper that accepts the result and parameters and returns a Map<String, Object>; this collapses the 35-line assembly block and enables reuse from handleSemanticFieldExploreMulti. The parameter-parsing preamble can stay inline or move to a record like ExploreContext.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Lines from 'String seed = ...' through 'HttpApiUtils.sendJsonResponse' include: param extraction, alias resolution, grammarConfig null check, relation lookup, ExploreParams parsing, nounsPerCollocate parsing, BCQL pattern building, executor call, and 6 separate response.put blocks assembling seedCollocs, nouns, coreCollocs, and edges.",
+        "The response-assembly section (building seedCollocs list, nouns list, coreCollocs list, edges list) occupies ~35 lines of identical for-loop + formatX() calls that are structurally duplicated in handleSemanticFieldExploreMulti."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_multi_response_duplication",
+      "summary": "handleSemanticFieldExploreMulti duplicates the response-assembly ceremony from handleSemanticFieldExplore with no shared helper",
+      "confidence": "high",
+      "suggestion": "Consolidate shared response keys into a buildBaseExploreResponse(String relationType, ExploreParams params) helper returning a pre-populated Map. Both handlers call this and then append their specific fields (edges, collocates). Alternatively, introduce a lightweight ExploreResponseBuilder that both handlers configure.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Both handlers create Map<String, Object> response, populate status/seeds/relation_type/parameters with identical keys, then iterate over collocates to build seedCollocs, iterate over edges, and call sendJsonResponse.",
+        "handleSemanticFieldExploreMulti adds discovered_nouns=empty and common_collocates stubs that parallel the same response keys produced from ExplorationResult in the single-seed handler \u2014 the shape is the same, the assembly is written twice."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_by_pattern_oversized",
+      "summary": "exploreByPattern in SemanticFieldExplorer is 135 lines with steps 3-4 (noun scoring and core-collocate selection) not extracted into named helpers",
+      "confidence": "high",
+      "suggestion": "Extract scoreNounsBySharedCollocates(Map<String,Map<String,Double>> nounProfiles, int minShared) -> List<DiscoveredNoun> and buildCoreCollocates(Map<String,Double> seedScores, List<DiscoveredNoun> nouns) -> List<CoreCollocate> as private helpers. This reduces exploreByPattern to ~60 lines of orchestration.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Step 3 (building discoveredNouns list) and Step 4 (computing collocFrequency/collocTotalScore maps and constructing coreCollocates) are sequential ~30-line blocks that are conceptually independent scoring passes operating on different data structures.",
+        "Each step is preceded by a logger.debug call acting as an inline section header, signalling that these blocks are already mentally treated as named sub-procedures but not actually extracted."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "semantic_field_adjective_serialization",
+      "summary": "handleSemanticField contains a 30-line adjective serialization loop with inline category classification, Math.round rounding, and conditional field injection",
+      "confidence": "high",
+      "suggestion": "Extract a private static formatAdjectiveProfile(AdjectiveProfile adj) -> Map<String,Object> following the pattern already established by formatDiscoveredNoun and formatCoreCollocate.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "The for-loop over result.getAllAdjectives() performs: Math.round on 6 score fields, a ternary chain for category string, a nested loop over nounScores, a conditional adjMap.put(\"specific_to\", ...) \u2014 all inline at the same nesting level.",
+        "This formatting logic is not parallel to formatDiscoveredNoun/formatCoreCollocate/formatEdge which are correctly extracted as private static helpers in the same class."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_writer_null_state",
+      "summary": "convertConlluToWplChunks manages a null-initialized BufferedWriter with explicit null-checks scattered across the loop body and finally block",
+      "confidence": "medium",
+      "suggestion": "Encapsulate chunk-file management in a small ChunkWriter helper or use a local openNextChunk() / closeChunk() pair of lambdas to make each state transition explicit. Alternatively, rewrite with a try-with-resources for each chunk file opened within a helper method, eliminating the null field entirely.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "writer is declared as null outside the while loop, then conditionally allocated inside via 'if (writer == null) { ... writer = Files.newBufferedWriter(...); }', conditionally closed inside via 'if (sentencesInChunk >= sentencesPerChunk) { writer.close(); writer = null; ... }', and finally closed in the finally block with 'if (writer != null)'.",
+        "Three separate null-checks on writer across the 50-line method body means the mutation contract is implicit and requires careful reading to verify completeness."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "dead_position_params_executeSurfacePattern",
+      "summary": "executeSurfacePattern accepts headPosition and collocatePosition but ignores both, re-deriving collocate position internally from the pattern string",
+      "confidence": "high",
+      "suggestion": "Remove headPosition and collocatePosition from the executeSurfacePattern signature and document that the implementation derives positions from the '1:'/'2:' labels in the pattern. Alternatively, use the collocatePosition argument directly (passing it to extractCollocateFromXmlByPosition instead of calling findLabelPosition) and remove the redundant internal re-derivation. Align the interface contract with the actual implementation.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.java:424: 'int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);' \u2014 position is re-derived from the pattern label '2:', not from the collocatePosition parameter",
+        "BlackLabQueryExecutor.java:411-458: headPosition parameter (the 4th argument) has zero references in the method body",
+        "QueryExecutor.java interface documents both headPosition and collocatePosition as meaningful 1-based positions, but the only implementation ignores both"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "concordance_result_union_type",
+      "summary": "ConcordanceResult is a union type with 11 fields, 3 factories, and extensive nullable-field documentation, forcing every consumer to check the docs before accessing any field",
+      "confidence": "high",
+      "suggestion": "Split ConcordanceResult into two or three sealed subtypes (SnippetResult, KwicResult, CollocateResult) or use a sealed interface. This makes the shape of each result explicit at the type boundary. In the short term, at minimum the three factory methods are already a stepping stone \u2014 make them return distinct record types.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "QueryResults.java: ConcordanceResult has 11 fields; the class-level javadoc documents which fields are null for each factory: rawXml, lemma, tag, word, collocateLemma, docId may all be null depending on which factory created the instance",
+        "Three factory methods (forSnippet, fromKwic, forCollocate) correspond to three distinct result shapes being passed through one seam",
+        "SketchHandlers.java and ExplorationHandlers.java each access different subsets of fields without type-level guarantee that they are populated"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "findCollocations_implicit_pattern_contract",
+      "summary": "findCollocations dispatches on raw string shape (%s presence, '[' prefix) rather than a typed pattern input, with a runtime exception for unrecognized formats",
+      "confidence": "medium",
+      "suggestion": "Either encode the pattern type distinction in a small sealed type (PlaceholderPattern, ConstraintPattern) or collapse to a single format requirement in the interface javadoc and enforce it at all call sites. The dispatch logic should be eliminated so the boundary is self-describing.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.java:79-90: 'if (cqlPattern.contains(\"%s\"))' / 'else if (cqlPattern.startsWith(\"[\"))' / 'else throw new IllegalArgumentException(\"Unrecognized CQL pattern format\")' \u2014 callers must follow an unwritten format convention",
+        "The QueryExecutor interface javadoc for findCollocations says 'CQL pattern defining the collocate constraints (no labeled positions)' but does not specify the %s-or-bracket contract that the implementation enforces"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "single_vs_multiseed_exploration_seam_inconsistency",
+      "summary": "Single-seed and multi-seed exploration use different abstraction levels at the API boundary: single-seed returns a rich domain model, multi-seed returns a minimal record and the API handler manually constructs edges",
+      "confidence": "high",
+      "suggestion": "Add a getEdges() method to MultiSeedCollocates (or a wrapper), mirroring ExplorationResult, so the API handler delegates edge construction to the domain layer in both cases. Alternatively, return ExplorationResult from both paths for consistency.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java:95: single-seed calls 'semanticFieldExplorer.exploreByPattern(...)' returning ExplorationResult, which has domain methods like getEdges(), getTopNouns(), isEmpty()",
+        "ExplorationHandlers.java:197-243: multi-seed calls 'semanticFieldExplorer.exploreMultiSeed(...)' returning MultiSeedCollocates (a record with Map<String,List<WordSketchResult>> and Set<String>), then the handler manually constructs edges with 'new Edge(seed, wsr.getLemma(), ...)' inline",
+        "SemanticFieldExplorer.java: ExplorationResult.getEdges() already provides the edge-building logic for single-seed; multi-seed duplicates this logic inline in the handler"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "explore_by_pattern_inlined_phases",
+      "summary": "exploreByPattern inlines 4 algorithmic phases while the parallel compareCollocateProfiles extracts them into named methods",
+      "confidence": "high",
+      "suggestion": "Extract steps 2-4 of exploreByPattern into private methods analogous to how compareCollocateProfiles decomposes into buildRawAdjectiveProfiles and buildAdjectiveProfileList. The method body should read as an orchestration of named phases, not as inline algorithmic steps.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern (~130 lines) inlines: (1) seed collocate fetch, (2) per-collocate noun profiling, (3) noun scoring and filtering, (4) core collocate identification \u2014 all in a single method body with comment markers as the only structural delimiter.",
+        "compareCollocateProfiles (same class) correctly extracts buildRawAdjectiveProfiles and buildAdjectiveProfileList as named private methods, making its pipeline readable at a glance.",
+        "Steps 2-4 of exploreByPattern (lines ~180-262) are each 20-40 lines of logic that could stand alone as discoverNounProfiles, scoreDiscoveredNouns, and identifyCoreCollocates."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "handler_response_assembly_mixed_with_parsing",
+      "summary": "handleSemanticFieldExplore and handleSemanticFieldExploreMulti mix parameter parsing, business calls, and inline response HashMap building in the same method body",
+      "confidence": "medium",
+      "suggestion": "Extract the response assembly into a private buildExploreResponse(ExplorationResult, ...) method and a buildMultiSeedResponse(MultiSeedCollocates, ...) method. The handler methods should be: parse \u2192 call \u2192 respond, with each phase in a single line or delegated method. Also extract the common paramsUsed construction into a helper.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (~90 lines): first third parses params (seed, relation, ExploreParams, nounsPerCollocate), middle calls semanticFieldExplorer.exploreByPattern, last third builds the HashMap response by looping over result.seedCollocates, result.discoveredNouns, result.coreCollocates, result.getEdges().",
+        "handleSemanticFieldExploreMulti has the same structure: the response assembly section (lines ~220-255) mixes edge building with discovery colloc iteration.",
+        "Both handlers duplicate the paramsUsed HashMap construction (relation, top, min_shared, min_logdice keys) with near-identical code."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "post_handler_inline_options_gating",
+      "summary": "POST handlers manually check OPTIONS and requireMethod while GET handlers have this abstracted into registerGetHandler",
+      "confidence": "high",
+      "suggestion": "Add a registerPostHandler method in WordSketchApiServer that mirrors registerGetHandler (handling OPTIONS + POST method validation), and use it to register /api/visual/radial and /api/bcql. Remove the inline OPTIONS/requireMethod boilerplate from handleVisualRadial and handleBcqlQueryPost.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleVisualRadial and handleBcqlQueryPost each begin with: if (OPTIONS) sendOptionsResponse; if (!requireMethod(POST)) return \u2014 this is 4 lines of method-gating boilerplate in each handler.",
+        "registerGetHandler in WordSketchApiServer centralises exactly this pattern for all GET routes \u2014 OPTIONS + method check \u2014 so a developer extending GET routes never writes it inline.",
+        "No registerPostHandler equivalent exists, so POST handlers deviate from the established pattern."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "conllu_conversion_logic_in_main",
+      "summary": "convertConlluToWplChunks (50+ lines of format conversion logic) is embedded in Main rather than in the indexer package",
+      "confidence": "medium",
+      "suggestion": "Move convertConlluToWplChunks (and the MWT_OR_EMPTY pattern) into BlackLabConllUIndexer or a new ConlluToWplConverter class in the indexer package. Main.handleBlackLabIndexCommand should only orchestrate: convert \u2192 index, delegating both steps to the indexer package.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "Main.convertConlluToWplChunks is a 50+ line private static method that reads CoNLL-U, converts to WPL tab format with <s>/<s> markers, and writes chunk files \u2014 this is a file format concern.",
+        "BlackLabConllUIndexer lives in the indexer.blacklab package and is the natural home for indexer-adjacent conversion logic.",
+        "Main.handleBlackLabIndexCommand delegates to convertConlluToWplChunks and then BlackLabConllUIndexer.indexFile \u2014 these two steps are tightly coupled but split across two different packages."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_multi_phantom_param",
+      "summary": "min_shared parameter accepted and echoed in explore-multi response but never applied as a filter",
+      "confidence": "high",
+      "suggestion": "Either pass minShared to exploreMultiSeed (or apply it as a post-filter on commonCollocates), or remove min_shared from the explore-multi parameter docs and 400 if it is supplied, so the contract is honest.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Line 192: int minShared = ep.minShared(); \u2014 parsed from query params",
+        "Line 216: paramsUsed.put(\"min_shared\", minShared); \u2014 echoed to caller in response",
+        "Lines 195-201: exploreMultiSeed call only passes minLogDice and topCollocates; minShared is not forwarded",
+        "The single-seed explore path does pass minShared to ExploreOptions (line 94), so the parameter has an effect there but not here"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_vs_multi_seed_collocates_shape",
+      "summary": "seed_collocates response key has different item shapes in explore vs explore-multi",
+      "confidence": "high",
+      "suggestion": "Align the shapes: either always include frequency in formatSeedCollocate (add 0 for single-seed where frequency is not naturally available), or introduce distinct response keys (e.g. per_seed_collocates for multi-seed) to avoid the collision.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "explore endpoint (line ~117): calls formatSeedCollocate(key, value) -> {word, log_dice}",
+        "explore-multi endpoint (line ~232): calls formatSeedCollocate then adds collocMap.put(\"frequency\", wsr.getFrequency()) -> {word, log_dice, frequency}",
+        "Any client iterating seed_collocates expecting a uniform shape will fail on one of the two endpoints"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_multi_missing_response_keys",
+      "summary": "explore-multi omits core_collocates key and hardcodes discovered_nouns to empty, making the two /explore* endpoints structurally incompatible",
+      "confidence": "high",
+      "suggestion": "Document the structural difference explicitly in both endpoint Javadoc. If these are intended to return compatible shapes, implement noun discovery and core-collocate extraction for the multi-seed path, or rename explore-multi to an endpoint path that signals it is a distinct operation (e.g. /api/semantic-field/compare).",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "explore returns: seed_collocates, discovered_nouns (populated), core_collocates, core_collocates_count, edges",
+        "explore-multi (lines 237-238): response.put(\"discovered_nouns\", new ArrayList<>()); response.put(\"discovered_nouns_count\", 0); \u2014 hardcoded empty",
+        "explore-multi has no core_collocates key at all",
+        "Both endpoints share /api/semantic-field/explore* prefix suggesting they are siblings, but a client cannot use a common response model"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "seed_param_naming_inconsistency",
+      "summary": "Subject noun parameter named differently across three related endpoints: seed, seeds, nouns",
+      "confidence": "medium",
+      "suggestion": "Adopt a single parameter name family \u2014 e.g. 'seed' for single-input and 'seeds' for multi-input endpoints, replacing 'nouns' in handleSemanticField to match the rest of the family.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: requireParam(..., \"seed\")",
+        "handleSemanticFieldExploreMulti: requireParam(..., \"seeds\")",
+        "handleSemanticField: requireParam(..., \"nouns\")",
+        "All three accept the same concept (input lemma(s)) but under three different names"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "deprecated_method_on_interface",
+      "summary": "QueryExecutor interface retains @Deprecated findDependencyCollocations forcing all implementations to carry dead public API",
+      "confidence": "medium",
+      "suggestion": "Remove findDependencyCollocations from the interface and its implementation. If backward compatibility with external callers is required, provide a static utility method or a default interface method that delegates to executeDependencyPattern.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java: @Deprecated List<WordSketchResult> findDependencyCollocations(String lemma, String deprel, double minLogDice, int maxResults)",
+        "QueryExecutor Javadoc: 'Use executeDependencyPattern(String, String, String, double, int) with null for the head POS constraint.'",
+        "BlackLabQueryExecutor.java: @Deprecated @Override findDependencyCollocations delegates to executeDependencyPattern \u2014 so both implementations carry the method"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "review_quality": {
+    "batch_count": 5,
+    "dimension_coverage": 1.0,
+    "evidence_density": 1.76,
+    "high_score_missing_issue_note": 0,
+    "issue_pressure": 40.224,
+    "dimensions_with_issues": 5
+  },
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "run_stamp": "20260310_201202",
+    "created_at": "2026-03-10T20:17:33+00:00",
+    "batch_count": 5,
+    "batch_indexes": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "5fc099a5e96072c6d94a839b31f7f5939dac80408da48915001bbe54996bf65a"
+  }
+}

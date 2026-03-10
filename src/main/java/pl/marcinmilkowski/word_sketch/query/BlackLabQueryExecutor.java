@@ -137,16 +137,6 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
     }
 
-    @Deprecated
-    @Override
-    public List<QueryResults.WordSketchResult> findDependencyCollocations(
-            String lemma,
-            String deprel,
-            double minLogDice,
-            int maxResults) throws IOException {
-        return executeDependencyPattern(lemma, deprel, null, minLogDice, maxResults);
-    }
-
     @Override
     public List<QueryResults.ConcordanceResult> executeQuery(String cqlPattern, int maxResults) throws IOException {
         try {

@@ -1,0 +1,120 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 4,
+  "assessments": {
+    "design_coherence": 73.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles extracts its phases into buildRawAdjectiveProfiles and buildAdjectiveProfileList, but exploreByPattern (~130 lines) inlines all four phases — seed fetch, noun profiling, noun scoring, and core collocate identification — in one method body, creating an asymmetry between the two parallel exploration modes.",
+        "handleSemanticFieldExplore (~90 lines) and handleSemanticFieldExploreMulti (~70 lines) mix parameter parsing, business logic invocation, and inline HashMap-building response assembly in the same method body; changing a response field shape requires reading through parameter validation code.",
+        "GET route handlers push OPTIONS preflight and method gating into registerGetHandler in WordSketchApiServer; POST handlers (handleVisualRadial, handleBcqlQueryPost) each begin with manual OPTIONS + requireMethod checks — the same cross-cutting concern is handled two different structural ways.",
+        "convertConlluToWplChunks (50+ lines, file format conversion with sentence chunking) lives in Main.java rather than the indexer package; Main orchestrates the CLI pipeline but should not contain conversion logic.",
+        "In handleSemanticFieldExplore, top/min_shared/min_logdice are extracted via parseExploreParams, but nouns_per is parsed inline immediately after, using a different try/catch site for the same category of numeric parameter."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "QueryExecutor interface has clearly scoped method contracts with documented distinctions (findCollocations vs executeSurfacePattern vs executeBcqlQuery) — a developer knows which method to use for which purpose.",
+        "Model package (ExplorationResult, DiscoveredNoun, CoreCollocate, AdjectiveProfile, ComparisonResult) contains focused value objects with single responsibilities and no mixed concerns.",
+        "SketchHandlers / ExplorationHandlers split sensibly separates the two major handler domains, and the four format* static helpers in ExplorationHandlers are data-driven and consistent across response types.",
+        "CqlUtils and LogDiceCalculator are cohesive single-purpose utilities with no scope creep.",
+        "SemanticFieldExplorer.compareCollocateProfiles correctly extracts its two phases into named private methods, making the comparison pipeline readable."
+      ],
+      "issue_character": "The issues are structural inconsistencies in how similar problems are decomposed: one explorer mode extracts phases while the parallel mode inlines them, handlers mix response assembly with parsing, and the same cross-cutting concern (POST gating) is handled two different ways — each instance is local in damage but together they create a pattern of 'check how this one does it' rather than 'follow the pattern'.",
+      "score_rationale": "The codebase is well-structured at the package level and most individual classes have a clear purpose, which pushes the score above 65. However, a developer working on the exploration pipeline or API handlers would regularly encounter the asymmetry between exploreByPattern and compareCollocateProfiles, the mixed response-building in handlers, and the inconsistent POST/GET gating approach — enough friction to prevent a higher score. At 73 this sits in 'mixed': the developer can trust most patterns but hits recurring friction in the query and API layers specifically."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "explore_by_pattern_inlined_phases",
+      "summary": "exploreByPattern inlines 4 algorithmic phases while the parallel compareCollocateProfiles extracts them into named methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern (~130 lines) inlines: (1) seed collocate fetch, (2) per-collocate noun profiling, (3) noun scoring and filtering, (4) core collocate identification — all in a single method body with comment markers as the only structural delimiter.",
+        "compareCollocateProfiles (same class) correctly extracts buildRawAdjectiveProfiles and buildAdjectiveProfileList as named private methods, making its pipeline readable at a glance.",
+        "Steps 2-4 of exploreByPattern (lines ~180-262) are each 20-40 lines of logic that could stand alone as discoverNounProfiles, scoreDiscoveredNouns, and identifyCoreCollocates."
+      ],
+      "suggestion": "Extract steps 2-4 of exploreByPattern into private methods analogous to how compareCollocateProfiles decomposes into buildRawAdjectiveProfiles and buildAdjectiveProfileList. The method body should read as an orchestration of named phases, not as inline algorithmic steps.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "inconsistent_phase_extraction"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "handler_response_assembly_mixed_with_parsing",
+      "summary": "handleSemanticFieldExplore and handleSemanticFieldExploreMulti mix parameter parsing, business calls, and inline response HashMap building in the same method body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (~90 lines): first third parses params (seed, relation, ExploreParams, nounsPerCollocate), middle calls semanticFieldExplorer.exploreByPattern, last third builds the HashMap response by looping over result.seedCollocates, result.discoveredNouns, result.coreCollocates, result.getEdges().",
+        "handleSemanticFieldExploreMulti has the same structure: the response assembly section (lines ~220-255) mixes edge building with discovery colloc iteration.",
+        "Both handlers duplicate the paramsUsed HashMap construction (relation, top, min_shared, min_logdice keys) with near-identical code."
+      ],
+      "suggestion": "Extract the response assembly into a private buildExploreResponse(ExplorationResult, ...) method and a buildMultiSeedResponse(MultiSeedCollocates, ...) method. The handler methods should be: parse → call → respond, with each phase in a single line or delegated method. Also extract the common paramsUsed construction into a helper.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "handler_mixed_concerns"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "post_handler_inline_options_gating",
+      "summary": "POST handlers manually check OPTIONS and requireMethod while GET handlers have this abstracted into registerGetHandler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleVisualRadial and handleBcqlQueryPost each begin with: if (OPTIONS) sendOptionsResponse; if (!requireMethod(POST)) return — this is 4 lines of method-gating boilerplate in each handler.",
+        "registerGetHandler in WordSketchApiServer centralises exactly this pattern for all GET routes — OPTIONS + method check — so a developer extending GET routes never writes it inline.",
+        "No registerPostHandler equivalent exists, so POST handlers deviate from the established pattern."
+      ],
+      "suggestion": "Add a registerPostHandler method in WordSketchApiServer that mirrors registerGetHandler (handling OPTIONS + POST method validation), and use it to register /api/visual/radial and /api/bcql. Remove the inline OPTIONS/requireMethod boilerplate from handleVisualRadial and handleBcqlQueryPost.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "handler_mixed_concerns"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "conllu_conversion_logic_in_main",
+      "summary": "convertConlluToWplChunks (50+ lines of format conversion logic) is embedded in Main rather than in the indexer package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "Main.convertConlluToWplChunks is a 50+ line private static method that reads CoNLL-U, converts to WPL tab format with <s>/<s> markers, and writes chunk files — this is a file format concern.",
+        "BlackLabConllUIndexer lives in the indexer.blacklab package and is the natural home for indexer-adjacent conversion logic.",
+        "Main.handleBlackLabIndexCommand delegates to convertConlluToWplChunks and then BlackLabConllUIndexer.indexFile — these two steps are tightly coupled but split across two different packages."
+      ],
+      "suggestion": "Move convertConlluToWplChunks (and the MWT_OR_EMPTY pattern) into BlackLabConllUIndexer or a new ConlluToWplConverter class in the indexer package. Main.handleBlackLabIndexCommand should only orchestrate: convert → index, delegating both steps to the indexer package.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Exploration mode and comparison mode in SemanticFieldExplorer were likely developed at different times, with the comparison mode being written later and benefiting from lessons learned — the phase extraction pattern was not back-applied to exploration mode.",
+      "Handler classes grew organically with response assembly added inline rather than extracted, because the immediate surrounding code (param parsing, business call) was already there."
+    ],
+    "likely_symptoms": [
+      "exploreByPattern long method length is a symptom of the inlined phases root cause",
+      "handleSemanticFieldExplore length is a symptom of the mixed response assembly root cause"
+    ],
+    "possible_false_positives": []
+  }
+}

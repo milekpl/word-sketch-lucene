@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 import pl.marcinmilkowski.word_sketch.utils.PosGroup;
 
 import java.io.IOException;
@@ -183,28 +184,10 @@ public class GrammarConfigLoader {
 
     /**
      * Each [constraint] is one token.
+     * Delegates bracket-walking to {@link CqlUtils#splitCqlTokens}.
      */
     private static int countPatternTokens(String pattern) {
-        if (pattern == null || pattern.isBlank()) {
-            return 0;
-        }
-        int count = 0;
-        int i = 0;
-        while (i < pattern.length()) {
-            if (pattern.charAt(i) == '[') {
-                // Find matching ]
-                int end = pattern.indexOf(']', i);
-                if (end > i) {
-                    count++;
-                    i = end + 1;
-                } else {
-                    i++;
-                }
-            } else {
-                i++;
-            }
-        }
-        return count;
+        return CqlUtils.splitCqlTokens(pattern).size();
     }
 
     /**
@@ -228,6 +211,8 @@ public class GrammarConfigLoader {
     /**
      * Shared logic for deriving a token position from a numbered label in a CQL pattern.
      * Scans the pattern counting [token] blocks; returns the count when the target label is found.
+     * Extends the bracket-walking in {@link CqlUtils#splitCqlTokens} to also detect
+     * numbered label prefixes ({@code 1:[...] 2:[...]}).
      */
     private static int deriveTokenPosition(String pattern, char targetLabel, int defaultPos) {
         if (pattern == null || pattern.isBlank()) {

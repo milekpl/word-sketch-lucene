@@ -1,7 +1,7 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import java.util.ArrayList;
 import java.util.List;
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 /**
  * Static helpers for substituting collocates into CQL patterns.
@@ -18,29 +18,8 @@ public class PatternSubstitution {
             return pattern;
         }
 
-        // Split pattern into CQL positions
-        List<String> patternPositions = new ArrayList<>();
-        int i = 0;
-        while (i < pattern.length()) {
-            if (pattern.charAt(i) == '[') {
-                int end = pattern.indexOf(']', i);
-                if (end > i) {
-                    patternPositions.add(pattern.substring(i, end + 1));
-                    i = end + 1;
-                } else {
-                    i++;
-                }
-            } else if (pattern.charAt(i) == '"') {
-                int end = pattern.indexOf('"', i + 1);
-                if (end > i) {
-                    i = end + 1;
-                } else {
-                    i++;
-                }
-            } else {
-                i++;
-            }
-        }
+        // Split pattern into CQL token positions using shared CqlUtils bracket-walker
+        List<String> patternPositions = CqlUtils.splitCqlTokens(pattern);
 
         if (collocatePosition > patternPositions.size()) {
             return pattern;

@@ -1,496 +1,1945 @@
 {
-  "command": "status",
+  "command": "next",
+  "items": [
+    {
+      "id": "review::.::holistic::abstraction_fitness::queryexecutor_default_methods_one_impl::e2ee35a0",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "QueryExecutor declares executeBcqlQuery and executeSurfacePattern as default methods that fall back to lower-level calls, but there is only one real implementation, making the defaults unused scaffolding",
+      "detail": {
+        "holistic": true,
+        "dimension": "abstraction_fitness",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+        ],
+        "evidence": [
+          "QueryExecutor.executeBcqlQuery() default: return executeQuery(bcqlPattern, maxResults) \u2014 comment says 'for backward compatibility'",
+          "QueryExecutor.executeSurfacePattern() default: return findCollocations(lemma, bcqlPattern, ...) \u2014 comment says 'ignores position hints'",
+          "BlackLabQueryExecutor overrides both, so the defaults are never exercised in the production code path",
+          "getExecutorType() default returns getClass().getSimpleName() \u2014 useful pattern, but the other two defaults only exist to ease a non-existent alternate implementation"
+        ],
+        "suggestion": "If only one implementation exists, declare executeBcqlQuery and executeSurfacePattern as abstract interface methods (no defaults) to make the contract explicit. Remove the backward-compatibility comment which implies an obsolete migration that is already complete.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::abstraction_fitness::queryexecutor_default_methods_one_impl::e2ee35a0\" --note \"<what you did>\" --confirm",
+      "queue_position": 1,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::abstraction_fitness::snippet_parser_fragmented_extraction_api::321f810b",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "BlackLabSnippetParser exposes seven near-identical methods for extracting lemmas from XML or text at a given position, creating a fragmented API with overlapping responsibilities",
+      "detail": {
+        "holistic": true,
+        "dimension": "abstraction_fitness",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+        ],
+        "evidence": [
+          "extractLemmaFromMatch(String matchText) \u2014 finds last lemma in XML",
+          "extractCollocateFromSnippet(String snippet) \u2014 also finds last lemma in XML",
+          "extractCollocateFromXmlByPosition(String xmlSnippet, int position) \u2014 finds lemma at 1-based position in XML",
+          "extractCollocateFromMatch(String matchOnly, int labelPos) \u2014 same as above, different name",
+          "extractTokenFromSnippet(String snippet, int position) \u2014 same pattern, falls back to last lemma",
+          "extractCollocateFromMatchText(String matchText, int position) \u2014 whitespace-separated variant",
+          "extractCollocateFromPlainText(String text, int position) \u2014 another whitespace-separated variant",
+          "extractLemmaFromMatch and extractCollocateFromSnippet do exactly the same thing (iterate LEMMA_ATTR, return last)"
+        ],
+        "suggestion": "Consolidate to two clear methods: extractLemmaAtPosition(String xml, int position) for XML and extractTokenAtPosition(String text, int position) for plain text. Remove duplicates and document the contract (0 = last, n = nth).",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::abstraction_fitness::snippet_parser_fragmented_extraction_api::321f810b\" --note \"<what you did>\" --confirm",
+      "queue_position": 2,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::cross_module_architecture::api_reaches_into_query_internals::42e2a9a1",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "WordSketchApiServer imports five inner result classes from SemanticFieldExplorer, tightly coupling the API layer to exploration implementation internals",
+      "detail": {
+        "holistic": true,
+        "dimension": "cross_module_architecture",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+        ],
+        "evidence": [
+          "WordSketchApiServer imports SemanticFieldExplorer.ComparisonResult, AdjectiveProfile, ExplorationResult, DiscoveredNoun, CoreAdjective",
+          "All five are accessed by field name (e.g., dn.noun, dn.sharedCount, ca.adjective) in the API handlers, encoding the data model in two layers simultaneously",
+          "Any rename or restructuring of SemanticFieldExplorer's result classes requires changes in the API layer"
+        ],
+        "suggestion": "Expose SemanticFieldExplorer results through stable accessor methods or move the result types to a shared results package so the API layer does not depend on inner-class details of SemanticFieldExplorer.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::cross_module_architecture::api_reaches_into_query_internals::42e2a9a1\" --note \"<what you did>\" --confirm",
+      "queue_position": 3,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::cross_module_architecture::semantic_explorer_concrete_dep::297b2b52",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "SemanticFieldExplorer's primary constructor directly instantiates BlackLabQueryExecutor, bypassing the QueryExecutor abstraction it also accepts",
+      "detail": {
+        "holistic": true,
+        "dimension": "cross_module_architecture",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+        ],
+        "evidence": [
+          "Line 71: public SemanticFieldExplorer(String indexPath) throws IOException { this.executor = new BlackLabQueryExecutor(indexPath); }",
+          "Line 76: A second constructor takes QueryExecutor (for testing), showing the abstraction exists but the production path bypasses it",
+          "The ownsExecutor flag is a code smell indicating lifecycle management is being manually layered on top of an inconsistent creation pattern"
+        ],
+        "suggestion": "Remove the String-path constructor or make it a static factory; let callers always inject a QueryExecutor. If lifecycle ownership is needed, provide an explicit factory method SemanticFieldExplorer.forIndex(String) that documents the ownership contract.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::cross_module_architecture::semantic_explorer_concrete_dep::297b2b52\" --note \"<what you did>\" --confirm",
+      "queue_position": 4,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::design_coherence::executeBcqlQuery_mixed_phases::8ed8f0b8",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "executeBcqlQuery in BlackLabQueryExecutor conflates three distinct phases in one 100-line method: hit collection, collocate frequency accumulation, and result ranking",
+      "detail": {
+        "holistic": true,
+        "dimension": "design_coherence",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+        ],
+        "evidence": [
+          "Lines 228-277: single pass collecting HitRecord objects and building collocateFreqMap",
+          "Lines 280-308: second pass computing logDice and building ConcordanceResult list",
+          "The method also handles collocate extraction fallback logic inline, competing with BlackLabSnippetParser's responsibilities"
+        ],
+        "suggestion": "Extract collectHits(...) and buildResults(List<HitRecord>, Map<String,Long>, long, int) private helpers, giving each phase a named boundary.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::design_coherence::executeBcqlQuery_mixed_phases::8ed8f0b8\" --note \"<what you did>\" --confirm",
+      "queue_position": 5,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::high_level_elegance::query_package_too_broad::a430f585",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "The query package subsumes executor infrastructure, result DTOs, snippet parsing utilities, semantic field exploration logic, and POS group constants \u2014 too many concerns for a single package",
+      "detail": {
+        "holistic": true,
+        "dimension": "high_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/PosGroup.java"
+        ],
+        "evidence": [
+          "BlackLabQueryExecutor: query execution infrastructure",
+          "BlackLabSnippetParser: XML/text parsing utility",
+          "SemanticFieldExplorer: multi-step exploration domain logic (700+ lines with its own inner result class hierarchy)",
+          "QueryResults: shared result DTOs",
+          "PosGroup: domain constants"
+        ],
+        "suggestion": "Split the query package: keep query execution infrastructure in query/, move SemanticFieldExplorer + its result types to exploration/ or semantic/, move BlackLabSnippetParser to query/internal or parsing/, and move PosGroup to a shared constants package.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::high_level_elegance::query_package_too_broad::a430f585\" --note \"<what you did>\" --confirm",
+      "queue_position": 6,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::high_level_elegance::semantic_explorer_dual_role::28bc8918",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "SemanticFieldExplorer serves as both a service (exploration/comparison logic) and a result data container (6 static inner result classes), blurring its responsibility",
+      "detail": {
+        "holistic": true,
+        "dimension": "high_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+        ],
+        "evidence": [
+          "SemanticFieldExplorer contains: ExplorationResult, DiscoveredNoun, CoreAdjective, ComparisonResult, AdjectiveProfile, Edge \u2014 all static inner classes",
+          "The service methods exploreByPattern() and compare() are in the same file as 6 result/DTO types totalling ~300 lines of inner class definitions",
+          "API layer must import individual inner classes: import SemanticFieldExplorer.ComparisonResult, etc."
+        ],
+        "suggestion": "Extract the result types (ExplorationResult, ComparisonResult, etc.) to their own top-level classes or a dedicated results sub-package. SemanticFieldExplorer should only contain the service logic.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::high_level_elegance::semantic_explorer_dual_role::28bc8918\" --note \"<what you did>\" --confirm",
+      "queue_position": 7,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::incomplete_migration::cql_pattern_shim_in_grammar_loader::268346c4",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "GrammarConfigLoader silently falls back to the old 'cql_pattern' JSON field when 'pattern' is absent, but the class Javadoc still documents the old field name as canonical",
+      "detail": {
+        "holistic": true,
+        "dimension": "incomplete_migration",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+        ],
+        "evidence": [
+          "String pattern = relObj.containsKey(\"pattern\") ? relObj.getString(\"pattern\") : (relObj.containsKey(\"cql_pattern\") ? relObj.getString(\"cql_pattern\") : \"\");",
+          "The class-level Javadoc example shows '\"cql_pattern\": \"[tag=jj.*]\"' \u2014 the old field name \u2014 as the expected structure",
+          "No deprecation warning is emitted when the fallback path is taken, making it invisible at runtime"
+        ],
+        "suggestion": "Either remove the cql_pattern fallback if no live configs use it, or emit a deprecation warning via logger.warn when it is used, and update the Javadoc to show 'pattern' as the canonical field",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::incomplete_migration::cql_pattern_shim_in_grammar_loader::268346c4\" --note \"<what you did>\" --confirm",
+      "queue_position": 8,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::incomplete_migration::legacy_tag_attribute_support::4bf87c03",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "GrammarConfigLoader.posGroupFromConstraint handles both 'xpos=' (current) and 'tag=' (legacy) attribute names with no migration path or deprecation signal",
+      "detail": {
+        "holistic": true,
+        "dimension": "incomplete_migration",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+        ],
+        "evidence": [
+          "Comment: '// xpos (Penn Treebank \u2014 used by current grammar)' followed by 'tag (legacy / alternative attribute name)'",
+          "Twelve tag= branches mirror twelve xpos= branches without any log warning when the legacy path triggers",
+          "No test or comment indicates whether any active grammar config file still uses tag= attributes"
+        ],
+        "suggestion": "Audit active grammar JSON files; if tag= is unused, remove the legacy branches and their comment; if still in use, add a logger.warn deprecation notice",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::incomplete_migration::legacy_tag_attribute_support::4bf87c03\" --note \"<what you did>\" --confirm",
+      "queue_position": 9,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::incomplete_migration::queryexecutor_backward_compat_defaults::aa87d189",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "QueryExecutor default methods exist solely for backward compatibility with implementations that no longer exist",
+      "detail": {
+        "holistic": true,
+        "dimension": "incomplete_migration",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+        ],
+        "evidence": [
+          "executeBcqlQuery default: '// Default: treat BCQL as CQL (for backward compatibility)'",
+          "executeSurfacePattern default: '// Default: fall back to findCollocations (ignores position hints)'",
+          "QueryExecutor Javadoc: 'Allows different implementations (legacy, hybrid, BlackLab) to be used interchangeably' \u2014 but only BlackLabQueryExecutor exists in the codebase",
+          "getExecutorType return example says '\"legacy\", \"hybrid\"' \u2014 neither type is implemented"
+        ],
+        "suggestion": "Remove the default implementations and the mention of legacy/hybrid; if the interface is meant to allow future alternative implementations, document that intent rather than preserving dead compatibility code",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::incomplete_migration::queryexecutor_backward_compat_defaults::aa87d189\" --note \"<what you did>\" --confirm",
+      "queue_position": 10,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::initialization_coupling::constructor_file_io::c19c157d",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "Both BlackLabQueryExecutor and GrammarConfigLoader perform file I/O in their constructors, mixing construction with resource acquisition",
+      "detail": {
+        "holistic": true,
+        "dimension": "initialization_coupling",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+        ],
+        "evidence": [
+          "BlackLabQueryExecutor constructor: this.blackLabIndex = BlackLab.open(new File(indexPath)); \u2014 opens an index file during construction",
+          "GrammarConfigLoader constructor: String content = Files.readString(configPath); \u2014 reads and parses the config file during construction",
+          "GrammarConfigLoader constructor also throws IllegalArgumentException for business rule violations (e.g. missing 'version', presence of 'copulas') mixed with IOException for file access failures; callers must handle both exception types from a single constructor call"
+        ],
+        "suggestion": "For BlackLabQueryExecutor, provide a static factory method or an open() method distinct from the constructor; for GrammarConfigLoader, separate file loading from validation so that IOException and IllegalArgumentException come from clearly distinct call sites",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::initialization_coupling::constructor_file_io::c19c157d\" --note \"<what you did>\" --confirm",
+      "queue_position": 11,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::initialization_coupling::hardcoded_relative_grammar_path::e469c854",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "The grammar config path 'grammars/relations.json' is resolved relative to the JVM working directory at startup, creating a fragile environment dependency",
+      "detail": {
+        "holistic": true,
+        "dimension": "initialization_coupling",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+        ],
+        "evidence": [
+          "var grammarPath = java.nio.file.Paths.get(\"grammars/relations.json\"); \u2014 no ability to override from CLI",
+          "GrammarConfigLoader.createDefaultEnglish() also hardcodes Path.of(\"grammars/relations.json\")",
+          "The server command does accept --index for the corpus path but provides no equivalent --grammar option, forcing the grammar file to live at a specific CWD-relative location"
+        ],
+        "suggestion": "Add a --grammar CLI option to handleServerCommand so operators can specify the config path; use the hardcoded path only as a default, and log the resolved absolute path at startup to aid debugging",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::initialization_coupling::hardcoded_relative_grammar_path::e469c854\" --note \"<what you did>\" --confirm",
+      "queue_position": 12,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::initialization_coupling::null_grammarconfig_propagation::a32123fd",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "A null GrammarConfigLoader is passed through from Main into WordSketchApiServer and then null-checked in every single endpoint handler",
+      "detail": {
+        "holistic": true,
+        "dimension": "initialization_coupling",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+        ],
+        "evidence": [
+          "Main.handleServerCommand: GrammarConfigLoader grammarConfig = null; try { ... } catch (IOException e) { System.out.println(\"No grammar config found, using defaults.\"); } \u2014 null is silently accepted",
+          "WordSketchApiServer receives grammarConfig as a constructor parameter and stores it as a nullable field",
+          "Every handler that uses grammar config: 'if (grammarConfig != null)' \u2014 at least 6 distinct null guards in handleFullSketch, handleRelationQuery, handleFullDependencySketch, handleDependencyRelationQuery, handleSemanticFieldExplore, handleSemanticFieldExploreMulti",
+          "Without grammar config, most endpoints either silently return empty results or return a 500 error \u2014 the behavior is inconsistent"
+        ],
+        "suggestion": "Fail fast at startup if grammar config is missing (the server cannot serve meaningful results without it); alternatively use a non-null NullObject/default implementation rather than propagating null through the entire API layer",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::initialization_coupling::null_grammarconfig_propagation::a32123fd\" --note \"<what you did>\" --confirm",
+      "queue_position": 13,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::initialization_coupling::server_split_init::595bb84c",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "WordSketchApiServer stores the com.sun.net.httpserver.HttpServer instance in a field set during start(), leaving the object partially initialized between construction and start()",
+      "detail": {
+        "holistic": true,
+        "dimension": "initialization_coupling",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+        ],
+        "evidence": [
+          "private com.sun.net.httpserver.HttpServer server; \u2014 field is null until start() is called",
+          "stop() method: if (server != null) { server.stop(0); } \u2014 null guard confirms caller-visible partial-init state",
+          "start() has no guard against being called twice; a second call would create a new server object while the first continues running and the original reference is lost"
+        ],
+        "suggestion": "Either create the HttpServer inside the constructor (before start()) so the object is fully initialized when returned, or use a builder pattern; add an idempotency guard in start() that throws IllegalStateException if called when already running",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::initialization_coupling::server_split_init::595bb84c\" --note \"<what you did>\" --confirm",
+      "queue_position": 14,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::low_level_elegance::radial_plot_inconsistent_string_building::a85c047f",
+      "kind": "issue",
+      "confidence": "low",
+      "detector": "review",
+      "file": ".",
+      "summary": "RadialPlot.toSVG() mixes string concatenation with StringBuilder.append and String.format in an inconsistent style within the same method",
+      "detail": {
+        "holistic": true,
+        "dimension": "low_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+        ],
+        "evidence": [
+          "Line 163: svg.append(\"<svg ... width=\\\"\" + width + \"\\\" height=\\\"\" + height + ...\" \u2014 string concatenation inside append",
+          "Line 177: svg.append(\"  <rect width=\\\"\" + width + \"\\\" height=\\\"\" + height + ...) \u2014 same pattern",
+          "Line 168: svg.append(String.format(\"    .guide-circle { ...stroke-width: %s; }\\n\", fmt(...))) \u2014 uses String.format",
+          "Line 163 and 177 could use String.format or a template for consistency with adjacent lines"
+        ],
+        "suggestion": "Pick one string-building style for the SVG template lines. Using String.format consistently (already used for most lines) is clearest. Alternatively, use a simple template with placeholders and replace all at once.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::low_level_elegance::radial_plot_inconsistent_string_building::a85c047f\" --note \"<what you did>\" --confirm",
+      "queue_position": 16,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::low_level_elegance::simple_tagger_data_in_code::69e0017b",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "SimpleTagger's constructor contains ~80 hard-coded lexicon.put() calls for word-to-tag mappings, embedding test corpus data as production code",
+      "detail": {
+        "holistic": true,
+        "dimension": "low_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/tagging/SimpleTagger.java"
+        ],
+        "evidence": [
+          "SimpleTagger() constructor lines 113-210 contain explicit put() calls for words like house, dog, cat, park, bed, hill, man, garden, etc.",
+          "Comments like '// More adjectives from test corpus' and '// Common nouns' confirm this is test data baked into production code",
+          "The loadLexicon(String file) method already exists to load from a file, but the constructor pre-populates with hard-coded entries instead of delegating to it"
+        ],
+        "suggestion": "Move the hard-coded entries to a classpath resource file (e.g., /tagger/default_lexicon.txt). Load it in the constructor with loadLexicon(). This keeps the code clean and makes the lexicon maintainable without recompilation.",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::low_level_elegance::simple_tagger_data_in_code::69e0017b\" --note \"<what you did>\" --confirm",
+      "queue_position": 17,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::mid_level_elegance::executor_reimplements_snippet_parser::ab68f7f2",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "BlackLabQueryExecutor.extractDependentLemmaFromGroup and extractPosFromGroup duplicate BlackLabSnippetParser logic by directly accessing its static Pattern fields",
+      "detail": {
+        "holistic": true,
+        "dimension": "mid_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+        ],
+        "evidence": [
+          "extractDependentLemmaFromGroup opens a Matcher on BlackLabSnippetParser.LEMMA_ATTR and iterates to find the last lemma \u2014 identical to BlackLabSnippetParser.extractLemmaFromMatch",
+          "extractPosFromGroup opens a Matcher on BlackLabSnippetParser.XPOS_ATTR then falls back to UPOS_ATTR \u2014 identical to BlackLabSnippetParser.extractPosFromMatch",
+          "BlackLabSnippetParser already exposes extractLemmaFromMatch(String) and extractPosFromMatch(String) as package-private statics for exactly this purpose"
+        ],
+        "suggestion": "Delete extractDependentLemmaFromGroup and extractPosFromGroup; replace their call sites with BlackLabSnippetParser.extractLemmaFromMatch(identity) and BlackLabSnippetParser.extractPosFromMatch(identity)",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::mid_level_elegance::executor_reimplements_snippet_parser::ab68f7f2\" --note \"<what you did>\" --confirm",
+      "queue_position": 18,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::mid_level_elegance::explore_vs_explore_multi_pattern_inconsistency::907bf26f",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "handleSemanticFieldExplore calls rel.getFullPattern(seed) to substitute the headword, but handleSemanticFieldExploreMulti uses the raw rel.pattern() without substitution",
+      "detail": {
+        "holistic": true,
+        "dimension": "mid_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+        ],
+        "evidence": [
+          "handleSemanticFieldExplore: String bcqlPattern = relationConfig.get().getFullPattern(seed);",
+          "handleSemanticFieldExploreMulti: String bcqlPattern = relationConfig.get().pattern(); (no head substitution)",
+          "Both handlers pass bcqlPattern to executor.executeSurfacePattern, meaning explore-multi queries execute with an unsubstituted template pattern"
+        ],
+        "suggestion": "In handleSemanticFieldExploreMulti, derive the per-seed bcql pattern inside the seed loop via rel.getFullPattern(seed) rather than using the raw pattern once before the loop",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::mid_level_elegance::explore_vs_explore_multi_pattern_inconsistency::907bf26f\" --note \"<what you did>\" --confirm",
+      "queue_position": 19,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::mid_level_elegance::manual_amp_decode_in_handler::24b898b3",
+      "kind": "issue",
+      "confidence": "medium",
+      "detector": "review",
+      "file": ".",
+      "summary": "handleConcordanceExamples manually replaces HTML entity &amp; after URL decoding, a concern that belongs in the parsing layer",
+      "detail": {
+        "holistic": true,
+        "dimension": "mid_level_elegance",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+        ],
+        "evidence": [
+          "if (word1 != null) word1 = word1.replace(\"&amp;\", \"&\");",
+          "if (word2 != null) word2 = word2.replace(\"&amp;\", \"&\");",
+          "HttpApiUtils.parseQueryParams already handles URLDecoder.decode; HTML entity decoding is a separate concern that should either be handled there or not at all"
+        ],
+        "suggestion": "Move HTML entity unescaping into HttpApiUtils.parseQueryParams or a shared normalization helper so handlers receive clean values without additional glue code",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::mid_level_elegance::manual_amp_decode_in_handler::24b898b3\" --note \"<what you did>\" --confirm",
+      "queue_position": 20,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "review::.::holistic::package_organization::query_package_overloaded::82270299",
+      "kind": "issue",
+      "confidence": "high",
+      "detector": "review",
+      "file": ".",
+      "summary": "The query/ package conflates four distinct concerns: query execution, XML parsing, data-transfer objects, and semantic exploration",
+      "detail": {
+        "holistic": true,
+        "dimension": "package_organization",
+        "related_files": [
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+          "src/main/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorer.java"
+        ],
+        "evidence": [
+          "BlackLabQueryExecutor: query execution against a BlackLab index",
+          "BlackLabSnippetParser: stateless XML/text transformation utility for parsing BlackLab output",
+          "QueryResults: plain DTO classes (WordSketchResult, ConcordanceResult) with no query logic",
+          "SemanticFieldExplorer: a higher-level exploration algorithm that composes query results",
+          "PosGroup: a constants file imported by config/ and api/ packages, not a query-layer concern"
+        ],
+        "suggestion": "Extract BlackLabSnippetParser into a query/blacklab/ or utils/blacklab/ sub-package; move QueryResults DTOs to a model/ package; move PosGroup to a shared model/ or common/ package; consider a query/explore/ sub-package for SemanticFieldExplorer",
+        "reasoning": ""
+      },
+      "status": "open",
+      "primary_command": "desloppify plan resolve \"review::.::holistic::package_organization::query_package_overloaded::82270299\" --note \"<what you did>\" --confirm",
+      "queue_position": 23,
+      "plan_cluster": {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "total_items": 20,
+        "action_steps": [
+          {
+            "title": "Clean up migration debt in GrammarConfigLoader and QueryExecutor",
+            "detail": "268346c4: Fix GrammarConfigLoader Javadoc to show 'pattern' as canonical field. 4bf87c03: Add logger.warn deprecation notice for tag= legacy branches. aa87d189: Add @Deprecated to QueryExecutor backward-compat default methods. e2ee35a0: Make executeBcqlQuery/executeSurfacePattern abstract (remove defaults) since only one impl exists. 24b898b3: Move amp entity replacement into HttpApiUtils.parseQueryParams or remove if not needed.",
+            "effort": "small",
+            "issue_refs": [
+              "268346c4",
+              "4bf87c03",
+              "aa87d189",
+              "e2ee35a0",
+              "24b898b3"
+            ]
+          },
+          {
+            "title": "Fix initialization coupling: null grammarConfig propagation and hardcoded paths",
+            "detail": "a32123fd: Fail fast at startup if grammar config is missing \u2014 throw in Main.java rather than propagating null. e469c854: Accept --grammar CLI option in handleServerCommand, use hardcoded path as default only. 595bb84c: Move HttpServer creation into constructor or add state guard in start(). c19c157d: Consider factory methods for BlackLabQueryExecutor/GrammarConfigLoader to separate construction from I/O.",
+            "effort": "medium",
+            "issue_refs": [
+              "a32123fd",
+              "e469c854",
+              "595bb84c",
+              "c19c157d"
+            ]
+          },
+          {
+            "title": "Refactor executeBcqlQuery phases and fix BlackLabQueryExecutor SnippetParser duplication",
+            "detail": "8ed8f0b8: Extract private collectHits(...) and buildResults(hits, freqMap, headFreq, maxResults) helpers from executeBcqlQuery's 3 inlined phases. ab68f7f2: Remove extractDependentLemmaFromGroup and extractPosFromGroup; replace with BlackLabSnippetParser.extractLemmaFromMatch and extractPosFromMatch calls.",
+            "effort": "medium",
+            "issue_refs": [
+              "8ed8f0b8",
+              "ab68f7f2"
+            ]
+          },
+          {
+            "title": "Package organization and SimpleTagger lexicon externalization",
+            "detail": "82270299/a430f585: Move BlackLabSnippetParser to query/blacklab/, move QueryResults to model/. 297b2b52: Remove string-path constructor from SEF or convert to factory method. 42e2a9a1: Move SEF inner result classes to separate files or model/. 28bc8918: Extract SEF result types to their own file. 321f810b: Consolidate SnippetParser fragmented extraction API. 69e0017b: Move 93 lexicon.put() calls to classpath resource file.",
+            "effort": "large",
+            "issue_refs": [
+              "82270299",
+              "a430f585",
+              "297b2b52",
+              "42e2a9a1",
+              "28bc8918",
+              "321f810b",
+              "69e0017b"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "queue": {
+    "total": 20
+  },
+  "narrative": {
+    "phase": "middle_grind",
+    "headline": "30 issues open. Test strategy (36.0%) needs attention \u2014 run `desloppify next` to start. (23 review issues \u2014 run `desloppify show review --status open`)",
+    "dimensions": {
+      "lowest_dimensions": [
+        {
+          "name": "Test strategy",
+          "strict": 36.0,
+          "failing": 0,
+          "impact": 0.0,
+          "subjective": true,
+          "impact_description": "re-review to improve"
+        },
+        {
+          "name": "AI generated debt",
+          "strict": 48.0,
+          "failing": 0,
+          "impact": 0.0,
+          "subjective": true,
+          "impact_description": "re-review to improve"
+        },
+        {
+          "name": "Mid elegance",
+          "strict": 50.0,
+          "failing": 3,
+          "impact": 0.0,
+          "subjective": true,
+          "impact_description": "re-review to improve"
+        }
+      ],
+      "biggest_gap_dimensions": [
+        {
+          "name": "File health",
+          "lenient": 95.6,
+          "strict": 91.2,
+          "gap": 4.4,
+          "wontfix_count": 2
+        }
+      ],
+      "stagnant_dimensions": [
+        {
+          "name": "Code quality",
+          "strict": 100.0,
+          "stuck_scans": 5
+        }
+      ]
+    },
+    "actions": [
+      {
+        "type": "refactor",
+        "detector": "structural",
+        "count": 2,
+        "description": "2 structural issues \u2014 review large files \u2014 split only when responsibilities are clearly separable",
+        "command": "desloppify show structural --status open",
+        "impact": 0.0,
+        "dimension": "File health",
+        "priority": 1,
+        "lane": "refactor_0"
+      },
+      {
+        "type": "refactor",
+        "detector": "review",
+        "count": 23,
+        "description": "23 review issues need investigation \u2014 run `desloppify show review --status open` to see them",
+        "command": "desloppify show review --status open",
+        "impact": 0.0,
+        "dimension": "Unknown",
+        "priority": 2,
+        "lane": "refactor_1"
+      },
+      {
+        "type": "manual_fix",
+        "detector": "stale_exclude",
+        "count": 5,
+        "description": "5 stale_exclude issues in 1 cluster(s) \u2014 run `desloppify next`",
+        "command": "desloppify next",
+        "impact": 0.0,
+        "dimension": "Code quality",
+        "priority": 3,
+        "clusters": [
+          "auto/stale_exclude"
+        ],
+        "cluster_count": 1,
+        "lane": "refactor_2"
+      }
+    ],
+    "strategy": {
+      "fixer_leverage": {
+        "auto_fixable_count": 0,
+        "total_count": 76,
+        "coverage": 0.0,
+        "impact_ratio": 0.0,
+        "recommendation": "none"
+      },
+      "lanes": {
+        "refactor_0": {
+          "actions": [
+            1
+          ],
+          "file_count": 2,
+          "total_impact": 0.0,
+          "automation": "manual",
+          "run_first": false
+        },
+        "refactor_1": {
+          "actions": [
+            2
+          ],
+          "file_count": 1,
+          "total_impact": 0.0,
+          "automation": "manual",
+          "run_first": false
+        },
+        "refactor_2": {
+          "actions": [
+            3
+          ],
+          "file_count": 5,
+          "total_impact": 0.0,
+          "automation": "manual",
+          "run_first": false
+        }
+      },
+      "can_parallelize": false,
+      "hint": "Work through actions in priority order. Rescan after each fix to track progress. Review: 23 issue(s) \u2014 `desloppify show review --status open`."
+    },
+    "tools": {
+      "fixers": [],
+      "move": {
+        "available": true,
+        "relevant": false,
+        "reason": null,
+        "usage": "desloppify move <source> <dest> [--dry-run]"
+      },
+      "plan": {
+        "command": "desloppify plan",
+        "description": "Generate prioritized markdown cleanup plan"
+      },
+      "badge": {
+        "generated": true,
+        "in_readme": false,
+        "path": "scorecard.png",
+        "recommendation": "Add to README: <img src=\"scorecard.png\" width=\"100%\">"
+      }
+    },
+    "debt": {
+      "overall_gap": 0.1,
+      "wontfix_count": 6,
+      "worst_dimension": "File health",
+      "worst_gap": 4.4,
+      "trend": "growing"
+    },
+    "milestone": null,
+    "primary_action": {
+      "command": "desloppify show structural --status open",
+      "description": "2 structural issues \u2014 review large files \u2014 split only when responsibilities are clearly separable"
+    },
+    "why_now": "Work through actions in priority order. Rescan after each fix to track progress. Review: 23 issue(s) \u2014 `desloppify show review --status open`.",
+    "verification_step": {
+      "command": "desloppify scan",
+      "reason": "revalidate after changes"
+    },
+    "risk_flags": [
+      {
+        "type": "wontfix_gap",
+        "severity": "medium",
+        "message": "Strict/lenient gap is 0.1 pts with 6 wontfix issues"
+      }
+    ],
+    "strict_target": {
+      "target": 95.0,
+      "current": 73.0,
+      "gap": 22.0,
+      "state": "below",
+      "warning": null
+    },
+    "reminders": [
+      {
+        "type": "review_issues_pending",
+        "message": "23 review issue(s) need investigation. Run `desloppify show review --status open` to see the work queue.",
+        "command": "desloppify show review --status open",
+        "priority": 1,
+        "severity": "high"
+      },
+      {
+        "type": "stagnant_nudge",
+        "message": "Code quality has been at 100.0% for 5 scans. The remaining items may be worth marking as wontfix if they're intentional.",
+        "command": null,
+        "priority": 2,
+        "severity": "medium"
+      },
+      {
+        "type": "wontfix_growing",
+        "message": "Wontfix debt is growing. Review stale decisions: `desloppify show --status wontfix`.",
+        "command": "desloppify show --status wontfix",
+        "priority": 2,
+        "severity": "medium"
+      }
+    ],
+    "reminder_history": {
+      "zone_classification": 3,
+      "report_scores": 3,
+      "review_issues_pending": 2,
+      "feedback_nudge": 2,
+      "wontfix_growing": 2,
+      "stagnant_nudge": 1
+    }
+  },
+  "agent_notes": [
+    "Do NOT use `desloppify plan skip` unless the user explicitly asks you to skip an item.",
+    "If you cannot fix an item, report it and move to the next one.",
+    "For cluster items: if the autofix_hint finds 0 results, drill into individual issues with the primary_command."
+  ],
+  "plan": {
+    "active": true,
+    "focus": null,
+    "clusters": [
+      {
+        "name": "auto/stale_exclude",
+        "description": "Fix 5 stale exclude issues",
+        "item_count": 5
+      },
+      {
+        "name": "security",
+        "description": "Fix all mechanical security findings",
+        "item_count": 0
+      },
+      {
+        "name": "dead-migration-code",
+        "description": "Remove dead code from incomplete BlackLab migration: indexer/hybrid/, root LuceneIndexer, .bak files",
+        "item_count": 0
+      },
+      {
+        "name": "interface-contract",
+        "description": "Fix QueryExecutor interface gap causing forced downcasts to BlackLabQueryExecutor",
+        "item_count": 0
+      },
+      {
+        "name": "debug-logging",
+        "description": "Replace all System.out.println with SLF4J logger calls",
+        "item_count": 0
+      },
+      {
+        "name": "dead-methods",
+        "description": "Remove dead methods, stubs, and copy-paste artifacts",
+        "item_count": 0
+      },
+      {
+        "name": "resource-management",
+        "description": "Fix per-request index opens that bypass injected executor",
+        "item_count": 0
+      },
+      {
+        "name": "test-coverage",
+        "description": "Add integration tests for API endpoints and query execution",
+        "item_count": 0
+      },
+      {
+        "name": "auto/stale-review",
+        "description": "Re-review 10 stale subjective dimensions",
+        "item_count": 0
+      },
+      {
+        "name": "stale-excludes",
+        "description": "5 stale_exclude items verified as valid non-source data directories",
+        "item_count": 5
+      },
+      {
+        "name": "structural-large",
+        "description": "2 large files already substantially reduced by extraction",
+        "item_count": 2
+      },
+      {
+        "name": "dead-ai-code",
+        "description": "Delete AI-generated dead code across GrammarConfigLoader, LogDiceCalculator, WordSketchApiServer, SemanticFieldExplorer. Issues: dead copula infrastructure (822833ee), dead grammar config methods (68d46c6f), dead LogDice scoring methods (06443025), RelationDef class (cd282c18), toLegacyRelationType() (2875ee92), duplicate explore() overloads (bff0195f).",
+        "item_count": 0
+      },
+      {
+        "name": "api-coherence",
+        "description": "Fix API coherence: BCQL error returns HTTP 200 (16250503); extract duplicate relation switch (90d6143d).",
+        "item_count": 0
+      },
+      {
+        "name": "abstraction-cleanup",
+        "description": "Remove hollow abstractions: dead Token match methods (7de930fa) and hollow PosTagger interface (5f270cc8).",
+        "item_count": 0
+      },
+      {
+        "name": "convention-fixes",
+        "description": "Fix convention issues: replace System.out with logger in BlackLabConllUIndexer, convert RelationsValidationTest to JUnit, fix test naming convention (Test prefix), remove debug prefix from logger.debug() calls, make BlackLabSnippetParser public, standardize wildcard imports",
+        "item_count": 0
+      },
+      {
+        "name": "migration-cleanup",
+        "description": "Clean up incomplete migration artifacts: .bak files, phantom class references in CLAUDE.md, stale javadoc in QueryResults, orphaned SketchGrammarParser and CQL grammar classes, dead predicate subsystem",
+        "item_count": 0
+      },
+      {
+        "name": "design-fixes",
+        "description": "Fix design defects: double-close bug, stream-to-logger bug, duplicate logDice pipeline (4x in BlackLabQueryExecutor), duplicate derivePosition methods, double query execution, REPITITION typo, duplicate split methods, dual relation lookup API, inconsistent InvalidQuery handling",
+        "item_count": 0
+      },
+      {
+        "name": "test-fixes",
+        "description": "Fix test infrastructure: RelationsValidationTest uses main() not @Test; LongIntHashMapTest is in wrong package; integration tests use hardcoded paths; CQL verifier has shallow assertions; dummy test has no assertions",
+        "item_count": 0
+      },
+      {
+        "name": "package-org",
+        "description": "Structural / documentation issues: utils catch-all package, query package blob (too many classes), phantom /api/grammar/active endpoint, README startup commands incomplete, sketch query params undocumented, GrammarConfigLoader god constructor, oversized executeBcqlQuery, god class API server",
+        "item_count": 0
+      },
+      {
+        "name": "bugs-first",
+        "description": "Fix genuine correctness bugs: multi-seed pattern substitution missing, SimpleTagger 'am' tagged wrong, remaining parseInt sites",
+        "item_count": 0
+      },
+      {
+        "name": "quick-wins",
+        "description": "Trivial one-liner fixes: remove unused variable, add @Override, remove dead code, fix pom.xml artifact, remove trivial Javadoc",
+        "item_count": 0
+      },
+      {
+        "name": "error-handling",
+        "description": "Fix resource leaks and silent exception swallowing: try-with-resources for SEF, unify exception types in GrammarConfigLoader",
+        "item_count": 0
+      },
+      {
+        "name": "stubs-cleanup",
+        "description": "Resolve getCorpusSize stub: either implement using BlackLab API or remove and add to interface as not-implemented",
+        "item_count": 0
+      },
+      {
+        "name": "god-class-extraction",
+        "description": "Break WordSketchApiServer monolith: extract duplicate handlers, try-with-resources, extract response builder helper",
+        "item_count": 3
+      },
+      {
+        "name": "design-structural",
+        "description": "Larger structural improvements: package reorganization, SEF constructor injection, QueryExecutor interface cleanup, SnippetParser API consolidation, SimpleTagger lexicon externalization",
+        "item_count": 20
+      }
+    ],
+    "total_ordered": 24,
+    "total_skipped": 11,
+    "plan_overrides_narrative": true
+  },
   "overall_score": 73.9,
   "objective_score": 97.7,
   "strict_score": 73.0,
-  "verified_strict_score": 94.4,
-  "dimension_scores": {
-    "Code quality": {
-      "score": 100.0,
-      "strict": 100.0,
-      "verified_strict_score": 100.0,
-      "checks": 25,
-      "failing": 0,
-      "tier": 3,
-      "detectors": {
-        "flat_dirs": {
-          "potential": 25,
-          "pass_rate": 1.0,
-          "failing": 0,
-          "weighted_failures": 0.0
-        }
-      }
-    },
-    "Security": {
-      "score": 100.0,
-      "strict": 100.0,
-      "verified_strict_score": 100.0,
-      "checks": 32,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "security": {
-          "potential": 32,
-          "pass_rate": 1.0,
-          "failing": 0,
-          "weighted_failures": 0.0
-        }
-      }
-    },
-    "File health": {
-      "score": 95.6,
-      "strict": 91.2,
-      "verified_strict_score": 91.2,
-      "checks": 32,
-      "failing": 2,
-      "tier": 3,
-      "detectors": {
-        "structural": {
-          "potential": 32,
-          "pass_rate": 0.95625,
-          "failing": 2,
-          "weighted_failures": 1.4
-        }
-      }
-    },
-    "Naming quality": {
-      "score": 65.0,
-      "strict": 65.0,
-      "verified_strict_score": 65.0,
-      "checks": 10,
-      "failing": 2,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.65,
-          "failing": 2,
-          "weighted_failures": 3.5,
-          "assessment_score": 65.0,
-          "placeholder": false,
-          "dimension_key": "naming_quality",
-          "configured_weight": 2.0,
-          "components": []
-        }
-      }
-    },
-    "Logic clarity": {
-      "score": 65.0,
-      "strict": 65.0,
-      "verified_strict_score": 65.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.65,
-          "failing": 0,
-          "weighted_failures": 3.5,
-          "assessment_score": 65.0,
-          "placeholder": false,
-          "dimension_key": "logic_clarity",
-          "configured_weight": 6.0,
-          "components": []
-        }
-      }
-    },
-    "Type safety": {
-      "score": 72.0,
-      "strict": 72.0,
-      "verified_strict_score": 72.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.72,
-          "failing": 0,
-          "weighted_failures": 2.8,
-          "assessment_score": 72.0,
-          "placeholder": false,
-          "dimension_key": "type_safety",
-          "configured_weight": 12.0,
-          "components": []
-        }
-      }
-    },
-    "Contracts": {
-      "score": 65.0,
-      "strict": 65.0,
-      "verified_strict_score": 65.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.65,
-          "failing": 0,
-          "weighted_failures": 3.5,
-          "assessment_score": 65.0,
-          "placeholder": false,
-          "dimension_key": "contract_coherence",
-          "configured_weight": 12.0,
-          "components": []
-        }
-      }
-    },
-    "Error consistency": {
-      "score": 52.0,
-      "strict": 52.0,
-      "verified_strict_score": 52.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.52,
-          "failing": 0,
-          "weighted_failures": 4.8,
-          "assessment_score": 52.0,
-          "placeholder": false,
-          "dimension_key": "error_consistency",
-          "configured_weight": 3.0,
-          "components": []
-        }
-      }
-    },
-    "Abstraction fit": {
-      "score": 60.0,
-      "strict": 60.0,
-      "verified_strict_score": 60.0,
-      "checks": 10,
-      "failing": 3,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.6,
-          "failing": 3,
-          "weighted_failures": 4.0,
-          "assessment_score": 60.0,
-          "placeholder": false,
-          "dimension_key": "abstraction_fitness",
-          "configured_weight": 8.0,
-          "components": []
-        }
-      }
-    },
-    "AI generated debt": {
-      "score": 48.0,
-      "strict": 48.0,
-      "verified_strict_score": 48.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.48,
-          "failing": 0,
-          "weighted_failures": 5.2,
-          "assessment_score": 48.0,
-          "placeholder": false,
-          "dimension_key": "ai_generated_debt",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "High elegance": {
-      "score": 55.0,
-      "strict": 55.0,
-      "verified_strict_score": 55.0,
-      "checks": 10,
-      "failing": 3,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.55,
-          "failing": 3,
-          "weighted_failures": 4.5,
-          "assessment_score": 55.0,
-          "placeholder": false,
-          "dimension_key": "high_level_elegance",
-          "configured_weight": 22.0,
-          "components": []
-        }
-      }
-    },
-    "Mid elegance": {
-      "score": 50.0,
-      "strict": 50.0,
-      "verified_strict_score": 50.0,
-      "checks": 10,
-      "failing": 4,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.5,
-          "failing": 4,
-          "weighted_failures": 5.0,
-          "assessment_score": 50.0,
-          "placeholder": false,
-          "dimension_key": "mid_level_elegance",
-          "configured_weight": 22.0,
-          "components": []
-        }
-      }
-    },
-    "Low elegance": {
-      "score": 55.0,
-      "strict": 55.0,
-      "verified_strict_score": 55.0,
-      "checks": 10,
-      "failing": 3,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.55,
-          "failing": 3,
-          "weighted_failures": 4.5,
-          "assessment_score": 55.0,
-          "placeholder": false,
-          "dimension_key": "low_level_elegance",
-          "configured_weight": 12.0,
-          "components": []
-        }
-      }
-    },
-    "Cross-module arch": {
-      "score": 60.0,
-      "strict": 60.0,
-      "verified_strict_score": 60.0,
-      "checks": 10,
-      "failing": 2,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.6,
-          "failing": 2,
-          "weighted_failures": 4.0,
-          "assessment_score": 60.0,
-          "placeholder": false,
-          "dimension_key": "cross_module_architecture",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Init coupling": {
-      "score": 62.0,
-      "strict": 62.0,
-      "verified_strict_score": 62.0,
-      "checks": 10,
-      "failing": 4,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.62,
-          "failing": 4,
-          "weighted_failures": 3.8,
-          "assessment_score": 62.0,
-          "placeholder": false,
-          "dimension_key": "initialization_coupling",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Convention drift": {
-      "score": 67.0,
-      "strict": 67.0,
-      "verified_strict_score": 67.0,
-      "checks": 10,
-      "failing": 2,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.67,
-          "failing": 2,
-          "weighted_failures": 3.3,
-          "assessment_score": 67.0,
-          "placeholder": false,
-          "dimension_key": "convention_outlier",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Dep health": {
-      "score": 68.0,
-      "strict": 68.0,
-      "verified_strict_score": 68.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.68,
-          "failing": 0,
-          "weighted_failures": 3.2,
-          "assessment_score": 68.0,
-          "placeholder": false,
-          "dimension_key": "dependency_health",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Test strategy": {
-      "score": 36.0,
-      "strict": 36.0,
-      "verified_strict_score": 36.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.36,
-          "failing": 0,
-          "weighted_failures": 6.4,
-          "assessment_score": 36.0,
-          "placeholder": false,
-          "dimension_key": "test_strategy",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "API coherence": {
-      "score": 55.0,
-      "strict": 55.0,
-      "verified_strict_score": 55.0,
-      "checks": 10,
-      "failing": 3,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.55,
-          "failing": 3,
-          "weighted_failures": 4.5,
-          "assessment_score": 55.0,
-          "placeholder": false,
-          "dimension_key": "api_surface_coherence",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Auth consistency": {
-      "score": 75.0,
-      "strict": 75.0,
-      "verified_strict_score": 75.0,
-      "checks": 10,
-      "failing": 0,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.75,
-          "failing": 0,
-          "weighted_failures": 2.5,
-          "assessment_score": 75.0,
-          "placeholder": false,
-          "dimension_key": "authorization_consistency",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Stale migration": {
-      "score": 70.0,
-      "strict": 70.0,
-      "verified_strict_score": 70.0,
-      "checks": 10,
-      "failing": 3,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.7,
-          "failing": 3,
-          "weighted_failures": 3.0,
-          "assessment_score": 70.0,
-          "placeholder": false,
-          "dimension_key": "incomplete_migration",
-          "configured_weight": 1.0,
-          "components": []
-        }
-      }
-    },
-    "Structure nav": {
-      "score": 50.0,
-      "strict": 50.0,
-      "verified_strict_score": 50.0,
-      "checks": 10,
-      "failing": 2,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.5,
-          "failing": 2,
-          "weighted_failures": 5.0,
-          "assessment_score": 50.0,
-          "placeholder": false,
-          "dimension_key": "package_organization",
-          "configured_weight": 5.0,
-          "components": []
-        }
-      }
-    },
-    "Design coherence": {
-      "score": 58.0,
-      "strict": 58.0,
-      "verified_strict_score": 58.0,
-      "checks": 10,
-      "failing": 4,
-      "tier": 4,
-      "detectors": {
-        "subjective_assessment": {
-          "potential": 10,
-          "pass_rate": 0.58,
-          "failing": 4,
-          "weighted_failures": 4.2,
-          "assessment_score": 58.0,
-          "placeholder": false,
-          "dimension_key": "design_coherence",
-          "configured_weight": 10.0,
-          "components": []
-        }
-      }
-    },
-    "Duplication": {
-      "score": 100.0,
-      "strict": 100.0,
-      "verified_strict_score": 65.0,
-      "checks": 4,
-      "failing": 0,
-      "tier": 3,
-      "detectors": {
-        "boilerplate_duplication": {
-          "potential": 4,
-          "pass_rate": 1.0,
-          "failing": 0,
-          "weighted_failures": 0.0
-        }
-      },
-      "carried_forward": true
-    }
-  },
   "scorecard_dimensions": [
     {
       "name": "File health",
@@ -519,7 +1968,7 @@
       "score": 55.0,
       "strict": 55.0,
       "checks": 10,
-      "failing": 3,
+      "failing": 0,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -532,7 +1981,7 @@
       "score": 60.0,
       "strict": 60.0,
       "checks": 10,
-      "failing": 3,
+      "failing": 2,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -567,7 +2016,7 @@
       "score": 67.0,
       "strict": 67.0,
       "checks": 10,
-      "failing": 2,
+      "failing": 0,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -606,7 +2055,7 @@
       "score": 58.0,
       "strict": 58.0,
       "checks": 10,
-      "failing": 4,
+      "failing": 1,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -628,7 +2077,7 @@
       "score": 53.3,
       "strict": 53.3,
       "checks": 30,
-      "failing": 10,
+      "failing": 8,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -682,7 +2131,7 @@
       "score": 65.0,
       "strict": 65.0,
       "checks": 10,
-      "failing": 2,
+      "failing": 1,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -758,7 +2207,7 @@
       "score": 55.0,
       "strict": 55.0,
       "checks": 10,
-      "failing": 3,
+      "failing": 0,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -771,7 +2220,7 @@
       "score": 60.0,
       "strict": 60.0,
       "checks": 10,
-      "failing": 3,
+      "failing": 2,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -797,7 +2246,7 @@
       "score": 67.0,
       "strict": 67.0,
       "checks": 10,
-      "failing": 2,
+      "failing": 0,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -836,7 +2285,7 @@
       "score": 58.0,
       "strict": 58.0,
       "checks": 10,
-      "failing": 4,
+      "failing": 1,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -849,7 +2298,7 @@
       "score": 53.3,
       "strict": 53.3,
       "checks": 30,
-      "failing": 10,
+      "failing": 8,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -903,7 +2352,7 @@
       "score": 65.0,
       "strict": 65.0,
       "checks": 10,
-      "failing": 2,
+      "failing": 1,
       "tier": 4,
       "subjective": true,
       "placeholder": false,
@@ -951,647 +2400,6 @@
       ]
     }
   ],
-  "stats": {
-    "total": 261,
-    "auto_resolved": 38,
-    "false_positive": 0,
-    "fixed": 175,
-    "open": 42,
-    "wontfix": 6,
-    "by_tier": {
-      "1": {
-        "auto_resolved": 0,
-        "false_positive": 0,
-        "fixed": 147,
-        "open": 21,
-        "wontfix": 2
-      },
-      "2": {
-        "auto_resolved": 18,
-        "false_positive": 0,
-        "fixed": 28,
-        "open": 13,
-        "wontfix": 2
-      },
-      "3": {
-        "auto_resolved": 20,
-        "false_positive": 0,
-        "fixed": 0,
-        "open": 3,
-        "wontfix": 2
-      },
-      "4": {
-        "auto_resolved": 0,
-        "false_positive": 0,
-        "fixed": 0,
-        "open": 5,
-        "wontfix": 0
-      }
-    }
-  },
-  "scan_count": 8,
-  "last_scan": "2026-03-10T16:38:26+00:00",
-  "by_tier": {
-    "1": {
-      "auto_resolved": 0,
-      "false_positive": 0,
-      "fixed": 147,
-      "open": 21,
-      "wontfix": 2
-    },
-    "2": {
-      "auto_resolved": 18,
-      "false_positive": 0,
-      "fixed": 28,
-      "open": 13,
-      "wontfix": 2
-    },
-    "3": {
-      "auto_resolved": 20,
-      "false_positive": 0,
-      "fixed": 0,
-      "open": 3,
-      "wontfix": 2
-    },
-    "4": {
-      "auto_resolved": 0,
-      "false_positive": 0,
-      "fixed": 0,
-      "open": 5,
-      "wontfix": 0
-    }
-  },
-  "ignores": [],
-  "suppression": {
-    "last_ignored": 0,
-    "last_raw_issues": 67,
-    "last_suppressed_pct": 0.0,
-    "last_ignore_patterns": 0,
-    "recent_scans": 5,
-    "recent_ignored": 0,
-    "recent_raw_issues": 220,
-    "recent_suppressed_pct": 0.0
-  },
-  "potentials": {
-    "java": {
-      "structural": 32,
-      "flat_dirs": 25,
-      "security": 32,
-      "boilerplate_duplication": 0,
-      "dupes": 0,
-      "stale_wontfix": 2,
-      "review": 10
-    }
-  },
-  "codebase_metrics": {
-    "java": {
-      "total_files": 47,
-      "total_loc": 8764,
-      "total_directories": 14
-    }
-  },
-  "open_scope": {
-    "in_scope": 42,
-    "out_of_scope": 0,
-    "global": 42
-  },
-  "score_breakdown": {
-    "overall_score": 73.9,
-    "mechanical_fraction": 0.4,
-    "subjective_fraction": 0.6,
-    "mechanical_avg": 97.74719999999999,
-    "subjective_avg": 58.05691056910569,
-    "entries": [
-      {
-        "name": "Code quality",
-        "pool": "mechanical",
-        "score": 100.0,
-        "checks": 25.0,
-        "sample_factor": 0.125,
-        "configured_weight": 1.0,
-        "effective_weight": 0.125,
-        "pool_share": 0.2,
-        "overall_per_point": 0.08000000000000002,
-        "overall_contribution": 8.000000000000002,
-        "overall_drag": 0.0
-      },
-      {
-        "name": "Security",
-        "pool": "mechanical",
-        "score": 100.0,
-        "checks": 32.0,
-        "sample_factor": 0.16,
-        "configured_weight": 1.0,
-        "effective_weight": 0.16,
-        "pool_share": 0.256,
-        "overall_per_point": 0.1024,
-        "overall_contribution": 10.24,
-        "overall_drag": 0.0
-      },
-      {
-        "name": "File health",
-        "pool": "mechanical",
-        "score": 95.6,
-        "checks": 32.0,
-        "sample_factor": 0.16,
-        "configured_weight": 2.0,
-        "effective_weight": 0.32,
-        "pool_share": 0.512,
-        "overall_per_point": 0.2048,
-        "overall_contribution": 19.578879999999998,
-        "overall_drag": 0.9011200000000013
-      },
-      {
-        "name": "Duplication",
-        "pool": "mechanical",
-        "score": 100.0,
-        "checks": 4.0,
-        "sample_factor": 0.02,
-        "configured_weight": 1.0,
-        "effective_weight": 0.02,
-        "pool_share": 0.032,
-        "overall_per_point": 0.0128,
-        "overall_contribution": 1.28,
-        "overall_drag": 0.0
-      },
-      {
-        "name": "Naming quality",
-        "pool": "subjective",
-        "score": 65.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 2.0,
-        "effective_weight": 2.0,
-        "pool_share": 0.016260162601626018,
-        "overall_per_point": 0.00975609756097561,
-        "overall_contribution": 0.6341463414634146,
-        "overall_drag": 0.34146341463414637
-      },
-      {
-        "name": "Logic clarity",
-        "pool": "subjective",
-        "score": 65.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 6.0,
-        "effective_weight": 6.0,
-        "pool_share": 0.04878048780487805,
-        "overall_per_point": 0.029268292682926828,
-        "overall_contribution": 1.9024390243902438,
-        "overall_drag": 1.024390243902439
-      },
-      {
-        "name": "Type safety",
-        "pool": "subjective",
-        "score": 72.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 12.0,
-        "effective_weight": 12.0,
-        "pool_share": 0.0975609756097561,
-        "overall_per_point": 0.058536585365853655,
-        "overall_contribution": 4.214634146341464,
-        "overall_drag": 1.6390243902439023
-      },
-      {
-        "name": "Contracts",
-        "pool": "subjective",
-        "score": 65.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 12.0,
-        "effective_weight": 12.0,
-        "pool_share": 0.0975609756097561,
-        "overall_per_point": 0.058536585365853655,
-        "overall_contribution": 3.8048780487804876,
-        "overall_drag": 2.048780487804878
-      },
-      {
-        "name": "Error consistency",
-        "pool": "subjective",
-        "score": 52.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 3.0,
-        "effective_weight": 3.0,
-        "pool_share": 0.024390243902439025,
-        "overall_per_point": 0.014634146341463414,
-        "overall_contribution": 0.7609756097560976,
-        "overall_drag": 0.7024390243902439
-      },
-      {
-        "name": "Abstraction fit",
-        "pool": "subjective",
-        "score": 60.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 8.0,
-        "effective_weight": 8.0,
-        "pool_share": 0.06504065040650407,
-        "overall_per_point": 0.03902439024390244,
-        "overall_contribution": 2.341463414634146,
-        "overall_drag": 1.5609756097560976
-      },
-      {
-        "name": "AI generated debt",
-        "pool": "subjective",
-        "score": 48.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.23414634146341462,
-        "overall_drag": 0.25365853658536586
-      },
-      {
-        "name": "High elegance",
-        "pool": "subjective",
-        "score": 55.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 22.0,
-        "effective_weight": 22.0,
-        "pool_share": 0.17886178861788618,
-        "overall_per_point": 0.1073170731707317,
-        "overall_contribution": 5.902439024390244,
-        "overall_drag": 4.829268292682927
-      },
-      {
-        "name": "Mid elegance",
-        "pool": "subjective",
-        "score": 50.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 22.0,
-        "effective_weight": 22.0,
-        "pool_share": 0.17886178861788618,
-        "overall_per_point": 0.1073170731707317,
-        "overall_contribution": 5.365853658536586,
-        "overall_drag": 5.365853658536586
-      },
-      {
-        "name": "Low elegance",
-        "pool": "subjective",
-        "score": 55.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 12.0,
-        "effective_weight": 12.0,
-        "pool_share": 0.0975609756097561,
-        "overall_per_point": 0.058536585365853655,
-        "overall_contribution": 3.219512195121951,
-        "overall_drag": 2.6341463414634143
-      },
-      {
-        "name": "Cross-module arch",
-        "pool": "subjective",
-        "score": 60.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.2926829268292683,
-        "overall_drag": 0.1951219512195122
-      },
-      {
-        "name": "Init coupling",
-        "pool": "subjective",
-        "score": 62.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.3024390243902439,
-        "overall_drag": 0.18536585365853658
-      },
-      {
-        "name": "Convention drift",
-        "pool": "subjective",
-        "score": 67.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.32682926829268294,
-        "overall_drag": 0.16097560975609757
-      },
-      {
-        "name": "Dep health",
-        "pool": "subjective",
-        "score": 68.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.33170731707317075,
-        "overall_drag": 0.15609756097560976
-      },
-      {
-        "name": "Test strategy",
-        "pool": "subjective",
-        "score": 36.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.17560975609756097,
-        "overall_drag": 0.3121951219512195
-      },
-      {
-        "name": "API coherence",
-        "pool": "subjective",
-        "score": 55.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.2682926829268293,
-        "overall_drag": 0.21951219512195122
-      },
-      {
-        "name": "Auth consistency",
-        "pool": "subjective",
-        "score": 75.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.36585365853658536,
-        "overall_drag": 0.12195121951219512
-      },
-      {
-        "name": "Stale migration",
-        "pool": "subjective",
-        "score": 70.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 1.0,
-        "effective_weight": 1.0,
-        "pool_share": 0.008130081300813009,
-        "overall_per_point": 0.004878048780487805,
-        "overall_contribution": 0.34146341463414637,
-        "overall_drag": 0.14634146341463414
-      },
-      {
-        "name": "Structure nav",
-        "pool": "subjective",
-        "score": 50.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 5.0,
-        "effective_weight": 5.0,
-        "pool_share": 0.04065040650406504,
-        "overall_per_point": 0.024390243902439022,
-        "overall_contribution": 1.2195121951219512,
-        "overall_drag": 1.2195121951219512
-      },
-      {
-        "name": "Design coherence",
-        "pool": "subjective",
-        "score": 58.0,
-        "checks": 0.0,
-        "sample_factor": 1.0,
-        "configured_weight": 10.0,
-        "effective_weight": 10.0,
-        "pool_share": 0.08130081300813008,
-        "overall_per_point": 0.048780487804878044,
-        "overall_contribution": 2.8292682926829267,
-        "overall_drag": 2.0487804878048776
-      }
-    ]
-  },
-  "next_command": "desloppify show structural --status open",
-  "narrative": {
-    "phase": "middle_grind",
-    "headline": "42 issues open. Test strategy (36.0%) needs attention \u2014 run `desloppify next` to start. (35 review issues \u2014 run `desloppify show review --status open`)",
-    "dimensions": {
-      "lowest_dimensions": [
-        {
-          "name": "Test strategy",
-          "strict": 36.0,
-          "failing": 0,
-          "impact": 0.0,
-          "subjective": true,
-          "impact_description": "re-review to improve"
-        },
-        {
-          "name": "AI generated debt",
-          "strict": 48.0,
-          "failing": 0,
-          "impact": 0.0,
-          "subjective": true,
-          "impact_description": "re-review to improve"
-        },
-        {
-          "name": "Mid elegance",
-          "strict": 50.0,
-          "failing": 4,
-          "impact": 0.0,
-          "subjective": true,
-          "impact_description": "re-review to improve"
-        }
-      ],
-      "biggest_gap_dimensions": [
-        {
-          "name": "File health",
-          "lenient": 95.6,
-          "strict": 91.2,
-          "gap": 4.4,
-          "wontfix_count": 2
-        }
-      ],
-      "stagnant_dimensions": [
-        {
-          "name": "Code quality",
-          "strict": 100.0,
-          "stuck_scans": 5
-        }
-      ]
-    },
-    "actions": [
-      {
-        "type": "refactor",
-        "detector": "structural",
-        "count": 2,
-        "description": "2 structural issues \u2014 review large files \u2014 split only when responsibilities are clearly separable",
-        "command": "desloppify show structural --status open",
-        "impact": 0.0,
-        "dimension": "File health",
-        "priority": 1,
-        "lane": "refactor_0"
-      },
-      {
-        "type": "refactor",
-        "detector": "review",
-        "count": 35,
-        "description": "35 review issues need investigation \u2014 run `desloppify show review --status open` to see them",
-        "command": "desloppify show review --status open",
-        "impact": 0.0,
-        "dimension": "Unknown",
-        "priority": 2,
-        "lane": "refactor_1"
-      },
-      {
-        "type": "manual_fix",
-        "detector": "stale_exclude",
-        "count": 5,
-        "description": "5 stale_exclude issues in 1 cluster(s) \u2014 run `desloppify next`",
-        "command": "desloppify next",
-        "impact": 0.0,
-        "dimension": "Code quality",
-        "priority": 3,
-        "clusters": [
-          "auto/stale_exclude"
-        ],
-        "cluster_count": 1,
-        "lane": "refactor_2"
-      }
-    ],
-    "strategy": {
-      "fixer_leverage": {
-        "auto_fixable_count": 0,
-        "total_count": 112,
-        "coverage": 0.0,
-        "impact_ratio": 0.0,
-        "recommendation": "none"
-      },
-      "lanes": {
-        "refactor_0": {
-          "actions": [
-            1
-          ],
-          "file_count": 2,
-          "total_impact": 0.0,
-          "automation": "manual",
-          "run_first": false
-        },
-        "refactor_1": {
-          "actions": [
-            2
-          ],
-          "file_count": 1,
-          "total_impact": 0.0,
-          "automation": "manual",
-          "run_first": false
-        },
-        "refactor_2": {
-          "actions": [
-            3
-          ],
-          "file_count": 5,
-          "total_impact": 0.0,
-          "automation": "manual",
-          "run_first": false
-        }
-      },
-      "can_parallelize": false,
-      "hint": "Work through actions in priority order. Rescan after each fix to track progress. Review: 35 issue(s) \u2014 `desloppify show review --status open`."
-    },
-    "tools": {
-      "fixers": [],
-      "move": {
-        "available": true,
-        "relevant": false,
-        "reason": null,
-        "usage": "desloppify move <source> <dest> [--dry-run]"
-      },
-      "plan": {
-        "command": "desloppify plan",
-        "description": "Generate prioritized markdown cleanup plan"
-      },
-      "badge": {
-        "generated": true,
-        "in_readme": false,
-        "path": "scorecard.png",
-        "recommendation": "Add to README: <img src=\"scorecard.png\" width=\"100%\">"
-      }
-    },
-    "debt": {
-      "overall_gap": 0.1,
-      "wontfix_count": 6,
-      "worst_dimension": "File health",
-      "worst_gap": 4.4,
-      "trend": "growing"
-    },
-    "milestone": null,
-    "primary_action": {
-      "command": "desloppify show structural --status open",
-      "description": "2 structural issues \u2014 review large files \u2014 split only when responsibilities are clearly separable"
-    },
-    "why_now": "Work through actions in priority order. Rescan after each fix to track progress. Review: 35 issue(s) \u2014 `desloppify show review --status open`.",
-    "verification_step": {
-      "command": "desloppify scan",
-      "reason": "revalidate after changes"
-    },
-    "risk_flags": [
-      {
-        "type": "wontfix_gap",
-        "severity": "medium",
-        "message": "Strict/lenient gap is 0.1 pts with 6 wontfix issues"
-      }
-    ],
-    "strict_target": {
-      "target": 95.0,
-      "current": 73.0,
-      "gap": 22.0,
-      "state": "below",
-      "warning": null
-    },
-    "reminders": [
-      {
-        "type": "review_issues_pending",
-        "message": "35 review issue(s) need investigation. Run `desloppify show review --status open` to see the work queue.",
-        "command": "desloppify show review --status open",
-        "priority": 1,
-        "severity": "high"
-      },
-      {
-        "type": "stagnant_nudge",
-        "message": "Code quality has been at 100.0% for 5 scans. The remaining items may be worth marking as wontfix if they're intentional.",
-        "command": null,
-        "priority": 2,
-        "severity": "medium"
-      },
-      {
-        "type": "wontfix_growing",
-        "message": "Wontfix debt is growing. Review stale decisions: `desloppify show --status wontfix`.",
-        "command": "desloppify show --status wontfix",
-        "priority": 2,
-        "severity": "medium"
-      }
-    ],
-    "reminder_history": {
-      "zone_classification": 3,
-      "report_scores": 3,
-      "review_issues_pending": 2,
-      "feedback_nudge": 2,
-      "wontfix_growing": 2,
-      "stagnant_nudge": 1
-    }
-  },
-  "plan": {
-    "active": true,
-    "focus": null,
-    "total_ordered": 36,
-    "total_skipped": 11,
-    "plan_overrides_narrative": true
-  },
   "config": {
     "target_strict_score": 95,
     "review_max_age_days": 30,

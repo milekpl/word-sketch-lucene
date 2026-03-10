@@ -13,10 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Semantic Field Explorer - discovers semantic classes via shared adjective predicates.
+ * Analyses semantic fields around seed words by querying collocate patterns.
+ * Supports both single-seed exploration and multi-seed comparison to find
+ * common and distinctive collocates across seeds.
  *
- * <h2>Exploration Mode (Bootstrap)</h2>
- * <p>Starting from a seed word, discovers similar words by:</p>
+ * <h2>Exploration Mode (single seed)</h2>
+ * <p>Starting from a seed word, discovers semantically related words by:</p>
  * <ol>
  *   <li>Find adjectives that modify the seed noun</li>
  *   <li>For each top adjective, find OTHER nouns it modifies</li>
@@ -42,9 +44,10 @@ import org.slf4j.LoggerFactory;
  * => Core adjectives: beautiful, old, big, small, new (shared by class)
  * </pre>
  *
- * <h2>Comparison Mode</h2>
- * <p>Compares adjective profiles across a given set of nouns, showing
- * which adjectives are shared vs distinctive.</p>
+ * <h2>Comparison Mode (multi-seed)</h2>
+ * <p>Given multiple seed words, compares their collocate profiles to reveal
+ * which collocates are shared across all seeds (the semantic core) and which
+ * are distinctive to individual seeds. See {@link #compareSeeds}.</p>
  *
  * <h2>Computational Limits</h2>
  * <p>Uses logDice thresholds at each step to prevent combinatorial explosion:</p>

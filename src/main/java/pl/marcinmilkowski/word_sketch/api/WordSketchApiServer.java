@@ -64,124 +64,17 @@ public class WordSketchApiServer {
     public void start() {
         try {
             server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(port), 0);
-            
-            server.createContext("/health", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
-                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok"));
-            });
 
-            server.createContext("/api/sketch/", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
-                String path = exchange.getRequestURI().getPath();
-                String[] parts = path.substring("/api/sketch/".length()).split("/");
+            registerGetHandler(server, "/health", exchange ->
+                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));
 
-                if (parts.length == 0 || parts[0].isEmpty()) {
-                    HttpApiUtils.sendError(exchange, 400, "Lemma required");
-                    return;
-                }
+            registerGetHandler(server, "/api/sketch/", this::handleSketchRequest);
 
-                String lemma = parts[0];
-                
-                if (parts.length > 1 && "dep".equals(parts[1])) {
-                    String specificDeprel = parts.length > 2 ? parts[2] : null;
-                    try {
-                        if (specificDeprel != null && !specificDeprel.isEmpty()) {
-                            handleDependencyRelationQuery(exchange, lemma, specificDeprel);
-                        } else {
-                            handleFullDependencySketch(exchange, lemma);
-                        }
-                    } catch (IOException e) {
-                        logger.error("Dependency sketch error", e);
-                        HttpApiUtils.sendError(exchange, 500, "Dependency sketch failed: " + e.getMessage());
-                    }
-                    return;
-                }
-                
-                String relation = parts.length > 1 ? parts[1] : null;
+            registerGetHandler(server, "/api/relations", this::handleSurfaceRelations);
 
-                try {
-                    if (relation != null && !relation.isEmpty()) {
-                        handleRelationQuery(exchange, lemma, relation);
-                    } else {
-                        handleFullSketch(exchange, lemma);
-                    }
-                } catch (IOException e) {
-                    logger.error("Query error", e);
-                    HttpApiUtils.sendError(exchange, 500, "Query failed: " + e.getMessage());
-                }
-            });
+            registerGetHandler(server, "/api/relations/dep", this::handleDepRelations);
 
-            server.createContext("/api/relations", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
-                JSONArray relations = new JSONArray();
-
-                if (grammarConfig != null) {
-                    for (var rel : grammarConfig.getRelations()) {
-                        if (rel.relationType() == RelationType.SURFACE) {
-                            Map<String, Object> obj = new HashMap<>();
-                            obj.put("id", rel.id());
-                            obj.put("name", rel.name());
-                            obj.put("description", rel.description());
-                            obj.put("relation_type", rel.relationType().name());
-                            obj.put("pattern", rel.pattern());
-                            relations.add(obj);
-                        }
-                    }
-                } else {
-                    HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
-                    return;
-                }
-
-                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
-            });
-
-            server.createContext("/api/relations/dep", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
-                JSONArray relations = new JSONArray();
-
-                if (grammarConfig != null) {
-                    for (var rel : grammarConfig.getRelations()) {
-                        if (rel.relationType() == RelationType.DEP) {
-                            Map<String, Object> obj = new HashMap<>();
-                            obj.put("id", rel.id());
-                            obj.put("name", rel.name());
-                            obj.put("description", rel.description());
-                            obj.put("relation_type", rel.relationType().name());
-                            obj.put("pattern", rel.pattern());
-                            obj.put("deprel", rel.getDeprel());
-                            relations.add(obj);
-                        }
-                    }
-                } else {
-                    HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
-                    return;
-                }
-
-                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relations));
-            });
-
-            server.createContext("/api/semantic-field/explore", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
+            registerGetHandler(server, "/api/semantic-field/explore", exchange -> {
                 logger.info("Received request: {}", exchange.getRequestURI());
                 try {
                     handleSemanticFieldExplore(exchange);
@@ -194,12 +87,7 @@ public class WordSketchApiServer {
                 }
             });
 
-            server.createContext("/api/semantic-field/explore-multi", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
+            registerGetHandler(server, "/api/semantic-field/explore-multi", exchange -> {
                 logger.info("Received request: {}", exchange.getRequestURI());
                 try {
                     handleSemanticFieldExploreMulti(exchange);
@@ -212,12 +100,7 @@ public class WordSketchApiServer {
                 }
             });
 
-            server.createContext("/api/semantic-field", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
+            registerGetHandler(server, "/api/semantic-field", exchange -> {
                 try {
                     handleSemanticField(exchange);
                 } catch (IOException e) {
@@ -226,12 +109,7 @@ public class WordSketchApiServer {
                 }
             });
 
-            server.createContext("/api/semantic-field/examples", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
+            registerGetHandler(server, "/api/semantic-field/examples", exchange -> {
                 try {
                     handleSemanticFieldExamples(exchange);
                 } catch (IOException e) {
@@ -240,12 +118,7 @@ public class WordSketchApiServer {
                 }
             });
 
-            server.createContext("/api/concordance/examples", exchange -> {
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    HttpApiUtils.sendOptionsResponse(exchange, "GET");
-                    return;
-                }
-                if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
+            registerGetHandler(server, "/api/concordance/examples", exchange -> {
                 try {
                     handleConcordanceExamples(exchange);
                 } catch (IOException e) {
@@ -295,6 +168,104 @@ public class WordSketchApiServer {
             logger.error("Failed to start server", e);
             throw new RuntimeException("Failed to start server", e);
         }
+    }
+
+    /**
+     * Registers a GET endpoint that automatically handles CORS preflight (OPTIONS) and
+     * rejects any non-GET requests with 405 Method Not Allowed.
+     */
+    private void registerGetHandler(com.sun.net.httpserver.HttpServer httpServer, String path,
+                                    com.sun.net.httpserver.HttpHandler handler) {
+        httpServer.createContext(path, exchange -> {
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                HttpApiUtils.sendOptionsResponse(exchange, "GET");
+                return;
+            }
+            if (!HttpApiUtils.requireMethod(exchange, "GET")) return;
+            handler.handle(exchange);
+        });
+    }
+
+    private void handleSketchRequest(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        String[] parts = path.substring("/api/sketch/".length()).split("/");
+
+        if (parts.length == 0 || parts[0].isEmpty()) {
+            HttpApiUtils.sendError(exchange, 400, "Lemma required");
+            return;
+        }
+
+        String lemma = parts[0];
+
+        if (parts.length > 1 && "dep".equals(parts[1])) {
+            String specificDeprel = parts.length > 2 ? parts[2] : null;
+            try {
+                if (specificDeprel != null && !specificDeprel.isEmpty()) {
+                    handleDependencyRelationQuery(exchange, lemma, specificDeprel);
+                } else {
+                    handleFullDependencySketch(exchange, lemma);
+                }
+            } catch (IOException e) {
+                logger.error("Dependency sketch error", e);
+                HttpApiUtils.sendError(exchange, 500, "Dependency sketch failed: " + e.getMessage());
+            }
+            return;
+        }
+
+        String relation = parts.length > 1 ? parts[1] : null;
+        try {
+            if (relation != null && !relation.isEmpty()) {
+                handleRelationQuery(exchange, lemma, relation);
+            } else {
+                handleFullSketch(exchange, lemma);
+            }
+        } catch (IOException e) {
+            logger.error("Query error", e);
+            HttpApiUtils.sendError(exchange, 500, "Query failed: " + e.getMessage());
+        }
+    }
+
+    private void handleSurfaceRelations(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        JSONArray relationsArray = new JSONArray();
+        if (grammarConfig != null) {
+            for (var rel : grammarConfig.getRelations()) {
+                if (rel.relationType() == RelationType.SURFACE) {
+                    Map<String, Object> obj = new HashMap<>();
+                    obj.put("id", rel.id());
+                    obj.put("name", rel.name());
+                    obj.put("description", rel.description());
+                    obj.put("relation_type", rel.relationType().name());
+                    obj.put("pattern", rel.pattern());
+                    relationsArray.add(obj);
+                }
+            }
+        } else {
+            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
+            return;
+        }
+        HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relationsArray));
+    }
+
+    private void handleDepRelations(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        JSONArray relationsArray = new JSONArray();
+        if (grammarConfig != null) {
+            for (var rel : grammarConfig.getRelations()) {
+                if (rel.relationType() == RelationType.DEP) {
+                    Map<String, Object> obj = new HashMap<>();
+                    obj.put("id", rel.id());
+                    obj.put("name", rel.name());
+                    obj.put("description", rel.description());
+                    obj.put("relation_type", rel.relationType().name());
+                    obj.put("pattern", rel.pattern());
+                    obj.put("deprel", rel.getDeprel());
+                    relationsArray.add(obj);
+                }
+            }
+        } else {
+            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
+            return;
+        }
+        HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relationsArray));
     }
 
     private void handleFullSketch(com.sun.net.httpserver.HttpExchange exchange, String lemma) throws IOException {

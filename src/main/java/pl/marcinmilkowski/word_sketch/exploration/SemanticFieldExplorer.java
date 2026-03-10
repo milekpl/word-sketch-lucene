@@ -281,7 +281,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
         logger.debug("------------------------------------------------------------");
 
-        return new ExplorationResult(seed, seedCollocScores, discoveredNouns, coreCollocates);
+        return new ExplorationResult(seed, seedCollocScores, seedCollocFrequencies, discoveredNouns, coreCollocates);
     }
 
     // ==================== COMPARISON MODE ====================

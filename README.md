@@ -327,9 +327,10 @@ curl "http://localhost:8080/api/semantic-field/explore?seed=theory&relation=adj_
   "status": "ok",
   "seed": "theory",
   "seed_collocates": [
-    {"word": "correct", "logDice": 4.21, "frequency": 142},
-    {"word": "practical", "logDice": 3.73, "frequency": 98}
+    {"word": "correct", "log_dice": 4.21, "frequency": 142},
+    {"word": "practical", "log_dice": 3.73, "frequency": 98}
   ],
+  "core_collocates": [...],
   "discovered_nouns": [
     {
       "word": "development",
@@ -350,14 +351,27 @@ curl "http://localhost:8080/api/semantic-field/explore-multi?seeds=theory,model,
 {
   "status": "ok",
   "seeds": ["theory", "model", "hypothesis"],
+  "seed_collocates": [
+    {"word": "correct", "log_dice": 4.21, "frequency": 142}
+  ],
   "seed_collocates_count": 23,
+  "core_collocates": [],
   "common_collocates": [],
   "common_collocates_count": 0,
+  "discovered_nouns": ["theory", "model", "hypothesis"],
   "edges": [
-    {"source": "theory", "target": "correct", "weight": 4.21, "type": "ADJ_PREDICATE"},
-    {"source": "model", "target": "tall", "weight": 3.17, "type": "ADJ_PREDICATE"}
+    {"source": "theory", "target": "correct", "log_dice": 4.21, "type": "SURFACE"}
   ]
 }
+```
+
+> **Note:** All `seed_collocates` items have the same shape `{word, log_dice, frequency}` across both endpoints.
+
+#### Semantic Field Comparison
+```bash
+# Both `seeds` and `nouns` param names are accepted (seeds takes priority):
+curl "http://localhost:8080/api/semantic-field?seeds=theory,model,hypothesis&min_logdice=3.0"
+curl "http://localhost:8080/api/semantic-field?nouns=theory,model,hypothesis&min_logdice=3.0"
 ```
 
 #### Concordance Examples for Word Pairs

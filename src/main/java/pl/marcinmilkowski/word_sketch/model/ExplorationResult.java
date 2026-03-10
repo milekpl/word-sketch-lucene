@@ -11,19 +11,22 @@ import java.util.stream.Collectors;
 public class ExplorationResult {
     public final String seed;
     public final Map<String, Double> seedCollocates;  // collocate -> logDice with seed
+    public final Map<String, Long> seedCollocateFrequencies;  // collocate -> raw frequency
     public final List<DiscoveredNoun> discoveredNouns;
     public final List<CoreCollocate> coreCollocates;
 
     public ExplorationResult(String seed, Map<String, Double> seedCollocates,
+            Map<String, Long> seedCollocateFrequencies,
             List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates) {
         this.seed = seed;
         this.seedCollocates = seedCollocates;
+        this.seedCollocateFrequencies = seedCollocateFrequencies;
         this.discoveredNouns = discoveredNouns;
         this.coreCollocates = coreCollocates;
     }
 
     public static ExplorationResult empty(String seed) {
-        return new ExplorationResult(seed, Map.of(), List.of(), List.of());
+        return new ExplorationResult(seed, Map.of(), Map.of(), List.of(), List.of());
     }
 
     public boolean isEmpty() {

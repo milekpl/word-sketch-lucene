@@ -103,7 +103,9 @@ class ExplorationHandlers {
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         if (result.seedCollocates != null) {
             for (Map.Entry<String, Double> colloc : result.seedCollocates.entrySet()) {
-                seedCollocs.add(formatSeedCollocate(colloc.getKey(), colloc.getValue()));
+                long freq = result.seedCollocateFrequencies != null
+                    ? result.seedCollocateFrequencies.getOrDefault(colloc.getKey(), 0L) : 0L;
+                seedCollocs.add(formatSeedCollocate(colloc.getKey(), colloc.getValue(), freq));
             }
         }
         response.put("seed_collocates", seedCollocs);
@@ -203,9 +205,7 @@ class ExplorationHandlers {
         List<Map<String, Object>> discoveredCollocs = new ArrayList<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : seedToCollocates.entrySet()) {
             for (QueryResults.WordSketchResult wsr : entry.getValue()) {
-                Map<String, Object> collocMap = formatSeedCollocate(wsr.getLemma(), wsr.getLogDice());
-                collocMap.put("frequency", wsr.getFrequency());
-                discoveredCollocs.add(collocMap);
+                discoveredCollocs.add(formatSeedCollocate(wsr.getLemma(), wsr.getLogDice(), wsr.getFrequency()));
             }
         }
         response.put("seed_collocates", discoveredCollocs);
@@ -213,8 +213,12 @@ class ExplorationHandlers {
         response.put("common_collocates", new ArrayList<>(commonCollocates));
         response.put("common_collocates_count", commonCollocates.size());
 
-        response.put("discovered_nouns", new ArrayList<>());
-        response.put("discovered_nouns_count", 0);
+        response.put("core_collocates", new ArrayList<>());
+        response.put("core_collocates_count", 0);
+
+        List<String> seedsList = new ArrayList<>(seeds);
+        response.put("discovered_nouns", seedsList);
+        response.put("discovered_nouns_count", seedsList.size());
 
         List<Map<String, Object>> edges = new ArrayList<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : seedToCollocates.entrySet()) {
@@ -236,7 +240,9 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String nounsParam = HttpApiUtils.requireParam(exchange, params, "nouns");
+        String nounsParam = params.containsKey("seeds")
+            ? params.get("seeds")
+            : HttpApiUtils.requireParam(exchange, params, "nouns");
         if (nounsParam == null) return;
 
         Set<String> nouns = new LinkedHashSet<>(Arrays.asList(nounsParam.split(",")));
@@ -315,10 +321,11 @@ class ExplorationHandlers {
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
-    private static Map<String, Object> formatSeedCollocate(String word, double logDice) {
+    private static Map<String, Object> formatSeedCollocate(String word, double logDice, long frequency) {
         Map<String, Object> m = new HashMap<>();
         m.put("word", word);
         m.put("log_dice", Math.round(logDice * 100.0) / 100.0);
+        m.put("frequency", frequency);
         return m;
     }
 

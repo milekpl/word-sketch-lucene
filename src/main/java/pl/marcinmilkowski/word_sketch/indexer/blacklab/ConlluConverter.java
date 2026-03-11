@@ -69,8 +69,14 @@ public class ConlluConverter {
                 }
             } finally {
                 if (writer != null) {
+                    // On the error path the in-progress sentence is left open deliberately:
+                    // writing a partial </s> tag would produce a malformed chunk that is
+                    // harder to detect than an abrupt EOF. The try-with-resources below
+                    // ensures the writer is always closed (flushing any buffered bytes) even
+                    // if close() itself throws, in which case chunks is NOT incremented so
+                    // callers can detect the truncated output.
                     try (BufferedWriter toClose = writer) {
-                        // close the writer; increment happens after close succeeds
+                        // close flushes and releases the file handle
                     }
                     chunks++;
                 }

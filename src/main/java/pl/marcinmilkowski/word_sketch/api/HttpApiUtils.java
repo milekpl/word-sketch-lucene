@@ -29,12 +29,20 @@ class HttpApiUtils {
 
     private HttpApiUtils() {}
 
+    /**
+     * Sets the {@code Access-Control-Allow-Origin} response header to {@link #CORS_ALLOW_ORIGIN}.
+     * Called by every response-sending method to ensure consistent CORS behaviour.
+     */
+    private static void setCorsHeader(HttpExchange exchange) {
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", CORS_ALLOW_ORIGIN);
+    }
+
     public static void sendJsonResponse(HttpExchange exchange, Object data) throws IOException {
         String json = JSON.toJSONString(data);
         byte[] bytes = json.getBytes("UTF-8");
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", CORS_ALLOW_ORIGIN);
+        setCorsHeader(exchange);
         exchange.sendResponseHeaders(200, bytes.length);
 
         try (OutputStream os = exchange.getResponseBody()) {
@@ -49,7 +57,7 @@ class HttpApiUtils {
         byte[] bytes = json.getBytes("UTF-8");
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", CORS_ALLOW_ORIGIN);
+        setCorsHeader(exchange);
         exchange.sendResponseHeaders(code, bytes.length);
 
         try (OutputStream os = exchange.getResponseBody()) {
@@ -61,7 +69,7 @@ class HttpApiUtils {
      * Responds to an OPTIONS preflight request with the appropriate CORS headers and 204 No Content.
      */
     public static void sendOptionsResponse(HttpExchange exchange, String allowedMethods) throws IOException {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", CORS_ALLOW_ORIGIN);
+        setCorsHeader(exchange);
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", allowedMethods + ", OPTIONS");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
         exchange.sendResponseHeaders(204, -1);
@@ -72,7 +80,7 @@ class HttpApiUtils {
      */
     public static void sendBinaryResponse(HttpExchange exchange, String contentType, byte[] bytes) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", CORS_ALLOW_ORIGIN);
+        setCorsHeader(exchange);
         exchange.sendResponseHeaders(200, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);

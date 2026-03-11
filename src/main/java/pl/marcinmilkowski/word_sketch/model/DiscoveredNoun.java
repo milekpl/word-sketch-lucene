@@ -14,6 +14,7 @@ public record DiscoveredNoun(
         double combinedRelevanceScore,
         double avgLogDice) {
 
+    /** @return an unordered list of the shared collocate lemmas; never null */
     public List<String> sharedCollocateList() {
         return new ArrayList<>(sharedCollocates.keySet());
     }

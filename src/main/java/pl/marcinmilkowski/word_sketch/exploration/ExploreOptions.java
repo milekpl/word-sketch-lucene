@@ -13,8 +13,11 @@ package pl.marcinmilkowski.word_sketch.exploration;
  * ({@code exploreMultiSeed}), which accepts its parameters directly.</p>
  */
 public record ExploreOptions(
+        /** Maximum collocates to retrieve per seed in the first lookup pass. */
         int topCollocates,
         /** Maximum nouns to expand per seed adjective. Applies to single-seed exploration only. */
         int nounsPerSeed,
+        /** Minimum logDice score threshold; collocates below this value are discarded. */
         double minLogDice,
+        /** Minimum number of shared collocates required for a noun to be included in results. */
         int minShared) {}

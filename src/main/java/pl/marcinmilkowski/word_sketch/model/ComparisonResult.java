@@ -5,7 +5,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/** Complete comparison result with graded adjective profiles. */
+/**
+ * Complete comparison result with graded adjective profiles for a set of seed nouns.
+ *
+ * <p>Produced by {@code CollocateProfileComparator#compareCollocateProfiles}. All collections
+ * are non-null; use {@code getNouns().isEmpty()} to detect an empty (no-data) result.
+ * Obtain an empty sentinel via {@link #empty()}.</p>
+ */
 public class ComparisonResult {
     private final List<String> nouns;
     private final List<AdjectiveProfile> adjectives;
@@ -19,31 +25,39 @@ public class ComparisonResult {
         return new ComparisonResult(List.of(), List.of());
     }
 
+    /** @return the seed nouns this comparison was built from; never null */
     public List<String> getNouns() { return nouns; }
+
+    /** @return all adjective profiles regardless of sharing category; never null */
     public List<AdjectiveProfile> getAllAdjectives() { return adjectives; }
 
-    /** Adjectives shared by ALL nouns */
+    /** @return adjectives present in every seed noun's collocate profile */
     public List<AdjectiveProfile> getFullyShared() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == nouns.size())
             .collect(Collectors.toList());
     }
 
-    /** Adjectives shared by 2+ nouns but not all */
+    /** @return adjectives shared by at least 2 nouns but not all */
     public List<AdjectiveProfile> getPartiallyShared() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() >= 2 && a.presentInCount() < nouns.size())
             .collect(Collectors.toList());
     }
 
-    /** Adjectives specific to exactly one noun */
+    /** @return adjectives that occur in the collocate profile of exactly one seed noun */
     public List<AdjectiveProfile> getSpecific() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == 1)
             .collect(Collectors.toList());
     }
 
-    /** Get adjectives specific to a particular noun */
+    /**
+     * Returns adjectives that occur only in the collocate profile of {@code noun},
+     * sorted by descending logDice score.
+     *
+     * @param noun one of the seed nouns from {@link #getNouns()}; returns an empty list for unknown nouns
+     */
     public List<AdjectiveProfile> getSpecificTo(String noun) {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == 1 && a.nounScores().getOrDefault(noun, 0.0) > 0)

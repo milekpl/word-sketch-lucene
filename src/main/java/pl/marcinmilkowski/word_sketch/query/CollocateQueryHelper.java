@@ -74,8 +74,10 @@ class CollocateQueryHelper {
             AnnotationSensitivity sensitivity = annotation.sensitivity(MatchSensitivity.INSENSITIVE);
             TermFrequencyList tfl = index.termFrequencies(sensitivity, null, Set.of(lemma.toLowerCase()));
             return tfl.frequency(lemma.toLowerCase());
-        } catch (Exception e) {
-            throw new IOException("Unexpected failure retrieving frequency for lemma '" + lemma + "'", e);
+        } catch (IOException e) {
+            throw new IOException("I/O failure retrieving frequency for lemma '" + lemma + "'", e);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Unexpected state retrieving frequency for lemma '" + lemma + "'", e);
         }
     }
 

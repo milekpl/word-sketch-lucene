@@ -153,6 +153,22 @@ class HandlersTest {
     }
 
     @Test
+    void handleSemanticFieldExplore_validSeed_returns200() throws Exception {
+        QueryExecutor executor = emptyExecutor();
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), explorer);
+        MockExchange ex = new MockExchange(
+                "http://localhost/api/semantic-field/explore?seeds=theory&relation=noun_adj_predicates");
+        handlers.handleSemanticFieldExplore(ex);
+        assertEquals(200, ex.statusCode);
+        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
+        assertTrue(body.containsKey("seed"), "Response must contain 'seed' key");
+        assertTrue(body.containsKey("seed_collocates"), "Response must contain 'seed_collocates' key");
+        assertTrue(body.containsKey("discovered_nouns"), "Response must contain 'discovered_nouns' key");
+        assertTrue(body.containsKey("core_collocates"), "Response must contain 'core_collocates' key");
+    }
+
+    @Test
     void handleSemanticFieldExplore_validSeeds_returns200() throws Exception {
         QueryExecutor executor = emptyExecutor();
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);

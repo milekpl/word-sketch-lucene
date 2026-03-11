@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
@@ -76,20 +77,30 @@ public class SemanticFieldExplorer {
 
     private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 
+    private static final String FALLBACK_NOUN_CQL_CONSTRAINT = "[xpos=\"NN.*\"]";
+
     private final QueryExecutor executor;
     private final CollocateProfileComparator comparator;
-
-    // TODO: NOUN_CQL_CONSTRAINT hardcodes English Penn Treebank xpos tags. Ideally this
-    // should be derived from RelationConfig.collocateReversePattern() for the active
-    // grammar config (PosGroup.NOUN → "[xpos=\"NN.*\"]"), but doing so requires threading
-    // the grammar config into this class. Refactor when config-injection is added.
-    private static final String NOUN_CQL_CONSTRAINT = "[xpos=\"NN.*\"]";
-
+    private final String nounCqlConstraint;
 
     // Constructor for testing with mock executor
     public SemanticFieldExplorer(QueryExecutor executor) {
+        this(executor, null);
+    }
+
+    public SemanticFieldExplorer(QueryExecutor executor, GrammarConfig grammarConfig) {
         this.executor = executor;
-        this.comparator = new CollocateProfileComparator(executor);
+        this.nounCqlConstraint = deriveNounCqlConstraint(grammarConfig);
+        this.comparator = new CollocateProfileComparator(executor, grammarConfig);
+    }
+
+    private static String deriveNounCqlConstraint(GrammarConfig grammarConfig) {
+        if (grammarConfig == null) return FALLBACK_NOUN_CQL_CONSTRAINT;
+        return grammarConfig.getRelations().stream()
+            .filter(r -> r.collocatePosGroup() == PosGroup.NOUN && r.relationType().isPresent())
+            .findFirst()
+            .map(r -> r.collocateReversePattern())
+            .orElse(FALLBACK_NOUN_CQL_CONSTRAINT);
     }
 
     // ==================== EXPLORATION MODE ====================
@@ -170,7 +181,7 @@ public class SemanticFieldExplorer {
 
         // Step 2: For each collocate, find nouns it collocates with
         Map<String, Map<String, Double>> nounProfiles = buildCollocateToNounsMap(
-            seedCollocScores, seed, minLogDice, nounsPerPredicate);
+            seedCollocScores, seed, minLogDice, nounsPerPredicate, nounCqlConstraint);
 
         // Step 3: Score nouns by shared collocate count
         List<DiscoveredNoun> discoveredNouns = filterCandidates(nounProfiles, minShared);
@@ -207,11 +218,11 @@ public class SemanticFieldExplorer {
      */
     private Map<String, Map<String, Double>> buildCollocateToNounsMap(
             Map<String, Double> seedCollocScores, String seed,
-            double minLogDice, int nounsPerPredicate) throws IOException {
+            double minLogDice, int nounsPerPredicate, String nounConstraint) throws IOException {
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
         for (String collocate : seedCollocScores.keySet()) {
             List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
-                collocate, NOUN_CQL_CONSTRAINT, minLogDice, nounsPerPredicate);
+                collocate, nounConstraint, minLogDice, nounsPerPredicate);
             for (QueryResults.WordSketchResult r : nouns) {
                 String noun = r.lemma().toLowerCase();
                 if (noun.equals(seed)) continue;

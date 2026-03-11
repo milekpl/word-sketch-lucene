@@ -43,7 +43,7 @@ public class WordSketchApiServer {
     public WordSketchApiServer(QueryExecutor executor, int port, GrammarConfig grammarConfig) throws IOException {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
-        SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor);
+        SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor, grammarConfig);
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);
         this.explorationHandlers = new ExplorationHandlers(grammarConfig, semanticFieldExplorer);
         this.server = com.sun.net.httpserver.HttpServer.create(

@@ -9,8 +9,10 @@ import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
+import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
@@ -23,16 +25,27 @@ public class CollocateProfileComparator {
 
     private static final Logger logger = LoggerFactory.getLogger(CollocateProfileComparator.class);
 
-    // TODO: ADJECTIVE_PATTERN hardcodes English Penn Treebank xpos tags. Ideally this
-    // should be derived from RelationConfig.collocateReversePattern() for the active
-    // grammar config (PosGroup.ADJ → "[xpos=\"JJ.*\"]"), but doing so requires threading
-    // the grammar config into this class. Refactor when config-injection is added.
-    private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
+    private static final String FALLBACK_ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
 
     private final QueryExecutor executor;
+    private final String adjectivePattern;
 
     public CollocateProfileComparator(QueryExecutor executor) {
+        this(executor, null);
+    }
+
+    public CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
         this.executor = executor;
+        this.adjectivePattern = deriveAdjectivePattern(grammarConfig);
+    }
+
+    private static String deriveAdjectivePattern(GrammarConfig grammarConfig) {
+        if (grammarConfig == null) return FALLBACK_ADJECTIVE_PATTERN;
+        return grammarConfig.getRelations().stream()
+            .filter(r -> r.collocatePosGroup() == PosGroup.ADJ && r.relationType().isPresent())
+            .findFirst()
+            .map(r -> r.collocateReversePattern())
+            .orElse(FALLBACK_ADJECTIVE_PATTERN);
     }
 
     /**
@@ -82,7 +95,7 @@ public class CollocateProfileComparator {
         for (String noun : nounList) {
             logger.debug("\nProfiling: {}", noun);
             List<QueryResults.WordSketchResult> adjectives = executor.findCollocations(
-                noun, ADJECTIVE_PATTERN, minLogDice, maxPerNoun);
+                noun, adjectivePattern, minLogDice, maxPerNoun);
             logger.debug("  Found {} adjectives", adjectives.size());
             if (!adjectives.isEmpty()) {
                 logger.debug("  Top 5: {}", adjectives.subList(0, Math.min(5, adjectives.size())));

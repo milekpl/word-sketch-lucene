@@ -250,6 +250,23 @@ class ExplorationHandlers {
     }
 
     private void buildExploreResponseBody(Map<String, Object> response, ExplorationResult result) {
+        List<Map<String, Object>> seedCollocs = formatSeedCollocates(result);
+        response.put("seed_collocates", seedCollocs);
+        response.put("seed_collocates_count", seedCollocs.size());
+
+        List<Map<String, Object>> nouns = formatDiscoveredNouns(result);
+        response.put("discovered_nouns", nouns);
+        response.put("discovered_nouns_count", nouns.size());
+
+        List<Map<String, Object>> coreCollocs = formatCoreCollocates(result);
+        response.put("core_collocates", coreCollocs);
+        response.put("core_collocates_count", coreCollocs.size());
+
+        List<Edge> edges = ExploreResponseBuilder.buildEdges(result);
+        response.put("edges", edges.stream().map(Edge::toMap).toList());
+    }
+
+    private static List<Map<String, Object>> formatSeedCollocates(ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         for (Map.Entry<String, Double> e : result.getSeedCollocates().entrySet()) {
             Map<String, Object> c = new HashMap<>();
@@ -258,9 +275,10 @@ class ExplorationHandlers {
             c.put("frequency", result.getSeedCollocateFrequencies().getOrDefault(e.getKey(), 0L));
             seedCollocs.add(c);
         }
-        response.put("seed_collocates", seedCollocs);
-        response.put("seed_collocates_count", seedCollocs.size());
+        return seedCollocs;
+    }
 
+    private static List<Map<String, Object>> formatDiscoveredNouns(ExplorationResult result) {
         List<Map<String, Object>> nouns = new ArrayList<>();
         for (DiscoveredNoun n : result.getDiscoveredNouns()) {
             Map<String, Object> nm = new HashMap<>();
@@ -271,9 +289,10 @@ class ExplorationHandlers {
             nm.put("shared_collocates", n.sharedCollocateList());
             nouns.add(nm);
         }
-        response.put("discovered_nouns", nouns);
-        response.put("discovered_nouns_count", nouns.size());
+        return nouns;
+    }
 
+    private static List<Map<String, Object>> formatCoreCollocates(ExplorationResult result) {
         List<Map<String, Object>> coreCollocs = new ArrayList<>();
         for (CoreCollocate c : result.getCoreCollocates()) {
             Map<String, Object> cm = new HashMap<>();
@@ -284,11 +303,7 @@ class ExplorationHandlers {
             cm.put("seed_logdice", round2dp(c.seedLogDice()));
             coreCollocs.add(cm);
         }
-        response.put("core_collocates", coreCollocs);
-        response.put("core_collocates_count", coreCollocs.size());
-
-        List<Edge> edges = ExploreResponseBuilder.buildEdges(result);
-        response.put("edges", edges.stream().map(Edge::toMap).toList());
+        return coreCollocs;
     }
 
     /**

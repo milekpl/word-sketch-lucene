@@ -44,13 +44,13 @@ class ExplorationHandlers {
 
     /**
      * Handle semantic field exploration (single seed).
-     * GET /api/semantic-field/explore?seed=house&relation=adj_predicate&top=15&min_shared=2&min_logdice=3.0
+     * GET /api/semantic-field/explore?seeds=house&relation=adj_predicate&top=15&min_shared=2&min_logdice=3.0
      */
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String seed = HttpApiUtils.requireParam(exchange, params, "seed");
+        String seed = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (seed == null) return;
 
         RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
@@ -111,12 +111,16 @@ class ExplorationHandlers {
 
         String relationType = resolvedConfig.relationType().orElseThrow().name();
 
+        if (params.containsKey("nouns_per")) {
+            HttpApiUtils.sendError(exchange, 400, "nouns_per is not supported for multi-seed exploration");
+            return;
+        }
+
         ExploreParams exploreParams = resolveExploreParams(exchange, params);
         if (exploreParams == null) return;
         int topCollocates = exploreParams.topCollocates();
         int minShared = exploreParams.minShared();
         double minLogDice = exploreParams.minLogDice();
-        // nouns_per intentionally not supported in multi-seed mode — seeds parameter is required instead
 
         ExplorationResult result;
         try {

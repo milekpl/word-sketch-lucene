@@ -101,6 +101,13 @@ java -cp target/concept-sketch-1.5.0-shaded.jar \
 java -jar target/concept-sketch-1.5.0-shaded.jar server --index my_index/ --port 8080
 ```
 
+> **CORS configuration**: By default the API allows requests from `http://localhost:3000`.
+> To allow a different origin, pass the `cors.allow.origin` JVM system property:
+> ```bash
+> java -Dcors.allow.origin=https://myapp.example.com \
+>      -jar target/concept-sketch-1.5.0-shaded.jar server --index my_index/ --port 8080
+> ```
+
 Server startup output:
 ```
 API server started on http://localhost:8080

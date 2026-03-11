@@ -23,6 +23,10 @@ public class CollocateProfileComparator {
 
     private static final Logger logger = LoggerFactory.getLogger(CollocateProfileComparator.class);
 
+    // TODO: ADJECTIVE_PATTERN hardcodes English Penn Treebank xpos tags. Ideally this
+    // should be derived from RelationConfig.collocateReversePattern() for the active
+    // grammar config (PosGroup.ADJ → "[xpos=\"JJ.*\"]"), but doing so requires threading
+    // the grammar config into this class. Refactor when config-injection is added.
     private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
 
     private final QueryExecutor executor;

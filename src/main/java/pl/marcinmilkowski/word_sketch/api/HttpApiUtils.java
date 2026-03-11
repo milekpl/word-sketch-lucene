@@ -21,10 +21,11 @@ class HttpApiUtils {
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
 
     /**
-     * Allowed CORS origin for development. Restrict to specific origins in production.
-     * Change this value (or make it configurable) when deploying to a non-localhost environment.
+     * Allowed CORS origin. Defaults to {@code http://localhost:3000} for development.
+     * Override at runtime via the {@code cors.allow.origin} JVM system property:
+     * {@code -Dcors.allow.origin=https://myapp.example.com}
      */
-    static final String CORS_ALLOW_ORIGIN = "http://localhost:3000";
+    static final String CORS_ALLOW_ORIGIN = System.getProperty("cors.allow.origin", "http://localhost:3000");
 
     private HttpApiUtils() {}
 

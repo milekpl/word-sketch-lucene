@@ -79,7 +79,10 @@ public class SemanticFieldExplorer {
     private final QueryExecutor executor;
     private final CollocateProfileComparator comparator;
 
-    // Patterns for finding collocates by POS (using xpos field from CoNLL-U index)
+    // TODO: NOUN_CQL_CONSTRAINT hardcodes English Penn Treebank xpos tags. Ideally this
+    // should be derived from RelationConfig.collocateReversePattern() for the active
+    // grammar config (PosGroup.NOUN → "[xpos=\"NN.*\"]"), but doing so requires threading
+    // the grammar config into this class. Refactor when config-injection is added.
     private static final String NOUN_CQL_CONSTRAINT = "[xpos=\"NN.*\"]";
 
 

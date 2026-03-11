@@ -13,6 +13,8 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
+import com.alibaba.fastjson2.JSONException;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -382,6 +384,9 @@ class SketchHandlers {
         }
     }
 
+    /** Maximum length (chars) accepted for a BCQL pattern. */
+    private static final int MAX_BCQL_PATTERN_LENGTH = 1024;
+
     /**
      * Handle arbitrary BCQL query (POST with JSON body to avoid URL encoding issues).
      * POST /api/bcql with body: {"query": "[lemma=\"test\"]", "limit": 20}
@@ -398,6 +403,11 @@ class SketchHandlers {
             String bcqlQuery = obj.getString("query");
             if (bcqlQuery == null || bcqlQuery.isBlank()) {
                 HttpApiUtils.sendError(exchange, 400, "Missing required parameter: query");
+                return;
+            }
+            if (bcqlQuery.length() > MAX_BCQL_PATTERN_LENGTH) {
+                HttpApiUtils.sendError(exchange, 400,
+                        "Pattern too long: " + bcqlQuery.length() + " chars (max " + MAX_BCQL_PATTERN_LENGTH + ")");
                 return;
             }
             int limit = obj.getIntValue("limit");
@@ -431,9 +441,12 @@ class SketchHandlers {
         } catch (IOException e) {
             logger.error("BCQL query I/O error", e);
             HttpApiUtils.sendError(exchange, 500, "BCQL query failed: " + e.getMessage());
-        } catch (Exception e) {
-            logger.error("BCQL query error", e);
+        } catch (JSONException | IllegalArgumentException e) {
+            logger.warn("BCQL query client error", e);
             HttpApiUtils.sendError(exchange, 400, "BCQL query error: " + e.getMessage());
+        } catch (Exception e) {
+            logger.error("BCQL query unexpected error", e);
+            HttpApiUtils.sendError(exchange, 500, "BCQL query internal error: " + e.getMessage());
         }
     }
 }

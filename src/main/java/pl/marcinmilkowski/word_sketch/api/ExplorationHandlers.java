@@ -9,9 +9,9 @@ import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
-import pl.marcinmilkowski.word_sketch.exploration.FetchExamplesOptions;
-import pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions;
-import pl.marcinmilkowski.word_sketch.exploration.SingleSeedExplorationOptions;
+import pl.marcinmilkowski.word_sketch.model.FetchExamplesOptions;
+import pl.marcinmilkowski.word_sketch.model.ExplorationOptions;
+import pl.marcinmilkowski.word_sketch.model.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 
 import java.util.Objects;
@@ -39,31 +39,6 @@ class ExplorationHandlers {
             "grammarConfig must not be null; exploration endpoints require a loaded grammar configuration");
         this.semanticFieldExplorer = semanticFieldExplorer;
     }
-
-    /**
-     * Shared preamble for multi-seed exploration handlers that require a {@code seeds} parameter
-     * and a {@code RelationConfig}: validate seeds, parse relation config, and parse numeric
-     * parameters in one call.
-     *
-     * <p>Accepts a pre-parsed {@code params} map so callers that already parsed the query string
-     * (e.g. to inspect params before calling) avoid a double-parse.</p>
-     *
-     * @throws IllegalArgumentException if {@code seeds} is missing, the relation is unknown, or
-     *         the relation config is misconfigured — caught by
-     *         {@link HttpApiUtils#wrapWithErrorHandling} and mapped to 400
-     */
-    private ValidatedExploreRequest buildExploreRequest(Map<String, String> params) {
-        String seedsRaw = HttpApiUtils.requireParam(params, "seeds");
-        RelationConfig resolvedConfig = parseRelationConfig(params);
-        ExplorationParams exploreParams = parseExplorationParams(params);
-        return new ValidatedExploreRequest(params, seedsRaw, resolvedConfig, exploreParams);
-    }
-
-    private record ValidatedExploreRequest(
-            Map<String, String> params,
-            String seedsRaw,
-            RelationConfig relationConfig,
-            ExplorationParams exploreParams) {}
 
     /**
      * Accepts a single {@code seed} noun and returns its semantic neighbourhood under the
@@ -94,7 +69,7 @@ class ExplorationHandlers {
 
         Map<String, Object> extraParams = new HashMap<>();
         extraParams.put("nouns_per", exploreParams.nounsPerCollocate());
-        Map<String, Object> response = buildBaseExploreResponse(
+        Map<String, Object> response = buildCoreExploreResponse(
             relationType, exploreParams.topCollocates(), exploreParams.minShared(),
             exploreParams.minLogDice(), extraParams);
         response.put("seed", result.seed());
@@ -117,15 +92,17 @@ class ExplorationHandlers {
      *                 relation is unknown
      */
     void handleSemanticFieldExploreMulti(HttpExchange exchange) throws IOException {
-        // Parse once and reuse for both the nouns_per pre-flight and buildExploreRequest.
+        // Parse once and reuse for both the nouns_per pre-flight and request building.
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
         if (params.containsKey("nouns_per")) {
             throw new IllegalArgumentException("nouns_per is not supported for multi-seed exploration");
         }
 
-        ValidatedExploreRequest req = buildExploreRequest(params);
+        String seedsRaw = HttpApiUtils.requireParam(params, "seeds");
+        RelationConfig resolvedConfig = parseRelationConfig(params);
+        ExplorationParams exploreParams = parseExplorationParams(params);
 
-        Set<String> seeds = parseSeedSet(req.seedsRaw());
+        Set<String> seeds = parseSeedSet(seedsRaw);
 
         if (seeds.size() < 2) {
             throw new IllegalArgumentException(
@@ -133,16 +110,16 @@ class ExplorationHandlers {
         }
 
         // Safe: parseRelationConfig guarantees relationType is present
-        String relationType = req.relationConfig().relationType().get().name();
+        String relationType = resolvedConfig.relationType().get().name();
 
         ExplorationOptions opts = new ExplorationOptions(
-            req.exploreParams().topCollocates(), req.exploreParams().minLogDice(),
-            req.exploreParams().minShared());
-        ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, req.relationConfig(), opts);
+            exploreParams.topCollocates(), exploreParams.minLogDice(),
+            exploreParams.minShared());
+        ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
 
-        Map<String, Object> response = buildBaseExploreResponse(
-            relationType, req.exploreParams().topCollocates(), req.exploreParams().minShared(),
-            req.exploreParams().minLogDice(), Map.of());
+        Map<String, Object> response = buildCoreExploreResponse(
+            relationType, exploreParams.topCollocates(), exploreParams.minShared(),
+            exploreParams.minLogDice(), Map.of());
         response.put("seeds", new ArrayList<>(seeds));
         response.put("seed_count", seeds.size());
 
@@ -166,9 +143,9 @@ class ExplorationHandlers {
      * collocates across all loaded relations rather than filtering to one relation type.</p>
      *
      * <p><strong>Handler asymmetry note:</strong> unlike {@link #handleSemanticFieldExplore} and
-     * {@link #handleSemanticFieldExploreMulti}, this handler intentionally does <em>not</em> call
-     * {@link #buildExploreRequest} because comparison is cross-relational — it aggregates
-     * collocates across all relations rather than routing to a specific one.
+     * {@link #handleSemanticFieldExploreMulti}, this handler intentionally does not share the
+     * seed/relation parsing preamble used by the other two because comparison is cross-relational —
+     * it aggregates collocates across all relations rather than routing to a specific one.
      * The shared base-parameter extraction ({@code top}, {@code min_shared}, {@code min_logdice})
      * is still performed via {@link #parseExplorationParams}.</p>
      *
@@ -229,11 +206,11 @@ class ExplorationHandlers {
     }
 
     /**
-     * Builds the shared base of an explore response: {@code status}, {@code relation_type},
+     * Builds the shared core of an explore response: {@code status}, {@code relation_type},
      * and a {@code parameters} sub-map containing the four common explore parameters plus
      * any {@code extraParams} (e.g., {@code nouns_per} for single-seed exploration).
      */
-    private Map<String, Object> buildBaseExploreResponse(
+    private Map<String, Object> buildCoreExploreResponse(
             String relationType, int topCollocates, int minShared, double minLogDice,
             Map<String, Object> extraParams) {
         Map<String, Object> response = new HashMap<>();

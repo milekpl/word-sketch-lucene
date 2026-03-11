@@ -30,10 +30,19 @@ public record RelationConfig(
     /** Pre-computed collocate POS group — cached at construction time so repeated calls are O(1). */
     PosGroup collocatePosGroup
 ) {
+    private static final Pattern DEPREL_PATTERN = Pattern.compile("deprel=[\"']([^\"']+)[\"']");
+
     /**
      * Extracts and computes the dependency relation (deprel) from the pattern.
      * For DEP relations, looks for deprel="xxx" attribute constraint in the pattern.
      * If not found, extracts from the relation ID (e.g., "dep_amod" -> "amod").
+     *
+     * <p><strong>Nullability design note:</strong> this method returns {@code @Nullable} rather
+     * than {@code Optional} because it is a method-internal derivation used only during
+     * construction and short-circuit logic (a {@code null} return signals "not applicable").
+     * By contrast, {@link pl.marcinmilkowski.word_sketch.config.GrammarConfig#getRelation}
+     * returns {@code Optional} because it is a query-style accessor where the absent case is
+     * a normal, expected outcome for callers.</p>
      *
      * @return the deprel string (e.g. {@code "amod"}), or {@code null} when the relation
      *         type is not {@link RelationType#DEP} or no deprel can be derived
@@ -43,8 +52,7 @@ public record RelationConfig(
             return null;
         }
         // Look for deprel="xxx" or deprel='xxx' attribute constraint
-        Pattern p = Pattern.compile("deprel=[\"']([^\"']+)[\"']");
-        Matcher m = p.matcher(pattern);
+        Matcher m = DEPREL_PATTERN.matcher(pattern);
         if (m.find()) {
             return m.group(1);
         }

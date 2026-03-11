@@ -145,8 +145,6 @@ class CollocateProfileComparator {
                 variance /= scores.length;
             }
 
-            if (scores.length == 0) { maxScore = 0.0; minScore = 0.0; }
-
             double commonalityScore = presentIn * avgScore;
             double distinctivenessScore = maxScore * (1.0 - (double) presentIn / nounCount)
                                          + Math.sqrt(variance);

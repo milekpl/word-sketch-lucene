@@ -27,7 +27,7 @@ import nl.inl.blacklab.search.TermFrequencyList;
 import nl.inl.blacklab.search.textpattern.TextPattern;
 import nl.inl.blacklab.searches.SearchHits;
 
-import pl.marcinmilkowski.word_sketch.utils.LogDiceCalculator;
+import pl.marcinmilkowski.word_sketch.utils.LogDiceUtils;
 
 import org.jspecify.annotations.Nullable;
 
@@ -151,10 +151,10 @@ class CollocateQueryHelper {
             long collocateFreq = getTotalFrequency(collocateLemma);
 
             double logDice = (headwordFreq > 0 && collocateFreq > 0)
-                    ? LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
+                    ? LogDiceUtils.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
 
             if (logDice >= minLogDice) {
-                double relFreq = LogDiceCalculator.relativeFrequency(jointFreq, headwordFreq);
+                double relFreq = LogDiceUtils.relativeFrequency(jointFreq, headwordFreq);
                 String pos = posMap.isEmpty()
                         ? QueryResults.WordSketchResult.UNKNOWN_POS
                         : posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);
@@ -174,7 +174,7 @@ class CollocateQueryHelper {
 
     /** Per-hit data collected in phase 1 of {@link #executeBcqlQuery}. */
     record HitRecord(String xmlSnippet, String leftText, String matchText, String rightText,
-                     /* nullable */ String collocateLemma, int docId, int start, int end) {}
+                     @Nullable String collocateLemma, int docId, int start, int end) {}
 
     /**
      * Full two-phase BCQL query execution: parse → collect hits → score → rank.
@@ -285,7 +285,7 @@ class CollocateQueryHelper {
                     ? collocateCorpusFreqs.getOrDefault(collocateLemma.toLowerCase(), 0L) : 0L;
 
             double logDice = (headwordFreq > 0 && collocateFreq > 0)
-                    ? LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
+                    ? LogDiceUtils.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
 
             String plainText = BlackLabSnippetParser.trimToSentence(
                     rec.leftText(), rec.matchText(), rec.rightText());

@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * HTTP handler for arbitrary corpus query endpoints.
@@ -82,8 +83,10 @@ class CorpusQueryHandlers {
             throw new IllegalArgumentException(
                     "Pattern too complex: " + bracketCount + " token constraints (max " + MAX_BCQL_BRACKET_DEPTH + ")");
         }
-        Integer top = obj.get("top") != null ? obj.getIntValue("top") : null;
-        int resolvedTop = (top != null && top > 0) ? top : 10;
+        int resolvedTop = Optional.ofNullable(obj.get("top"))
+                .map(v -> obj.getIntValue("top"))
+                .filter(v -> v > 0)
+                .orElse(10);
         return new BcqlRequest(bcqlQuery, resolvedTop);
     }
 

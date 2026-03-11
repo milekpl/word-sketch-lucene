@@ -1,0 +1,81 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 3,
+  "assessments": {
+    "error_consistency": 78.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling consistently maps IAE→400, RequestEntityTooLargeException→413, IOException→500 for all API endpoints — uniform top-level error boundary",
+        "config/ layer: GrammarConfigLoader throws IAE for validation failures, IOException for I/O failures, IllegalStateException in createDefaultEnglish() — three distinct exception types for three distinct failure modes, documented in Javadoc",
+        "query/ layer: QueryExecutor interface declares throws IOException for all methods; CollocateQueryHelper.getTotalFrequency wraps RuntimeException in IOException to normalise unexpected failures",
+        "Nullable returns in utils/ and config/ are annotated with @Nullable (CqlUtils.extractConstraintAttribute, RelationConfig.computeDeprel) — contract communicated at type level",
+        "ConcordanceHandlers.handleConcordanceExamples degrades silently to proximity fallback when relation not found, logging a warning and setting response field 'fallback: true'",
+        "GrammarConfig.getRelation() returns Optional<RelationConfig>; RelationConfig.computeDeprel() returns @Nullable String — two patterns for 'not found' in the same config layer"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "HttpApiUtils.wrapWithErrorHandling provides a single consistent exception-to-HTTP-status mapping applied identically across all 12 API endpoints",
+        "GrammarConfigLoader explicitly documents its two-tier exception contract in createDefaultEnglish() Javadoc — a developer consuming this method knows exactly what to catch",
+        "FetchExamplesOptions validates constructor arguments eagerly and throws IAE immediately, preventing invalid option state from propagating",
+        "@Nullable annotation on RelationConfig.computeDeprel() and CqlUtils.extractConstraintAttribute communicates the null contract at the type level without forcing Optional overhead"
+      ],
+      "issue_character": "Mixed 'not found' signaling in the config layer — GrammarConfig.getRelation() returns Optional while RelationConfig.computeDeprel() returns @Nullable, creating a minor inconsistency in how 'absent value' is expressed within the same subsystem.",
+      "score_rationale": "The error strategy is well-structured at the api/ boundary (consistent IAE→400 mapping) and the config/ loading path (documented exception tiers). The score lands at 78 (mixed, developer encounters inconsistencies that can't fully be trusted) because the config layer uses two distinct 'not found' signals (Optional vs @Nullable) without a documented rationale for the difference, and because ConcordanceHandlers.handleConcordanceExamples degrades silently to a fallback that produces different results without exposing the fallback path through an error — even though 'fallback: true' is set in the response, a client parsing only the results would not detect the quality difference."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "config_mixed_absent_value_signal",
+      "summary": "config/ uses Optional for GrammarConfig.getRelation() but @Nullable for RelationConfig.computeDeprel() with no documented rationale",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "GrammarConfig.getRelation(String id) returns Optional<RelationConfig> — callers must handle Optional",
+        "RelationConfig.computeDeprel() returns @Nullable String — callers receive a nullable primitive-like value",
+        "Both methods are in the same config layer and both signal 'absent value', but through different mechanisms — a developer must learn two patterns"
+      ],
+      "suggestion": "Add a brief comment to computeDeprel() explaining why @Nullable is used rather than Optional (e.g. 'returns null rather than Optional to avoid boxing cost in per-relation hot path, or for JSpecify annotation compatibility'). If no strong reason exists, align to Optional<String> for consistency with getRelation().",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "config_absent_value_signaling"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "concordance_silent_fallback_degradation",
+      "summary": "ConcordanceHandlers falls back to proximity pattern when relation is not found, producing structurally different results without surfacing an error",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "When grammarConfig.getRelation(req.relation()) returns empty, resolvedQuery is null, fallback=true, and a proximity pattern '[]{0,5}' is used instead of the grammar-defined BCQL pattern",
+        "The response includes 'fallback: true' but returns HTTP 200 — an API client that checks only status codes or result counts would not detect the quality degradation",
+        "logger.warn logs the fallback, but nothing in the error-handling contract (wrapWithErrorHandling) would surface this to the caller as a recoverable error"
+      ],
+      "suggestion": "Throw IllegalArgumentException when the relation ID is unknown ('Unknown relation: ' + req.relation()), consistent with ExplorationHandlers.parseRelationConfig() which throws IAE for unknown relations. Remove the fallback path and the associated 'fallback' response field. If fallback is intentionally required, document the contract in the handler Javadoc and consider returning 207 or adding a warnings array to the response.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "concordance_error_policy"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The config layer evolved with two 'not found' patterns (Optional and @Nullable) without a unifying decision",
+      "ConcordanceHandlers originally needed a fallback for robustness and the pattern was not revisited after ExplorationHandlers adopted strict IAE-for-unknown-relation"
+    ],
+    "likely_symptoms": ["config_mixed_absent_value_signal", "concordance_silent_fallback_degradation"],
+    "possible_false_positives": []
+  }
+}

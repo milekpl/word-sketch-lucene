@@ -1,0 +1,81 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 8,
+  "assessments": {
+    "mid_level_elegance": 83.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExplorationHandlers → SemanticFieldExplorer handoff: handlers parse and validate params, construct typed option records, call explorer — clean explicit boundary with no implicit state",
+        "SemanticFieldExplorer → MultiSeedExplorer/CollocateProfileComparator: thin documented delegation; facade Javadoc explains why each collaborator exists",
+        "ExploreResponseAssembler.populateExploreResponse(Map<String,Object>, ExplorationResult) mutates the passed map rather than returning a new map — the partial map is built by the caller, passed in, and side-effect-completed",
+        "ExploreResponseAssembler.populateComparisonResponse takes Map<String,Object> response, ComparisonResult result, Set<String> seeds, int topCollocates, double minLogDice — seeds, topCollocates, minLogDice are HTTP-layer parameters passed into a presentation-assembly method that should only depend on ComparisonResult",
+        "SketchHandlers.executeRelationQueries uses BiFunction<RelationConfig, ExecutedSketch, Map<String,Object>> builder callback — makes the data flow through the seam non-linear and harder to follow than a direct extraction loop",
+        "WordSketchApiServer constructor injection of handlers is clean — all handler dependencies resolved at construction time with no post-construction mutation"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExplorationHandlers → SemanticFieldExplorer boundary is explicit: typed option records cross the seam, raw Maps stay in the handler layer",
+        "SemanticFieldExplorer documented delegation pattern (facade to MultiSeedExplorer and CollocateProfileComparator) makes the seam roles unambiguous",
+        "WordSketchApiServer constructor injection resolves all handler seams at construction time — no dynamic dispatch or post-construction wiring",
+        "FetchExamplesOptions, ExplorationOptions, SingleSeedExplorationOptions provide typed seam objects that communicate exactly what crosses boundaries between handler and exploration layers"
+      ],
+      "issue_character": "Two seam design choices that create implicit contracts: ExploreResponseAssembler mutates a pre-built map rather than returning one (implicit side effect), and populateComparisonResponse accepts HTTP-layer parameters that do not belong in a model-to-presentation translator.",
+      "score_rationale": "The seams between major layers (handler → explorer → executor) are clean and explicit. The score lands at 83 (mostly good seams with minor friction at a few boundaries) because the ExploreResponseAssembler API requires callers to follow an implicit 'build partial map, then pass for mutation' protocol, and the populateComparisonResponse signature leaks HTTP parameter values into what should be a pure model-to-JSON translation. Neither issue causes incorrect behaviour, but both create handoff contracts that a developer must infer rather than read."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_response_assembler_mutable_accumulation",
+      "summary": "ExploreResponseAssembler.populateExploreResponse and populateComparisonResponse mutate a caller-supplied map rather than returning a new one",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "populateExploreResponse(Map<String,Object> response, ExplorationResult result) — method signature takes the map to populate, implies the caller must have already built a base map",
+        "populateComparisonResponse(Map<String,Object> response, ComparisonResult result, Set<String> seeds, int topCollocates, double minLogDice) — same mutation pattern, plus HTTP-layer parameters (seeds, topCollocates, minLogDice) that should be derived from ComparisonResult or handled by the caller",
+        "In ExplorationHandlers.handleSemanticFieldComparison: caller creates new HashMap(), calls populateComparisonResponse with it — the implicit protocol 'create empty map, pass to populate' is not captured by the return type"
+      ],
+      "suggestion": "Change populateExploreResponse to return Map<String,Object> rather than mutating a parameter: 'public static Map<String,Object> buildExploreResponse(ExplorationResult result)'. Callers then merge the returned map into their response: 'response.putAll(ExploreResponseAssembler.buildExploreResponse(result))'. For populateComparisonResponse, move the seeds/topCollocates/minLogDice parameters to the caller — the assembler should only translate ComparisonResult to Map.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "assembler_seam_design"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "comparison_response_http_params_in_assembler",
+      "summary": "populateComparisonResponse takes HTTP-layer parameters (seeds, topCollocates, minLogDice) that should stay in the handler layer, not cross into the assembler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "populateComparisonResponse(Map<String,Object> response, ComparisonResult result, Set<String> seeds, int topCollocates, double minLogDice) — seeds, topCollocates, minLogDice are request parameters, not exploration results",
+        "The assembler adds 'seeds', 'top_requested', 'min_logdice' to the response map from these parameters — this is handler-layer knowledge (what parameters were requested) leaking into the assembler",
+        "populateExploreResponse by contrast only takes ExplorationResult — consistent with a pure model-to-JSON translator"
+      ],
+      "suggestion": "Move the seeds/topCollocates/minLogDice response fields to ExplorationHandlers.handleSemanticFieldComparison after calling the assembler: 'response.put(\"seeds\", new ArrayList<>(seeds)); response.put(\"top_requested\", topCollocates); etc.' Reduce populateComparisonResponse signature to (Map<String,Object>, ComparisonResult).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "assembler_seam_design"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExploreResponseAssembler was designed to centralise response assembly but the mutable-accumulation pattern was carried over from the earlier inline handler code, and comparison response parameters were passed through for convenience rather than being placed at the handler layer"
+    ],
+    "likely_symptoms": ["explore_response_assembler_mutable_accumulation", "comparison_response_http_params_in_assembler"],
+    "possible_false_positives": []
+  }
+}

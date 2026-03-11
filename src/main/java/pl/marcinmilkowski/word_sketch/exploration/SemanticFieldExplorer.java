@@ -20,10 +20,13 @@ import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
+import pl.marcinmilkowski.word_sketch.model.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
+import pl.marcinmilkowski.word_sketch.model.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.model.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 /**
@@ -68,8 +71,8 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  * {@code CoreCollocate}, {@code ComparisonResult}, {@code AdjectiveProfile}, {@code Edge})
  * live in the {@code pl.marcinmilkowski.word_sketch.model} package.</p>
  *
- * <h2>Design: coordination facade for {@link ExplorationHandlers}</h2>
- * <p>This class serves as the stable API surface for {@link pl.marcinmilkowski.word_sketch.api.ExplorationHandlers}:
+ * <h2>Design: coordination facade for the HTTP exploration layer</h2>
+ * <p>This class serves as the stable API surface for the HTTP exploration handlers:
  * it owns the single-seed exploration algorithm directly (see {@link #exploreByPattern}), and acts
  * as a coordination facade for the remaining operations — delegating multi-seed exploration to
  * {@link MultiSeedExplorer} and profile comparison to {@link CollocateProfileComparator}.
@@ -355,7 +358,7 @@ public class SemanticFieldExplorer {
             @NonNull Set<String> seeds,
             @NonNull RelationConfig relationConfig,
             @NonNull ExplorationOptions opts) throws IOException {
-        return multiSeedExplorer.computeCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());
+        return multiSeedExplorer.buildMultiSeedExplorationResult(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());
     }
 
 }

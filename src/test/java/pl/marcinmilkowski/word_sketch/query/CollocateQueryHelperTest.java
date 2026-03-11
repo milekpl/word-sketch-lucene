@@ -3,7 +3,7 @@ package pl.marcinmilkowski.word_sketch.query;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.utils.LogDiceCalculator;
+import pl.marcinmilkowski.word_sketch.utils.LogDiceUtils;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -170,8 +170,8 @@ class CollocateQueryHelperTest {
 
         assertEquals(1, results.size());
         double logDice = results.get(0).logDice();
-        double expected = LogDiceCalculator.compute(100L, headwordFreq, 50000L);
-        assertEquals(expected, logDice, 0.0001, "logDice should match LogDiceCalculator.compute()");
+        double expected = LogDiceUtils.compute(100L, headwordFreq, 50000L);
+        assertEquals(expected, logDice, 0.0001, "logDice should match LogDiceUtils.compute()");
         assertTrue(logDice >= 0.0 && logDice <= 14.0,
             "logDice should be in [0, 14] range, was: " + logDice);
     }

@@ -44,6 +44,8 @@ class ConcordanceHandlers {
      *   <li>{@code top} — max results (default: 10)</li>
      * </ul>
      * Uses BCQL pattern from relations.json for the specified relation.
+     * When the relation is not found, falls back to a proximity pattern and logs a warning;
+     * the response includes a {@code fallback: true} field to signal this to callers.
      */
     void handleConcordanceExamples(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();

@@ -56,7 +56,8 @@ public final class GrammarConfigLoader {
      *
      * @param configPath Path to the relations.json file
      * @return immutable {@link GrammarConfig} with the parsed relations
-     * @throws IOException if the file cannot be read or the config is invalid
+     * @throws IOException if the file cannot be read
+     * @throws IllegalArgumentException if the config is structurally invalid
      */
     public static GrammarConfig load(Path configPath) throws IOException {
         return parse(readConfigFile(configPath), configPath);
@@ -92,7 +93,6 @@ public final class GrammarConfigLoader {
         return new java.io.FileNotFoundException("Grammar config file not found: " + p);
     }
 
-    /** Parses JSON content and builds the {@link GrammarConfig} value object. */
     private static GrammarConfig parse(String content, Path configPath) throws IOException {
         JSONObject root = JSON.parseObject(content);
         String version = parseAndValidateVersion(root);
@@ -123,7 +123,6 @@ public final class GrammarConfigLoader {
         }
     }
 
-    /** Parses all relation entries from the JSON root into the provided mutable lists/maps. */
     private static void parseRelations(JSONObject root,
             List<RelationConfig> loadedRelations,
             Map<String, RelationConfig> loadedRelationsById) {
@@ -141,7 +140,6 @@ public final class GrammarConfigLoader {
         }
     }
 
-    /** Parses and validates a single relation JSON object into a {@link RelationConfig}. */
     private static RelationConfig parseRelation(JSONObject relObj, int index) {
         if (relObj == null) {
             throw new IllegalArgumentException("Config error: Invalid relation at index " + index);

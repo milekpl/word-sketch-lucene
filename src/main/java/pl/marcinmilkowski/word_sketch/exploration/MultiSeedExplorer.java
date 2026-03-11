@@ -43,7 +43,7 @@ class MultiSeedExplorer {
      * shared-collocate set); the collocate intersection becomes {@code coreCollocates}; and
      * the aggregate collocate map becomes {@code seedCollocates}.</p>
      */
-    @NonNull ExplorationResult computeCollocateIntersection(
+    @NonNull ExplorationResult buildMultiSeedExplorationResult(
             @NonNull Set<String> seeds,
             @NonNull RelationConfig relationConfig,
             double minLogDice,

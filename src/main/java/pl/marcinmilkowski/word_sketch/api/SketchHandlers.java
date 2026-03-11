@@ -51,7 +51,7 @@ class SketchHandlers {
 
         if (parts.length > 1 && "dep".equals(parts[1])) {
             String specificDeprel = parts.length > 2 ? parts[2] : null;
-            if (specificDeprel != null && !specificDeprel.isEmpty()) {
+            if (specificDeprel != null) {
                 handleDependencyRelationQuery(exchange, lemma, specificDeprel);
             } else {
                 handleFullDependencySketch(exchange, lemma);
@@ -185,7 +185,7 @@ class SketchHandlers {
             if (rel.relationType().orElse(null) != relationType) continue;
             if (!extraFilter.test(rel)) continue;
             try {
-                Optional<ExecutedSketch> sketchOpt = executeAndFormatCollocations(lemma, rel);
+                Optional<ExecutedSketch> sketchOpt = buildSketch(lemma, rel);
                 sketchOpt.ifPresent(sketch -> byRelation.put(rel.id(), builder.apply(rel, sketch)));
             } catch (IOException e) {
                 logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
@@ -205,8 +205,13 @@ class SketchHandlers {
 
     private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {
         var rel = grammarConfig.getRelation(relationId).orElse(null);
-        if (rel == null || rel.relationType().orElse(null) != relationType) {
+        if (rel == null) {
             throw new IllegalArgumentException("Unknown relation: " + relationId);
+        }
+        if (rel.relationType().orElse(null) != relationType) {
+            String actualType = rel.relationType().map(t -> t.name()).orElse("(none)");
+            throw new IllegalArgumentException(
+                "Relation '" + relationId + "' has type " + actualType + "; expected " + relationType.name());
         }
 
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
@@ -240,7 +245,7 @@ class SketchHandlers {
      * Executes the surface pattern for a relation and formats the results into the JSON-ready collocations list.
      * Returns {@link Optional#empty()} when the query returns no results (so callers can skip the relation).
      */
-    private Optional<ExecutedSketch> executeAndFormatCollocations(String lemma,
+    private Optional<ExecutedSketch> buildSketch(String lemma,
             pl.marcinmilkowski.word_sketch.config.RelationConfig rel) throws IOException {
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
         List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, DEFAULT_SKETCH_RESULTS);

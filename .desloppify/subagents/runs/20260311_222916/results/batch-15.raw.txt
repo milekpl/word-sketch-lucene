@@ -1,0 +1,61 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 15,
+  "assessments": {
+    "design_coherence": 80.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Handler decomposition is consistent: SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers each own one HTTP concern; WordSketchApiServer is a thin route-registration layer",
+        "SemanticFieldExplorer is explicitly documented as a coordination facade — owns single-seed exploration, delegates multi-seed to MultiSeedExplorer and comparison to CollocateProfileComparator",
+        "Options-object pattern applied consistently: ExplorationOptions (shared base), SingleSeedExplorationOptions (extends with nounsPerCollocate), FetchExamplesOptions — each adds exactly what it needs",
+        "ExplorationHandlers.buildExploreRequest is called only from handleSemanticFieldExploreMulti (one of three exploration handlers) — the abstraction covers one handler; handleSemanticFieldComparison explicitly documents why it does not use it",
+        "RelationType enum holds both routing types (SURFACE, DEP) and semantic types (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) in a single enum — acknowledged T4 wontfix, but creates a conceptual mixing",
+        "GrammarConfigSerializer is in api/ (moved from config/ to keep config/ free of fastjson2) — the design decision is explicit and documented"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Handler split into five focused classes from a single god-class is executed cleanly — each handler owns one domain with no overlap",
+        "SemanticFieldExplorer facade pattern is explicitly documented with the exact reason for the boundary (insulates HTTP layer from algorithm changes)",
+        "Config layer is cleanly separated into data carriers (GrammarConfig, RelationConfig) vs loading+building machinery (GrammarConfigLoader, RelationPatternBuilder, RelationUtils)",
+        "Options records compose cleanly: SingleSeedExplorationOptions wraps ExplorationOptions rather than duplicating its fields"
+      ],
+      "issue_character": "The main design tension is in ExplorationHandlers: buildExploreRequest is a shared-preamble helper called from only one of three handlers, creating an abstraction that doesn't carry its weight. This is a localized smell rather than a systemic pattern.",
+      "score_rationale": "The overall design is coherent and intentional — decomposition is clean, ownership is clear, and the few asymmetries (buildExploreRequest, RelationType mixing) are either documented or flagged as known debt. The score of 80 reflects a developer would mostly be well-served but would encounter moments of 'why is this different here?' specifically around buildExploreRequest being used in only one of three handlers and the explicit asymmetry documented in handleSemanticFieldComparison."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "buildExploreRequest_single_caller_abstraction",
+      "summary": "ExplorationHandlers.buildExploreRequest is a shared-preamble helper with only one caller (handleSemanticFieldExploreMulti)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildExploreRequest() is called exclusively from handleSemanticFieldExploreMulti",
+        "handleSemanticFieldExplore calls parseRelationConfig and parseExplorationParams separately (not via buildExploreRequest)",
+        "handleSemanticFieldComparison explicitly documents why it does NOT call buildExploreRequest",
+        "The ValidatedExploreRequest record is a single-use type whose only purpose is packaging the return value of a single-caller method"
+      ],
+      "suggestion": "Inline buildExploreRequest into handleSemanticFieldExploreMulti and delete the ValidatedExploreRequest record. The method currently parses seeds, relation, and exploration params — these three calls inline clearly: 'String seedsRaw = requireParam(params, \"seeds\"); RelationConfig config = parseRelationConfig(params); ExplorationParams ep = parseExplorationParams(params);'. This makes the handler self-contained and removes an abstraction that creates confusion (why doesn't explore use this?).",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "buildExploreRequest was likely extracted anticipating future reuse that didn't materialise, leaving a one-caller helper"
+    ],
+    "likely_symptoms": ["buildExploreRequest_single_caller_abstraction"],
+    "possible_false_positives": []
+  }
+}

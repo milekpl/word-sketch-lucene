@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for LogDiceCalculator.
+ * Unit tests for LogDiceUtils.
  * 
  * LogDice formula: log2(2 * f(AB) / (f(A) + f(B))) + 14
  * Where:
@@ -16,13 +16,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * Expected range: 0 to 14 (14 = perfect association)
  */
-class LogDiceCalculatorTest {
+class LogDiceUtilsTest {
 
     @Test
     @DisplayName("Perfect association: collocate only occurs with headword")
     void testPerfectAssociation() {
         // Perfect association: collocate only occurs with headword
-        double logDice = LogDiceCalculator.compute(100, 100, 100);
+        double logDice = LogDiceUtils.compute(100, 100, 100);
         // log2(2 * 100 / (100 + 100)) + 14 = log2(1) + 14 = 0 + 14 = 14
         assertEquals(14.0, logDice, 0.001);
     }
@@ -30,7 +30,7 @@ class LogDiceCalculatorTest {
     @Test
     void testModerateAssociation() {
         // Moderate association
-        double logDice = LogDiceCalculator.compute(500, 1000, 1500);
+        double logDice = LogDiceUtils.compute(500, 1000, 1500);
         // log2(2 * 500 / (1000 + 1500)) + 14 = log2(0.4) + 14
         assertTrue(logDice > 12 && logDice < 14);
     }
@@ -38,47 +38,47 @@ class LogDiceCalculatorTest {
     @Test
     void testWeakAssociation() {
         // Weak association: collocate occurs rarely with headword
-        double logDice = LogDiceCalculator.compute(10, 1000, 50000);
+        double logDice = LogDiceUtils.compute(10, 1000, 50000);
         // Should be low but positive
         assertTrue(logDice > 0 && logDice < 10);
     }
 
     @Test
     void testZeroCollocateFrequency() {
-        double logDice = LogDiceCalculator.compute(0, 1000, 1000);
+        double logDice = LogDiceUtils.compute(0, 1000, 1000);
         assertEquals(0.0, logDice, 0.001);
     }
 
     @Test
     void testZeroHeadwordFrequency_throwsIAE() {
         assertThrows(IllegalArgumentException.class,
-                () -> LogDiceCalculator.compute(100, 0, 100),
+                () -> LogDiceUtils.compute(100, 0, 100),
                 "Expected IAE for zero headword frequency");
     }
 
     @Test
     void testZeroCollocateTotal_throwsIAE() {
         assertThrows(IllegalArgumentException.class,
-                () -> LogDiceCalculator.compute(100, 100, 0),
+                () -> LogDiceUtils.compute(100, 100, 0),
                 "Expected IAE for zero collocate total");
     }
 
     @Test
     void testNegativeFrequency() {
         // Should handle edge cases gracefully
-        double logDice = LogDiceCalculator.compute(-10, 100, 100);
+        double logDice = LogDiceUtils.compute(-10, 100, 100);
         assertEquals(0.0, logDice, 0.001);
     }
 
     @Test
     void testRelativeFrequency() {
-        double relFreq = LogDiceCalculator.relativeFrequency(100, 1000);
+        double relFreq = LogDiceUtils.relativeFrequency(100, 1000);
         assertEquals(0.1, relFreq, 0.001);
     }
 
     @Test
     void testRelativeFrequencyZeroHeadword() {
-        double relFreq = LogDiceCalculator.relativeFrequency(100, 0);
+        double relFreq = LogDiceUtils.relativeFrequency(100, 0);
         assertEquals(0.0, relFreq, 0.001);
     }
 
@@ -89,7 +89,7 @@ class LogDiceCalculatorTest {
         long headwordFreq = 10000L;
         long collocateTotal = 15000L;
 
-        double logDice = LogDiceCalculator.compute(collocateFreq, headwordFreq, collocateTotal);
+        double logDice = LogDiceUtils.compute(collocateFreq, headwordFreq, collocateTotal);
         assertTrue(logDice > 0);
     }
 
@@ -100,8 +100,8 @@ class LogDiceCalculatorTest {
     @Test
     @DisplayName("LogDice should be symmetric: swapping f(A) and f(B) gives same result")
     void testSymmetry() {
-        double logDice1 = LogDiceCalculator.compute(500, 10000, 20000);
-        double logDice2 = LogDiceCalculator.compute(500, 20000, 10000);
+        double logDice1 = LogDiceUtils.compute(500, 10000, 20000);
+        double logDice2 = LogDiceUtils.compute(500, 20000, 10000);
         assertEquals(logDice1, logDice2, 0.001,
             "LogDice should be symmetric in f(A) and f(B)");
     }
@@ -109,10 +109,10 @@ class LogDiceCalculatorTest {
     @Test
     @DisplayName("Higher co-occurrence frequency increases logDice monotonically")
     void testMonotonicity() {
-        double logDice10 = LogDiceCalculator.compute(10, 100000, 50000);
-        double logDice100 = LogDiceCalculator.compute(100, 100000, 50000);
-        double logDice1000 = LogDiceCalculator.compute(1000, 100000, 50000);
-        double logDice10000 = LogDiceCalculator.compute(10000, 100000, 50000);
+        double logDice10 = LogDiceUtils.compute(10, 100000, 50000);
+        double logDice100 = LogDiceUtils.compute(100, 100000, 50000);
+        double logDice1000 = LogDiceUtils.compute(1000, 100000, 50000);
+        double logDice10000 = LogDiceUtils.compute(10000, 100000, 50000);
 
         assertTrue(logDice100 > logDice10, "100 > 10 should increase logDice");
         assertTrue(logDice1000 > logDice100, "1000 > 100 should increase logDice");
@@ -124,7 +124,7 @@ class LogDiceCalculatorTest {
     void testRealCorpusBestBook() {
         // From actual query: book appears ~111K times, best appears ~319K times
         // Co-occurrence ~1300 times (estimated from sampling)
-        double logDice = LogDiceCalculator.compute(1300, 111231, 318701);
+        double logDice = LogDiceUtils.compute(1300, 111231, 318701);
 
         assertTrue(logDice >= 6 && logDice <= 8,
             String.format("Expected logDice 6-8 for 'best book', got: %.2f", logDice));
@@ -136,10 +136,10 @@ class LogDiceCalculatorTest {
         // "the" appears ~15M times in a 250M corpus (very common)
         // "book" appears ~111K times
         // Co-occurrence might be ~20K
-        double logDiceThe = LogDiceCalculator.compute(20000, 111000, 15_000_000);
+        double logDiceThe = LogDiceUtils.compute(20000, 111000, 15_000_000);
 
         // Compare to a content word like "phone" with similar co-occurrence
-        double logDicePhone = LogDiceCalculator.compute(5000, 111000, 50000);
+        double logDicePhone = LogDiceUtils.compute(5000, 111000, 50000);
 
         // "the" should have lower logDice than a content word collocation
         assertTrue(logDiceThe < logDicePhone,
@@ -156,7 +156,7 @@ class LogDiceCalculatorTest {
     void testContentWordCollocation() {
         // "phone book" - specific collocation
         // "phone" ~50K, "book" ~111K, co-occur ~5K
-        double logDice = LogDiceCalculator.compute(5000, 111000, 50000);
+        double logDice = LogDiceUtils.compute(5000, 111000, 50000);
 
         assertTrue(logDice >= 8 && logDice <= 11,
             String.format("Content word 'phone book' should have logDice 8-11, got: %.2f", logDice));
@@ -183,8 +183,8 @@ class LogDiceCalculatorTest {
         long headwordFreq = 111_231;
         long collocateTotalFreq = 318_701;
 
-        double logDiceScaled = LogDiceCalculator.compute(estimatedFreq, headwordFreq, collocateTotalFreq);
-        double logDiceUnscaled = LogDiceCalculator.compute(sampleFreq, headwordFreq, collocateTotalFreq);
+        double logDiceScaled = LogDiceUtils.compute(estimatedFreq, headwordFreq, collocateTotalFreq);
+        double logDiceUnscaled = LogDiceUtils.compute(sampleFreq, headwordFreq, collocateTotalFreq);
 
         // Unscaled gives wrong result (~1), scaled gives correct result (~6-7)
         assertTrue(logDiceUnscaled < 2,
@@ -215,7 +215,7 @@ class LogDiceCalculatorTest {
     void testExtremeRatiosNoNegative() {
         // Very small cooccurrence relative to large corpus frequencies
         // This previously could produce negative values before overflow protection
-        double logDice = LogDiceCalculator.compute(1, 10_000_000, 5_000_000);
+        double logDice = LogDiceUtils.compute(1, 10_000_000, 5_000_000);
         assertTrue(logDice >= 0,
             String.format("logDice should never be negative, got: %.2f", logDice));
     }
@@ -224,7 +224,7 @@ class LogDiceCalculatorTest {
     @DisplayName("Edge case: large values should not overflow")
     void testLargeValuesNoOverflow() {
         // Very large corpus (billions)
-        double logDice = LogDiceCalculator.compute(1_000_000L, 500_000_000L, 300_000_000L);
+        double logDice = LogDiceUtils.compute(1_000_000L, 500_000_000L, 300_000_000L);
         assertTrue(logDice >= 0 && logDice <= 14,
             String.format("logDice should be in range [0, 14], got: %.2f", logDice));
     }
@@ -234,7 +234,7 @@ class LogDiceCalculatorTest {
     void testVeryLargeCorpus() {
         // Billion-token corpus simulation
         // Headword: 1M occurrences, collocate: 5M occurrences, co-occur: 50K
-        double logDice = LogDiceCalculator.compute(50_000, 1_000_000, 5_000_000);
+        double logDice = LogDiceUtils.compute(50_000, 1_000_000, 5_000_000);
 
         assertTrue(logDice >= 5 && logDice <= 9,
             String.format("Large corpus logDice expected 5-9, got: %.2f", logDice));

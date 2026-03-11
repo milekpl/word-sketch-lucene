@@ -346,7 +346,7 @@ class HandlersTest {
         ));
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         ComparisonResult result =
-            explorer.compareCollocateProfiles(java.util.Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(50, 0.0, 1));
+            explorer.compareCollocateProfiles(java.util.Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.model.ExplorationOptions(50, 0.0, 1));
 
         List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
         assertFalse(edges.isEmpty(), "Should have edges");

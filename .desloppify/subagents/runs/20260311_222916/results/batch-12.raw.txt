@@ -1,0 +1,95 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 12,
+  "assessments": {
+    "contract_coherence": 82.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "GrammarConfigLoader.load Javadoc says '@throws IOException if the file cannot be read or the config is invalid', but validation failures (missing version, duplicate ID) now throw IllegalArgumentException — the @throws clause is stale",
+        "QueryExecutor.executeCollocations declares @Nullable String lemma; BlackLabQueryExecutor silently returns empty list when null/empty, matching the Javadoc 'returns an empty list silently if null or empty'",
+        "RelationConfig.computeDeprel() is annotated @Nullable and returns null for non-DEP relations — all callers (SketchHandlers) guard against null",
+        "ExploreResponseAssembler.serializeEdge uses inline Math.round(edge.weight() * 100.0) / 100.0 while all sibling methods use MathUtils.round2dp() — numerically equivalent but inconsistent",
+        "ExplorationHandlers.parseRelationConfig throws IllegalArgumentException for unknown relation OR missing relationType — documented and caught by wrapWithErrorHandling",
+        "ConcordanceHandlers.parseConcordanceExamplesRequest renames seed→noun and collocate→adjective — documented with explicit Javadoc on the ConcordanceExamplesRequest record",
+        "SketchHandlers.handleRelationQueryForPattern throws IAE with message 'Unknown relation: X' when the relation exists but is the wrong type — error message is misleading"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface documents all methods with precise contracts including null/empty behaviour, return semantics, and exception conditions",
+        "RelationConfig.computeDeprel() is annotated @Nullable and all callers correctly guard against null",
+        "ConcordanceHandlers documents the seed→noun / collocate→adjective rename in the record-level Javadoc, keeping the internal domain vocabulary explicit",
+        "ExplorationHandlers.parseRelationConfig clearly documents what causes IllegalArgumentException and how it is handled by wrapWithErrorHandling",
+        "GrammarConfig accessors use @NonNull and @Nullable annotations consistently, making the null contract machine-checkable"
+      ],
+      "issue_character": "Issues are isolated: one stale @throws clause (GrammarConfigLoader) and one misleading error message (SketchHandlers) rather than a systemic pattern of contract divergence.",
+      "score_rationale": "The codebase has strong contract habits — method signatures, annotations, and Javadoc align in the majority of cases. Two concrete deviations exist: GrammarConfigLoader.load's @throws Javadoc is stale after IOException→IAE refactoring, and SketchHandlers emits 'Unknown relation' for the wrong-type case where the relation is actually known. These are local, fixable issues rather than structural contract failures. The score of 82 reflects a solid but imperfect contract layer — developers are well-served most of the time but will encounter at least one documented contract that no longer matches the code."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "grammarconfig_loader_throws_javadoc_stale",
+      "summary": "GrammarConfigLoader.load @throws clause says IOException for invalid config but validation now throws IllegalArgumentException",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "load() Javadoc: '@throws IOException if the file cannot be read or the config is invalid'",
+        "parseAndValidateVersion(), validateNoLegacyKeys(), parseRelations() all throw IllegalArgumentException for validation failures",
+        "Main.java catches IAE and IOException separately with different user messages, confirming the distinction matters to callers"
+      ],
+      "suggestion": "Update the load() Javadoc: '@throws IOException if the file cannot be read' and add '@throws IllegalArgumentException if the config JSON is structurally invalid (missing version, duplicate relation IDs, unknown relation_type)'. Also update fromReader() similarly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "handleRelationQueryForPattern_misleading_error",
+      "summary": "SketchHandlers throws 'Unknown relation: X' when the relation exists but is the wrong type (SURFACE vs DEP)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleRelationQueryForPattern: 'if (rel == null || rel.relationType().orElse(null) != relationType) throw new IllegalArgumentException(\"Unknown relation: \" + relationId)'",
+        "When rel is non-null but the wrong type, the error message 'Unknown relation' is factually incorrect — the relation is known, just inapplicable for the requested type"
+      ],
+      "suggestion": "Split the condition: if (rel == null) throw new IAE(\"Unknown relation: \" + relationId); if (rel.relationType().orElse(null) != relationType) throw new IAE(\"Relation '\" + relationId + \"' is not a \" + relationType + \" relation\");",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "serializeEdge_inline_round_vs_mathutils",
+      "summary": "ExploreResponseAssembler.serializeEdge rounds inline with Math.round instead of MathUtils.round2dp used by all sibling methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "serializeEdge: 'm.put(\"log_dice\", Math.round(edge.weight() * 100.0) / 100.0)'",
+        "formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, formatAdjectiveProfile all call MathUtils.round2dp()",
+        "Numerically equivalent but creates visual inconsistency that makes a reviewer wonder if the difference is intentional"
+      ],
+      "suggestion": "Replace with MathUtils.round2dp(edge.weight()): m.put(\"log_dice\", MathUtils.round2dp(edge.weight()));",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "GrammarConfigLoader Javadoc was not updated when IOException→IAE refactoring was applied — documentation drift after a targeted code change"
+    ],
+    "likely_symptoms": ["grammarconfig_loader_throws_javadoc_stale"],
+    "possible_false_positives": []
+  }
+}

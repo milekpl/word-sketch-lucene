@@ -6,7 +6,7 @@ package pl.marcinmilkowski.word_sketch.utils;
  * Supported measures:
  * - logDice: Symmetric association measure, range 0-14. Formula: log2(2 * f(AB) / (f(A) + f(B))) + 14
  */
-public class LogDiceCalculator {
+public class LogDiceUtils {
 
     /**
      * Compute the logDice score for a collocation.

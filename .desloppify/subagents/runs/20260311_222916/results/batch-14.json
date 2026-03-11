@@ -1,0 +1,78 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {
+    "type_safety": 81.0
+  },
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "jspecify @NonNull/@Nullable annotations are applied throughout api/ and query/ public surfaces (HttpApiUtils, QueryExecutor, BlackLabQueryExecutor, ExplorationHandlers)",
+        "Optional<RelationType> on RelationConfig.relationType() rather than @Nullable RelationType — forces callers to handle absence explicitly",
+        "sealed interface ConcordanceResult with permits clause (SnippetResult, CollocateResult) gives exhaustive switch coverage",
+        "CollocateQueryHelper constructor accepts @Nullable BlackLabIndex 'to support test subclasses that override methods' — valid test seam, but the annotation suggests null is a legitimate production state; runtime null-guards (Objects.requireNonNull) mitigate NPE risk",
+        "CollocateQueryHelper.HitRecord record: 'String collocateLemma' — the Javadoc inline comment says '/* nullable */' but no @Nullable annotation is applied; annotation is missing",
+        "Map<String, Object> response maps throughout — fastjson2 constraint, noted wontfix"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Optional<RelationType> on RelationConfig.relationType() prevents accidental unguarded access to a potentially-absent value",
+        "sealed interface ConcordanceResult with two concrete permits enables exhaustive pattern-match coverage without runtime instanceof chains",
+        "@NonNull/@Nullable annotations on all public API surface methods (QueryExecutor, HttpApiUtils, ExplorationHandlers) provide machine-checkable contracts",
+        "Records used pervasively for DTOs eliminate mutable state and null-field risks in data carriers",
+        "GrammarConfig uses @NonNull on getVersion() and @Nullable on getConfigPath() — annotations match the semantic invariants (version is required, path is optional)"
+      ],
+      "issue_character": "Issues are isolated: one missing @Nullable annotation on a record field that is documented nullable in a comment, and one @Nullable on a constructor parameter that conflates test-only-null with production-nullable.",
+      "score_rationale": "The codebase uses Java's type system well: Optional for optionality, sealed types for exhaustiveness, and annotation-based null contracts on public surfaces. The two gaps (missing @Nullable on HitRecord.collocateLemma, and the ambiguous @Nullable BlackLabIndex constructor parameter) are local and don't propagate risk broadly. The score of 81 reflects strong type discipline with a few soft spots that a developer would notice under static analysis."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "hitrecord_collocatelemma_missing_nullable",
+      "summary": "CollocateQueryHelper.HitRecord: collocateLemma field is documented nullable in a comment but lacks @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "record HitRecord(..., /* nullable */ String collocateLemma, ...) — the comment acknowledges nullability",
+        "No @Nullable annotation is present on the field, leaving nullability invisible to static analysers and callers using the record",
+        "In scoreHits, collocateLemma is accessed with a null check, confirming it is indeed nullable at runtime"
+      ],
+      "suggestion": "Add 'import org.jspecify.annotations.Nullable;' and annotate: 'record HitRecord(..., @Nullable String collocateLemma, ...)'. Remove the inline comment since the annotation is self-documenting.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "colloqueryhelper_nullable_index_ambiguity",
+      "summary": "CollocateQueryHelper constructor annotates BlackLabIndex as @Nullable, conflating test-only-null with production-nullable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper(@Nullable BlackLabIndex index) Javadoc: 'Null is accepted to support test subclasses that override getTotalFrequency and executeCollocateSearch. Production callers must always supply a non-null index.'",
+        "The @Nullable annotation at the constructor level signals to static analysers that null is a legitimate value, but the Javadoc then says production must never pass null",
+        "Runtime guards (Objects.requireNonNull) in individual methods protect against NPE, but the constructor signature misrepresents the production contract"
+      ],
+      "suggestion": "Remove @Nullable from the constructor parameter and instead add a package-private test-only constructor overload: 'CollocateQueryHelper() { this.index = null; }' with a comment explaining its test-only purpose. This keeps the production constructor's @NonNull contract honest while still enabling test subclasses.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Test seam requirements led to nullable annotations that blur the production contract boundary"
+    ],
+    "likely_symptoms": ["colloqueryhelper_nullable_index_ambiguity"],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {
+    "api_surface_coherence": 77.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All JSON endpoints return 'status': 'ok' as the first field — consistent success envelope",
+        "Error responses always use {'error': '...'} — consistent error envelope distinct from success",
+        "/api/semantic-field/examples uses 'adjective' and 'noun' parameters; /api/concordance/examples uses 'seed' and 'collocate' — different vocabulary for analogous parameters (both fetch examples for a word pair)",
+        "/api/semantic-field/examples returns 'adjective' and 'noun' in the response body; /api/concordance/examples returns 'seed' and 'collocate' in the response body — parameter names differ between sibling endpoints",
+        "/api/visual/radial returns image/svg+xml; all other endpoints return application/json — intentional but creates a distinct interaction model (no 'status' field in the response)",
+        "/api/bcql returns 'top' and 'total_results'; /api/concordance/examples returns 'top_requested' and 'total_results' — different field names for the same semantic concept (requested limit)",
+        "/api/semantic-field/explore-multi response includes 'seed_count'; /api/semantic-field/compare response includes 'seed_count' but also 'adjectives_count', 'edges_count' — fine-grained counts only on comparison endpoint"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Consistent 'status': 'ok' envelope across all 10 JSON endpoints — a developer can always check this field",
+        "Consistent error shape {'error': '...'} with appropriate HTTP status codes (400, 413, 405, 500)",
+        "All exploration endpoints echo back the resolved parameters in a 'parameters' sub-object — a developer can verify what the server used",
+        "GET vs POST distinction is intentional and documented: GET for reads, POST for body-heavy operations (/api/bcql, /api/visual/radial)"
+      ],
+      "issue_character": "The inconsistency is systematic across two dimensions: (1) parameter naming for word-pair example endpoints diverges between semantic-field and concordance, and (2) the 'top' field naming is inconsistent between /api/bcql ('top') and /api/concordance/examples ('top_requested').",
+      "score_rationale": "The API has good macro-level consistency (status envelope, error format, GET/POST discipline) but a developer working across the example-fetching endpoints would encounter vocabulary drift: 'adjective'/'noun' in one endpoint and 'seed'/'collocate' in a sibling. The count-field naming ('top' vs 'top_requested') adds further inconsistency. These aren't severe enough to prevent use but would require a developer to check each endpoint's parameter names rather than predicting them from a seen pattern. Score of 77 reflects recurring but non-blocking inconsistency."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "example_endpoint_param_naming_divergence",
+      "summary": "Parameter names diverge between /api/semantic-field/examples (adjective/noun) and /api/concordance/examples (seed/collocate) for analogous word-pair lookups",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExamples: 'String adjective = HttpApiUtils.requireParam(params, \"adjective\"); String noun = HttpApiUtils.requireParam(params, \"noun\")'",
+        "ConcordanceHandlers.parseConcordanceExamplesRequest: 'String noun = HttpApiUtils.requireParam(params, \"seed\"); String adjective = HttpApiUtils.requireParam(params, \"collocate\")'",
+        "Both endpoints return examples for a word pair in context — a developer discovering /api/semantic-field/examples first would use 'seed'/'collocate' by analogy with explore endpoints and get a 400"
+      ],
+      "suggestion": "Standardise on 'seed' and 'collocate' across both endpoints (these are already used by the concordance endpoint and by the explore endpoints). In ExplorationHandlers.handleSemanticFieldExamples, change the param names from 'adjective'/'noun' to 'collocate'/'seed'. Update the response body to match ('collocate', 'seed'). Update the Javadoc. This is a breaking API change — add a compatibility note and schedule for next minor version.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "top_field_name_inconsistency",
+      "summary": "/api/bcql response uses 'top' for the applied limit; /api/concordance/examples uses 'top_requested' — same concept, different names",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.buildBcqlResponse: 'response.put(\"top\", req.top())'",
+        "ConcordanceHandlers.handleConcordanceExamples: 'response.put(\"top_requested\", req.top())'",
+        "Both represent the same semantic: the maximum result count requested by the caller"
+      ],
+      "suggestion": "Standardise to 'top' across both endpoints: in ConcordanceHandlers, change response.put(\"top_requested\", req.top()) to response.put(\"top\", req.top()). Note this is a minor breaking change for clients reading that field.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Parameter naming was chosen per-endpoint based on the domain model (adjective/noun for semantic-field, seed/collocate for concordance) without a cross-endpoint naming convention; recent renames hardened these divergences"
+    ],
+    "likely_symptoms": ["example_endpoint_param_naming_divergence", "top_field_name_inconsistency"],
+    "possible_false_positives": []
+  }
+}

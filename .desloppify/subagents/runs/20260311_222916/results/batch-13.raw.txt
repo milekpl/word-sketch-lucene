@@ -1,0 +1,77 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 13,
+  "assessments": {
+    "logic_clarity": 81.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "CollocateProfileComparator.buildAdjectiveProfileList: scores array is built from nounScores.values() which is only populated when at least one noun matched, so scores.length == 0 is unreachable; the 'if (scores.length == 0) { maxScore = 0.0; minScore = 0.0; }' guard is dead code",
+        "SketchHandlers.handleRelationQueryForPattern: 'String specificDeprel = parts.length > 2 ? parts[2] : null; if (specificDeprel != null && !specificDeprel.isEmpty())' — !specificDeprel.isEmpty() is redundant since parts[2] is always a non-empty String when present",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: parseSeedSet is called on req.seedsRaw() to get the Set, then seeds.size() < 2 is checked — control flow is clear and properly ordered (nouns_per guard → buildExploreRequest → seed count check)",
+        "BlackLabQueryExecutor.executeCqlQuery: 'if (tp == null) return Collections.emptyList()' — TextPattern from a successful CQL parse should not be null; this is a defensive guard against a BlackLab implementation detail",
+        "MultiSeedExplorer.identifyCommonCollocates: 'int threshold = Math.min(minShared, seedCount)' caps threshold to seedCount — prevents requesting more shared seeds than exist; clean defensive logic",
+        "CqlUtils.splitCqlTokens depth-counting logic correctly handles quoted strings inside and outside brackets in a single pass — straightforward to follow"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Control flow in all five handler methods follows a clear guard-clause pattern: validate params early, then execute, then assemble response",
+        "MultiSeedExplorer separates the algorithm into named phases (fetchCollocatesPerSeed, identifyCommonCollocates, buildDiscoveredNouns, buildCoreCollocates) — intent is readable",
+        "CqlUtils.substituteAtPosition has clear pre-condition guards (null/blank checks) followed by a single transformation — no hidden state",
+        "ExplorationHandlers.handleSemanticFieldComparison explicitly documents why it does NOT call buildExploreRequest — asymmetry is explained, not silent"
+      ],
+      "issue_character": "Issues are local and isolated: one dead code branch (unreachable guard after loop) and one redundant isEmpty check; neither is systematically repeated.",
+      "score_rationale": "Most control flow in the codebase is direct and intention-revealing. The two logic issues found (dead guard, redundant check) are minor — they don't mislead and are immediately obvious on inspection. They are the result of defensive programming instincts rather than a structural logic problem. The score of 81 reflects code that serves developers well with rare moments of unnecessary complexity — on the 'solid but uneven' part of the scale."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_scores_length_zero_guard",
+      "summary": "Dead code: 'if (scores.length == 0)' guard is unreachable because scores is only populated from existing map entries",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "scores is built as: 'double[] scores = nounScores.values().stream().mapToDouble(Double::doubleValue).toArray()'",
+        "nounScores is the value from adjectiveProfiles.entrySet() — any entry in adjectiveProfiles was put there by at least one '.put(noun, r.logDice())' call, guaranteeing at least one score",
+        "The subsequent 'if (scores.length == 0) { maxScore = 0.0; minScore = 0.0; }' can never execute; maxScore and minScore are left as NEGATIVE_INFINITY/POSITIVE_INFINITY in a reachable-zero scenario that does not exist"
+      ],
+      "suggestion": "Remove the dead guard. If defensive coverage is desired, initialise with: 'double sum = 0.0, maxScore = 0.0, minScore = 0.0;' and let the loop overwrite. This makes the zero-scores case explicit rather than handled by a dead branch.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_isempty_on_parts_index",
+      "summary": "SketchHandlers: redundant !specificDeprel.isEmpty() check on a string that is always non-empty when non-null",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "'String specificDeprel = parts.length > 2 ? parts[2] : null'",
+        "'if (specificDeprel != null && !specificDeprel.isEmpty())'",
+        "parts[2] is a segment from path.split(\"/\") — URL path segments are never empty strings after splitting on \"/\" for a well-formed path; the isEmpty() check is never true when specificDeprel is non-null"
+      ],
+      "suggestion": "Simplify to: 'if (specificDeprel != null)' — the isEmpty() check adds visual noise without protecting against any reachable condition.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Defensive coding instincts added guards for cases that the surrounding code structure already makes impossible"
+    ],
+    "likely_symptoms": ["dead_scores_length_zero_guard", "redundant_isempty_on_parts_index"],
+    "possible_false_positives": []
+  }
+}

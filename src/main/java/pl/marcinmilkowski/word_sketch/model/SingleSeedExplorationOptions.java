@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.exploration;
+package pl.marcinmilkowski.word_sketch.model;
 
 /**
  * Options for single-seed semantic field exploration

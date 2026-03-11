@@ -1,0 +1,70 @@
+{
+  "batch": "package_organization",
+  "batch_index": 11,
+  "assessments": {
+    "package_organization": 82.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "model/ holds 11 domain-model types as pure DTOs or immutable objects with no HTTP/IO deps — cohesive and navigable",
+        "api/ holds 11 production classes all scoped to HTTP handling (handlers + utilities + server) — at the threshold but cohesive",
+        "config/ cleanly separates data (GrammarConfig, RelationConfig) from loading machinery (GrammarConfigLoader) and helpers (RelationPatternBuilder, RelationUtils)",
+        "exploration/ holds exactly the 6 types that together own the semantic-field algorithms; dependencies flow cleanly to query/ and model/",
+        "ExploreResponseAssembler and GrammarConfigSerializer are both public in api/ but deal only with model→map/JSON serialization, not with HttpExchange — they sit one concern above pure HTTP handling",
+        "RelationType enum in model/ holds both routing strategies (SURFACE, DEP) and semantic types (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) — acknowledged wontfix per T4 notes"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "sub_axes": {
+        "abstraction_leverage": 82.0,
+        "indirection_cost": 88.0,
+        "interface_honesty": 84.0,
+        "delegation_density": 80.0,
+        "definition_directness": 83.0,
+        "type_discipline": 79.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "model/ is a clean, zero-dependency package holding all domain DTOs with a well-documented package-info.java explaining the two type categories",
+        "config/ is split into pure data carriers (GrammarConfig, RelationConfig) and loading/building machinery, preventing the data types from carrying IO deps",
+        "exploration/ owns the semantic-field algorithms (SemanticFieldExplorer facade, MultiSeedExplorer, CollocateProfileComparator) with no overlap into query/ or api/",
+        "utils/ contains only three stateless helpers (CqlUtils, LogDiceCalculator, MathUtils) — no scope creep",
+        "GrammarConfigSerializer was moved from config/ to api/ to keep config/ free of fastjson2 dependencies — a clean separation of data vs presentation"
+      ],
+      "issue_character": "Issues are isolated and localized: the most notable concern is that ExploreResponseAssembler and GrammarConfigSerializer live in api/ but are functionally presentation-layer serializers rather than HTTP handlers — acceptable given the package is cohesive but not entirely clean.",
+      "score_rationale": "The package structure is intentional and well-reasoned, with clear ownership boundaries and a dependency direction that flows model → config → exploration → api. A developer can navigate predictably and find things where expected. The one tension is api/ containing 11 files including two serializer utilities that don't touch HttpExchange — these could live in a model/serialization/ or api/serialization/ sub-package. This is a recurring friction point rather than a deep structural problem, placing the score in the 80s rather than 90s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "serializer_utilities_in_api",
+      "summary": "ExploreResponseAssembler and GrammarConfigSerializer are serialization utilities in api/ but have no HttpExchange dependency",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/GrammarConfigSerializer.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.java has no com.sun.net.httpserver import — it converts ExplorationResult/ComparisonResult to Map<String,Object>",
+        "GrammarConfigSerializer.java has no com.sun.net.httpserver import — it converts GrammarConfig/RelationConfig to JSONObject",
+        "Both are public final utility classes whose sole callers are handler classes in api/"
+      ],
+      "suggestion": "Create src/main/java/pl/marcinmilkowski/word_sketch/api/serialization/ and move both files there. Update 19 callers (handler classes and tests) with: (1) mv ExploreResponseAssembler.java → api/serialization/, (2) mv GrammarConfigSerializer.java → api/serialization/, (3) update package declarations, (4) rerun `mvn compile` to validate imports. Alternatively, keep them in api/ and accept the minor impurity — the package is otherwise coherent.",
+      "confidence": "low",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "api/ grew to include serialization helpers that were extracted from handler classes for testability, pulling them into the same package for practical reasons"
+    ],
+    "likely_symptoms": ["serializer_utilities_in_api"],
+    "possible_false_positives": []
+  }
+}

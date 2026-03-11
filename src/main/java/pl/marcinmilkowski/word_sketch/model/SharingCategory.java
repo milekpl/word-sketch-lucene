@@ -3,7 +3,7 @@ package pl.marcinmilkowski.word_sketch.model;
 /**
  * Adjective sharing category across a set of seed nouns in a semantic-field comparison.
  *
- * <p>Used by {@link pl.marcinmilkowski.word_sketch.api.ExploreResponseAssembler#formatAdjectiveProfile} for type-safe serialization
+ * <p>Used by the response assembler in the api layer for type-safe serialization
  * of the {@code category} field in API responses.</p>
  */
 public enum SharingCategory {

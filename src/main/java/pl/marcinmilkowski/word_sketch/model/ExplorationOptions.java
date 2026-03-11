@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.exploration;
+package pl.marcinmilkowski.word_sketch.model;
 
 /**
  * Shared exploration options for multi-seed exploration

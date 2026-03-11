@@ -1,0 +1,95 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 7,
+  "assessments": {
+    "low_level_elegance": 80.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern phases extracted into focused helpers: fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates — each does one thing",
+        "CollocateProfileComparator.buildAdjectiveProfileList uses a documented single-pass accumulation with explicit comment explaining why variance requires a second pass",
+        "CqlUtils.splitCqlTokens: outer while loop with inner while loop for bracket tracking; quoted strings inside brackets handled by a third nested level; multiple i-increment paths across branches including explicit i++ inside the ch=='\"' branch followed by the implicit inner i++ at the bottom of the inner loop",
+        "RelationConfig.computeDeprel() calls Pattern.compile('deprel=[\"\\']([^\"\\']+)[\"\\']') on every invocation — no static final field",
+        "CorpusQueryHandlers.parseBcqlRequest: top-parsing uses double null check: 'Integer top = obj.get(\"top\") != null ? obj.getIntValue(\"top\") : null; int resolvedTop = (top != null && top > 0) ? top : 10;'",
+        "SketchHandlers.executeRelationQueries uses BiFunction<RelationConfig, ExecutedSketch, Map<String,Object>> callback for the response-building step — functional but non-idiomatic Java orchestration",
+        "MultiSeedExplorer.buildCoreCollocates contains a stream-in-loop: per collocate, streams all per-seed collocate lists to compute average logDice — O(seeds × collocates) but acceptable at domain scale"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer algorithm phases extracted into well-named private helpers (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates) — a developer can read the main method as a pipeline",
+        "CollocateProfileComparator single-pass min/max/sum accumulation with documented rationale for the second variance pass — proportionate solution for the problem",
+        "CqlUtils.injectLemmaConstraint and substituteAtPosition are tightly scoped, do one thing, and have clear parameter semantics",
+        "VisualizationHandlers.handleVisualRadial uses a flat sequential parse — no nested conditionals for JSON field extraction"
+      ],
+      "issue_character": "Two isolated implementation quality issues: a Pattern recompiled on every RelationConfig.computeDeprel() call, and CqlUtils.splitCqlTokens with nested while loops and multiple i-increment paths that require careful tracing to verify correctness.",
+      "score_rationale": "Local implementation quality is generally clean — the extraction level is well-calibrated, helpers are focused, and algorithm phases are clearly separated. The score settles at 80 (solid but with recurring friction) because CqlUtils.splitCqlTokens requires non-trivial mental effort to verify index management correctness across its nested loops, and RelationConfig.computeDeprel() recompiles a Pattern on every call — both are specific but real cases where a developer must work harder than they should. The BiFunction orchestration in SketchHandlers is unusual for Java but readable in context."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "relation_config_pattern_recompile",
+      "summary": "RelationConfig.computeDeprel() compiles Pattern.compile() on every call — should be a static final field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "computeDeprel() body: 'Pattern p = Pattern.compile(\"deprel=[\\\"']([^\\\"']+)[\\\"']\");' — local variable created on every invocation",
+        "computeDeprel() is called from SketchHandlers.handleRelationsForType() inside a loop over all relations, and from buildRelationResponse() — repeated recompilation per request",
+        "Pattern.compile is documented as expensive; the pattern string is constant"
+      ],
+      "suggestion": "Extract the pattern as a private static final field: 'private static final Pattern DEPREL_PATTERN = Pattern.compile(\"deprel=[\\\"']([^\\\"']+)[\\\"']\");' and reference it in computeDeprel().",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "cql_utils_split_tokens_complex_index_management",
+      "summary": "CqlUtils.splitCqlTokens has nested while loops with multiple i-increment paths that make correctness hard to verify",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "The outer while loop has three branches: '[' (enters inner while), '\"' (enters inner while), else (explicit i++). Only the else branch has an explicit i++ — the '[' and '\"' branches rely on inner loops to advance i",
+        "Inside the '[' inner while: the '\"' sub-branch increments i explicitly (skip opening quote, loop over content with i++, then falls through to inner i++ skipping the closing quote), while the '[' and ']' branches do not increment — all rely on the inner loop's trailing i++",
+        "When ']' closes at depth==0, code does 'i++; break' — then the outer while starts the next iteration from the advanced i without any additional increment. This is correct but requires tracing three levels of increment to verify"
+      ],
+      "suggestion": "Extract a private helper method skipQuotedString(String pattern, int i) that advances past a quoted string and returns the new index. This isolates the quoting logic and makes the outer and inner loop bodies read as single-purpose sequences without interleaved increment management.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "corpus_query_handlers_double_null_top_parse",
+      "summary": "parseBcqlRequest uses a double-null-check chain to parse the optional 'top' integer field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "'Integer top = obj.get(\"top\") != null ? obj.getIntValue(\"top\") : null; int resolvedTop = (top != null && top > 0) ? top : 10;' — two ternary chains to handle absent vs invalid vs valid",
+        "fastjson2 JSONObject has containsKey() that can replace the first null check: 'int resolvedTop = obj.containsKey(\"top\") ? Math.max(1, obj.getIntValue(\"top\")) : 10;'"
+      ],
+      "suggestion": "Simplify to: 'int resolvedTop = obj.containsKey(\"top\") && obj.getIntValue(\"top\") > 0 ? obj.getIntValue(\"top\") : 10;' or extract a utility method parseOptionalInt(JSONObject, String, int) analogous to HttpApiUtils.parseIntParam.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "CqlUtils.splitCqlTokens was written as a direct implementation of bracket/quote grammar without factoring out the quoted-string skip into a helper",
+      "RelationConfig is a record, which discourages adding static fields; the Pattern was placed as a local variable as the path of least resistance"
+    ],
+    "likely_symptoms": ["relation_config_pattern_recompile", "cql_utils_split_tokens_complex_index_management", "corpus_query_handlers_double_null_top_parse"],
+    "possible_false_positives": []
+  }
+}

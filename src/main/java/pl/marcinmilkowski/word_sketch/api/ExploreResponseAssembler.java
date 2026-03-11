@@ -200,7 +200,7 @@ public final class ExploreResponseAssembler {
         Map<String, Object> m = new HashMap<>();
         m.put("source", edge.source());
         m.put("target", edge.target());
-        m.put("log_dice", Math.round(edge.weight() * 100.0) / 100.0);
+        m.put("log_dice", MathUtils.round2dp(edge.weight()));
         m.put("type", edge.type().label());
         return m;
     }

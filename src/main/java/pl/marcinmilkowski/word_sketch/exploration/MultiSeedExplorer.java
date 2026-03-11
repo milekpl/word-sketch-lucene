@@ -72,7 +72,7 @@ class MultiSeedExplorer {
                 commonCollocates, data.collocateSharedCount(), seedCollocScores, data.seedCollocateMap(), seeds.size());
 
         return new ExplorationResult(
-            String.join(",", seeds),
+            new java.util.ArrayList<>(seeds),
             seedCollocScores, seedCollocFreqs,
             discoveredNounsList, coreCollocatesList);
     }

@@ -1,0 +1,91 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 10,
+  "assessments": {"incomplete_migration": 90.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "GrammarConfigLoader comment at line 154: '// Canonical field name is \"pattern\"; cql_pattern is no longer supported' — the migration from cql_pattern to pattern is complete in the loader; the comment documents the completed migration, not an ongoing one.",
+        "GrammarConfigLoader.validateNoLegacyKeys() actively rejects the 'copulas' top-level key with an explicit IOException and migration guidance — this is a completed migration with an active guard, not a lingering shim.",
+        "WordSketchApiServer registers /api/semantic-field as a 'legacy alias' for the canonical /api/semantic-field/compare endpoint. The legacy path is documented (in class Javadoc and handler comment) and serves the comparison handler. There is no deprecation marker on the handler or interface — the alias is active with no tracked removal plan.",
+        "No @Deprecated annotations found in any production source file.",
+        "No TODO/FIXME comments referencing 'migrate', 'legacy', 'remove after', or 'old api' in production code (confirmed by grep).",
+        "GrammarConfig.getVersion() Javadoc says 'may be null for legacy configs' — this suggests a window where legacy configs without a 'version' field were still accepted, but the parser now throws IOException for missing version. The nullable annotation remains on getVersion() even though the parser enforces version presence — minor residue.",
+        "LongIntHashMap deletion is complete — no callers in production source (grep confirms).",
+        "BlackLabQueryExecutorIntegrationTest exists (not the old BlackLabDummyTest) — rename is complete.",
+        "No mixed JS/TS files (Java-only codebase).",
+        "No moment+dayjs or axios+fetch style duplicate library patterns.",
+        "ExplorationResult.seed field dual-mode encoding (single-seed vs multi-seed comma-join) is a design issue, not a migration artifact — the multi-seed feature was added cleanly, not via a compatibility shim.",
+        "The 'legacy' terminology in GrammarConfig.getVersion() Javadoc is residual documentation from when configs without version fields existed — the parser no longer accepts them, so the 'may be null for legacy configs' claim is misleading."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The /api/semantic-field legacy alias has no removal plan or @deprecated marker; GrammarConfig.getVersion() is annotated @Nullable with a 'legacy configs' rationale that no longer applies since the parser enforces version presence."
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The cql_pattern → pattern migration is complete and guarded: the loader rejects cql_pattern and documents the migration completion.",
+        "The copulas key rejection is an active guard that prevents legacy config formats from loading silently.",
+        "No @Deprecated symbols are called by active code.",
+        "No TODO/FIXME markers referencing migration, legacy, or removal in production code.",
+        "LongIntHashMap deletion and BlackLabDummyTest rename are both confirmed complete."
+      ],
+      "issue_character": "The codebase is largely clean of migration artifacts; the two remaining issues are a legacy HTTP alias without a removal plan and a misleading @Nullable annotation on GrammarConfig.getVersion() that documents a now-impossible null state.",
+      "score_rationale": "The codebase scores high on this dimension: completed migrations are properly cleaned up and guarded. The score stops just short of the 90s band because the /api/semantic-field legacy alias has no deprecation marker or tracked removal plan (a client could rely on it indefinitely without warning), and the @Nullable on getVersion() documents an impossible state, which misleads code that defensively null-checks the return value."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy_api_path_no_removal_plan",
+      "summary": "The /api/semantic-field legacy URL alias has no deprecation marker or removal plan, making it de-facto permanent",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.registerRoutes: registers /api/semantic-field as 'Semantic field comparison (legacy)' pointing to handleSemanticFieldComparison.",
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc: 'Also reachable at the legacy path /api/semantic-field.' — documented as legacy but no @deprecated marker or removal guidance.",
+        "There is no mechanism to notify clients using the legacy path (e.g., a Deprecation or Sunset HTTP response header), and no issue tracker reference in the comment."
+      ],
+      "suggestion": "Add a Deprecation response header (RFC 8594) or a Sunset header to responses from the /api/semantic-field legacy path, and document the canonical path in the response or in the API docs. Alternatively, if backward compatibility is not required (internal API), remove the alias and update any callers.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "undocumented_legacy_alias"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "grammar_config_version_nullable_stale",
+      "summary": "GrammarConfig.getVersion() is annotated @Nullable with 'for legacy configs' rationale, but the parser now enforces version presence — the nullable annotation documents a now-impossible null state",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "GrammarConfig.getVersion() Javadoc: 'may be null for legacy configs' — @Nullable annotation present.",
+        "GrammarConfigLoader.parseAndValidateVersion: throws IOException if version is null or blank — it is impossible for getVersion() to return null from a parsed config.",
+        "The only construction path for GrammarConfig is through GrammarConfigLoader.parse (via load or fromReader), so the null state is unreachable in production.",
+        "Code that defensively null-checks getVersion() (e.g., Main.java: `System.out.println(\"Loaded grammar config: \" + grammarConfig.getVersion())`) would be correct without the null check."
+      ],
+      "suggestion": "Change the return type of getVersion() to @NonNull String and remove the 'may be null for legacy configs' Javadoc note. Update any null-checks on getVersion() calls. This makes the parsed guarantee explicit in the type and removes misleading documentation.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stale_nullable_annotation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The @Nullable on getVersion() was added when the parser accepted configs without version fields; once parseAndValidateVersion was tightened to throw on missing version, the annotation was not updated.",
+      "The /api/semantic-field alias was preserved for backward compatibility when the canonical path was changed to /api/semantic-field/compare, but no removal plan was tracked."
+    ],
+    "likely_symptoms": [
+      "grammar_config_version_nullable_stale"
+    ],
+    "possible_false_positives": []
+  }
+}

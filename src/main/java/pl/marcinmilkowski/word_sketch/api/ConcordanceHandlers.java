@@ -48,38 +48,33 @@ class ConcordanceHandlers {
     void handleConcordanceExamples(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
-
-        String noun = HttpApiUtils.requireParam(params, "seed");
-        String adjective = HttpApiUtils.requireParam(params, "collocate");
-        String relation = params.getOrDefault("relation", "noun_adj_predicates");
-
-        int top = HttpApiUtils.parseIntParam(params, "top", 10);
+        ConcordanceExamplesRequest req = parseConcordanceExamplesRequest(params);
 
         String bcqlQuery = null;
-        var rel = grammarConfig.getRelation(relation);
+        var rel = grammarConfig.getRelation(req.relation());
         if (rel.isPresent()) {
-            String patternWithHead = RelationPatternBuilder.buildFullPattern(rel.get(), noun);
-            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, adjective, rel.get().collocatePosition());
+            String patternWithHead = RelationPatternBuilder.buildFullPattern(rel.get(), req.noun());
+            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, req.adjective(), rel.get().collocatePosition());
         }
 
         boolean fallback = false;
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
-                noun.toLowerCase(), adjective.toLowerCase());
+                req.noun().toLowerCase(), req.adjective().toLowerCase());
             fallback = true;
-            logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", relation, bcqlQuery);
+            logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", req.relation(), bcqlQuery);
         }
 
-        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, top);
+        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, req.top());
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("seed", noun);
-        response.put("collocate", adjective);
-        response.put("relation", relation);
+        response.put("seed", req.noun());
+        response.put("collocate", req.adjective());
+        response.put("relation", req.relation());
         response.put("bcql", bcqlQuery);
         response.put("fallback", fallback);
-        response.put("top_requested", top);
+        response.put("top_requested", req.top());
         response.put("total_results", results.size());
 
         List<Map<String, Object>> examplesList = new ArrayList<>();
@@ -92,5 +87,16 @@ class ConcordanceHandlers {
         response.put("examples", examplesList);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
+    }
+
+    /** Parsed and validated request parameters for {@link #handleConcordanceExamples}. */
+    private record ConcordanceExamplesRequest(String noun, String adjective, String relation, int top) {}
+
+    private ConcordanceExamplesRequest parseConcordanceExamplesRequest(Map<String, String> params) {
+        String noun = HttpApiUtils.requireParam(params, "seed");
+        String adjective = HttpApiUtils.requireParam(params, "collocate");
+        String relation = params.getOrDefault("relation", "noun_adj_predicates");
+        int top = HttpApiUtils.parseIntParam(params, "top", 10);
+        return new ConcordanceExamplesRequest(noun, adjective, relation, top);
     }
 }

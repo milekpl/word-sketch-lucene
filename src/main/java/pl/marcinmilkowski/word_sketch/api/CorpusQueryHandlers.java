@@ -45,7 +45,6 @@ class CorpusQueryHandlers {
      */
     void handleCorpusQuery(HttpExchange exchange) throws IOException {
         BcqlRequest req = parseBcqlRequest(exchange);
-        if (req == null) return;
 
         logger.debug("BCQL query: {}", req.query());
 
@@ -60,14 +59,13 @@ class CorpusQueryHandlers {
      * Throws {@link IllegalArgumentException} for 400-class validation failures (missing/blank
      * query, pattern too long, pattern too complex); {@code wrapWithErrorHandling} maps these to
      * 400 responses automatically.
-     * Returns {@code null} only for 413 Request Entity Too Large (body exceeds size limit),
-     * which must be sent directly here since {@code wrapWithErrorHandling} cannot express 413.
+     * Throws {@link RequestEntityTooLargeException} when the body exceeds the size limit;
+     * {@code wrapWithErrorHandling} maps this to HTTP 413.
      */
     private BcqlRequest parseBcqlRequest(HttpExchange exchange) throws IOException {
         byte[] bodyBytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BODY_BYTES + 1);
         if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) {
-            HttpApiUtils.sendError(exchange, 413, "Request body too large");
-            return null;
+            throw new RequestEntityTooLargeException("Request body too large");
         }
         String body = new String(bodyBytes, StandardCharsets.UTF_8);
         JSONObject obj;

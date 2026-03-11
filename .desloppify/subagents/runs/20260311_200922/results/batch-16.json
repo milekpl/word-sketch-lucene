@@ -1,0 +1,62 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 16,
+  "assessments": {"cross_module_architecture": 85.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is consistently downward: api → [exploration, config, model, query, viz]; exploration → [config, model, query]; config → [model, utils]; query → utils; model → (nothing internal); utils → (nothing internal). No upward or reciprocal cross-package imports detected",
+        "Main.java (root package) imports from api, config, indexer, query — acceptable entry-point fan-out for a CLI orchestrator. Main is the only class in the root package",
+        "ExploreResponseAssembler is in api/ and imports from model/ — correct direction. The recent move from model/ to api/ eliminated a presentation-layer class from the domain model package, improving boundary integrity",
+        "SemanticFieldExplorer (exploration/) imports RelationUtils from config/ — this is a legitimate downward dependency: exploration uses config to derive CQL patterns",
+        "CollocateProfileComparator (exploration/) imports RelationUtils from config/ — same legitimate pattern",
+        "api/ handler classes import from exploration/ (SemanticFieldExplorer), config/ (GrammarConfig, RelationConfig, RelationUtils, RelationPatternBuilder), model/ (data classes), query/ (QueryExecutor, QueryResults) — all are downward dependencies",
+        "No cycles detected: the DAG is api→exploration→config→model, api→config→model, api→query, exploration→query, query→utils, config→utils",
+        "indexer/ package is only imported by Main.java — it is a leaf in the dependency graph with no inbound dependencies from the main application packages. This is correct: indexing is a one-way data pipeline concern",
+        "viz/ (RadialPlot) is only imported by api/VisualizationHandlers — also a leaf. Both viz/ and indexer/ are correctly isolated from the query/exploration core",
+        "QueryExecutor interface in query/ acts as an inversion point: exploration/ and api/ depend on the interface, not the BlackLabQueryExecutor implementation. This is a clean architectural boundary"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Clean acyclic dependency graph with no reciprocal or bidirectional edges between packages",
+        "QueryExecutor interface provides an inversion-of-control boundary between the exploration/api layers and the BlackLab implementation",
+        "indexer/ and viz/ are correctly isolated leaf packages with no cross-contamination of their concerns into the core query/exploration pipeline",
+        "The model/ package is a true domain model with zero internal imports — used as a shared type language across all layers without creating coupling"
+      ],
+      "issue_character": "No significant architectural boundary violations found. The dependency graph is a clean DAG. The only minor consideration is that the api/ package is a relatively large hub (imports from 5 other packages) but this is appropriate for an HTTP presentation layer that must coordinate all downstream concerns.",
+      "score_rationale": "This codebase has a well-maintained dependency DAG with no cycles, clear layer boundaries, and an interface-based inversion point for the corpus access layer. The api/ package serves as the top-level coordinator, which is architecturally correct. Scoring at 85 reflects strong but not exceptional architecture — a truly high-scoring codebase would have clearly documented architectural contracts (e.g., ADRs) and potentially narrower interface ports. The QueryExecutor combining all query modes is acknowledged in its own Javadoc as a future split candidate."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "query_executor_broad_interface",
+      "summary": "QueryExecutor combines surface pattern, collocate, concordance, BCQL, and dependency query methods in one interface — acknowledged in Javadoc as a future split candidate but currently a wide interface with 7 methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor declares 7 methods: executeCollocations, executeCqlQuery, executeBcqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern, executeDependencyPatternWithPos",
+        "Javadoc states: 'The single production implementation (BlackLabQueryExecutor) means the interface acts primarily as a testability seam rather than an abstraction boundary. A future split into narrower ports... is feasible but deferred'",
+        "Test stubs (StubExecutor in SemanticFieldExplorerInternalTest) must implement all 7 methods even when the tested path only uses executeCollocations and executeSurfacePattern — all stubs return empty/0 for the unused methods"
+      ],
+      "suggestion": "When a second executor implementation or clearer isolation need arises, split into CollocateQueryPort (executeCollocations, executeSurfacePattern, getTotalFrequency) and ConcordanceQueryPort (executeCqlQuery, executeBcqlQuery) and DependencyQueryPort (executeDependencyPattern, executeDependencyPatternWithPos). For now, the existing Javadoc note is sufficient as a deferred decision record.",
+      "confidence": "low",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The broad QueryExecutor interface reflects pragmatic testability design rather than a boundary violation — it is documented and intentional"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

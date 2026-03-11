@@ -1,0 +1,83 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {"type_safety": 74.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "org.jspecify @Nullable and @NonNull annotations are used consistently on public API return types and parameters: RelationConfig.computeDeprel(), GrammarConfig.getVersion(), GrammarConfig.getConfigPath(), QueryResults.CollocateResult.collocateLemma all annotated @Nullable",
+        "ExploreResponseAssembler public methods annotated with @NonNull on all parameters and return types — highest annotation density in the codebase",
+        "SemanticFieldExplorer public methods use @NonNull on parameters — correct",
+        "Relation IDs are raw String throughout the codebase: RelationUtils.RELATION_ALIASES maps String→String; resolveRelationAlias takes and returns String; getRelation(String id) in GrammarConfig takes String. No RelationId type wrapper exists. An invalid alias like 'adj_predicat' (typo) would silently pass through and produce a downstream 'Unknown relation' error rather than a compile-time or construction-time failure",
+        "CorpusQueryHandlers.parseBcqlRequest returns @Nullable BcqlRequest (null for 413 case) without @Nullable annotation on the method signature — static analysis tools would not warn callers about the null return",
+        "ExplorationHandlers private record ExplorationParams uses plain int/double fields without validation — negative values for topCollocates or minShared are silently passed to ExplorationOptions and then to query methods. No precondition annotations or assertions.",
+        "RelationConfig.relationType() returns Optional<RelationType> — correctly models the absent case. Used consistently with isEmpty()/ifPresent() throughout callers",
+        "QueryResults uses sealed interface ConcordanceResult with permits SnippetResult, CollocateResult — good use of sealed types for exhaustive switching. All record implementations override the interface methods correctly",
+        "SharingCategory enum used in ExploreResponseAssembler.formatAdjectiveProfile() via adj.sharingCategory().label() — the recent addition of this enum eliminates the raw-string comparison that would have existed before. Good improvement.",
+        "RelationEdgeType enum used in Edge record and serialized via .label() — no raw string comparisons for edge types observed"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "org.jspecify annotations applied to all public-facing nullable return types in core classes",
+        "SharingCategory and RelationEdgeType enums prevent raw string comparison for serialization categories",
+        "Sealed interface hierarchy for ConcordanceResult provides exhaustive type checking at use sites",
+        "Optional<RelationType> used consistently throughout RelationConfig, with proper isEmpty/isPresent guards at all use sites"
+      ],
+      "issue_character": "The most pervasive type safety gap is the untyped relation ID surface: relation identifiers (both canonical IDs like 'noun_adj_predicates' and alias strings like 'adj_predicate') flow through the system as raw Strings with no compile-time checking. Invalid IDs only fail at query time.",
+      "score_rationale": "Java's static type system is well exploited for data models (enums, sealed interfaces, records, Optional). The main gap is in the dynamic config/routing layer where relation IDs are raw strings. This is a moderate concern given that relation IDs are used in HTTP query parameters, RelationUtils alias resolution, GrammarConfig lookup, and multiple handler methods. A codebase with comprehensive nullable annotations but one systemic untyped surface scores in the mid-70s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "untyped_relation_ids",
+      "summary": "Grammar relation IDs and aliases flow as raw String throughout the system — typos or unknown aliases only fail at runtime with a 400 error, not at compile or construction time",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "RelationUtils.resolveRelationAlias(String) takes and returns plain String — all 8 canonical aliases are magic string literals in RELATION_ALIASES",
+        "GrammarConfig.getRelation(String id) — id is an unvalidated String; invalid ids return Optional.empty() silently",
+        "ExplorationHandlers.resolveRelationConfig: params.getOrDefault(\"relation\", \"noun_adj_predicates\") — default is a magic string literal",
+        "ConcordanceHandlers: String relation = params.getOrDefault(\"relation\", \"noun_adj_predicates\") — another magic literal"
+      ],
+      "suggestion": "Introduce a lightweight RelationId value type or use an enum for known aliases. At minimum, extract relation ID constants to a single public class (e.g., RelationIds.ADJ_PREDICATE = \"noun_adj_predicates\") to eliminate magic string literals. This provides one-place renaming and static analysis symbol tracking without requiring a full type refactor.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "parseBcqlRequest_unannotated_nullable",
+      "summary": "CorpusQueryHandlers.parseBcqlRequest has a nullable return (null on 413) with no @Nullable annotation on the method signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "Line 66: private BcqlRequest parseBcqlRequest(HttpExchange exchange) — declared return type is non-nullable BcqlRequest",
+        "Line 69-70: sends 413 error and returns null",
+        "Line 47: if (req == null) return; — caller null-checks, but without @Nullable the type system doesn't enforce this on any future callers"
+      ],
+      "suggestion": "Add @Nullable annotation from org.jspecify to the return type: private @org.jspecify.annotations.Nullable BcqlRequest parseBcqlRequest(HttpExchange exchange). This makes the contract explicit and will generate IDE/static analysis warnings if callers forget the null check.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Relation ID strings as a dynamic config system predate any type-safe wrapper; adding one requires coordinated changes across API, config, and exploration layers",
+      "The nullable return without annotation is a Java habit from pre-annotation codebases"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

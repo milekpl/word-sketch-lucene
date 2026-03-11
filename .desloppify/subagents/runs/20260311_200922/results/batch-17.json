@@ -1,0 +1,64 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {"initialization_coupling": 84.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "Java has no module-level import-time side effects in the Python sense. No static initializers with I/O, DB connections, or network calls found in any class",
+        "BlackLabQueryExecutor constructor performs file I/O (opens BlackLab index). Javadoc explicitly notes: 'Constructor I/O note: opening the index is inherent to BlackLab's lifecycle model — the index must be open before any query can execute' — documented as intentional by design, not accidental coupling",
+        "BlackLabQueryExecutor declares throws IOException on its constructor so callers receive a checked exception if the index is missing or corrupt — the I/O coupling is surfaced, not hidden",
+        "CollocateQueryHelper accepts a @Nullable BlackLabIndex in its constructor specifically to enable test subclasses — this is a testability seam that avoids forcing tests to open a real index. The null is documented and guarded with Objects.requireNonNull at method level",
+        "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty('grammar.config', 'grammars/relations.json') at call time — not at class load time. This allows per-test overrides via System.setProperty and is consistent with how CORS origin is also read at call time in HttpApiUtils",
+        "WordSketchApiServer constructor builds handler objects but defers port binding to start() — this separation means construction does not open sockets. Comment on line 69 documents this: 'Port binding is deferred to start() so that construction and network binding are separated'",
+        "SemanticFieldExplorer constructor derives nounCqlConstraint from GrammarConfig at construction time — this is a pure computation over an already-loaded config object, not I/O or network. The derived value is stable and correct as a constructor-time computation",
+        "CollocateProfileComparator constructor similarly derives adjectivePattern from GrammarConfig at construction — same pattern, same rationale",
+        "Main.handleBlackLabServerCommand registers a shutdown hook before constructing the server: 'Register the shutdown hook before constructing the server so the executor is always closed even if server construction throws' — comment shows awareness of initialization ordering",
+        "No global singletons with cross-class initialization order dependencies detected. Each class receives its dependencies via constructor injection"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "No static initializers with side effects anywhere in the codebase",
+        "System property reads deferred to call time (not class load time) — CORS origin, grammar config path both read at call time, enabling test overrides",
+        "Port binding separated from server construction in WordSketchApiServer",
+        "Shutdown hook registration ordered before server construction in Main to ensure cleanup even on construction failure",
+        "Constructor injection throughout — no hidden service locator or global mutable state"
+      ],
+      "issue_character": "The only initialization concern is BlackLabQueryExecutor performing file I/O in the constructor, which is documented as intentional. There are no circular init dependencies, import-time side effects, or boot-order hazards.",
+      "score_rationale": "Java's compilation model eliminates most import-time side effect risks present in Python/Node codebases. This codebase is further disciplined: system property reads are deferred to call time, port binding is separated from construction, and constructor injection prevents hidden initialization ordering. The BlackLabQueryExecutor constructor I/O is the only pattern that could complicate testing, and it is explicitly handled via the null-accepting CollocateQueryHelper constructor. Scoring at 84 reflects strong initialization discipline with one intentional, documented constructor I/O coupling."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "blacklabqueryexecutor_constructor_io",
+      "summary": "BlackLabQueryExecutor opens the BlackLab index file in its constructor, making it impossible to construct without a valid index path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Line 58: public BlackLabQueryExecutor(String indexPath) throws IOException — constructor opens file",
+        "Line 61: this.blackLabIndex = BlackLab.open(new File(indexPath)) — file I/O in constructor",
+        "Tests requiring BlackLabQueryExecutor behavior must either have a real index available or create a subclass/mock — BlackLabQueryExecutorTest uses Assumptions.assumeTrue to skip live-index tests when no index is provided"
+      ],
+      "suggestion": "The current design is documented as intentional and appropriate for BlackLab's lifecycle model. If future requirements call for deferred opening (e.g., lazy initialization or health-check mode), consider a static factory: BlackLabQueryExecutor.open(String indexPath) that performs the I/O, keeping the constructor private and side-effect-free. For now, the existing design with the documented rationale is acceptable.",
+      "confidence": "low",
+      "impact_scope": "module",
+      "fix_scope": "architectural_change"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Constructor I/O in BlackLabQueryExecutor is a deliberate design decision driven by BlackLab's resource lifecycle, not accidental coupling"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

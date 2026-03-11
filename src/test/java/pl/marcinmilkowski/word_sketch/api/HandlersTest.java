@@ -395,6 +395,16 @@ class HandlersTest {
         assertEquals(400, ex.statusCode);
     }
 
+    @Test
+    void handleCorpusQuery_bodyTooLarge_returns413() throws Exception {
+        CorpusQueryHandlers handlers = new CorpusQueryHandlers(null);
+        // Build a body slightly larger than MAX_REQUEST_BODY_BYTES (65536)
+        String oversizedBody = "{\"query\":\"" + "x".repeat(65530) + "\"}";
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/bcql", oversizedBody);
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleCorpusQuery, "test-bcql").handle(ex);
+        assertEquals(413, ex.statusCode);
+    }
+
     // ── SketchHandlers dispatch tests ────────────────────────────────────────
 
     @Test

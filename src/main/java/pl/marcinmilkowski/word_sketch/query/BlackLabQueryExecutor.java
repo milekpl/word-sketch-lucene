@@ -20,6 +20,7 @@ import nl.inl.blacklab.search.results.QueryInfo;
 import nl.inl.blacklab.search.textpattern.TextPattern;
 import nl.inl.blacklab.search.textpattern.CompleteQuery;
 import nl.inl.blacklab.queryParser.contextql.ContextualQueryLanguageParser;
+import nl.inl.blacklab.exceptions.ErrorOpeningIndex;
 import nl.inl.blacklab.exceptions.InvalidQuery;
 
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
@@ -59,8 +60,11 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         this.indexPath = indexPath;
         try {
             this.blackLabIndex = BlackLab.open(new File(indexPath));
-        } catch (Exception e) {
-            throw new IOException("Failed to open index: " + e.getMessage(), e);
+        } catch (ErrorOpeningIndex e) {
+            // ErrorOpeningIndex extends RuntimeException — BlackLab uses it to signal a missing
+            // or malformed index, so we catch it explicitly and convert to a checked IOException
+            // to give callers a consistent, predictable contract.
+            throw new IOException("Failed to open BlackLab index at '" + indexPath + "': " + e.getMessage(), e);
         }
         this.collocateQueryHelper = new CollocateQueryHelper(blackLabIndex);
     }

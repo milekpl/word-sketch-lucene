@@ -7,7 +7,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Immutable result of semantic field exploration from a single seed word.
+ * Immutable result of semantic field exploration from one or more seed words.
  *
  * <p>Produced by {@code SemanticFieldExplorer#exploreByPattern}. All collections are
  * non-null; empty collections indicate the exploration found no candidates. Use
@@ -21,41 +21,44 @@ import java.util.stream.Collectors;
  */
 public class ExplorationResult {
     /**
-     * The seed word(s) this result was built from.
+     * The seed words this result was built from.
      *
-     * <p><strong>Single-seed mode:</strong> contains the lemma string (e.g. {@code "house"}).
-     * <strong>Multi-seed mode:</strong> contains the seeds joined with a comma
-     * (e.g. {@code "theory,model,hypothesis"}). Use {@link #seeds()} to iterate them
-     * independently of the mode.</p>
+     * <p>In single-seed mode this is a one-element list (e.g. {@code ["house"]});
+     * in multi-seed mode it holds all seeds (e.g. {@code ["theory", "model", "hypothesis"]}).
+     * Use {@link #seed()} for a combined display string and {@link #seeds()} to iterate
+     * individual lemmas.</p>
      */
-    private final String seed;
+    private final List<String> seeds;
     private final Map<String, Double> seedCollocates;  // collocate -> logDice with seed
     private final Map<String, Long> seedCollocateFrequencies;  // collocate -> raw frequency
     private final List<DiscoveredNoun> discoveredNouns;
     private final List<CoreCollocate> coreCollocates;
 
-    public ExplorationResult(String seed, Map<String, Double> seedCollocates,
+    public ExplorationResult(List<String> seeds, Map<String, Double> seedCollocates,
             Map<String, Long> seedCollocateFrequencies,
             List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates) {
-        this.seed = seed;
+        this.seeds = List.copyOf(seeds);
         this.seedCollocates = seedCollocates;
         this.seedCollocateFrequencies = seedCollocateFrequencies;
         this.discoveredNouns = discoveredNouns;
         this.coreCollocates = coreCollocates;
     }
 
-    /** @return the seed word(s); in single-seed mode this is the lemma, in multi-seed mode it is a
-     *          comma-joined string — see field Javadoc for details */
-    public String seed() { return seed; }
+    /**
+     * Returns the seed word(s) as a combined display string.
+     * In single-seed mode this is the lemma; in multi-seed mode it is comma-joined
+     * (e.g. {@code "theory,model,hypothesis"}). Use {@link #seeds()} to iterate individual lemmas.
+     */
+    public String seed() { return String.join(",", seeds); }
 
     /**
-     * Returns individual seed lemmas.
-     * In single-seed mode returns a one-element list; in multi-seed mode splits on {@code ","}.
+     * Returns individual seed lemmas as an immutable list.
+     * In single-seed mode returns a one-element list; in multi-seed mode returns all seeds.
      *
      * @return non-null, non-empty list of individual seed lemmas
      */
     public List<String> seeds() {
-        return List.of(seed.split(","));
+        return seeds;
     }
 
     /** @return collocate lemma → logDice score for the seed; never null, may be empty */
@@ -78,7 +81,7 @@ public class ExplorationResult {
      */
     public static ExplorationResult empty(String seed) {
         Objects.requireNonNull(seed, "seed must not be null");
-        return new ExplorationResult(seed, Map.of(), Map.of(), List.of(), List.of());
+        return new ExplorationResult(List.of(seed), Map.of(), Map.of(), List.of(), List.of());
     }
 
     /** @return {@code true} when no nouns were discovered; i.e. the result is empty */
@@ -111,7 +114,7 @@ public class ExplorationResult {
     @Override
     public String toString() {
         return String.format("ExplorationResult(seed='%s', collocates=%d, discovered=%d, core=%d)",
-            seed, seedCollocates.size(), discoveredNouns.size(), coreCollocates.size());
+            seed(), seedCollocates.size(), discoveredNouns.size(), coreCollocates.size());
     }
 
 }

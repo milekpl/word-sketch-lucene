@@ -1,0 +1,80 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 12,
+  "assessments": {"contract_coherence": 77.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface methods all declare IOException and document their null-input behaviour clearly: executeCollocations returns empty list silently for null/empty lemma per Javadoc",
+        "BlackLabQueryExecutor.executeCollocations returns Collections.emptyList() for null/empty lemma — contract honored",
+        "GrammarConfigLoader.createDefaultEnglish() wraps IOException in IllegalStateException — the thrown exception type differs from the IOException declared on load(Path). Callers of the two methods face different exception contracts for the same underlying failure",
+        "CorpusQueryHandlers.parseBcqlRequest is declared to return BcqlRequest but returns null for the 413 case — the method signature has no @Nullable annotation, making the null return a hidden contract obligation on callers",
+        "CollocateQueryHelper constructor documents null acceptance for testing but the Javadoc note is on the constructor comment, not the parameter type — callers relying only on type signature have no signal that null is a valid input",
+        "RelationConfig.computeDeprel() returns @Nullable String and is annotated correctly with org.jspecify @Nullable",
+        "GrammarConfig.getVersion() and getConfigPath() correctly annotated with @Nullable",
+        "ExplorationHandlers.resolveRelationConfig throws IllegalArgumentException — documented in Javadoc as caught by wrapWithErrorHandling; this is a consistent internal contract",
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti both call resolveRelationConfig (which validates relationType presence), then call orElseThrow again on relationType — the second orElseThrow is redundant but not a contract violation: it documents an invariant",
+        "ConcordanceHandlers.handleConcordanceExamples initializes bcqlQuery = null then conditionally assigns it; if rel.isEmpty(), falls through to the fallback check. The null default is functional but the pattern makes it less obvious that null means 'relation not found'"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface comprehensively documents all null-input and empty-result behaviours",
+        "Nullable returns in RelationConfig, GrammarConfig are properly annotated with org.jspecify",
+        "Error contracts in handler methods are consistent: IAE → 400 via wrapWithErrorHandling, documented in each method's Javadoc",
+        "SemanticFieldExplorer public methods declare @NonNull on inputs and document preconditions"
+      ],
+      "issue_character": "The main contract gap is CorpusQueryHandlers.parseBcqlRequest returning null without @Nullable annotation, and GrammarConfigLoader having two public entry points (load vs createDefaultEnglish) with different exception contracts for the same failure mode.",
+      "score_rationale": "Most contracts are honored and documented well. The nullable-return without annotation in parseBcqlRequest is the most concrete violation: callers relying on the return type have no static signal. The exception-contract mismatch between load() and createDefaultEnglish() creates a consistency gap for callers who need to catch failures. A codebase this size with this many well-documented methods scores in the upper-middle range — the issues are real but limited to two specific patterns."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "parseBcqlRequest_nullable_return",
+      "summary": "CorpusQueryHandlers.parseBcqlRequest returns null for 413 case but method signature has no @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "Line 66: private BcqlRequest parseBcqlRequest(HttpExchange exchange) — declared non-null return type",
+        "Line 69: HttpApiUtils.sendError(exchange, 413, ...); return null; — returns null on 413 path",
+        "Caller at line 47: BcqlRequest req = parseBcqlRequest(exchange); if (req == null) return; — caller must null-check, but has no static type signal"
+      ],
+      "suggestion": "Add @Nullable annotation (org.jspecify) to the return type: private @Nullable BcqlRequest parseBcqlRequest(HttpExchange exchange). Alternatively, make the 413 handling inline in handleCorpusQuery to avoid the null-return pattern entirely.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "grammar_config_loader_exception_mismatch",
+      "summary": "GrammarConfigLoader.load(Path) throws IOException while createDefaultEnglish() wraps it in IllegalStateException — callers face different exception contracts for the same failure mode",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 60: public static GrammarConfig load(Path configPath) throws IOException",
+        "Line 209: public static GrammarConfig createDefaultEnglish() — throws IllegalStateException wrapping IOException",
+        "Callers who switch from createDefaultEnglish() to load() must add IOException handling; callers who do the reverse lose checked-exception enforcement"
+      ],
+      "suggestion": "Document in GrammarConfigLoader Javadoc that createDefaultEnglish() is explicitly a fail-fast startup helper that converts IOException to ISE so it can be called without try/catch in startup code. This is already partially done in the existing Javadoc but should be made more prominent to clarify the intentional contract divergence.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Nullable returns without annotations is a Java pre-annotation habit that persists in newly written code",
+      "The exception contract mismatch arises from load() being a general-purpose API while createDefaultEnglish() is a startup convenience — two valid but incompatible design goals combined without explicit documentation of the divergence"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

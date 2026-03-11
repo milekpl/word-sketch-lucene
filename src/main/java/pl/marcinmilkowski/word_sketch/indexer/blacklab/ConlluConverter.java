@@ -37,63 +37,84 @@ public class ConlluConverter {
      */
     public static long[] convertConlluToWplChunks(Path input, Path outputDir, int sentencesPerChunk)
             throws IOException {
-        long sentences = 0, tokens = 0, chunks = 0;
+        long[] state = {0, 0, 0}; // [sentences, tokens, chunks]
+        Optional<BufferedWriter> writerOpt = Optional.empty();
+
+        try (BufferedReader reader = Files.newBufferedReader(input, StandardCharsets.UTF_8)) {
+            writerOpt = processLines(reader, outputDir, sentencesPerChunk, state);
+        } finally {
+            if (writerOpt.isPresent()) {
+                // On the error path the in-progress sentence is left open deliberately:
+                // writing a partial </s> tag would produce a malformed chunk that is
+                // harder to detect than an abrupt EOF. The try-with-resources below
+                // ensures the writer is always closed (flushing any buffered bytes) even
+                // if close() itself throws.
+                // NOTE: state[2]++ runs unconditionally after close, so every chunk file
+                // that was opened (including error-path chunks) is counted.
+                try (BufferedWriter toClose = writerOpt.get()) {
+                }
+                state[2]++;
+            }
+        }
+        return state;
+    }
+
+    /**
+     * Reads all lines from {@code reader} and writes sentence-annotated WPL tokens to
+     * rotating chunk files. Returns the writer for the last open chunk (if any), so the
+     * caller can close it and increment the chunk counter.
+     */
+    private static Optional<BufferedWriter> processLines(
+            BufferedReader reader, Path outputDir, int sentencesPerChunk, long[] state)
+            throws IOException {
         boolean inSentence = false;
         int sentencesInChunk = 0;
         Optional<BufferedWriter> writerOpt = Optional.empty();
 
-        try (BufferedReader reader = Files.newBufferedReader(input, StandardCharsets.UTF_8)) {
+        try {
             String line;
-            try {
-                while ((line = reader.readLine()) != null) {
-                    if (line.startsWith("#")) continue;
-                    if (line.isBlank()) {
-                        if (inSentence) {
-                            writerOpt.get().write("</s>\n");
-                            sentences++;
-                            sentencesInChunk++;
-                            inSentence = false;
-                            Optional<long[]> rotated = rotateChunkIfNeeded(writerOpt.get(), outputDir, chunks, sentencesInChunk, sentencesPerChunk);
-                            if (rotated.isPresent()) {
-                                writerOpt = Optional.empty();
-                                chunks = rotated.get()[0];
-                                sentencesInChunk = 0;
-                            }
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("#")) continue;
+                if (line.isBlank()) {
+                    if (inSentence) {
+                        writerOpt.get().write("</s>\n");
+                        state[0]++;
+                        sentencesInChunk++;
+                        inSentence = false;
+                        Optional<long[]> rotated = rotateChunkIfNeeded(writerOpt.get(), outputDir, state[2], sentencesInChunk, sentencesPerChunk);
+                        if (rotated.isPresent()) {
+                            writerOpt = Optional.empty();
+                            state[2] = rotated.get()[0];
+                            sentencesInChunk = 0;
                         }
-                        continue;
                     }
-                    if (MWT_OR_EMPTY.matcher(line).find()) continue;
-                    if (!inSentence) {
-                        if (writerOpt.isEmpty()) {
-                            writerOpt = Optional.of(openChunk(outputDir, chunks));
-                        }
-                        writerOpt.get().write("<s>\n");
-                        inSentence = true;
+                    continue;
+                }
+                if (MWT_OR_EMPTY.matcher(line).find()) continue;
+                if (!inSentence) {
+                    if (writerOpt.isEmpty()) {
+                        writerOpt = Optional.of(openChunk(outputDir, state[2]));
                     }
-                    writerOpt.get().write(line);
-                    writerOpt.get().write('\n');
-                    tokens++;
+                    writerOpt.get().write("<s>\n");
+                    inSentence = true;
                 }
-                if (inSentence && writerOpt.isPresent()) {
-                    writerOpt.get().write("</s>\n");
-                    sentences++;
-                }
-            } finally {
-                if (writerOpt.isPresent()) {
-                    // On the error path the in-progress sentence is left open deliberately:
-                    // writing a partial </s> tag would produce a malformed chunk that is
-                    // harder to detect than an abrupt EOF. The try-with-resources below
-                    // ensures the writer is always closed (flushing any buffered bytes) even
-                    // if close() itself throws.
-                    // NOTE: chunks++ runs unconditionally after close, so every chunk file
-                    // that was opened (including error-path chunks) is counted.
-                    try (BufferedWriter toClose = writerOpt.get()) {
-                    }
-                    chunks++;
-                }
+                writerOpt.get().write(line);
+                writerOpt.get().write('\n');
+                state[1]++;
             }
+            if (inSentence && writerOpt.isPresent()) {
+                writerOpt.get().write("</s>\n");
+                state[0]++;
+            }
+        } catch (IOException e) {
+            // Close the writer before re-throwing so resources are not leaked.
+            if (writerOpt.isPresent()) {
+                try { writerOpt.get().close(); } catch (IOException suppressed) { e.addSuppressed(suppressed); }
+                writerOpt = Optional.empty();
+            }
+            throw e;
         }
-        return new long[]{sentences, tokens, chunks};
+        return writerOpt;
     }
 
     /**

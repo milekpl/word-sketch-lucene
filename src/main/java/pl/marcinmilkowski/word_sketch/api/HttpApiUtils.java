@@ -52,6 +52,9 @@ class HttpApiUtils {
         return exchange -> {
             try {
                 handler.handle(exchange);
+            } catch (RequestEntityTooLargeException e) {
+                logger.warn("{} request too large", description, e);
+                sendError(exchange, 413, e.getMessage());
             } catch (IllegalArgumentException e) {
                 logger.warn("{} client error", description, e);
                 sendError(exchange, 400, "Bad request: " + e.getMessage());
@@ -192,7 +195,7 @@ class HttpApiUtils {
      * @param query the raw query string (may be null or empty); percent-encoded characters are decoded
      * @return mutable map of decoded parameter names to decoded values; never null
      * @throws IllegalArgumentException if any key or value cannot be URL-decoded, so
-     *         callers and {@code wrapHandler} can return a 400 Bad Request response rather than
+     *         callers and {@link #wrapWithErrorHandling} can return a 400 Bad Request response rather than
      *         silently producing a malformed parameter map.
      */
     public static @NonNull Map<String, String> parseQueryParams(@Nullable String query) {

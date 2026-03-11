@@ -1,0 +1,88 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 4,
+  "assessments": {"naming_quality": 82.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Domain vocabulary is used consistently throughout: 'seed', 'collocate', 'logDice', 'lemma', 'relation', 'deprel', 'bcql', 'pattern' appear across all layers with the same meaning.",
+        "Method names in the exploration layer communicate domain intent well: exploreByPattern, compareCollocateProfiles, fetchExamples, computeCollocateIntersection, buildAdjectiveProfileList.",
+        "QueryExecutor interface method names use the execute* verb family consistently: executeCollocations, executeCqlQuery, executeBcqlQuery, executeSurfacePattern, executeDependencyPattern, executeDependencyPatternWithPos.",
+        "Handler method names follow the handle* verb: handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison, handleSketchRequest — consistently named by HTTP action and endpoint.",
+        "resolveRelationConfig and resolveExplorationParams both use 'resolve' for parameter extraction/validation — 'resolve' connotes finding a value from a context, which fits but could be confused with building or parsing. 'extractAndValidateRelationConfig' or 'parseRelationConfig' would be more precise.",
+        "buildBaseExploreResponse builds a partially-populated map that callers then extend — 'base' signals incompleteness but 'build' implies a complete result. Name slightly misleads about the return being a partial map.",
+        "buildBcqlWithLemmaSubstitution in BlackLabQueryExecutor is descriptive and accurate.",
+        "wrapHandler in WordSketchApiServer is a private method that delegates to HttpApiUtils.wrapWithErrorHandling — two names for the same operation, introducing a minor vocabulary split (wrapHandler vs. wrapWithErrorHandling).",
+        "deriveNounCqlConstraint, deriveAdjectivePattern, deriveHeadPositionFromPattern all use 'derive' consistently for computed/inferred values.",
+        "parseBcqlRequest returns null on 413 but is named 'parse' — a 'parse' method returning null with side effects (sending HTTP response) violates the name/behaviour contract.",
+        "CollocateQueryHelper.executeCollocateSearch returns a CollocateSearch record — 'search' vs. 'execute' mixed for grouped result retrieval (the method both executes a query and groups results).",
+        "fetchSeedCollocates vs. buildCollocateToNounsMap: 'fetch' signals I/O while 'build' signals construction — this distinction is intentional and correct.",
+        "No generic process/handle/do/manage verbs found in domain code."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "parseBcqlRequest's name/behaviour mismatch (returns null with side effects), and resolveExplorationParams/resolveRelationConfig using 'resolve' where 'parse' or 'validate' would be more precise."
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "Domain vocabulary (seed, collocate, logDice, lemma, bcql, relation) is used consistently across all packages without local synonyms.",
+        "The execute* verb family in QueryExecutor precisely differentiates collocate lookup, CQL concordance, BCQL concordance, surface pattern, and dependency pattern methods.",
+        "The derive* convention for inferred/computed values (deriveNounCqlConstraint, deriveAdjectivePattern, deriveHeadPositionFromPattern) is internally consistent.",
+        "The handle* verb for HTTP endpoint methods is used uniformly across all handler classes.",
+        "No generic placeholder verbs (process, manage, run, do) found in domain code."
+      ],
+      "issue_character": "Naming is consistently domain-aligned with two focused exceptions: parseBcqlRequest misleads by returning null with side effects, and 'resolve' is used where 'parse' or 'extract' would more precisely describe parameter extraction with validation.",
+      "score_rationale": "The codebase scores well above average for naming: domain terms are stable, verb families are consistent, and there are no generic-name anti-patterns. The score stops at 82 because the parseBcqlRequest name/behaviour mismatch is a real communicative failure (a parse method that sends HTTP responses and returns null), and the 'resolve' verb is slightly imprecise for two methods that actually parse HTTP query parameters and throw IAE on failure."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "parse_bcql_request_side_effect_name",
+      "summary": "parseBcqlRequest sends an HTTP response and returns null on 413 — the 'parse' name does not communicate side effects or nullable return",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "parseBcqlRequest: `if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) { HttpApiUtils.sendError(exchange, 413, ...); return null; }`",
+        "A 'parse' method contract implies: take raw input, return a structured result, throw on failure. This method additionally sends an HTTP response on one code path.",
+        "Callers must check the returned value for null to avoid NPE — a concern the name 'parse' does not advertise."
+      ],
+      "suggestion": "Rename to something that signals the HTTP side effect, e.g. validateAndReadBcqlRequest, or refactor so the 413 case throws an exception (eliminating the null return and the naming ambiguity together).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "name_behaviour_mismatch"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "resolve_verb_imprecision",
+      "summary": "'resolve' used for HTTP parameter extraction and validation in ExplorationHandlers, where 'parse' or 'extract' would be more precise",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "resolveRelationConfig(Map<String, String> params): reads the 'relation' HTTP parameter, applies alias resolution, looks up in GrammarConfig, validates relation_type — this is parsing and validation, not resolution in the dependency-injection sense.",
+        "resolveExplorationParams(Map<String, String> params): parses 'top', 'min_shared', 'min_logdice', 'nouns_per' HTTP params with defaults — this is pure parameter parsing.",
+        "'resolve' typically implies finding something from a registry or graph; 'parse' or 'extractAndValidate' would communicate the HTTP-boundary nature of these methods."
+      ],
+      "suggestion": "Rename resolveRelationConfig → parseRelationConfig (or validateRelationParam) and resolveExplorationParams → parseExplorationParams to better signal that these methods read and validate HTTP query parameters.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "parseBcqlRequest was designed to handle a 413 case that doesn't fit the IAE-throw contract, leading to the null-return workaround and naming inconsistency.",
+      "The 'resolve' verb was likely chosen because resolveRelationConfig does alias resolution (mapping short names to canonical IDs), but the name bleeds into resolveExplorationParams which does no alias resolution."
+    ],
+    "likely_symptoms": [
+      "parse_bcql_request_side_effect_name"
+    ],
+    "possible_false_positives": []
+  }
+}

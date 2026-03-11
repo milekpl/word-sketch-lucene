@@ -9,6 +9,7 @@ import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
+import pl.marcinmilkowski.word_sketch.exploration.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
@@ -41,7 +42,7 @@ class ExplorationHandlers {
 
     /**
      * Shared preamble for multi-seed exploration handlers that require a {@code seeds} parameter
-     * and a {@code RelationConfig}: validate seeds, resolve relation config, and resolve numeric
+     * and a {@code RelationConfig}: validate seeds, parse relation config, and parse numeric
      * parameters in one call.
      *
      * <p>Accepts a pre-parsed {@code params} map so callers that already parsed the query string
@@ -53,8 +54,8 @@ class ExplorationHandlers {
      */
     private ValidatedExploreRequest buildExploreRequest(Map<String, String> params) {
         String seedsRaw = HttpApiUtils.requireParam(params, "seeds");
-        RelationConfig resolvedConfig = resolveRelationConfig(params);
-        ExplorationParams exploreParams = resolveExplorationParams(params);
+        RelationConfig resolvedConfig = parseRelationConfig(params);
+        ExplorationParams exploreParams = parseExplorationParams(params);
         return new ValidatedExploreRequest(params, seedsRaw, resolvedConfig, exploreParams);
     }
 
@@ -65,7 +66,27 @@ class ExplorationHandlers {
             ExplorationParams exploreParams) {}
 
     /**
-     * Handle semantic field exploration (single seed).
+     * Shared preamble for the single-seed handler: reads the {@code seed} parameter,
+     * parses the relation config and exploration parameters.
+     *
+     * @throws IllegalArgumentException if {@code seed} is missing, the relation is unknown, or
+     *         the relation config is misconfigured
+     */
+    private ValidatedSingleSeedRequest buildSingleSeedRequest(Map<String, String> params) {
+        String seed = HttpApiUtils.requireParam(params, "seed");
+        RelationConfig resolvedConfig = parseRelationConfig(params);
+        ExplorationParams exploreParams = parseExplorationParams(params);
+        return new ValidatedSingleSeedRequest(seed, resolvedConfig, exploreParams);
+    }
+
+    private record ValidatedSingleSeedRequest(
+            String seed,
+            RelationConfig relationConfig,
+            ExplorationParams exploreParams) {}
+
+    /**
+     * Accepts a single {@code seed} noun and returns its semantic neighbourhood under the
+     * requested grammatical relation.
      *
      * <p>GET /api/semantic-field/explore?seed=house&amp;relation=adj_predicate&amp;top=15&amp;min_shared=2&amp;min_logdice=3.0</p>
      *
@@ -77,26 +98,22 @@ class ExplorationHandlers {
      */
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
-        String seed = HttpApiUtils.requireParam(params, "seed");
-        RelationConfig resolvedConfig = resolveRelationConfig(params);
-        ExplorationParams exploreParams = resolveExplorationParams(params);
+        ValidatedSingleSeedRequest req = buildSingleSeedRequest(params);
 
-        String relationType = resolvedConfig.relationType()
-            .orElseThrow(() -> new IllegalStateException(
-                "relationType absent after validation for relation: " + resolvedConfig.id()))
-            .name();
+        // Safe: parseRelationConfig guarantees relationType is present
+        String relationType = req.relationConfig().relationType().get().name();
 
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(
-            new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared()),
-            exploreParams.nounsPerCollocate());
+            new ExplorationOptions(req.exploreParams().topCollocates(), req.exploreParams().minLogDice(), req.exploreParams().minShared()),
+            req.exploreParams().nounsPerCollocate());
 
-        ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
+        ExplorationResult result = semanticFieldExplorer.exploreByPattern(req.seed(), req.relationConfig(), opts);
 
         Map<String, Object> extraParams = new HashMap<>();
-        extraParams.put("nouns_per", exploreParams.nounsPerCollocate());
+        extraParams.put("nouns_per", req.exploreParams().nounsPerCollocate());
         Map<String, Object> response = buildBaseExploreResponse(
-            relationType, exploreParams.topCollocates(), exploreParams.minShared(),
-            exploreParams.minLogDice(), extraParams);
+            relationType, req.exploreParams().topCollocates(), req.exploreParams().minShared(),
+            req.exploreParams().minLogDice(), extraParams);
         response.put("seed", result.seed());
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
@@ -104,7 +121,8 @@ class ExplorationHandlers {
     }
 
     /**
-     * Handle multi-seed semantic field exploration.
+     * Accepts two or more comma-separated {@code seeds} and returns the collocates shared
+     * across all seeds under the requested grammatical relation.
      *
      * <p>GET /api/semantic-field/explore-multi?seeds=theory,model,hypothesis&amp;relation=adj_predicate&amp;top=15&amp;min_shared=2</p>
      *
@@ -131,10 +149,8 @@ class ExplorationHandlers {
                 "Multi-seed exploration requires at least 2 seeds; received " + seeds.size());
         }
 
-        String relationType = req.relationConfig().relationType()
-            .orElseThrow(() -> new IllegalStateException(
-                "relationType absent after validation for relation: " + req.relationConfig().id()))
-            .name();
+        // Safe: parseRelationConfig guarantees relationType is present
+        String relationType = req.relationConfig().relationType().get().name();
 
         ExplorationOptions opts = new ExplorationOptions(
             req.exploreParams().topCollocates(), req.exploreParams().minLogDice(),
@@ -153,7 +169,8 @@ class ExplorationHandlers {
     }
 
     /**
-     * Handle semantic field comparison.
+     * Compares cross-relational collocate profiles for the given seed nouns and returns a
+     * graded overlay of shared and distinctive collocates.
      *
      * <p>GET /api/semantic-field/compare?seeds=theory,model,hypothesis&amp;min_logdice=3.0</p>
      *
@@ -170,7 +187,7 @@ class ExplorationHandlers {
      * {@link #buildExploreRequest} because comparison is cross-relational — it aggregates
      * collocates across all relations rather than routing to a specific one.
      * The shared base-parameter extraction ({@code top}, {@code min_shared}, {@code min_logdice})
-     * is still performed via {@link #resolveExplorationParams}.</p>
+     * is still performed via {@link #parseExplorationParams}.</p>
      *
      * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing or has
      *                 fewer than 2 values
@@ -185,7 +202,7 @@ class ExplorationHandlers {
                 "Comparison requires at least 2 seed nouns; received " + seeds.size());
         }
 
-        ExplorationParams exploreParams = resolveExplorationParams(params);
+        ExplorationParams exploreParams = parseExplorationParams(params);
 
         ExplorationOptions opts = new ExplorationOptions(
             exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared());
@@ -199,7 +216,7 @@ class ExplorationHandlers {
     }
 
     /**
-     * Handle semantic field examples.
+     * Fetches concordance lines showing a specific adjective-noun pair in context.
      *
      * <p>GET /api/semantic-field/examples?adjective=good&amp;noun=theory&amp;top=10&amp;relation=adj_predicate</p>
      *
@@ -214,9 +231,9 @@ class ExplorationHandlers {
 
         int maxExamples = HttpApiUtils.parseIntParam(params, "top", 10);
 
-        RelationConfig resolvedConfig = resolveRelationConfig(params);
+        RelationConfig resolvedConfig = parseRelationConfig(params);
 
-        List<String> examples = semanticFieldExplorer.fetchExamples(adjective, noun, resolvedConfig, maxExamples);
+        List<String> examples = semanticFieldExplorer.fetchExamples(adjective, noun, resolvedConfig, new FetchExamplesOptions(maxExamples));
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -268,7 +285,7 @@ class ExplorationHandlers {
      * @throws IllegalArgumentException if the relation is unknown or misconfigured — caught by
      *         {@link HttpApiUtils#wrapWithErrorHandling} and mapped to 400
      */
-    private RelationConfig resolveRelationConfig(Map<String, String> params) {
+    private RelationConfig parseRelationConfig(Map<String, String> params) {
         String relationId = RelationUtils.resolveRelationAlias(
             params.getOrDefault("relation", "noun_adj_predicates"));
         var relationConfig = grammarConfig.getRelation(relationId);
@@ -283,7 +300,7 @@ class ExplorationHandlers {
         return relationConfig.get();
     }
 
-    private ExplorationParams resolveExplorationParams(Map<String, String> params) {
+    private ExplorationParams parseExplorationParams(Map<String, String> params) {
         int top = HttpApiUtils.parseIntParam(params, "top", 10);
         int minShared = HttpApiUtils.parseIntParam(params, "min_shared", 2);
         double minLogDice = HttpApiUtils.parseDoubleParam(params, "min_logdice", 3.0);

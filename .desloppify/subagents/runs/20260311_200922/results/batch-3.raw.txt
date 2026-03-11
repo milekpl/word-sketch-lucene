@@ -1,0 +1,106 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 3,
+  "assessments": {"error_consistency": 71.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "Primary error boundary in WordSketchApiServer.wrapHandler / HttpApiUtils.wrapWithErrorHandling is consistent: IAE → 400, IOException → 500, unchecked Exception → 500. All five handler classes rely on this contract.",
+        "BlackLabQueryExecutor constructor uses catch(Exception e) to wrap all BlackLab startup failures as IOException — this is broad but defensible (BlackLab throws unchecked exceptions in error paths), and the wrapping preserves the cause.",
+        "CorpusQueryHandlers.parseBcqlRequest returns null for the 413 case instead of throwing an exception — the only place in the codebase that breaks the uniform IAE-for-client-errors contract. The method comment documents the deviation but does not resolve it.",
+        "handleCorpusQuery checks `if (req == null) return;` — the handler silently returns after parseBcqlRequest already sent the 413 response. This is a two-step state-check pattern that is semantically correct but structurally inconsistent with all other handlers.",
+        "GrammarConfigLoader.createDefaultEnglish() wraps FileNotFoundException as IllegalStateException (startup failure) and generic IOException as IllegalStateException — appropriate for startup, but the two catch clauses both produce IllegalStateException with different messages, which is fine.",
+        "SemanticFieldExplorer.exploreByPattern throws IAE for missing relationType and unsupported POS group — these are pre-condition violations and are correctly typed.",
+        "CollocateQueryHelper.getTotalFrequency wraps RuntimeException as IOException to present a uniform checked interface — reasonable adapter but hides the original exception class in a RuntimeException-to-IOException conversion.",
+        "No silent error swallowing found: catch blocks that don't propagate either rethrow wrapped exceptions or send error responses.",
+        "ExplorationHandlers does not catch exceptions itself — relies entirely on wrapWithErrorHandling, which is the correct pattern.",
+        "GrammarConfigLoader.parseRelationType silently returns Optional.empty() for unrecognised values — an unrecognised relation_type is not an error at parse time but callers must check the Optional, and missing relation_type causes a deferred IAE at query time."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "The IAE→400 / IOException→500 boundary in wrapWithErrorHandling is applied consistently across all five handler classes.",
+        "No silent error swallowing: every catch clause either rethrows, wraps, or sends an HTTP error response.",
+        "SemanticFieldExplorer uses IAE for pre-condition failures (missing relationType, unsupported POS group) consistently with the rest of the codebase.",
+        "GrammarConfigLoader validates its inputs with explicit IOException throws and precise error messages that name the field and config path."
+      ],
+      "issue_character": "The dominant issue is one structural inconsistency: the 413 case in CorpusQueryHandlers breaks the uniform error-propagation contract by returning null from a parse method instead of throwing, forcing the caller to pattern-match on null rather than relying on the standard exception flow.",
+      "score_rationale": "The error strategy is coherent and well-executed across the majority of the codebase — the wrapWithErrorHandling boundary is a genuine architectural decision consistently applied. The score is in the 70s rather than higher because the null-return for 413 in CorpusQueryHandlers is a real contract break (not just a style preference), and the broad catch(Exception) in the BlackLab constructor, while documented, reduces diagnosability of index-open failures."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "corpus_query_null_return_for_413",
+      "summary": "parseBcqlRequest returns null for 413 instead of throwing, breaking the uniform IAE-for-validation-failures contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "parseBcqlRequest: `if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) { HttpApiUtils.sendError(exchange, 413, ...); return null; }`",
+        "handleCorpusQuery: `BcqlRequest req = parseBcqlRequest(exchange); if (req == null) return;`",
+        "Every other validation failure in parseBcqlRequest throws IAE (missing query, too long, too complex); 413 is the sole null-return case.",
+        "All other handler methods delegate all error signalling to IAE/IOException exceptions caught by wrapWithErrorHandling — none return null."
+      ],
+      "suggestion": "Introduce a dedicated exception type or a 413-specific IAE subtype, and let wrapWithErrorHandling map it to 413. Alternatively, add a 413 branch to wrapWithErrorHandling (e.g., catch RequestEntityTooLargeException) to keep the null-return elimination clean. This preserves the uniform 'throw in parse, catch at boundary' contract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "error_contract_break"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "blacklab_broad_catch_on_open",
+      "summary": "BlackLabQueryExecutor constructor uses catch(Exception) to wrap all BlackLab startup failures, hiding specific exception types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Constructor: `try { this.blackLabIndex = BlackLab.open(...); } catch (Exception e) { throw new IOException(\"Failed to open index: \" + e.getMessage(), e); }`",
+        "BlackLab.open may throw checked and unchecked exceptions. Catching the base Exception class masks whether the failure is an invalid-index format, missing file, permission error, or corrupt index.",
+        "The original cause is preserved (wrapping includes e), so diagnosability is not completely lost, but the catch breadth is wider than needed."
+      ],
+      "suggestion": "Inspect BlackLab.open's declared exception types. Where possible catch specific checked exceptions (e.g., InvalidFormat, IOException) and let unchecked errors from BlackLab propagate naturally or be wrapped with more specific messages indicating the failure mode.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "error_contract_break"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "grammar_config_silent_unrecognised_relation_type",
+      "summary": "GrammarConfigLoader silently returns Optional.empty() for unrecognised relation_type values, deferring the failure to query time",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.parseRelationType: `catch (IllegalArgumentException e) { return Optional.empty(); }` for unrecognised relation_type strings.",
+        "ExplorationHandlers.resolveRelationConfig: `if (relType.isEmpty()) { throw new IllegalArgumentException(\"Invalid relation config: missing or unrecognised relation_type ...\"); }` — the config load succeeds silently, but exploration fails at request time.",
+        "A misconfigured relation_type in relations.json would only surface as a 400 error when the first API request uses that relation, not at startup."
+      ],
+      "suggestion": "Treat an unrecognised relation_type value as a config parse error in GrammarConfigLoader.parseRelation (throw IOException with the unrecognised value in the message) rather than returning Optional.empty(). An Optional.empty() for an explicitly set but unrecognised value is misleading; reserve Optional.empty() for the case where the field is absent.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "deferred_validation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The uniform wrapWithErrorHandling contract was designed for IAE/IOException but 413 (request body too large) doesn't map cleanly to either — the null-return was a pragmatic workaround that was never resolved.",
+      "BlackLab's API surface doesn't cleanly declare which exceptions it throws on index-open, so the broad catch was used defensively."
+    ],
+    "likely_symptoms": [
+      "corpus_query_null_return_for_413"
+    ],
+    "possible_false_positives": [
+      "blacklab_broad_catch_on_open — could be unavoidable given BlackLab's exception surface; medium confidence"
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 15,
+  "assessments": {"design_coherence": 81.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "ExplorationHandlers.buildExploreRequest bundles seeds, RelationConfig, and ExplorationParams into a single ValidatedExploreRequest record — correct use of parameter-object pattern to avoid passing 4+ params through multiple methods",
+        "ExplorationHandlers.resolveExplorationParams and resolveRelationConfig are focused single-responsibility methods; their outputs compose into ValidatedExploreRequest cleanly",
+        "handleSemanticFieldComparison deliberately does not call buildExploreRequest and documents why (cross-relational, no relation filtering). This asymmetry is intentional and explained — not a coherence defect",
+        "SemanticFieldExplorer is a documented coordination facade: owns single-seed algorithm, delegates multi-seed to MultiSeedExplorer, delegates comparison to CollocateProfileComparator. The class-level Javadoc explicitly states this design intent",
+        "The mechanical detector flagged boilerplate_duplication between ExplorationHandlers.java:4 and CollocateProfileComparator.java:8 — on inspection these are import blocks (both import ArrayList, List, Map, etc.) which are idiomatic Java and not a structural defect",
+        "SketchHandlers.executeRelationQueries extracts a shared loop for both surface and dependency relation queries via a builder BiFunction callback — avoids a duplicated for-loop at the cost of a slightly abstract callback signature. The callback is used in two call sites, making the extraction justified",
+        "ExplorationHandlers.handleSemanticFieldExplore and handleSemanticFieldExploreMulti have similar structure (parse, validate, build opts, explore, assemble response) but different validation paths — appropriate parallel structure, not extraction candidate",
+        "CollocateProfileComparator.buildAdjectiveProfileList uses a two-pass approach (single-pass sum/min/max then second-pass variance) with an explanatory comment: 'Second pass for variance (requires the mean — unavoidable two-pass for numerical stability)' — good documentation of the necessary design constraint",
+        "WordSketchApiServer constructor takes injected SemanticFieldExplorer (for testing) or constructs one internally — clean constructor overloading for testability"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Parameter-object pattern (ValidatedExploreRequest, ExplorationOptions, SingleSeedExplorationOptions) prevents long parameter lists from escaping handler scope",
+        "SemanticFieldExplorer facade role is explicitly documented — developers know where to start for exploration concerns",
+        "SketchHandlers.executeRelationQueries extracts a shared iteration pattern into a reusable method with a builder callback, reducing duplication in full-sketch vs. dependency-sketch paths",
+        "Phase-structured algorithms (Phase 1/2/3/4 comments) in SemanticFieldExplorer and MultiSeedExplorer make complex multi-step algorithms navigable"
+      ],
+      "issue_character": "Design is coherent and well-structured. The flagged boilerplate duplication is Java import-block overlap — not a structural design issue. The main design weakness is the redundant relationType validation in handlers (orElseThrow after resolveRelationConfig already ensures it), but this is a logic clarity concern more than a design coherence issue.",
+      "score_rationale": "This codebase shows deliberate structural design: facades, parameter objects, shared helper methods with callback patterns, and explicit documentation of coordination responsibilities. No god classes, no functions with multiple unrelated responsibilities, no deep nesting without clear algorithmic necessity. The score sits in the low-80s because the design is sound and intentional throughout — deducted from higher for minor redundancy patterns and the fact that the buildExploreRequest preamble is duplicated in extraction spirit across comparison and explore paths."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "base_explore_response_duplication",
+      "summary": "handleSemanticFieldExplore and handleSemanticFieldExploreMulti both manually call buildBaseExploreResponse with the same 4+extra params — the params extraction is identical but structured slightly differently across the two handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore line 97-99: buildBaseExploreResponse(relationType, exploreParams.topCollocates(), exploreParams.minShared(), exploreParams.minLogDice(), extraParams)",
+        "handleSemanticFieldExploreMulti line 144-146: buildBaseExploreResponse(relationType, req.exploreParams().topCollocates(), req.exploreParams().minShared(), req.exploreParams().minLogDice(), Map.of())",
+        "The relationType extraction pattern (orElseThrow after resolveRelationConfig) is also duplicated in both handlers at lines 84-87 and 134-137"
+      ],
+      "suggestion": "Extract relationType extraction into buildExploreRequest so ValidatedExploreRequest carries the resolved relationType string alongside the config. This removes the duplicate orElseThrow pattern from both handlers and makes buildExploreRequest a more complete preamble. The buildBaseExploreResponse calls are already consistent and can remain as is.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The relationType duplication likely arose because buildExploreRequest was introduced after the initial handler implementation — it collects most of the preamble but not quite all of it"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "The boilerplate_duplication mechanical signal between ExplorationHandlers.java:4 and CollocateProfileComparator.java:8 is import-block overlap — Java idiom, not a design defect"
+    ]
+  }
+}

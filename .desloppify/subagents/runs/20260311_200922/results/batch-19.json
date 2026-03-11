@@ -1,0 +1,82 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 78.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor execute* family is consistently shaped: (lemma, pattern/deprel, minLogDice, maxResults) — stable parameter order across executeCollocations, executeSurfacePattern, executeDependencyPattern, executeDependencyPatternWithPos",
+        "executeDependencyPatternWithPos adds headPosConstraint as the last parameter — appended rather than inserting, preserving backward call-site compatibility for callers that use the 4-param variant",
+        "executeCqlQuery and executeBcqlQuery have a narrower shape (cqlPattern, maxResults) without lemma or minLogDice — this is intentional and documented in the interface Javadoc: they are general pattern queries without head-word scoring",
+        "SemanticFieldExplorer public API: exploreByPattern(seed, relationConfig, opts), exploreMultiSeed(seeds, relationConfig, opts), compareCollocateProfiles(seedNouns, opts) — consistently uses options objects. fetchExamples(adjective, noun, relationConfig, maxExamples) is the outlier — it does not use an options object and has a different parameter shape",
+        "fetchExamples has 4 positional parameters while the other three methods use 2-3 params with an options record — the shape difference is defensible (examples fetching has different parameters) but a developer reading the API for the first time must adjust expectations",
+        "GrammarConfigLoader: load(Path) throws IOException; fromReader(Reader) throws IOException; createDefaultEnglish() throws IllegalStateException — the first two are consistent; createDefaultEnglish wraps IOException in ISE, making the exception contract inconsistent across the three public loading methods",
+        "HttpApiUtils parameter parsing trio (requireParam, parseIntParam, parseDoubleParam) is consistently shaped: (params, name) or (params, name, defaultValue). Error contract is uniform — all throw IAE on failure",
+        "Handler methods all take HttpExchange and return void with throws IOException — consistent handler contract across all 5 handler classes",
+        "ExploreResponseAssembler public methods are all static, take domain objects and return formatted maps or void — consistent utility class shape",
+        "HTTP API endpoints: GET methods use query parameters consistently; POST methods (/api/bcql, /api/visual/radial) use JSON body — appropriate REST convention alignment"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "QueryExecutor execute* family maintains consistent (lemma, pattern, minLogDice, maxResults) parameter order — callers build muscle memory for the interface",
+        "Options objects (ExplorationOptions, SingleSeedExplorationOptions) prevent parameter-order confusion for exploration methods",
+        "Handler methods have a uniform contract: HttpExchange → void, throws IOException",
+        "HTTP utility methods (requireParam, parseIntParam, parseDoubleParam) are consistently shaped and share the same error contract"
+      ],
+      "issue_character": "The main inconsistency is GrammarConfigLoader's three public methods having different exception contracts (IOException vs. IllegalStateException) for the same underlying failure, and SemanticFieldExplorer.fetchExamples having a different parameter shape from its sibling methods.",
+      "score_rationale": "The API surface is generally coherent within subsystems. The QueryExecutor interface is the most consistently designed public API in the codebase. The exploration API is mostly consistent but fetchExamples breaks the options-object pattern. The config loader exception inconsistency affects callers who need to switch between loading approaches. Score of 78 reflects strong intra-subsystem consistency with two cross-method shape inconsistencies that would surprise developers working with the API for the first time."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "fetchexamples_inconsistent_shape",
+      "summary": "SemanticFieldExplorer.fetchExamples uses positional (adjective, noun, relationConfig, maxExamples) while all other public methods use (seeds/seed, relationConfig, ExplorationOptions) — breaking the options-object pattern for this method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern(String seed, RelationConfig relationConfig, SingleSeedExplorationOptions opts) — opts-based",
+        "exploreMultiSeed(Set<String> seeds, RelationConfig relationConfig, ExplorationOptions opts) — opts-based",
+        "compareCollocateProfiles(Set<String> seedNouns, ExplorationOptions opts) — opts-based",
+        "fetchExamples(String adjective, String noun, RelationConfig relationConfig, int maxExamples) — positional int, no opts"
+      ],
+      "suggestion": "Create a simple FetchExamplesOptions record (or reuse ExplorationOptions) containing maxExamples. Refactor fetchExamples to: fetchExamples(String adjective, String noun, RelationConfig relationConfig, FetchExamplesOptions opts). Alternatively, if maxExamples is the only parameter, consider making it a simple overload: fetchExamples(adjective, noun, relationConfig) using a sensible default, with the explicit-max variant as the second overload.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "grammar_config_loader_exception_surface",
+      "summary": "GrammarConfigLoader exposes three loading methods with two different exception contracts for the same underlying failure: load()/fromReader() throw IOException; createDefaultEnglish() throws IllegalStateException",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "load(Path configPath) throws IOException",
+        "fromReader(Reader reader) throws IOException",
+        "createDefaultEnglish() — public static GrammarConfig (no checked exception), throws ISE internally",
+        "A developer scanning the class signature sees three loading methods and must read the Javadoc to understand the exception divergence"
+      ],
+      "suggestion": "Add a prominent note in the class-level Javadoc: '@implNote createDefaultEnglish() is a startup convenience that converts IOException to IllegalStateException to allow use without try-catch in application entry points. Callers that need fine-grained error handling should use load(Path) or fromReader(Reader) directly.' The divergence is intentional but should be more visible at the class API level.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "fetchExamples pre-dates or was written independently of the options-object pattern applied to the other exploration methods",
+      "createDefaultEnglish was designed as a startup shortcut — its ISE contract is appropriate for the use case but not obviously visible from the class signature"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.config;
 
-import com.alibaba.fastjson2.JSONObject;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
 
@@ -31,21 +30,6 @@ public record RelationConfig(
     /** Pre-computed collocate POS group — cached at construction time so repeated calls are O(1). */
     PosGroup collocatePosGroup
 ) {
-    public JSONObject toJson() {
-        JSONObject obj = new JSONObject();
-        obj.put("id", id);
-        if (name != null) obj.put("name", name);
-        if (description != null) obj.put("description", description);
-        if (pattern != null) obj.put("pattern", pattern);
-        obj.put("head_position", headPosition);
-        obj.put("collocate_position", collocatePosition);
-        obj.put("dual", dual);
-        obj.put("default_slop", defaultSlop);
-        relationType.ifPresent(rt -> obj.put("relation_type", rt.name()));
-        obj.put("exploration_enabled", explorationEnabled);
-        return obj;
-    }
-
     /**
      * Extracts and computes the dependency relation (deprel) from the pattern.
      * For DEP relations, looks for deprel="xxx" attribute constraint in the pattern.

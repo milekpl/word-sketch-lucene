@@ -1,13 +1,29 @@
 /**
  * Domain model classes for word-sketch query results and semantic-field exploration.
  *
+ * <h2>Package boundary</h2>
+ * <p>
+ * This package contains two kinds of types:
+ * </p>
+ * <ul>
+ *   <li><strong>Pure DTOs</strong> — records with no logic beyond field access:
+ *       {@link pl.marcinmilkowski.word_sketch.model.AdjectiveProfile},
+ *       {@link pl.marcinmilkowski.word_sketch.model.CoreCollocate},
+ *       {@link pl.marcinmilkowski.word_sketch.model.DiscoveredNoun},
+ *       {@link pl.marcinmilkowski.word_sketch.model.Edge}, etc.</li>
+ *   <li><strong>Model objects with derived accessors</strong> — immutable classes that expose
+ *       computed views and factory methods alongside their fields:
+ *       {@link pl.marcinmilkowski.word_sketch.model.ExplorationResult},
+ *       {@link pl.marcinmilkowski.word_sketch.model.ComparisonResult}.
+ *       These remain classes (not records) because they encapsulate construction logic or
+ *       expose derived views that would otherwise leak into callers.</li>
+ * </ul>
+ * <p>No persistence, I/O, or HTTP concerns belong in this package.</p>
+ *
  * <h2>Naming conventions</h2>
  * <p>
- * Traditional classes (non-records) use {@code get}-prefixed accessors following
- * standard JavaBeans conventions. Record types (e.g. {@link pl.marcinmilkowski.word_sketch.model.AdjectiveProfile},
- * {@link pl.marcinmilkowski.word_sketch.model.CoreCollocate},
- * {@link pl.marcinmilkowski.word_sketch.model.DiscoveredNoun}) omit the {@code get}
- * prefix per Java record conventions.
+ * Record types omit the {@code get} prefix per Java record conventions.
+ * Traditional classes (non-records) also use un-prefixed accessors for consistency.
  * </p>
  */
 package pl.marcinmilkowski.word_sketch.model;

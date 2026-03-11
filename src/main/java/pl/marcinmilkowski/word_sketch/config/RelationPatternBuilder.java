@@ -85,7 +85,8 @@ public final class RelationPatternBuilder {
         String pat = pattern.toLowerCase(Locale.ROOT);
         String target = extractLabelContent(pat, 2);
         if (target == null) target = pat;
-        return posGroupFromConstraint(target);
+        PosGroup result = posGroupForPrefix(target, "xpos=");
+        return result != null ? result : PosGroup.OTHER;
     }
 
     /** Extract the bracket content of the nth labeled position (e.g. "2:[...]"). */
@@ -100,11 +101,6 @@ public final class RelationPatternBuilder {
             else if (pat.charAt(i) == ']') { if (--depth == 0) return pat.substring(start, i + 1); }
         }
         return null;
-    }
-
-    private static PosGroup posGroupFromConstraint(String s) {
-        PosGroup result = posGroupForPrefix(s, "xpos=");
-        return result != null ? result : PosGroup.OTHER;
     }
 
     private static PosGroup posGroupForPrefix(String s, String attr) {

@@ -158,27 +158,25 @@ public class SemanticFieldExplorer {
             String simplePattern,
             SingleSeedExplorationOptions opts) throws IOException {
 
-        int topPredicates = opts.topCollocates();
+        int topPredicates = opts.base().topCollocates();
         int nounsPerPredicate = opts.nounsPerCollocate();
-        double minLogDice = opts.minLogDice();
-        int minShared = opts.minShared();
+        double minLogDice = opts.base().minLogDice();
+        int minShared = opts.base().minShared();
 
         if (seed.isEmpty()) {
             return ExplorationResult.empty("");
         }
 
-        seed = seed.toLowerCase().trim();
+        String normalizedSeed = seed.toLowerCase().trim();
 
-        logger.debug("Exploring semantic field: seed='{}', relation='{}', top={}, minShared={}, minLogDice={}", seed, relationName, topPredicates, minShared, minLogDice);
-
-        // Step 1: Get predicates/collocates for the seed noun using the BCQL pattern
+        logger.debug("Exploring semantic field: seed='{}', relation='{}', top={}, minShared={}, minLogDice={}", normalizedSeed, relationName, topPredicates, minShared, minLogDice);
 
         List<QueryResults.WordSketchResult> seedRelations = fetchSeedCollocates(
-            seed, bcqlPattern, simplePattern, minLogDice, topPredicates);
+            normalizedSeed, bcqlPattern, simplePattern, minLogDice, topPredicates);
 
         if (seedRelations.isEmpty()) {
-            logger.debug("No collocates found for seed '{}' — seed may be too rare", seed);
-            return ExplorationResult.empty(seed);
+            logger.debug("No collocates found for seed '{}' — seed may be too rare", normalizedSeed);
+            return ExplorationResult.empty(normalizedSeed);
         }
 
 
@@ -190,20 +188,17 @@ public class SemanticFieldExplorer {
             seedCollocFrequencies.put(r.lemma().toLowerCase(), r.frequency());
         }
 
-        // Step 2: For each collocate, find nouns it collocates with
         Map<String, Map<String, Double>> nounProfiles = buildCollocateToNounsMap(
-            seedCollocScores, seed, minLogDice, nounsPerPredicate, nounCqlConstraint);
+            seedCollocScores, normalizedSeed, minLogDice, nounsPerPredicate, nounCqlConstraint);
 
-        // Step 3: Score nouns by shared collocate count
         List<DiscoveredNoun> discoveredNouns = filterByMinShared(nounProfiles, minShared);
         discoveredNouns.sort((a, b) -> Double.compare(b.combinedRelevanceScore(), a.combinedRelevanceScore()));
 
-        // Step 4: Identify core collocates
         List<CoreCollocate> coreCollocates = identifyCoreCollocates(seedCollocScores, discoveredNouns);
 
-        logger.debug("Exploration complete for '{}': {} nouns discovered, {} core collocates", seed, discoveredNouns.size(), coreCollocates.size());
+        logger.debug("Exploration complete for '{}': {} nouns discovered, {} core collocates", normalizedSeed, discoveredNouns.size(), coreCollocates.size());
 
-        return new ExplorationResult(seed, seedCollocScores, seedCollocFrequencies, discoveredNouns, coreCollocates);
+        return new ExplorationResult(List.of(normalizedSeed), seedCollocScores, seedCollocFrequencies, discoveredNouns, coreCollocates);
     }
 
     // ==================== EXPLORATION PHASE HELPERS ====================
@@ -330,20 +325,20 @@ public class SemanticFieldExplorer {
      * @param adjective      The adjective lemma
      * @param noun           The noun lemma
      * @param relationConfig The relation config defining how adjective and noun co-occur
-     * @param maxExamples    Maximum number of examples to fetch
+     * @param opts           Options controlling how many examples to fetch
      * @return List of example sentences showing the adjective-noun combination
      */
     public @NonNull List<String> fetchExamples(@NonNull String adjective, @NonNull String noun,
-            @NonNull RelationConfig relationConfig, int maxExamples)
+            @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)
             throws IOException {
         String bcqlQuery = RelationPatternBuilder.buildFullPattern(relationConfig, noun.toLowerCase(), adjective.toLowerCase());
 
-        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, maxExamples);
+        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, opts.maxExamples());
 
         return results.stream()
             .map(QueryResults.CollocateResult::getSentence)
             .distinct()
-            .limit(maxExamples)
+            .limit(opts.maxExamples())
             .collect(Collectors.toList());
     }
 

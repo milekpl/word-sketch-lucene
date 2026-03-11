@@ -1,8 +1,5 @@
 package pl.marcinmilkowski.word_sketch.config;
 
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
-
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -41,26 +38,16 @@ public final class GrammarConfig {
         return Optional.ofNullable(relationsById.get(id));
     }
 
-    /** @return the grammar version string from the config file (e.g. {@code "1.0"}); may be null for legacy configs */
-    public @org.jspecify.annotations.Nullable String getVersion() {
+    /**
+     * @return the grammar version string from the config file (e.g. {@code "1.0"});
+     *         never null — the loader rejects configs that omit the version field
+     */
+    public @org.jspecify.annotations.NonNull String getVersion() {
         return version;
     }
 
     /** @return the path to the config file this grammar was loaded from, or null when loaded from the classpath */
     public @org.jspecify.annotations.Nullable Path getConfigPath() {
         return configPath;
-    }
-
-    /** Export the config as a JSONObject for API responses. */
-    public JSONObject toJson() {
-        JSONObject root = new JSONObject();
-        root.put("version", version);
-        root.put("config_path", configPath != null ? configPath.toString() : null);
-        JSONArray relationsArray = new JSONArray();
-        for (RelationConfig rel : relations) {
-            relationsArray.add(rel.toJson());
-        }
-        root.put("relations", relationsArray);
-        return root;
     }
 }

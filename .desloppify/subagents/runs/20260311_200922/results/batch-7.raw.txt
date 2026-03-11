@@ -1,0 +1,86 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 7,
+  "assessments": {"low_level_elegance": 75.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern is decomposed into four clearly-named phase helpers (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates) — each phase is a cohesive function with a single purpose.",
+        "CollocateProfileComparator.buildAdjectiveProfileList uses a single-pass loop for sum/min/max and explicitly comments that variance requires a second pass for numerical stability — honest documentation of a necessary two-pass pattern.",
+        "ConlluConverter.convertConlluToWplChunks manages three intertwined concerns (CoNLL-U parsing, sentence tracking, chunk rotation) in one method body. The rotateChunkIfNeeded helper is extracted, but the main method is still ~60 lines mixing state transitions and I/O. The nested try/finally inside the outer try-with-resources is a readability obstacle.",
+        "BlackLabQueryExecutor.collectDependencyFrequencies is a private 6-line method that simply calls executeCollocateSearch and passes results to collectFrequenciesFromGroups — the extraction is reasonable but the method has no meaningful logic beyond orchestrating two calls.",
+        "CollocateQueryHelper.collectHits iterates hits and extracts XML concordance fields. The null-guarding in the middle (if (conc == null), if (parts == null || parts.length < 3)) adds 4 guard branches for two BlackLab API edge cases — this is defensive but necessary at the API boundary.",
+        "CollocateQueryHelper.scoreHits pre-fetches collocate corpus frequencies before the scoring loop — this is an explicit optimization and the comment explains why ('to avoid one call per hit'). Clear and direct.",
+        "GrammarConfigLoader.deriveTokenPosition is a two-phase algorithm (find label index, count tokens before label) with clear comments. Correct.",
+        "CqlUtils.substituteAtPosition delegates to splitCqlTokens and injectLemmaConstraint — clean helper decomposition.",
+        "CqlUtils.splitCqlTokens has a quote-skipping inner loop that is correct but dense. The double-level character-scan (outer bracket depth, inner quote skip) is inherently complex but unavoidable for CQL syntax.",
+        "RelationPatternBuilder.posGroupFromConstraint delegates to posGroupForPrefix with a redundant null-return passthrough — posGroupFromConstraint just calls posGroupForPrefix and returns PosGroup.OTHER if null, which could be inlined.",
+        "ExplorationHandlers.handleSemanticFieldComparison is ~25 lines and reads cleanly as HTTP parameter extraction → domain call → response assembly.",
+        "Some long methods in BlackLabQueryExecutor (executeSurfacePattern and executeDependencyPatternWithPos share structure but each is written separately — no shared body extraction).",
+        "GrammarConfigLoader.parseRelation is ~40 lines handling field extraction, default computation, and validation. Reasonably decomposed but has several conditional branches for optional fields (head_position, collocate_position, dual, default_slop)."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer's four-phase exploration is cleanly decomposed with intention-revealing helper names.",
+        "CollocateQueryHelper.scoreHits pre-fetches frequencies before the scoring loop — an explicit, commented optimization that avoids a hot-loop I/O call.",
+        "CqlUtils.splitCqlTokens correctly handles nested brackets and quoted strings — complex but necessary parsing logic written in a single focused method.",
+        "The phase-helper extraction pattern in SemanticFieldExplorer, MultiSeedExplorer, and CollocateProfileComparator is applied consistently across the exploration subsystem."
+      ],
+      "issue_character": "The main low-level issue is mixed extraction depth: some methods are over-extracted (collectDependencyFrequencies adds a wrapper with no logic), while ConlluConverter's main loop has multiple interleaved concerns that could benefit from further decomposition.",
+      "score_rationale": "Function-level craft is above average: phase decomposition is applied consistently, side effects are bounded, and the critical scoring loops are well-structured. The score sits at 75 because ConlluConverter's main loop mixes too many concerns without phase isolation, and there are minor extraction inconsistencies (over-extracted thin wrappers alongside under-decomposed multi-concern loops)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_converter_mixed_concerns",
+      "summary": "ConlluConverter.convertConlluToWplChunks mixes CoNLL-U parsing, sentence boundary tracking, and chunk rotation in one method body with nested try/finally",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "The method body (~70 lines) tracks inSentence, sentencesInChunk, writerOpt, and chunks as mutable state, mixing line-type dispatch (comment, blank, MWT, normal) with sentence open/close logic and chunk rotation.",
+        "The inner try { while ... } finally { ... } inside the outer try-with-resources for the reader creates a two-level finally structure that complicates reasoning about close/flush ordering.",
+        "rotateChunkIfNeeded is extracted but returns an Optional<long[]> for updated chunk count and sentences-in-chunk, requiring callers to unpack and reassign two separate variables — an awkward return type for a state-mutation operation."
+      ],
+      "suggestion": "Extract a lineDispatcher helper that classifies each line (COMMENT, BLANK, MWT, TOKEN) and separate the sentence-tracking and chunk-rotation logic into inner helper methods with cleaner state encapsulation. Consider replacing the Optional<long[]> return from rotateChunkIfNeeded with a small record carrying the updated counts, or passing a mutable state object that the helper updates in place.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "mixed_concerns_in_io"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "relation_pattern_builder_redundant_delegation",
+      "summary": "RelationPatternBuilder.posGroupFromConstraint is a one-liner wrapper over posGroupForPrefix that adds only a null-to-PosGroup.OTHER conversion — should be inlined",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternBuilder.java"
+      ],
+      "evidence": [
+        "posGroupFromConstraint: `PosGroup result = posGroupForPrefix(s, \"xpos=\"); return result != null ? result : PosGroup.OTHER;`",
+        "posGroupForPrefix already returns null for non-matching patterns. The conversion to PosGroup.OTHER is a one-liner that adds indirection without adding clarity.",
+        "computeCollocatePosGroup calls posGroupFromConstraint → posGroupForPrefix — a two-hop call chain for what is effectively a single lookup."
+      ],
+      "suggestion": "Inline posGroupFromConstraint into its only caller (computeCollocatePosGroup) and have posGroupForPrefix return PosGroup.OTHER instead of null. This collapses the two-hop chain and eliminates the redundant wrapper.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ConlluConverter was written as a single-pass streaming converter where all concerns are naturally interleaved; the phase-helper extraction pattern applied in SemanticFieldExplorer was not applied here.",
+      "The posGroupFromConstraint wrapper was likely introduced when posGroupForPrefix was added as a separate method; the null-to-enum conversion was not folded back in."
+    ],
+    "likely_symptoms": [
+      "conllu_converter_mixed_concerns"
+    ],
+    "possible_false_positives": []
+  }
+}

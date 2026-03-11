@@ -51,7 +51,8 @@ public final class GrammarConfigLoader {
     private GrammarConfigLoader() {}
 
     /**
-     * Load grammar configuration from the specified path.
+     * Reads and parses the grammar JSON at {@code configPath}, validates its structure,
+     * and returns an immutable {@link GrammarConfig}.
      *
      * @param configPath Path to the relations.json file
      * @return immutable {@link GrammarConfig} with the parsed relations
@@ -62,8 +63,8 @@ public final class GrammarConfigLoader {
     }
 
     /**
-     * Load grammar configuration from a {@link Reader} — useful for testing without
-     * touching the file system.
+     * Parses grammar JSON from the given {@link Reader} and returns an immutable
+     * {@link GrammarConfig} — useful for testing without touching the file system.
      *
      * <pre>{@code
      * try (Reader r = new StringReader(jsonContent)) {
@@ -201,10 +202,16 @@ public final class GrammarConfigLoader {
      * Create the default grammar config, resolving the path from the
      * {@code grammar.config} system property (default: {@code grammars/relations.json}).
      *
+     * <p><strong>Two-tier exception contract:</strong> this method intentionally wraps
+     * {@link IOException} in {@link IllegalStateException} so that startup code and
+     * dependency-injection containers that cannot handle checked exceptions can call it
+     * directly. Callers that need to distinguish config-not-found from other I/O errors,
+     * or that run in a context where checked exceptions are acceptable (e.g. integration
+     * tests, CLI entrypoints), should use {@link #load(Path)} directly and handle
+     * {@code IOException}.</p>
+     *
      * <p>Wraps any {@link IOException} in an {@link IllegalStateException} with the
-     * config path included in the message, so startup failures are immediately actionable.
-     * Callers that need to distinguish config-not-found from other IO errors should
-     * use {@link #load(Path)} directly and handle {@code IOException}.
+     * config path included in the message, so startup failures are immediately actionable.</p>
      */
     public static GrammarConfig createDefaultEnglish() {
         String path = System.getProperty("grammar.config", "grammars/relations.json");
@@ -225,13 +232,18 @@ public final class GrammarConfigLoader {
     /**
      * Parse a nullable relation-type string to an {@link Optional} {@link RelationType}.
      *
-     * <p>Returns {@code Optional.empty()} when the {@code relation_type} field is absent or
-     * unrecognised in the grammar JSON.
+     * <p>Returns {@code Optional.empty()} when the {@code relation_type} field is absent (which
+     * is valid — not all relations participate in exploration). Logs a warning when the field is
+     * present but unrecognised, which typically indicates a typo in the grammar config.</p>
      */
     private static Optional<RelationType> parseRelationType(String value) {
         if (value == null || value.isBlank()) return Optional.empty();
         try { return Optional.of(RelationType.valueOf(value.toUpperCase(Locale.ROOT))); }
-        catch (IllegalArgumentException e) { return Optional.empty(); }
+        catch (IllegalArgumentException e) {
+            logger.warn("Unrecognised relation_type '{}' in grammar config — ignoring; valid values: {}",
+                value, java.util.Arrays.toString(RelationType.values()));
+            return Optional.empty();
+        }
     }
 
     /**
@@ -243,18 +255,16 @@ public final class GrammarConfigLoader {
     }
 
     /**
-     * Derive head position from numbered labels in pattern.
-     * Looks for "1:" prefix - that position is the head.
-     * Returns default 1 if not found.
+     * Returns the 1-based token index of the {@code 1:[...]} labeled position in the pattern,
+     * or 1 when no such label is present.
      */
     private static int deriveHeadPositionFromPattern(String pattern) {
         return deriveTokenPosition(pattern, '1', 1);
     }
 
     /**
-     * Derive collocate position from numbered labels in pattern.
-     * Looks for "2:" prefix - that position is the collocate.
-     * Returns default 2 if not found.
+     * Returns the 1-based token index of the {@code 2:[...]} labeled position in the pattern,
+     * or 2 when no such label is present.
      */
     private static int deriveCollocatePositionFromPattern(String pattern) {
         return deriveTokenPosition(pattern, '2', 2);

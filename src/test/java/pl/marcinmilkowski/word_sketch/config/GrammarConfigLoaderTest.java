@@ -60,7 +60,7 @@ class GrammarConfigLoaderTest {
         GrammarConfig config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
 
         assertDoesNotThrow(() -> {
-            var json = config.toJson();
+            var json = GrammarConfigSerializer.toJson(config);
             assertNotNull(json);
             assertNotNull(json.get("relations"));
         });
@@ -71,7 +71,7 @@ class GrammarConfigLoaderTest {
     void toJson_configPathIsNullFromReader() throws IOException {
         GrammarConfig config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
 
-        var json = config.toJson();
+        var json = GrammarConfigSerializer.toJson(config);
         assertNull(json.get("config_path"));
     }
 }

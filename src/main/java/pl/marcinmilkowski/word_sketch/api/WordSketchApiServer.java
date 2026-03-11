@@ -75,38 +75,40 @@ public class WordSketchApiServer {
             HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));
 
         registerGetHandler(server, "/api/sketch/",
-            wrapHandler(sketchHandlers::handleSketchRequest, "Sketch request"));
+            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleSketchRequest, "Sketch request"));
 
         registerGetHandler(server, "/api/relations",
-            wrapHandler(sketchHandlers::handleSurfaceRelations, "Surface relations"));
+            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleSurfaceRelations, "Surface relations"));
 
         registerGetHandler(server, "/api/relations/dep",
-            wrapHandler(sketchHandlers::handleDepRelations, "Dependency relations"));
+            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleDepRelations, "Dependency relations"));
 
         registerGetHandler(server, "/api/semantic-field/explore",
-            wrapHandler(explorationHandlers::handleSemanticFieldExplore, "Semantic field explore"));
+            HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldExplore, "Semantic field explore"));
 
         registerGetHandler(server, "/api/semantic-field/explore-multi",
-            wrapHandler(explorationHandlers::handleSemanticFieldExploreMulti, "Multi-seed exploration"));
+            HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldExploreMulti, "Multi-seed exploration"));
 
         registerGetHandler(server, "/api/semantic-field/compare",
-            wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
+            HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
 
+        // Legacy alias for /api/semantic-field/compare — kept for backward compatibility.
+        // TODO: remove in a future version after clients have migrated to /api/semantic-field/compare.
         registerGetHandler(server, "/api/semantic-field",
-            wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison (legacy)"));
+            HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison (legacy)"));
 
         registerGetHandler(server, "/api/semantic-field/examples",
-            wrapHandler(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));
+            HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));
 
         registerGetHandler(server, "/api/concordance/examples",
-            wrapHandler(concordanceHandlers::handleConcordanceExamples, "Concordance examples"));
+            HttpApiUtils.wrapWithErrorHandling(concordanceHandlers::handleConcordanceExamples, "Concordance examples"));
 
         registerPostHandler(server, "/api/visual/radial",
-            wrapHandler(visualizationHandlers::handleVisualRadial, "Radial plot"));
+            HttpApiUtils.wrapWithErrorHandling(visualizationHandlers::handleVisualRadial, "Radial plot"));
 
         // POST with JSON body to avoid URL encoding issues
         registerPostHandler(server, "/api/bcql",
-            wrapHandler(corpusQueryHandlers::handleCorpusQuery, "BCQL query"));
+            HttpApiUtils.wrapWithErrorHandling(corpusQueryHandlers::handleCorpusQuery, "BCQL query"));
     }
 
     public void start() {
@@ -155,17 +157,6 @@ public class WordSketchApiServer {
             if (!HttpApiUtils.requireMethod(exchange, method)) return;
             handler.handle(exchange);
         });
-    }
-
-    /**
-     * Wraps an {@link com.sun.net.httpserver.HttpHandler} with uniform error handling.
-     * Catches {@link IllegalArgumentException} and sends a 400 response (client error).
-     * Catches {@link IOException} and any other {@link Exception}, logs them, and sends a 500 response.
-     * Delegates to {@link HttpApiUtils#wrapWithErrorHandling} so the contract can be unit-tested.
-     */
-    private com.sun.net.httpserver.HttpHandler wrapHandler(
-            com.sun.net.httpserver.HttpHandler handler, String description) {
-        return HttpApiUtils.wrapWithErrorHandling(handler, description);
     }
 
     public void stop() {

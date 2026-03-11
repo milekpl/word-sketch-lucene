@@ -1,0 +1,106 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 8,
+  "assessments": {"mid_level_elegance": 76.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "The layering contract is clear: ExplorationHandlers (HTTP) → SemanticFieldExplorer (domain coordination) → MultiSeedExplorer / CollocateProfileComparator (algorithm) → QueryExecutor (corpus access). Each seam is explicit and directional.",
+        "ExploreResponseAssembler owns all model-to-HTTP-response translation. There is one obvious place where ExplorationResult and ComparisonResult are converted to JSON maps — no scattered ad-hoc mappers.",
+        "ExplorationOptions and SingleSeedExplorationOptions cleanly carry validated parameters across the HTTP→domain seam. Handler code builds these records, exploration code reads them — a clear, typed handoff.",
+        "GrammarConfig and RelationConfig are immutable value objects that cross multiple boundaries (api → exploration → query) without mutation — clean boundary data.",
+        "ValidatedExploreRequest and ExplorationParams are private records in ExplorationHandlers that capture the results of multi-step parameter extraction. They prevent parameter threading while keeping the seam clean.",
+        "CorpusQueryHandlers.parseBcqlRequest returns null on 413 rather than throwing — this seam between parseBcqlRequest and handleCorpusQuery is the main mid-level wart. The caller must check for null after a method that appears to be a pure parser; the side-effectful control flow (send response + return null) is an anti-pattern at a module boundary.",
+        "The comparison handler (handleSemanticFieldComparison) does not call buildExploreRequest because comparison is cross-relational. This asymmetry is documented inline but means the three explore handlers have different parameter-extraction shapes — a contributor adding a fourth handler might not know which pattern to follow.",
+        "SemanticFieldExplorer.exploreByPattern has two overloads: one public (takes RelationConfig) and one package-private (takes pre-resolved pattern strings). The package-private overload is a testing seam; its existence is documented. This is a clean seam design.",
+        "GrammarConfig.fromReader / GrammarConfigLoader.load both exist as loading entry points; fromReader is the testing seam. Both are clearly named and documented.",
+        "ConcordanceHandlers extracts a fallback BCQL pattern when the grammar relation is not resolved — a silent fallback logged as WARN. The caller (handleConcordanceExamples) does not signal the fallback to the client in a structured way (only as a 'fallback: true' field in the response), which means a caller may not notice the degraded query.",
+        "BlackLabQueryExecutor.executeCollocations builds a BCQL pattern string from the incoming cql_pattern using buildBcqlWithLemmaSubstitution. This string-building operation at the query executor level mixes pattern construction with execution — a minor seam concern.",
+        "Error propagation across seams: IAE is consistently converted to 400 at the HTTP boundary via wrapWithErrorHandling. IOException propagates from query/exploration layers to the HTTP handler boundary where it is caught and converted to 500. Consistent."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler centralises model-to-response translation in one place — no scattered ad-hoc JSON mappers.",
+        "The layered architecture (HTTP → domain → algorithm → corpus) has explicit, directional boundaries that are consistently honoured.",
+        "ExplorationOptions / SingleSeedExplorationOptions provide typed, validated parameter carriers across the HTTP→domain seam.",
+        "The package-private test seam in SemanticFieldExplorer (raw-pattern overload) is cleanly separated from the public production API and explicitly documented.",
+        "Error propagation (IAE → 400, IOException → 500) is consistently handled at the HTTP boundary without leaking domain exception types."
+      ],
+      "issue_character": "The main seam quality issue is the null-return contract break in CorpusQueryHandlers.parseBcqlRequest and a minor asymmetry in how the three explore handlers extract parameters — creating friction for contributors trying to follow the established pattern.",
+      "score_rationale": "The mid-level seam quality is good: boundaries are explicit, translation happens in one place, and error propagation is consistent. The score sits at 76 because the parseBcqlRequest null-return breaks the uniform IAE-throw contract at a module seam, and the explore-handler asymmetry (comparison uses a different parameter-extraction path without a clear rule) creates onboarding friction for contributors."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "parse_bcql_null_seam_break",
+      "summary": "CorpusQueryHandlers.parseBcqlRequest sends an HTTP response and returns null rather than throwing, breaking the uniform exception-propagation contract at the HTTP/domain seam",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "parseBcqlRequest: sends 413 response directly and returns null when body exceeds size limit.",
+        "handleCorpusQuery: `BcqlRequest req = parseBcqlRequest(exchange); if (req == null) return;` — null-check pattern breaks the uniform 'throw IAE, catch at wrapWithErrorHandling' contract.",
+        "All other handlers validate inputs by throwing IAE, letting the boundary wrapper handle the response. This handler has a two-step side-effect/null-check pattern instead."
+      ],
+      "suggestion": "Introduce an HttpApiUtils.sendErrorAndSignal method or a dedicated exception type (e.g., HttpException(413, ...)) that wrapWithErrorHandling can catch and map to the appropriate status code. This keeps all error signalling via exception flow and removes the null-return side-effect pattern.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "seam_contract_break"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_handler_parameter_extraction_asymmetry",
+      "summary": "The three explore handlers use different parameter-extraction shapes: single-seed calls resolveRelationConfig+resolveExplorationParams directly; multi-seed calls buildExploreRequest; comparison calls only resolveExplorationParams",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: calls resolveRelationConfig(params) then resolveExplorationParams(params) separately.",
+        "handleSemanticFieldExploreMulti: calls buildExploreRequest(params) which packages both.",
+        "handleSemanticFieldComparison: calls only resolveExplorationParams, with inline seedsParam extraction.",
+        "The asymmetry is explained in the handleSemanticFieldComparison Javadoc ('intentionally does not call buildExploreRequest because comparison is cross-relational'), but the rule is documented in the comparison handler rather than at the top of the class where a contributor would look first."
+      ],
+      "suggestion": "Add a brief class-level comment in ExplorationHandlers that states the rule: explore and multi-seed use buildExploreRequest (relation-specific); comparison uses only resolveExplorationParams (cross-relational). This moves the rule to the class surface rather than burying it in one handler's Javadoc, making it visible to contributors adding new handlers.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "concordance_silent_fallback",
+      "summary": "ConcordanceHandlers uses a proximity-fallback BCQL pattern when the grammar relation is unresolved, signalling this only as 'fallback: true' in the response body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "handleConcordanceExamples: `if (bcqlQuery == null || bcqlQuery.isEmpty()) { bcqlQuery = proximity fallback; fallback = true; logger.warn(...); }`",
+        "The response includes `response.put(\"fallback\", fallback)` — clients can inspect this, but the HTTP status is still 200.",
+        "The silent fallback means an unrecognised relation name returns results (from a different query) rather than a 400 error, making the API behaviour non-deterministic from the client's perspective."
+      ],
+      "suggestion": "Treat an unresolved relation as a 400 Bad Request (throw IAE) rather than silently using a proximity fallback. If the fallback is intentionally useful, make it opt-in via a query parameter (e.g., allow_fallback=true) so callers explicitly acknowledge they are getting degraded results.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "silent_fallback"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "parseBcqlRequest null-return is the same root cause as the error_consistency finding — the 413 code does not fit the IAE-throw contract.",
+      "The concordance fallback was added to handle missing relation configs gracefully but was not gated behind an explicit opt-in parameter."
+    ],
+    "likely_symptoms": [
+      "parse_bcql_null_seam_break",
+      "concordance_silent_fallback"
+    ],
+    "possible_false_positives": []
+  }
+}

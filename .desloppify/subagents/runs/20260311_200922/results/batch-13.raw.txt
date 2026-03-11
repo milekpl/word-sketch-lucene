@@ -1,0 +1,78 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 13,
+  "assessments": {"logic_clarity": 80.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "SketchHandlers.handleRelationQueryForPattern: checks `if (rel == null || rel.relationType().orElse(null) != relationType)` — the `rel == null` check is unreachable because grammarConfig.getRelation() returns Optional, and `orElse(null)` is used to unwrap. The null check is valid but the combined condition mixes Optional-safe and null-check styles in one expression",
+        "ExplorationHandlers.handleSemanticFieldExplore: calls resolveRelationConfig (which guarantees relationType is present by throwing IAE otherwise), then immediately calls orElseThrow on relationType again at line 84-87 — the second orElseThrow can never fire after the first validation. This is a redundant defensive check, not dead code per se, but it adds noise that suggests the logic is less clear about invariants",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: same redundant pattern — resolveRelationConfig validates relationType, then orElseThrow at line 134-137",
+        "ConlluConverter.convertConlluToWplChunks: the writerOpt.get() call at line 56 inside `if (inSentence)` is always safe because a writer is always opened before inSentence becomes true (line 66-69 shows writer is opened when !inSentence and writerOpt.isEmpty). The invariant is provable but not stated, making readers wonder about the safety",
+        "GrammarConfigLoader.parseAndValidateVersion throws IOException for a validation error — IOException is semantically for I/O failures; throwing it for a missing JSON field conflates two error kinds. An IllegalArgumentException or a dedicated ConfigException would express the failure mode more clearly",
+        "SemanticFieldExplorer.exploreByPattern(internal): reassigns the seed parameter (seed = seed.toLowerCase().trim()) — parameter mutation makes the function harder to reason about; a local variable would be clearer",
+        "BlackLabQueryExecutor.executeCollocations and executeDependencyPattern both guard lemma == null || lemma.isEmpty() and deprel == null with early return — clean, correct defensive guards",
+        "CollocateQueryHelper.buildAndRankCollocates: headwordFreq > 0 && collocateFreq > 0 checked before logDice computation — if either is zero, returns 0.0 rather than throwing; consistent with the skip-if-unscored contract",
+        "Main.handleBlackLabQueryCommand: uses `var results = deprel != null ? ... : ...` — the ternary is clear and avoids duplicate code"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Defensive early-return guards for null/empty inputs are consistently applied across query methods",
+        "Phase-structured algorithms in SemanticFieldExplorer and MultiSeedExplorer use clear named phases with comments separating concerns",
+        "Main.main() switch statement cleanly routes commands without nested conditionals",
+        "ConlluConverter rotation logic is encapsulated in rotateChunkIfNeeded — the main loop body is kept readable"
+      ],
+      "issue_character": "The predominant issue is redundant validation: resolveRelationConfig validates relationType then handlers re-validate it with orElseThrow, creating logic that appears necessary but can never fire. This pattern obscures the true control flow for readers.",
+      "score_rationale": "The codebase has clean, purposeful logic in most places. The two instances of redundant post-validation orElseThrow in ExplorationHandlers reduce clarity (the code appears to handle a case that can't occur). The IOException for config-format errors and the seed parameter mutation are minor concerns. Overall the logic is sound and defensively structured — scoring in the upper-mid range reflects good basic clarity with a few patterns that add noise without benefit."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_relation_type_validation",
+      "summary": "handleSemanticFieldExplore and handleSemanticFieldExploreMulti call resolveRelationConfig (which guarantees relationType is present) then call orElseThrow on relationType again — the second check can never fire",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "resolveRelationConfig (line 271-283) throws IAE if relationType is absent: 'Invalid relation config: missing or unrecognised relation_type'",
+        "handleSemanticFieldExplore line 84-87: resolvedConfig.relationType().orElseThrow(() -> new IllegalStateException('relationType absent after validation')) — this ISE can never be reached since resolveRelationConfig already threw IAE for absent relationType",
+        "handleSemanticFieldExploreMulti lines 134-137: same pattern duplicated"
+      ],
+      "suggestion": "Since resolveRelationConfig guarantees relationType is present, replace the orElseThrow pattern with a direct .get(): String relationType = resolvedConfig.relationType().get().name(). Add a comment: '// Safe: resolveRelationConfig guarantees relationType is present'. This makes the invariant explicit without defensive dead code.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "seed_parameter_mutation",
+      "summary": "SemanticFieldExplorer.exploreByPattern (internal overload) mutates its seed parameter via seed = seed.toLowerCase().trim()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line 170: seed = seed.toLowerCase().trim() — reassigns the parameter variable, shadowing the incoming value",
+        "Lines 165-168: the empty-string check uses the original seed before mutation — if seed is '  ' (spaces only), isEmpty() returns false but trim() produces '', so ExplorationResult.empty(\"\") is returned rather than ExplorationResult.empty(seed)"
+      ],
+      "suggestion": "Use a local variable: String normalizedSeed = seed.toLowerCase().trim(); then use normalizedSeed throughout the method body. Also update the early empty check: if (seed.isBlank()) return ExplorationResult.empty(seed); — this covers both empty and whitespace-only inputs correctly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Redundant validation pattern likely arose from defensive programming applied without awareness that upstream validation already provides the guarantee",
+      "Parameter mutation is a common Java habit carried from procedural coding style"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

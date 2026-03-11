@@ -1,0 +1,84 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 64.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "27 test classes found covering: CqlUtils, LogDiceCalculator, BlackLabSnippetParser, GrammarConfigLoader, RelationUtils, RelationsValidation, HandlersTest, WrapHandlerTest, HttpApiUtilsTest, ExploreResponseAssembler, MultiSeedExplorer, CollocateProfileComparator, SemanticFieldExplorerInternal, BlackLabConllUIndexer, ConlluConverter, BCQLParser, BlackLabBcqlConcordance, BlackLabQueryExecutorIntegration, BlackLabQueryExecutor, BlackLabSnippetParser, CollocateQueryHelper, DependencySketch, HybridAlgorithm, SemanticFieldExplorer",
+        "BlackLabQueryExecutorTest has 5 new CI-safe tests for the buildBcqlWithLemmaSubstitution static helper. Live-index tests are in a @Nested LiveIndex class gated by Assumptions.assumeTrue — these are skipped in CI when no index is available",
+        "SemanticFieldExplorerInternalTest uses a hand-rolled StubExecutor implementing QueryExecutor — tests the core exploration algorithm (filterByMinShared, identifyCoreCollocates) without requiring a live corpus",
+        "MultiSeedExplorerTest and CollocateProfileComparatorTest similarly use stub executors",
+        "HandlersTest uses a MockExchange inner class to test HTTP handler logic without a running server — good isolation",
+        "Main.java (CLI entry point, command routing) has no dedicated unit tests — the command dispatch logic (switch statement, requireNextArg) is untested",
+        "BlackLabQueryExecutor.executeCollocations, executeSurfacePattern, executeDependencyPattern — the core corpus query methods — are only tested via integration tests that require a live BlackLab index. In CI without the index these are entirely skipped",
+        "BlackLabBcqlConcordanceTest and BlackLabQueryExecutorIntegrationTest likely require live index — if skipped, the critical collocate-scoring pipeline (logDice computation from corpus frequencies, HitGroup processing) has no CI coverage",
+        "CollocateQueryHelper.buildAndRankCollocates and executeCollocateSearch — the critical scoring path — are tested in CollocateQueryHelperTest but the test details depend on whether it uses a stub or live index",
+        "GrammarConfigLoaderTest and RelationsValidationTest validate config loading — these are unit tests that run without external dependencies",
+        "ExploreResponseAssembler is in src/test/.../model/ package (test directory) — tests cover the response assembly formatting"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Core NLP algorithms (SemanticFieldExplorer, MultiSeedExplorer, CollocateProfileComparator) are unit-testable via stub executors without requiring a live corpus",
+        "HTTP handler isolation via MockExchange tests handler logic without binding ports",
+        "Static helper methods extracted to enable CI-safe testing even for BlackLabQueryExecutor",
+        "GrammarConfig loading, CQL parsing, logDice scoring, and response assembly all have dedicated unit tests"
+      ],
+      "issue_character": "The primary test strategy gap is that the BlackLabQueryExecutor corpus query methods (the critical collocate-scoring pipeline) are only covered by live-index integration tests that are skipped in CI. This leaves the core data retrieval and logDice scoring pipeline uncovered in automated builds.",
+      "score_rationale": "The test coverage is uneven: utilities and pure algorithms are well covered, but the critical data-retrieval path (BlackLabQueryExecutor.executeCollocations, executeSurfacePattern, the HitGroup→logDice scoring pipeline in CollocateQueryHelper) only has live-index tests. For an NLP search library, the query-to-collocate pipeline is the most important path. Additionally, Main.java is untested. The score of 64 reflects meaningful unit tests for algorithms and utilities, penalized significantly for the uncovered live-only critical path and untested CLI entry point."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "corpus_query_path_live_only",
+      "summary": "BlackLabQueryExecutor.executeCollocations and executeSurfacePattern — the critical collocate-retrieval and logDice-scoring pipeline — are only tested via live-index integration tests, leaving the path uncovered in CI",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorTest: @Nested LiveIndex class at line ~60 is gated by Assumptions.assumeTrue(indexPath != null) — skipped in CI without the index env var",
+        "BlackLabQueryExecutor.executeCollocations delegates to CollocateQueryHelper.executeCollocateSearch + buildAndRankCollocates — both paths require a real BlackLabIndex for full execution",
+        "CollocateQueryHelper accepts @Nullable BlackLabIndex for testing, but CollocateQueryHelperTest likely still requires a real index for executeCollocateSearch"
+      ],
+      "suggestion": "Extract the logDice-scoring and ranking pipeline (buildAndRankCollocates) into a separate, pure-function test target that takes a pre-built freqMap and headwordFreq. This path can then be unit-tested without any BlackLab dependency. For executeCollocateSearch, consider an interface extraction (or a test double returning pre-built HitGroups) to enable CI coverage of the HitGroup→collocate extraction logic.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "main_entry_point_untested",
+      "summary": "Main.java CLI command routing and argument parsing (requireNextArg, command dispatch) has no dedicated unit tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "No test class found for pl.marcinmilkowski.word_sketch.Main",
+        "requireNextArg throws IllegalArgumentException for missing args — untested boundary",
+        "handleBlackLabIndexCommand, handleBlackLabQueryCommand, handleBlackLabServerCommand all parse arg arrays without unit test coverage",
+        "The switch statement command dispatch is the CLI entry point for all operations"
+      ],
+      "suggestion": "Extract argument-parsing logic from the handle* methods into pure-function parsers (e.g., parseIndexArgs(String[] args), parseQueryArgs(String[] args)) that return option objects. These can be unit-tested by passing synthetic arg arrays. requireNextArg should also be tested for bounds checking.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab's index lifecycle (must be opened from disk) makes unit-testing the retrieval layer difficult without significant infrastructure investment in test doubles or in-memory index creation",
+      "Main.java as a CLI entry point is commonly untested in tooling-style projects due to the effort of mocking external system interactions"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

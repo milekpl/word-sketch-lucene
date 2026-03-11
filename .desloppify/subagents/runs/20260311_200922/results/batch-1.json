@@ -1,0 +1,95 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {"high_level_elegance": 79.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package layout maps cleanly to domain capabilities: api/, config/, exploration/, indexer/, model/, query/, utils/, viz/ — each package has a focused, predictable mandate.",
+        "Main.java dispatches three CLI commands (blacklab-index, blacklab-query, server) with a clean switch; each command handler is a private method with clear responsibility.",
+        "SemanticFieldExplorer is explicitly documented as the 'stable API surface for ExplorationHandlers', acting as a coordination facade over MultiSeedExplorer and CollocateProfileComparator — ownership is declared, not implied.",
+        "ExploreResponseAssembler recently moved from model/ to api/: the fact that this move was needed reveals a previous package-level misclassification. Current placement (api/) is correct per responsibility.",
+        "ExplorationResult mixes single-seed and multi-seed modes: the 'seed' field carries a comma-joined string for multi-seed, and seeds() splits on ',' at runtime. This dual use bleeds a representation detail into the model contract — a new engineer reading the type cannot immediately reason about invariants.",
+        "The model package contains both DTOs (AdjectiveProfile record, CoreCollocate record, Edge record) and classes with non-trivial logic (ComparisonResult with summaryCounts, ExplorationResult with topNouns/nounsWithMinShared). The package-info.java documents this but the boundary between 'data carrier' and 'domain logic' is inconsistent.",
+        "WordSketchApiServer registers routes inline in registerRoutes(), mixing HTTP wiring with route enumeration; the route table is readable but the class both owns the server lifecycle and defines the route topology.",
+        "Public surface of each package is appropriately small: all handler classes are package-private; only WordSketchApiServer, GrammarConfig, GrammarConfigLoader, QueryExecutor, and a few model/exploration types are public."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 75.0,
+        "indirection_cost": 82.0,
+        "interface_honesty": 76.0,
+        "delegation_density": 80.0,
+        "definition_directness": 78.0,
+        "type_discipline": 72.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package-to-domain mapping is clear and a new engineer can quickly navigate the codebase: api/ handles HTTP, exploration/ owns the NLP algorithms, config/ owns grammar configuration, query/ owns corpus access.",
+        "SemanticFieldExplorer documents its coordination-facade role explicitly, making ownership and change boundaries legible.",
+        "Public surface is deliberately small — handler classes are package-private, the server class only exposes start/stop, and model types are focused.",
+        "Main.java cleanly separates CLI dispatch from command logic via private handler methods.",
+        "GrammarConfig is a pure value object separated from GrammarConfigLoader (IO machinery), following a principled data/loader split."
+      ],
+      "issue_character": "The main structural tension is that two domain objects (ExplorationResult, ComparisonResult) straddle the data/logic boundary inconsistently, and ExplorationResult's single-field encoding of both single-seed and multi-seed modes leaks a representation artefact into the model contract.",
+      "score_rationale": "The high-level structure is well above average: packages map to domain capabilities, ownership is explicit, and the public surface is appropriately constrained. The score stops short of the 85+ range because ExplorationResult's dual-mode encoding creates a model-contract ambiguity that a new engineer would need documentation to understand, and the model package mixes pure DTOs with classes that carry non-trivial derived logic without a clear structural rule distinguishing them."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "exploration_result_dual_mode",
+      "summary": "ExplorationResult encodes single-seed and multi-seed modes in a single comma-joined string field, leaking representation into the model contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationResult.seed field Javadoc: 'Multi-seed mode: contains the seeds joined with a comma'; seeds() method splits on \",\" at runtime.",
+        "MultiSeedExplorer.computeCollocateIntersection calls: new ExplorationResult(String.join(\",\", seeds), ...) — the comma-join is a serialization concern embedded in a domain object.",
+        "A caller reading ExplorationResult cannot determine from the type whether seed() returns a single lemma or a comma-joined list without consulting the Javadoc."
+      ],
+      "suggestion": "Give ExplorationResult a proper List<String> seeds field and remove the comma-join encoding. If a single combined seed string is needed for display purposes, derive it from the list at the call site or via a helper method, rather than encoding it in the stored field.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "model_dual_mode_encoding"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "model_pkg_logic_creep",
+      "summary": "model package mixes pure DTOs with classes carrying non-trivial derived logic without a structural rule distinguishing them",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java"
+      ],
+      "evidence": [
+        "ComparisonResult.summaryCounts(), fullyShared(), partiallyShared(), specificTo(noun) are non-trivial filter/aggregate methods that could live in a service.",
+        "ExplorationResult.topNouns(int), nounsWithMinShared(int) are query helpers living in what is described as a 'model' (data carrier).",
+        "AdjectiveProfile.strongestNoun() and sharingCategory() are derived accessors in a record — less intrusive but part of the same pattern.",
+        "package-info.java documents the mixed accessor convention but does not address the logic-in-model concern."
+      ],
+      "suggestion": "Establish a rule: model records/classes carry only data and simple derived properties (coverage ratios, boolean flags). Move filter/aggregate methods (summaryCounts, topNouns, nounsWithMinShared, fullyShared, etc.) to a companion utility class or to ExploreResponseAssembler where they are consumed.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "model_dual_mode_encoding"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The ExplorationResult/ComparisonResult classes were grown incrementally to serve increasingly complex exploration scenarios; derived logic was added directly to the model class each time rather than being pushed to a service layer.",
+      "The multi-seed feature was retrofitted onto a single-seed model (ExplorationResult), leading to the comma-join encoding rather than a proper structural change."
+    ],
+    "likely_symptoms": [
+      "exploration_result_dual_mode"
+    ],
+    "possible_false_positives": []
+  }
+}

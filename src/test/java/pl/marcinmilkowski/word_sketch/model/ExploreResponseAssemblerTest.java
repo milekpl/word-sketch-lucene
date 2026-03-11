@@ -17,7 +17,16 @@ class ExploreResponseAssemblerTest {
             Map<String, Long> seedFreqs,
             List<DiscoveredNoun> nouns,
             List<CoreCollocate> core) {
-        return new ExplorationResult(seed, seedCollocates, seedFreqs, nouns, core);
+        return new ExplorationResult(List.of(seed), seedCollocates, seedFreqs, nouns, core);
+    }
+
+    private static ExplorationResult resultWith(
+            List<String> seeds,
+            Map<String, Double> seedCollocates,
+            Map<String, Long> seedFreqs,
+            List<DiscoveredNoun> nouns,
+            List<CoreCollocate> core) {
+        return new ExplorationResult(seeds, seedCollocates, seedFreqs, nouns, core);
     }
 
     @Test
@@ -123,9 +132,9 @@ class ExploreResponseAssemblerTest {
 
     @Test
     void buildEdges_multiSeed_seedAdjEdgesUseIndividualSeedSources() {
-        // In multi-seed mode the seed field is comma-joined; edges must use individual lemmas
+        // In multi-seed mode seeds() returns individual lemmas; edges must use them as sources
         Map<String, Double> aggregateCollocates = Map.of("abstract", 7.0);
-        ExplorationResult result = resultWith("theory,model", aggregateCollocates, Map.of(), List.of(), List.of());
+        ExplorationResult result = resultWith(List.of("theory", "model"), aggregateCollocates, Map.of(), List.of(), List.of());
 
         List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
 

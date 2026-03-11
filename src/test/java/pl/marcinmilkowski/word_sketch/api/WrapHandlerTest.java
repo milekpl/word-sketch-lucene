@@ -60,6 +60,19 @@ class WrapHandlerTest {
     }
 
     @Test
+    void wrapWithErrorHandling_requestEntityTooLarge_sends413() throws Exception {
+        HttpHandler throwsTooLarge = exchange -> { throw new RequestEntityTooLargeException("body too large"); };
+        HandlersTest.MockExchange ex = mockExchange();
+
+        HttpApiUtils.wrapWithErrorHandling(throwsTooLarge, "test-op").handle(ex);
+
+        assertEquals(413, ex.statusCode, "RequestEntityTooLargeException must map to HTTP 413");
+        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
+        assertTrue(body.getString("error").contains("body too large"),
+                "Error message should include the original message");
+    }
+
+    @Test
     void wrapWithErrorHandling_noException_passesThrough() throws Exception {
         HttpHandler ok = exchange -> HttpApiUtils.sendJsonResponse(exchange, java.util.Map.of("ok", true));
         HandlersTest.MockExchange ex = mockExchange();

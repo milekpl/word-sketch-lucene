@@ -1,0 +1,123 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 5,
+  "assessments": {"abstraction_fitness": 77.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has exactly one production implementation (BlackLabQueryExecutor). The interface comment acknowledges this: 'acts primarily as a testability seam rather than an abstraction boundary'. This is an honest, well-documented single-implementation interface — low abstraction cost.",
+        "SemanticFieldExplorer acts as a coordination facade, documented as 'the stable API surface for ExplorationHandlers'. It does provide real value: insulates HTTP layer from changes to MultiSeedExplorer and CollocateProfileComparator wiring. Not a pass-through.",
+        "ExploreResponseAssembler is a static utility class (no state, all public static methods, private constructor) that converts model objects to JSON-ready maps. It provides real translation logic — formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, serializeEdge are all non-trivial. Not a facade.",
+        "HttpApiUtils combines response-writing and request-parsing in one class. The class Javadoc explicitly defends this: 'Splitting them would add navigational friction without architectural benefit.' The justification is reasonable for a package-private class; the risk is cohesion drift if the class grows.",
+        "CollocateQueryHelper was extracted from BlackLabQueryExecutor to share scoring/ranking logic. It owns executeCollocateSearch, buildAndRankCollocates, and executeBcqlQuery — genuine logic extraction, not a pass-through.",
+        "RelationPatternBuilder is a pure static utility extracted from RelationConfig. It provides real logic (buildFullPattern, buildCollocateReversePattern, computeCollocatePosGroup) and has multiple callers (GrammarConfigLoader, SemanticFieldExplorer, BlackLabQueryExecutor).",
+        "SingleSeedExplorationOptions composes ExplorationOptions via the 'base' field and delegates topCollocates(), minLogDice(), minShared() to it. The three delegation methods are direct pass-throughs: `return base.topCollocates()`. This is low-value delegation — callers could use opts.base().topCollocates() or opts.toBaseOptions() directly.",
+        "WordSketchApiServer.wrapHandler is a one-liner that delegates to HttpApiUtils.wrapWithErrorHandling — a pass-through wrapper with no added logic.",
+        "ExplorationHandlers.buildBaseExploreResponse is a private helper that builds a partial Map — non-trivial enough to be extracted but returns a mutable map that callers extend, which is a slightly leaky abstraction (the interface implies a complete object).",
+        "GrammarConfig.toJson() is a presentation method on a value object — serialization concern on a data carrier.",
+        "RelationConfig.toJson() is similarly a presentation method — same concern.",
+        "RelationConfig.computeDeprel() is a pattern-extraction method retained on the config record; the comment says 'retained here because it is only called during construction' — but computeDeprel's result is not cached in the record and callers cannot see it from the record's fields.",
+        "No delegation-heavy classes (most methods forwarding to inner object) found.",
+        "No facade/re-export modules found.",
+        "No TypedDict violations (Java codebase — not applicable)."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "SingleSeedExplorationOptions delegates three methods to base with no added value; WordSketchApiServer.wrapHandler is a zero-value pass-through; toJson() serialization methods on config value objects mix presentation with data concerns.",
+      "sub_axes": {
+        "abstraction_leverage": 78.0,
+        "indirection_cost": 80.0,
+        "interface_honesty": 84.0,
+        "delegation_density": 72.0,
+        "definition_directness": 76.0,
+        "type_discipline": 79.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor's single-implementation nature is explicitly documented in the interface Javadoc — the abstraction is honest about its purpose (testability seam, not polymorphism boundary).",
+        "CollocateQueryHelper and RelationPatternBuilder are genuine extractions: both have multiple callers and carry real logic, not mere forwarding.",
+        "SemanticFieldExplorer's facade role is explicitly documented and delivers actual isolation: changing MultiSeedExplorer or CollocateProfileComparator does not force changes in ExplorationHandlers.",
+        "ExploreResponseAssembler converts between domain model and HTTP response representation — a legitimate translation layer with non-trivial logic.",
+        "No god classes, no low-cohesion util dumping grounds, no generic machinery used in only one way."
+      ],
+      "issue_character": "The dominant pattern is minor delegation redundancy (SingleSeedExplorationOptions passes through three fields, wrapHandler forwards one call) rather than systemic over-abstraction; the toJson() methods on config records are the main cohesion concern.",
+      "score_rationale": "The abstractions in this codebase generally pay for themselves: facades document their purpose, extracted helpers have multiple callers, and the single-implementation interface is honestly framed. The score is in the high-70s because the SingleSeedExplorationOptions delegation boilerplate adds indirection without value, and the toJson() methods on value objects mix presentation concerns into the data layer without a clear rule about when this is appropriate."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "single_seed_opts_pass_through_delegates",
+      "summary": "SingleSeedExplorationOptions delegates topCollocates(), minLogDice(), minShared() to base with no added logic — callers can use base() directly",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SingleSeedExplorationOptions: `public int topCollocates() { return base.topCollocates(); }`, `public double minLogDice() { return base.minLogDice(); }`, `public int minShared() { return base.minShared(); }`",
+        "SemanticFieldExplorer.exploreByPattern uses `opts.topCollocates()`, `opts.nounsPerCollocate()`, `opts.minLogDice()`, `opts.minShared()` — three of these could be spelled `opts.base().topCollocates()` without the delegation methods.",
+        "toBaseOptions() is a useful projection method; the three individual delegations add no value beyond making opts.base() unnecessary to mention."
+      ],
+      "suggestion": "Remove the three delegation methods (topCollocates, minLogDice, minShared) from SingleSeedExplorationOptions. Callers should use opts.base() to access the shared parameters, which makes the two-field composition explicit. Alternatively, flatten the record to carry all four fields directly (removing the nested ExplorationOptions), which eliminates both the delegation and the two-level field access.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "delegation_redundancy"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "wrap_handler_pass_through",
+      "summary": "WordSketchApiServer.wrapHandler is a private one-liner that only calls HttpApiUtils.wrapWithErrorHandling — no added value",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "wrapHandler: `return HttpApiUtils.wrapWithErrorHandling(handler, description);` — a single-statement method that adds only a shorter name.",
+        "registerRoutes() calls wrapHandler 11 times; using wrapWithErrorHandling directly would be equally readable and eliminate a layer."
+      ],
+      "suggestion": "Remove wrapHandler and call HttpApiUtils.wrapWithErrorHandling directly in registerRoutes(). This makes the dependency on HttpApiUtils explicit and eliminates a zero-value indirection.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "delegation_redundancy"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "to_json_on_value_objects",
+      "summary": "GrammarConfig.toJson() and RelationConfig.toJson() place JSON serialization logic inside value objects, mixing presentation with data",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "GrammarConfig.toJson() iterates relations and builds a JSONObject with version, config_path, and a JSONArray of relation JSONObjects.",
+        "RelationConfig.toJson() constructs a JSONObject with all relation fields.",
+        "These methods are only called from SketchHandlers (API response for /api/relations). ExploreResponseAssembler serialises model objects without such methods — no equivalent toJson() pattern in model classes.",
+        "The presence of toJson() on config objects but not on model objects is an inconsistent serialization strategy."
+      ],
+      "suggestion": "Move toJson() serialization to SketchHandlers (where it is called) or to a dedicated serializer in the api package. This removes the presentation dependency from the config value objects, makes the serialization format visible at the call site, and brings config objects into alignment with the model/exploration pattern of externalizing serialization to the api layer.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "presentation_in_domain"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The toJson() methods were added directly to config objects before the ExploreResponseAssembler pattern was established; once the assembler existed the inconsistency was not resolved.",
+      "SingleSeedExplorationOptions delegation methods were added to allow callers to write opts.topCollocates() instead of opts.base().topCollocates() — a convenience that creates redundancy."
+    ],
+    "likely_symptoms": [
+      "single_seed_opts_pass_through_delegates",
+      "wrap_handler_pass_through"
+    ],
+    "possible_false_positives": [
+      "to_json_on_value_objects — medium confidence; toJson() on config objects may be intentional API design to keep serialization co-located with the type for discoverability"
+    ]
+  }
+}

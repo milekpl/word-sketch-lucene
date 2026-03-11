@@ -113,4 +113,9 @@ public class BlackLabConllUIndexer implements AutoCloseable {
     public long getTokenCount() {
         return tokenCount.get();
     }
+
+    /** Returns the number of documents that failed during indexing. Non-zero means the index may be incomplete. */
+    public long getErrorCount() {
+        return errorCount.get();
+    }
 }

@@ -355,5 +355,45 @@ class HandlersTest {
         handlers.handleSemanticFieldExploreMulti(ex);
         assertEquals(400, ex.statusCode);
     }
+
+    // ── CorpusQueryHandlers dispatch tests ───────────────────────────────────
+
+    @Test
+    void handleCorpusQuery_invalidJson_returns400() throws Exception {
+        CorpusQueryHandlers handlers = new CorpusQueryHandlers(null);
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/bcql", "not-valid-json{{");
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleCorpusQuery, "test-bcql").handle(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleCorpusQuery_missingQueryField_returns400() throws Exception {
+        CorpusQueryHandlers handlers = new CorpusQueryHandlers(null);
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/bcql", "{\"top\":10}");
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleCorpusQuery, "test-bcql").handle(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleCorpusQuery_blankQuery_returns400() throws Exception {
+        CorpusQueryHandlers handlers = new CorpusQueryHandlers(null);
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/bcql", "{\"query\":\"  \"}");
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleCorpusQuery, "test-bcql").handle(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    // ── SketchHandlers dispatch tests ────────────────────────────────────────
+
+    @Test
+    void handleSketchRequest_missingRelationType_returns200() throws Exception {
+        // No relationType param → falls through to full-sketch dispatch path
+        QueryExecutor executor = collocatingExecutor(java.util.Map.of(
+            "theory", List.of(wsr("abstract", 8.0))
+        ));
+        SketchHandlers handlers = new SketchHandlers(executor, GrammarConfigHelper.requireTestConfig());
+        MockExchange ex = new MockExchange("http://localhost/api/sketch/theory?lemma=theory");
+        handlers.handleSketchRequest(ex);
+        assertEquals(200, ex.statusCode);
+    }
 }
 

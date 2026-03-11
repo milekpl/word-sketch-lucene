@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
@@ -91,19 +92,9 @@ public class SemanticFieldExplorer {
     }
 
     private static String deriveNounCqlConstraint(GrammarConfig grammarConfig) {
-        if (grammarConfig == null) return FALLBACK_NOUN_CQL_CONSTRAINT;
-        // Use explicit relation_type filter rather than findFirst() to avoid implicit ordering dependency.
-        // OBJECT_OF has nouns as collocates and is the canonical noun-reverse-lookup relation.
-        return grammarConfig.getRelations().stream()
-            .filter(r -> r.relationType().map(rt -> rt == RelationType.OBJECT_OF || rt == RelationType.SUBJECT_OF).orElse(false)
-                && r.collocatePosGroup() == PosGroup.NOUN)
-            .findFirst()
-            .map(RelationConfig::buildCollocateReversePattern)
-            .orElseGet(() -> grammarConfig.getRelations().stream()
-                .filter(r -> r.collocatePosGroup() == PosGroup.NOUN && r.relationType().isPresent())
-                .findFirst()
-                .map(RelationConfig::buildCollocateReversePattern)
-                .orElse(FALLBACK_NOUN_CQL_CONSTRAINT));
+        return RelationUtils.findBestCollocatePattern(
+            grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_CQL_CONSTRAINT,
+            RelationType.OBJECT_OF, RelationType.SUBJECT_OF);
     }
 
     // ==================== EXPLORATION MODE ====================

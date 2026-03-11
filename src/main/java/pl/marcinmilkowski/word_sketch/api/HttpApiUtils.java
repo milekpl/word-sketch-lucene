@@ -13,6 +13,19 @@ import java.util.Map;
 
 /**
  * Static HTTP utility helpers for the REST API server.
+ *
+ * <p>This class intentionally co-locates two related HTTP concerns:
+ * <ul>
+ *   <li><strong>Response writing</strong>: {@link #sendJsonResponse}, {@link #sendError},
+ *       {@link #sendOptionsResponse}, {@link #sendBinaryResponse}, and related CORS helpers.</li>
+ *   <li><strong>Request parameter parsing</strong>: {@link #requireParam},
+ *       {@link #parseIntParam}, {@link #parseDoubleParam}, {@link #parseQueryParams}.</li>
+ * </ul>
+ * Both sets of methods serve a single concern — handling the HTTP layer of the REST API — and
+ * are used exclusively within the {@code api} package. Splitting them into two separate classes
+ * would not reduce coupling (they share no state, only a package) and would add navigational
+ * friction without architectural benefit. The class is package-private, so this design decision
+ * does not affect the public API surface.</p>
  */
 class HttpApiUtils {
 

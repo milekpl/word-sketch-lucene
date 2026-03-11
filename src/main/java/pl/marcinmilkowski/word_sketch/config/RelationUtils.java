@@ -47,4 +47,35 @@ public class RelationUtils {
         String lower = relation.toLowerCase();
         return RELATION_ALIASES.getOrDefault(lower, lower);
     }
+
+    /**
+     * Finds the CQL reverse-lookup pattern for the best relation matching {@code posGroup}.
+     * Searches for {@code primaryTypes} first; falls back to any relation with a known
+     * {@code relationType} when no primary-type match is found.
+     * Returns {@code fallback} when {@code grammarConfig} is null or no match is found.
+     *
+     * @param grammarConfig  the grammar configuration to search; returns {@code fallback} if null
+     * @param posGroup       the collocate POS group to match against
+     * @param fallback       default pattern to return when no relation matches
+     * @param primaryTypes   preferred relation types to try first (in-order search)
+     * @return the reverse-lookup CQL pattern, or {@code fallback}
+     */
+    public static String findBestCollocatePattern(
+            @Nullable GrammarConfig grammarConfig,
+            PosGroup posGroup,
+            String fallback,
+            RelationType... primaryTypes) {
+        if (grammarConfig == null) return fallback;
+        Set<RelationType> primary = Set.of(primaryTypes);
+        return grammarConfig.getRelations().stream()
+            .filter(r -> r.relationType().map(primary::contains).orElse(false)
+                && r.collocatePosGroup() == posGroup)
+            .findFirst()
+            .map(RelationConfig::buildCollocateReversePattern)
+            .orElseGet(() -> grammarConfig.getRelations().stream()
+                .filter(r -> r.collocatePosGroup() == posGroup && r.relationType().isPresent())
+                .findFirst()
+                .map(RelationConfig::buildCollocateReversePattern)
+                .orElse(fallback));
+    }
 }

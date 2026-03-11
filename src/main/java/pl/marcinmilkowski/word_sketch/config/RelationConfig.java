@@ -13,6 +13,14 @@ import java.util.regex.Pattern;
 
 /**
  * Relation configuration record.
+ *
+ * <p>This record serves a dual role as both a <em>data carrier</em> (holding the fields
+ * deserialized from {@code relations.json}) and a <em>domain logic host</em> (providing
+ * pattern-building, POS-group inference, and deprel-extraction methods). The methods are
+ * intentionally co-located here for cohesion: each method is a pure function of the record's
+ * own fields, and callers would otherwise need to reach into the record's internals to perform
+ * the same computation. Splitting the logic into a separate builder or helper class would not
+ * reduce coupling — it would merely spread it.</p>
  */
 public record RelationConfig(
     String id,

@@ -12,6 +12,16 @@ import java.util.regex.Pattern;
  * Converts CoNLL-U format to tabular WPL with &lt;s&gt; markers, split into chunk files.
  * BlackLab's tabular indexer loads each file fully into memory, so large corpora
  * must be split into manageable chunks (one file = one BlackLab document).
+ *
+ * <p>Two concerns are at work here:
+ * <ul>
+ *   <li><strong>CoNLL-U parsing</strong>: skipping comment/MWT lines, emitting {@code <s>}
+ *       sentence markers, and tracking in-sentence state.</li>
+ *   <li><strong>Chunk rotation</strong>: closing the current chunk writer and opening the next
+ *       when a sentence boundary is reached and the per-chunk sentence quota is exceeded.
+ *       This concern is encapsulated in {@link #rotateChunkIfNeeded}.</li>
+ * </ul>
+ * </p>
  */
 public class ConlluConverter {
 
@@ -42,10 +52,10 @@ public class ConlluConverter {
                             sentences++;
                             sentencesInChunk++;
                             inSentence = false;
-                            if (sentencesInChunk >= sentencesPerChunk) {
-                                writer.close();
+                            long[] rotated = rotateChunkIfNeeded(writer, outputDir, chunks, sentencesInChunk, sentencesPerChunk);
+                            if (rotated != null) {
                                 writer = null;
-                                chunks++;
+                                chunks = rotated[0];
                                 sentencesInChunk = 0;
                             }
                         }
@@ -83,6 +93,20 @@ public class ConlluConverter {
             }
         }
         return new long[]{sentences, tokens, chunks};
+    }
+
+    /**
+     * Closes the current chunk writer and increments the chunk counter when the per-chunk
+     * sentence quota is reached. Returns a {@code long[]{newChunkCount}} when rotation
+     * occurred (caller should reset {@code sentencesInChunk} to 0 and set writer to null),
+     * or {@code null} when no rotation was needed.
+     */
+    private static long[] rotateChunkIfNeeded(
+            BufferedWriter writer, Path outputDir, long chunks,
+            int sentencesInChunk, int sentencesPerChunk) throws IOException {
+        if (sentencesInChunk < sentencesPerChunk) return null;
+        writer.close();
+        return new long[]{chunks + 1};
     }
 
     private static BufferedWriter openChunk(Path outputDir, long index) throws IOException {

@@ -155,7 +155,7 @@ class ExplorationHandlers {
 
         ComparisonResult result;
         try {
-            result = semanticFieldExplorer.compareCollocateProfiles(seeds, minLogDice, topCollocates);
+            result = semanticFieldExplorer.getComparator().compareCollocateProfiles(seeds, minLogDice, topCollocates);
         } catch (IOException e) {
             HttpApiUtils.sendError(exchange, 500, "Comparison failed: " + e.getMessage());
             return;

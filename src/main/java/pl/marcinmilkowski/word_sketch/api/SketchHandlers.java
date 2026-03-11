@@ -118,20 +118,13 @@ class SketchHandlers {
         for (var rel : grammarConfig.getRelations()) {
             if (rel.relationType().orElse(null) != relationType) continue;
             try {
-                String fullPattern = rel.getFullPattern(lemma);
-                List<QueryResults.WordSketchResult> results =
-                    executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
-
-                if (!results.isEmpty()) {
-                    List<Map<String, Object>> collocations = new ArrayList<>();
-                    for (QueryResults.WordSketchResult result : results) {
-                        collocations.add(formatWordSketchResult(result));
-                    }
+                ExecutedSketch sketch = executeAndFormatCollocations(lemma, rel);
+                if (sketch != null) {
                     Map<String, Object> relData = new HashMap<>();
                     relData.put("name", rel.name());
                     relData.put("cql", rel.pattern());
                     relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
-                    relData.put("collocations", collocations);
+                    relData.put("collocations", sketch.collocations());
                     byRelation.put(rel.id(), relData);
                 }
             } catch (IOException | RuntimeException e) {
@@ -163,16 +156,9 @@ class SketchHandlers {
             if (rel.relationType().orElse(null) != RelationType.DEP) continue;
             if (rel.getDeprel() == null) continue;
             try {
-                String fullPattern = rel.getFullPattern(lemma);
-                List<QueryResults.WordSketchResult> results =
-                    executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
-
-                if (!results.isEmpty()) {
-                    List<Map<String, Object>> collocations = new ArrayList<>();
-                    for (QueryResults.WordSketchResult result : results) {
-                        collocations.add(formatWordSketchResult(result));
-                    }
-                    byRelation.put(rel.id(), buildRelationResponse(rel, results, collocations));
+                ExecutedSketch sketch = executeAndFormatCollocations(lemma, rel);
+                if (sketch != null) {
+                    byRelation.put(rel.id(), buildRelationResponse(rel, sketch.results(), sketch.collocations()));
                 }
             } catch (IOException | RuntimeException e) {
                 logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
@@ -240,6 +226,26 @@ class SketchHandlers {
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
+
+    /**
+     * Executes the surface pattern for a relation and formats the results into the JSON-ready collocations list.
+     * Returns {@code null} when the query returns no results (so callers can skip the relation).
+     */
+    private ExecutedSketch executeAndFormatCollocations(String lemma,
+            pl.marcinmilkowski.word_sketch.config.RelationConfig rel) throws IOException {
+        String fullPattern = rel.getFullPattern(lemma);
+        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
+        if (results.isEmpty()) return null;
+        List<Map<String, Object>> collocations = new ArrayList<>();
+        for (QueryResults.WordSketchResult result : results) {
+            collocations.add(formatWordSketchResult(result));
+        }
+        return new ExecutedSketch(results, collocations);
+    }
+
+    private record ExecutedSketch(
+            List<QueryResults.WordSketchResult> results,
+            List<Map<String, Object>> collocations) {}
 
     /**
      * Builds the response map for a single dependency relation entry.

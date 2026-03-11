@@ -3,7 +3,6 @@ package pl.marcinmilkowski.word_sketch.config;
 import com.alibaba.fastjson2.JSONObject;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -52,10 +51,7 @@ public record RelationConfig(
     public String getFullPattern(String headword, String collocateLemma) {
         String withHead = getFullPattern(headword);
         if (collocateLemma == null || collocateLemma.isBlank()) return withHead;
-        List<String> tokens = CqlUtils.splitCqlTokens(withHead);
-        if (collocatePosition < 1 || collocatePosition > tokens.size()) return withHead;
-        tokens.set(collocatePosition - 1, mergeLemmaConstraint(tokens.get(collocatePosition - 1), collocateLemma));
-        return String.join(" ", tokens);
+        return CqlUtils.substituteAtPosition(withHead, collocateLemma, collocatePosition);
     }
 
     /**
@@ -80,41 +76,7 @@ public record RelationConfig(
      * becomes "[lemma=\"theory\" & xpos=\"NN.*\"] [xpos=\"JJ.*\"]"
      */
     private static String substituteHeadword(String pattern, String headword, int headPosition) {
-        if (pattern == null || headword == null || headPosition < 1) {
-            return pattern;
-        }
-
-        List<String> tokens = CqlUtils.splitCqlTokens(pattern);
-        if (headPosition > tokens.size()) {
-            return pattern;
-        }
-
-        tokens.set(headPosition - 1, mergeLemmaConstraint(tokens.get(headPosition - 1), headword));
-        return String.join(" ", tokens);
-    }
-
-    /**
-     * Merge lemma constraint with existing xpos/pos constraint.
-     * E.g., "[xpos=\"NN.*\"]" + "theory" -> "[lemma=\"theory\" & xpos=\"NN.*\"]"
-     */
-    private static String mergeLemmaConstraint(String existingConstraint, String headword) {
-        // Parse existing constraint to extract xpos/pos tags
-        String xposPattern = CqlUtils.extractConstraintAttribute(existingConstraint, "xpos");
-        String posPattern = CqlUtils.extractConstraintAttribute(existingConstraint, "tag");
-
-        // Build new constraint with lemma
-        StringBuilder sb = new StringBuilder();
-        sb.append("[lemma=\"").append(CqlUtils.escapeForRegex(headword)).append("\"");
-
-        if (xposPattern != null) {
-            sb.append(" & ").append(xposPattern);
-        }
-        if (posPattern != null) {
-            sb.append(" & ").append(posPattern);
-        }
-
-        sb.append("]");
-        return sb.toString();
+        return CqlUtils.substituteAtPosition(pattern, headword, headPosition);
     }
 
 
@@ -182,26 +144,28 @@ public record RelationConfig(
      * labels to enum constants; it is not applicable here.
      */
     private PosGroup posGroupFromConstraint(String s) {
-        // xpos (Penn Treebank — used by current grammar)
-        if (s.contains("xpos=\"jj") || s.contains("xpos=jj")) return PosGroup.ADJ;
-        if (s.contains("xpos=\"vb") || s.contains("xpos=vb")) return PosGroup.VERB;
-        if (s.contains("xpos=\"nn") || s.contains("xpos=nn")) return PosGroup.NOUN;
-        if (s.contains("xpos=\"rb") || s.contains("xpos=rb")) return PosGroup.ADV;
-        if (s.contains("xpos=\"in") || s.contains("xpos=in")) return PosGroup.OTHER;
-        if (s.contains("xpos=\"rp") || s.contains("xpos=rp")
-         || s.contains("xpos=\"to") || s.contains("xpos=to")) return PosGroup.OTHER;
-        // Legacy: tag= attribute — used by IPI_PAN Polish grammar (IPI_PAN_1.1_pl.txt).
-        // New English grammars always use xpos= above. Keep this path as long as non-English
-        // grammars that use tag= are supported.
-        if (s.contains("tag=\"jj") || s.contains("tag=jj")) return PosGroup.ADJ;
-        if (s.contains("tag=\"vb") || s.contains("tag=vb")) return PosGroup.VERB;
-        if (s.contains("tag=\"nn") || s.contains("tag=nn")
-         || s.contains("tag=\"pos") || s.contains("tag=pos")) return PosGroup.NOUN;
-        if (s.contains("tag=\"rb") || s.contains("tag=rb")) return PosGroup.ADV;
-        if (s.contains("tag=\"in") || s.contains("tag=in")) return PosGroup.OTHER;
-        if (s.contains("tag=\"rp") || s.contains("tag=rp")
-         || s.contains("tag=\"to") || s.contains("tag=to")) return PosGroup.OTHER;
-        return PosGroup.OTHER;
+        PosGroup result = posGroupForPrefix(s, "xpos=");
+        if (result == null) result = posGroupForPrefix(s, "tag=");
+        return result != null ? result : PosGroup.OTHER;
+    }
+
+    /**
+     * Maps a CQL constraint string to a {@link PosGroup} by scanning for the given attribute
+     * prefix (e.g. {@code "xpos="} for Penn Treebank, {@code "tag="} for legacy grammars).
+     * Returns {@code null} when no matching prefix is found, so the caller can try a fallback.
+     */
+    private static PosGroup posGroupForPrefix(String s, String attr) {
+        String q = attr + "\"";  // quoted form, e.g. xpos="
+        if (s.contains(q + "jj") || s.contains(attr + "jj")) return PosGroup.ADJ;
+        if (s.contains(q + "vb") || s.contains(attr + "vb")) return PosGroup.VERB;
+        if (s.contains(q + "nn") || s.contains(attr + "nn")) return PosGroup.NOUN;
+        if ("tag=".equals(attr)
+         && (s.contains(q + "pos") || s.contains(attr + "pos"))) return PosGroup.NOUN;
+        if (s.contains(q + "rb") || s.contains(attr + "rb")) return PosGroup.ADV;
+        if (s.contains(q + "in") || s.contains(attr + "in")) return PosGroup.OTHER;
+        if (s.contains(q + "rp") || s.contains(attr + "rp")
+         || s.contains(q + "to") || s.contains(attr + "to")) return PosGroup.OTHER;
+        return null;
     }
 
     /**

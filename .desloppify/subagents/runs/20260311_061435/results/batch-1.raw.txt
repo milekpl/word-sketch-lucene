@@ -1,0 +1,77 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {"cross_module_architecture": 79.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is consistently outward-from-core: utils/model have no upward deps; query depends on model+utils; api depends on query+config+exploration+model; Main is the only entry point",
+        "No import cycles detected: model, utils, config are pure leaves; query imports model and utils; exploration imports query, model, config; api imports query, config, exploration, model",
+        "BlackLab integration is isolated in the query package (BlackLabQueryExecutor, CollocateQueryHelper, BlackLabSnippetParser) — the rest of the codebase depends on the QueryExecutor interface, not on BlackLab directly",
+        "com.sun.net.httpserver (internal JDK API) is used directly throughout the api package — HttpApiUtils, WordSketchApiServer, and all handler classes reference it; this is a soft platform-coupling smell but not a cycle",
+        "ExplorationResult.toMap() and ComparisonResult.toMap() embed JSON serialization knowledge inside model package classes — the model package has upward awareness of the API serialization concern",
+        "AdjectiveCollocateRanker is in the exploration package but is package-public — SemanticFieldExplorer wraps it to hide it from the api package (documented as intentional facade), so the boundary holds",
+        "RelationUtils is in the api package but only contains alias-to-config-ID mapping; this logic could belong in config or config-adjacent; its placement in api is a minor seam confusion"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Strict layering: model and utils are pure leaves with no upward dependencies",
+        "QueryExecutor interface isolates the BlackLab dependency — switching corpus engines requires changing only the query package",
+        "Package-private visibility (CollocateQueryHelper, BlackLabSnippetParser, ExplorationHandlers, SketchHandlers) enforces internal encapsulation within packages",
+        "SemanticFieldExplorer acts as an intentional facade over AdjectiveCollocateRanker so api never reaches into exploration internals"
+      ],
+      "issue_character": "Issues are isolated seam leaks — not cycles or hub instability — primarily model classes holding serialization knowledge that belongs in the api layer.",
+      "score_rationale": "The module graph is acyclic and direction-compliant; the dominant integration pattern (QueryExecutor interface) is well-executed. Two targeted leaks (model.toMap() carrying serialization logic, com.sun.net.httpserver permeating the api package) prevent a higher score. This is solid-but-uneven territory — around 80."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "model_serialization_leak",
+      "summary": "ExplorationResult and ComparisonResult embed JSON serialization logic inside the model package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.toMap() constructs a LinkedHashMap with keys 'seed_collocates', 'discovered_nouns', 'core_collocates', 'edges' and rounds logDice values to 2 decimal places — this is API serialization concern in a model class",
+        "ComparisonResult.toMap() similarly builds a JSON-ready map with 'adjectives', 'edges', 'nouns' keys",
+        "ExplorationHandlers.buildExploreResponseBody does an unchecked cast from resultMap.get('seed_collocates') to List<Map<String,Object>> — coupling api to model's serialization key names"
+      ],
+      "suggestion": "Move toMap() serialization to a dedicated mapper in the api package (e.g., ExplorationResultMapper), keeping model classes as pure data holders. This removes the implicit api-string-key contract from the model layer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "internal_jdk_api_coupling",
+      "summary": "com.sun.net.httpserver (internal JDK API) permeates the entire api package rather than being wrapped at a single point",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "HttpExchange (com.sun.net.httpserver.HttpExchange) is a parameter in every handler method: handleSketchRequest(HttpExchange), handleSemanticFieldExplore(HttpExchange), etc.",
+        "WordSketchApiServer uses com.sun.net.httpserver.HttpServer directly in constructor and registerHandler",
+        "Replacing the HTTP transport layer would require touching every handler method signature"
+      ],
+      "suggestion": "Introduce a thin adapter interface (e.g., ApiRequest/ApiResponse) so handlers depend on a project-owned abstraction rather than the internal JDK API directly. Alternatively, accept this coupling if replacing the transport is not a realistic concern, and document the decision.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Model classes were made to carry their own serialization to avoid spreading JSON field-name knowledge, but this inverts the dependency direction"],
+    "likely_symptoms": ["brittle unchecked casts in ExplorationHandlers.buildExploreResponseBody", "any rename of model serialization keys requiring api-handler updates"]
+  }
+}

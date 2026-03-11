@@ -69,22 +69,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, Long> freqMap = new LinkedHashMap<>();
         Map<String, String> lemmaPosMap = new HashMap<>();
 
-        for (HitGroup group : groups) {
-            String identity = group.identity().toString();
-            if (identity.isEmpty()) {
-                continue;
-            }
-
+        collectFrequenciesFromGroups(groups, identity -> {
             String collocateLemma = BlackLabSnippetParser.extractLemmaWithFallback(identity);
-            if (collocateLemma.isEmpty()) {
-                continue;
-            }
-
-            String key = collocateLemma.toLowerCase();
-            freqMap.merge(key, group.size(), Long::sum);
-            String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
-            if (pos != null) lemmaPosMap.put(key, pos);
-        }
+            return collocateLemma.isEmpty() ? null : collocateLemma;
+        }, freqMap, lemmaPosMap);
 
         return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
     }
@@ -180,21 +168,32 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, Long> freqMap = new HashMap<>();
         Map<String, String> lemmaPosMap = new HashMap<>();
 
+        collectFrequenciesFromGroups(groups,
+            identity -> BlackLabSnippetParser.extractCollocateLemma(identity),
+            freqMap, lemmaPosMap);
+
+        return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
+    }
+
+    /**
+     * Iterates over HitGroups and populates frequency and POS maps using the provided lemma extractor.
+     * Groups with empty identity or null/empty extracted lemmas are skipped.
+     */
+    private void collectFrequenciesFromGroups(
+            HitGroups groups,
+            java.util.function.Function<String, String> lemmaExtractor,
+            Map<String, Long> freqMap,
+            Map<String, String> lemmaPosMap) {
         for (HitGroup group : groups) {
             String identity = group.identity().toString();
             if (identity.isEmpty()) continue;
-            String dependentLemma = BlackLabSnippetParser.extractCollocateLemma(identity);
-            if (dependentLemma != null && !dependentLemma.isEmpty()) {
-                String key = dependentLemma.toLowerCase();
-                freqMap.merge(key, group.size(), Long::sum);
-                String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
-                if (pos != null) {
-                    lemmaPosMap.put(key, pos);
-                }
-            }
+            String lemma = lemmaExtractor.apply(identity);
+            if (lemma == null || lemma.isEmpty()) continue;
+            String key = lemma.toLowerCase();
+            freqMap.merge(key, group.size(), Long::sum);
+            String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
+            if (pos != null) lemmaPosMap.put(key, pos);
         }
-
-        return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
     }
 
     /**

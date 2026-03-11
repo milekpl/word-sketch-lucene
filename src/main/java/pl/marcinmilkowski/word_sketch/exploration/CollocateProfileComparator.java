@@ -15,19 +15,19 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 /**
- * Compares adjective collocate profiles across a set of seed nouns to reveal shared
- * and distinctive collocates.  Extracted from {@link SemanticFieldExplorer} to keep
- * that class below the 400-line threshold.
+ * Compares collocate profiles across multiple seed nouns to reveal shared and distinctive
+ * collocates. Given a set of seed nouns, fetches adjective collocates for each and computes
+ * commonality and distinctiveness scores across the full set.
  */
-public class AdjectiveCollocateRanker {
+public class CollocateProfileComparator {
 
-    private static final Logger logger = LoggerFactory.getLogger(AdjectiveCollocateRanker.class);
+    private static final Logger logger = LoggerFactory.getLogger(CollocateProfileComparator.class);
 
     private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
 
     private final QueryExecutor executor;
 
-    public AdjectiveCollocateRanker(QueryExecutor executor) {
+    public CollocateProfileComparator(QueryExecutor executor) {
         this.executor = executor;
     }
 

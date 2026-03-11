@@ -1,0 +1,123 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {"abstraction_fitness": 69.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has 7 distinct methods (findCollocations, executeQuery, executeBcqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern, executeDependencyPatternWithPos) — each method is distinct and the interface Javadoc carefully differentiates them; the interface pays for itself by enabling mock testing",
+        "CollocateQueryHelper is package-private and consolidates shared logic (executeCollocateSearch, buildAndRankCollocates) used by 4 methods in BlackLabQueryExecutor — genuine leverage",
+        "AdjectiveCollocateRanker is public but has only one caller (SemanticFieldExplorer); SemanticFieldExplorer.compareCollocateProfiles is documented as 'an intentional facade' over it — a single-implementation facade that adds an indirection layer without new behavior",
+        "PatternSubstitution has exactly one static method (substituteCollocate) with one caller (SketchHandlers.handleConcordanceExamples) — a single-caller static class, the method could be inlined or moved to CqlUtils",
+        "RelationUtils has exactly one static method (resolveRelationAlias) with two callers — borderline; the method does real work (alias mapping) but the class exists solely to host one method",
+        "HttpApiUtils has 6 static utility methods used across multiple handlers — genuine shared boundary, pays for itself",
+        "CqlUtils has 3 static methods (extractConstraintAttribute, escapeForRegex, splitCqlTokens) all used by multiple callers — legitimate shared utility",
+        "ExploreOptions record bundles 5 parameters to SemanticFieldExplorer.exploreByPattern — justified parameter consolidation; reduces method arity from 5 to 1",
+        "LongIntHashMap is a custom data structure with concrete performance rationale — not over-engineered abstraction",
+        "ExplorationResult.toMap() and ComparisonResult.toMap() are serialization methods embedded in domain model objects — leaky abstraction: callers (ExplorationHandlers) must know the map key names as implicit contracts",
+        "ExplorationHandlers.buildExploreResponseBody does unchecked @SuppressWarnings cast from Object to List<Map<String,Object>> — the abstraction boundary (toMap returning Object values) forces this unsafe downcast",
+        "The sealed ConcordanceResult interface (SnippetResult, KwicResult, CollocateResult) is declared but KwicResult appears unused in production paths — only SnippetResult and CollocateResult are constructed in query code"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 65.0,
+        "indirection_cost": 55.0,
+        "interface_honesty": 75.0,
+        "delegation_density": 60.0,
+        "definition_directness": 72.0,
+        "type_discipline": 65.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface is well-justified: distinct methods, clear contracts, enables mock testing",
+        "CollocateQueryHelper provides genuine leverage by consolidating 3 repeated search-and-rank pipelines",
+        "HttpApiUtils and CqlUtils are cohesive utility classes used by multiple callers",
+        "ExploreOptions record reduces method arity without hiding domain boundaries"
+      ],
+      "issue_character": "Issues cluster around thin single-caller wrappers (PatternSubstitution, RelationUtils single methods) and a toMap()-based serialization contract that forces unsafe downcasts at the api boundary.",
+      "score_rationale": "The core abstractions (QueryExecutor, CollocateQueryHelper, HttpApiUtils) pay for themselves clearly. However, several thin single-caller classes add indirection without leverage, and the toMap()-driven serialization creates an implicit string-keyed contract that bypasses type safety. This places the codebase below solid — a 69 reflects real leverage in the right places undermined by unnecessary indirection elsewhere."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "pattern_substitution_single_caller_class",
+      "summary": "PatternSubstitution is a single-method static class with exactly one caller — the method should be inlined or moved to CqlUtils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.substituteCollocate() is called in exactly one place: SketchHandlers.handleConcordanceExamples",
+        "The method calls CqlUtils.splitCqlTokens() and CqlUtils.extractConstraintAttribute() — it is logically an extension of CqlUtils",
+        "The class adds one level of indirection without adding any policy, translation, or behavior beyond what the method itself provides"
+      ],
+      "suggestion": "Move substituteCollocate to CqlUtils as a static method, eliminating the single-purpose wrapper class.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "tomap_implicit_string_contract",
+      "summary": "toMap() in ExplorationResult forces callers to use implicit string keys, causing unchecked casts at the api boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationResult.toMap() returns Map<String,Object> with values of type List<Map<String,Object>>",
+        "ExplorationHandlers.buildExploreResponseBody: List<Map<String, Object>> seedCollocs = (List<Map<String, Object>>) resultMap.get('seed_collocates') — unchecked cast annotated with @SuppressWarnings",
+        "If the key 'seed_collocates' is renamed in toMap(), the cast fails at runtime with no compile-time warning"
+      ],
+      "suggestion": "Replace toMap() with typed accessor methods (e.g., getSeedCollocatesAsMaps(), getDiscoveredNounsAsMaps()) or introduce a typed ExplorationResultView DTO that handlers can use without unchecked casts.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "adjective_ranker_facade_no_value",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles is a documented pass-through facade over AdjectiveCollocateRanker with no added behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles: return comparator.compareCollocateProfiles(seeds, minLogDice, topCollocates); — pure delegation, no added logic",
+        "Javadoc: 'This method is an intentional facade over AdjectiveCollocateRanker.compareCollocateProfiles so that callers need only depend on SemanticFieldExplorer'",
+        "The justification is preventing api callers from depending on AdjectiveCollocateRanker — but AdjectiveCollocateRanker is in the exploration package; making it package-private achieves the same encapsulation without adding a delegation method"
+      ],
+      "suggestion": "Make AdjectiveCollocateRanker package-private. This enforces the encapsulation goal without needing a pass-through facade method in SemanticFieldExplorer.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "kwic_result_unused_type",
+      "summary": "KwicResult sealed type is declared in QueryResults but never instantiated in production paths",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java"
+      ],
+      "evidence": [
+        "QueryResults declares sealed interface ConcordanceResult permits SnippetResult, KwicResult, CollocateResult",
+        "KwicResult has a convenience constructor assembling the sentence from three context parts",
+        "No production code in BlackLabQueryExecutor, CollocateQueryHelper, or any api/exploration class constructs a KwicResult"
+      ],
+      "suggestion": "Remove KwicResult from the sealed hierarchy if it has no current production use. Sealed types derive their value from exhaustive pattern matching — a dead variant adds noise. Re-add when a use case emerges.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Single-caller static helper classes created during incremental development without consolidation pass", "toMap() serialization in model classes introduced to co-locate data and its serialization, creating implicit string-key contracts"],
+    "likely_symptoms": ["tomap_implicit_string_contract forced by model_serialization_leak (cross-module architecture batch)"]
+  }
+}

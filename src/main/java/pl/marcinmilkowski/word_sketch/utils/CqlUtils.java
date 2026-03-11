@@ -118,4 +118,50 @@ public final class CqlUtils {
         }
         return tokens;
     }
+
+    /**
+     * Substitutes a lemma constraint into a CQL pattern at the given token position.
+     * The existing xpos/tag constraint at that position is preserved alongside the new
+     * lemma constraint, e.g. {@code [xpos="NN.*"]} at position 1 with lemma "theory"
+     * becomes {@code [lemma="theory" & xpos="NN.*"]}.
+     *
+     * @param pattern  CQL pattern to substitute into; returned unchanged if null or position is out of range
+     * @param lemma    lemma value to inject; returned unchanged if null or blank
+     * @param position 1-based token position to substitute
+     * @return the substituted pattern, or the original pattern when inputs are invalid
+     */
+    public static String substituteAtPosition(String pattern, String lemma, int position) {
+        if (pattern == null || lemma == null || lemma.isBlank() || position < 1) {
+            return pattern;
+        }
+        List<String> tokens = splitCqlTokens(pattern);
+        if (position > tokens.size()) {
+            return pattern;
+        }
+        tokens.set(position - 1, mergeLemmaConstraint(tokens.get(position - 1), lemma));
+        return String.join(" ", tokens);
+    }
+
+    /**
+     * Merges a lemma constraint with the existing xpos/tag constraint in a CQL token.
+     * E.g. {@code "[xpos=\"NN.*\"]"} + {@code "theory"} → {@code "[lemma=\"theory\" & xpos=\"NN.*\"]"}.
+     *
+     * @param existingConstraint the original CQL token constraint (including brackets)
+     * @param lemma              the lemma value to inject
+     * @return the merged constraint with both lemma and any original POS constraints
+     */
+    public static String mergeLemmaConstraint(String existingConstraint, String lemma) {
+        String xposPattern = extractConstraintAttribute(existingConstraint, "xpos");
+        String tagPattern = extractConstraintAttribute(existingConstraint, "tag");
+        StringBuilder sb = new StringBuilder();
+        sb.append("[lemma=\"").append(escapeForRegex(lemma)).append("\"");
+        if (xposPattern != null) {
+            sb.append(" & ").append(xposPattern);
+        }
+        if (tagPattern != null) {
+            sb.append(" & ").append(tagPattern);
+        }
+        sb.append("]");
+        return sb.toString();
+    }
 }

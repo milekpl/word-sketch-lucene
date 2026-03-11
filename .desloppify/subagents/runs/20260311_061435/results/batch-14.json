@@ -1,0 +1,91 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 14,
+  "assessments": {"logic_clarity": 78.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "CollocateQueryHelper.executeBcqlQuery: sampleSize calculation uses '(int) Math.min(hits.size(), (long) maxResults * 10)' with a comment 'safe: min ensures result <= maxResults*10'. The long cast is correct, but the resulting int could still overflow if maxResults is Integer.MAX_VALUE / 10. The defensive comment is accurate for realistic inputs but the cast is not completely safe for extreme values.",
+        "CollocateQueryHelper.scoreHits: limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size()). If maxResults is large, maxResults * OVER_FETCH_FACTOR can overflow int. records.size() is bounded by sampleSize which is bounded by maxResults*10, so OVER_FETCH_FACTOR (3) makes limit at most min(maxResults*3, maxResults*10) = maxResults*3 — but the overflow is still theoretically possible.",
+        "SemanticFieldExplorer.exploreByPattern: guard 'if (seed == null || seed.isEmpty())' appears AFTER 'seed = seed.toLowerCase().trim()' — NullPointerException would be thrown on null input before the guard is reached. However the guard comment says it checks after transformation, which means the null check is unreachable for null seeds.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: 'int minShared = Math.min(exploreParams.minShared(), seeds.size())' — silently caps minShared without logging or telling the caller. This is intentional but could confuse callers who set minShared > seeds.size().",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution: throws IllegalArgumentException when pattern does not start with '['. The else branch says 'Unrecognized CQL pattern format'. Since all current callers always provide patterns starting with '[', the else branch is currently dead code.",
+        "SketchHandlers.handleRelationQueryForPattern: 'results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum()' is computed for 'total_matches' field — this is a valid summation, not a logic error.",
+        "GrammarConfigLoader.deriveTokenPosition: the cursor-advance logic uses both 'cursor += tokens.get(tokenIdx).length()' and 'while cursor < pattern.length && pattern.charAt(cursor) != [' cursor++' — this double-advance can skip characters when label prefixes are between tokens, potentially yielding wrong positions for complex patterns."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses are used consistently throughout handlers (null check -> return early pattern)",
+        "LogDiceCalculator.compute uses Double.NaN as a sentinel for uncomputable scores with explicit documentation — clear contract",
+        "LongIntHashMap has clean, readable linear-probing logic with no obfuscated bit manipulation beyond the necessary hash index computation",
+        "CqlUtils.splitCqlTokens uses a well-structured depth-counting loop with quoted-string skipping — the logic matches its documentation"
+      ],
+      "issue_character": "The main logic clarity defects are a null-after-mutate guard ordering problem in SemanticFieldExplorer (making the null check unreachable for null inputs) and an integer overflow hazard in two arithmetic expressions in CollocateQueryHelper.",
+      "score_rationale": "The codebase has generally clear control flow with few logic surprises; the 78 score reflects mostly clean logic pulled down by a reachable NPE in a guard clause, two integer arithmetic expressions that can overflow for pathological-but-technically-valid inputs, and a dead code branch in buildBcqlWithLemmaSubstitution whose existence implies the method's contract is more general than its current callers require."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "null_guard_after_mutation",
+      "summary": "Null check on 'seed' in exploreByPattern is unreachable because seed.toLowerCase() is called first",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Line ordering: 'seed = seed.toLowerCase().trim();' then 'if (seed == null || seed.isEmpty()) { return ExplorationResult.empty(seed); }'",
+        "If seed is null, seed.toLowerCase() throws NullPointerException before the guard is reached",
+        "The isEmpty() check after trim() is valid and reachable (empty string after trim), but the null check is dead code"
+      ],
+      "suggestion": "Move the null check before the mutation: 'if (seed == null || seed.isBlank()) return ExplorationResult.empty(seed); seed = seed.toLowerCase().trim();'. Use isBlank() to cover both null-after-guard and whitespace-only inputs in one check.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "int_overflow_in_sample_size",
+      "summary": "sampleSize and limit calculations in CollocateQueryHelper can overflow int for large maxResults",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "executeBcqlQuery: 'int sampleSize = (int) Math.min(hits.size(), (long) maxResults * 10)' — if maxResults > Integer.MAX_VALUE / 10 (~214M), the long product overflows back to negative when cast to int",
+        "scoreHits: 'int limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size())' — no long promotion here; maxResults * 3 overflows int if maxResults > 716M",
+        "In practice maxResults is passed as 10-50 from handlers, but the API has no enforced upper bound"
+      ],
+      "suggestion": "In executeBcqlQuery: replace with 'int sampleSize = (int) Math.min(hits.size(), Math.min((long) maxResults * 10, Integer.MAX_VALUE))'. In scoreHits: replace with 'int limit = (int) Math.min((long) maxResults * OVER_FETCH_FACTOR, (long) records.size())'. Add a precondition check: if (maxResults <= 0 || maxResults > 100_000) throw new IllegalArgumentException.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_code_bcql_else_branch",
+      "summary": "buildBcqlWithLemmaSubstitution's else branch (non-bracket patterns) is dead code given current callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "buildBcqlWithLemmaSubstitution throws IllegalArgumentException for patterns not starting with '[', comment says 'Unrecognized CQL pattern format'",
+        "All callers pass patterns generated by RelationConfig.getFullPattern() or GrammarConfigLoader which always produce '['-prefixed patterns",
+        "No test exercises the else/throw branch"
+      ],
+      "suggestion": "Document explicitly that the method only supports '['-prefix patterns (already in Javadoc) and add an assertion in tests. If non-bracket patterns should never reach this method, replace the else with an AssertionError to make the dead code visible in testing. Alternatively, remove the constraint and support quoted-string patterns if the grammar may evolve.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Guard clause ordering mistake likely introduced during a refactor that added .trim() before the null check", "Overflow hazard is a common Java pitfall when over-fetch multipliers are applied to int inputs"],
+    "likely_symptoms": ["null_guard_after_mutation is the most impactful — any caller passing null would get an NPE instead of the documented empty result"],
+    "possible_false_positives": ["The minShared capping in handleSemanticFieldExploreMulti is intentional behavior, not a logic defect"]
+  }
+}

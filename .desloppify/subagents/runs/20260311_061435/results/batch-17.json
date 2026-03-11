@@ -1,0 +1,61 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {"initialization_coupling": 86.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "BlackLabSnippetParser has 8 private static final Pattern fields compiled at class load time — all are immutable, thread-safe compiled regexes with no external dependencies; this is correct use of static initialization",
+        "RelationUtils.RELATION_ALIASES is a static final Map.of() — immutable at creation, no external dependencies, correct usage",
+        "SemanticFieldExplorer.NOUN_CQL_CONSTRAINT is a private static final String — correct constant",
+        "AdjectiveCollocateRanker.ADJECTIVE_PATTERN is a private static final String — correct constant",
+        "CollocateQueryHelper.OVER_FETCH_FACTOR is a private static final int — correct constant",
+        "BlackLabQueryExecutor constructor throws IOException when index cannot be opened — construction is explicit and failure is surfaced to the caller, not silently swallowed",
+        "Main.handleBlackLabServerCommand instantiates QueryExecutor and GrammarConfigLoader in method scope, registers a shutdown hook to close them — clean lifecycle, no static global state",
+        "WordSketchApiServer constructor takes executor and grammarConfig as explicit parameters — proper DI, no static singletons",
+        "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty at call time — this IS an environment-variable read but it is method-scoped, not at class-load time; still couples config loading to JVM system properties",
+        "No circular initialization dependencies detected: the dependency graph is Main -> WordSketchApiServer -> {SketchHandlers, ExplorationHandlers} -> {QueryExecutor, GrammarConfigLoader, SemanticFieldExplorer}; all dependencies flow in one direction"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty at call time and throws IllegalStateException (unchecked) if the file is absent. This is a test-fragile initialization pattern: unit tests that call this method without setting the system property will fail unpredictably depending on the working directory. The primary server path in Main.java avoids this by using the constructor directly, but the static factory exists as a latent coupling."
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "No mutable static fields anywhere in the production codebase — all static state is immutable (Pattern, String, Map.of(), int constants)",
+        "Explicit dependency injection throughout: WordSketchApiServer, SketchHandlers, ExplorationHandlers all receive their dependencies via constructor parameters",
+        "BlackLabQueryExecutor manages its BlackLabIndex lifecycle explicitly (open in constructor, close() in AutoCloseable) with no static ownership",
+        "Main.handleBlackLabServerCommand registers the shutdown hook only after all objects are constructed, avoiding a race between shutdown hook registration and object availability"
+      ],
+      "issue_character": "The only initialization coupling concern is the static factory GrammarConfigLoader.createDefaultEnglish() which reads System.getProperty at call time, making it test-fragile; all other initialization patterns are clean and explicit.",
+      "score_rationale": "The codebase rates highly on this dimension: no module-level side effects, no singletons with creation-order dependencies, no import-time DB/network calls, and no circular init dependencies. The 14-point deduction reflects the createDefaultEnglish() static factory which uses a system property lookup at call time — a minor but real test-coupling issue — and the general pattern that GrammarConfigLoader can throw IllegalStateException (unchecked) from a factory method, which is harder to handle than a checked exception from a constructor."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "create_default_english_system_property",
+      "summary": "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty at call time, making it test-fragile",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "createDefaultEnglish(): 'String path = System.getProperty(\"grammar.config\", \"grammars/relations.json\")' — reads from JVM system properties at call time",
+        "If called in a test without -Dgrammar.config=... set and without grammars/relations.json relative to the test working directory, throws IllegalStateException",
+        "The method is public static, so any code that imports it can trigger this dependency; it cannot be mocked without PowerMock or similar"
+      ],
+      "suggestion": "Remove or make package-private createDefaultEnglish(). Callers that need the default path should use the constructor directly: new GrammarConfigLoader(Path.of(System.getProperty(\"grammar.config\", \"grammars/relations.json\"))). Tests should use GrammarConfigLoader.fromReader(new StringReader(json)) instead of the static factory. If the factory must remain, add @VisibleForTesting and document the system-property dependency.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Static factory was added as a convenience method; the implicit system property dependency was not highlighted as a test coupling concern"],
+    "likely_symptoms": [],
+    "possible_false_positives": ["Static Pattern compilation in BlackLabSnippetParser is correct and expected — this is Java standard practice, not a coupling issue"]
+  }
+}

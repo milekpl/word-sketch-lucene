@@ -1,0 +1,74 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 16,
+  "assessments": {"design_coherence": 73.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "BlackLabQueryExecutor.java and CollocateQueryHelper.java share similar import blocks (both import HitGroups, Hits, HitGroup, BLSpanQuery, QueryInfo, etc.) — this is expected co-usage of the same library, not logic duplication",
+        "SketchHandlers.handleFullSketchForType and handleDepSketchForType both loop over relations, execute a pattern, collect collocations, and build a response map — their bodies share ~60% structural similarity but diverge in response fields (surface omits 'id','description','deprel'; dep includes them via buildRelationResponse). One branch uses an extracted helper (buildRelationResponse), the other builds inline — structural inconsistency in the same file",
+        "SketchHandlers has 7 private methods and 4 public handler methods in ~340 lines — coherent but borderline for a handler class",
+        "ExplorationHandlers has extracted resolveRelationConfig() and resolveExploreParams() helpers used by both single-seed and multi-seed paths — good DRY application",
+        "WordSketchApiServer.registerHandler() / registerGetHandler() / registerPostHandler() is a clean 3-level delegation — each method has a single clear responsibility",
+        "SemanticFieldExplorer has extracted 4 private phase-helpers (fetchSeedCollocates, buildCollocateToNounsMap, filterCandidates, identifyCoreCollocates) with sequential numbering and clear step comments — excellent coherence",
+        "CollocateQueryHelper has a clear 2-phase pipeline (collectHits -> scoreHits) with well-named inner record HitRecord to carry phase-1 results to phase-2 — coherent design",
+        "GrammarConfigLoader has parseRelations -> parseRelation -> validatePositions as a clear decomposition chain"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "SemanticFieldExplorer uses explicitly numbered phase-helpers (Phase 1-4) with clear single responsibilities — exemplary decomposition",
+        "CollocateQueryHelper's 2-phase pipeline with the HitRecord inner record is a clean, coherent design for separating data collection from scoring",
+        "WordSketchApiServer uses a 3-level handler registration chain that cleanly separates routing, CORS/method enforcement, and error handling",
+        "ExplorationHandlers avoids parameter list explosion with the private ExploreParams record"
+      ],
+      "issue_character": "The primary design coherence issue is in SketchHandlers where two parallel dispatch paths (surface sketch and dependency sketch) share ~60% structure but one uses an extracted helper while the other builds inline — this asymmetry creates maintenance risk when the response shape needs to change.",
+      "score_rationale": "Most of the codebase shows disciplined decomposition: well-named phases, extracted helpers, and clean delegation. The score of 73 reflects that the best patterns (SemanticFieldExplorer, CollocateQueryHelper) coexist with the less coherent SketchHandlers where structural asymmetry between handleFullSketchForType and handleDepSketchForType creates a maintenance hazard. The mechanical duplication signal (shared import boilerplate between BlackLabQueryExecutor and CollocateQueryHelper) is not a design issue — it's an expected consequence of both files working with the same library."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "sketch_handler_structural_asymmetry",
+      "summary": "handleFullSketchForType builds response inline while handleDepSketchForType uses buildRelationResponse — structural inconsistency in SketchHandlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketchForType (surface path) builds relData inline with 4 keys: name, cql, collocate_pos_group, collocations",
+        "handleDepSketchForType calls buildRelationResponse which produces: id, name, description, deprel, total_matches, collocations — 6 different keys",
+        "When a response field needs to be added to both paths (e.g., a 'type' discriminator), a developer must remember to update two different code paths with different structures"
+      ],
+      "suggestion": "Extract a buildSurfaceRelationResponse() helper parallel to buildRelationResponse() and use it in handleFullSketchForType. Both helpers should produce a consistent base shape, with surface adding collocate_pos_group and dep adding deprel. This makes the field inventory for each relation type explicit and testable.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "handle_relation_query_for_pattern_parameter_count",
+      "summary": "handleRelationQueryForPattern takes 3 parameters including a RelationType filter that conflates routing with handler logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleRelationQueryForPattern(exchange, lemma, relationId, relationType) — the relationType parameter is only used to filter which relation configs are valid, making this a mixed routing+handling method",
+        "It is called from handleRelationSketch (SURFACE) and handleDependencyRelationQuery (DEP) — these are already separate dispatch methods, so the relationType filter is partially redundant with the call site context"
+      ],
+      "suggestion": "Split into handleSurfaceRelationQuery and handleDependencyRelationQuery as separate private methods with no relationType parameter — the relationType is implicit in the method name. Or refactor to a single method that accepts a RelationConfig directly (already validated upstream).",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["SketchHandlers grew organically as DEP support was added, leading to divergence from the surface path without full unification"],
+    "likely_symptoms": ["sketch_handler_structural_asymmetry is the most actionable — it will cause divergence when response fields are added"],
+    "possible_false_positives": ["The import boilerplate duplication between BlackLabQueryExecutor and CollocateQueryHelper flagged by the mechanical detector is not a design problem — both files legitimately use the same BlackLab library"]
+  }
+}

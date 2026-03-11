@@ -1,0 +1,93 @@
+{
+  "batch": "package_organization",
+  "batch_index": 12,
+  "assessments": {"package_organization": 72.0},
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "Package structure: api/ (6 files), config/ (4 files), exploration/ (2 files), indexer/blacklab/ (2 files), model/ (9 files), query/ (4 files), utils/ (3 files), viz/ (1 file), root Main.java",
+        "model/ contains 9 files: AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult, ExploreOptions, QueryResults, RelationEdgeType — borderline flat overload but all are genuinely model classes",
+        "QueryResults.java in model/ acts as a namespace container for inner records WordSketchResult and CollocateResult — this is an organizational choice that reduces file count but obscures discoverability",
+        "PatternSubstitution.java lives in api/ but implements logic that mirrors RelationConfig.mergeLemmaConstraint (in config/) — same algorithm for merging lemma constraints into CQL tokens exists in two packages",
+        "RelationUtils.java in api/ is a static alias table (8 entries) that maps API-facing short names to grammar-config IDs; it has no HTTP-specific logic yet lives in api/ rather than config/ or a standalone aliases/ package",
+        "LongIntHashMap in utils/ is used only by the indexer (not visible in any query or api import); its placement in utils/ is slightly misaligned with its only consumer (indexer/blacklab/)",
+        "Main.java is the single root-level file; it has high fan-in (it is the entry point) so it is correctly placed at root",
+        "viz/ package has only one file (RadialPlot.java), making it a thin-wrapper package with no growth visible"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "Core separation of concerns is clear: api/, query/, exploration/, config/, model/ each have distinct responsibilities",
+        "exploration/ was extracted from query/ at some point — the two-file package is small but reflects a real semantic boundary",
+        "config/ is cohesive: RelationConfig, GrammarConfigLoader, RelationType, PosGroup all belong together",
+        "indexer/blacklab/ uses a subdirectory for the BlackLab implementation, anticipating alternative indexers"
+      ],
+      "issue_character": "The main organizational issues are boundary violations where logic that serves config concerns (alias resolution, pattern substitution) is placed in the api/ package, and a thin viz/ package that does not justify its own directory.",
+      "score_rationale": "The package layout is mostly navigable and coherent, landing it in the 'adequate but improvable' range. The main issues — RelationUtils and PatternSubstitution in api/ having config-domain concerns, QueryResults bundling two distinct result types under a namespace class, and LongIntHashMap being in utils/ while only used by indexer/ — are friction points that increase cognitive overhead when navigating the codebase but do not cause coupling failures."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "relation_utils_misplaced_in_api",
+      "summary": "RelationUtils (alias table) placed in api/ despite having no HTTP-specific logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationUtils.RELATION_ALIASES maps short user-facing names (adj_modifier, adj_predicate, subject_of, object_of) to canonical grammar-config IDs",
+        "This alias table is semantically part of the grammar config contract, not the HTTP layer",
+        "The Javadoc itself says 'If new relations are added to the grammar config, register their aliases here' — the coupling is to config/, not api/"
+      ],
+      "suggestion": "Move RelationUtils to config/ package as GrammarAliases or merge it into GrammarConfigLoader as a resolveAlias(String) method. Update imports in ExplorationHandlers. Staged plan: (1) move file, (2) update package declaration, (3) update import in ExplorationHandlers.java, (4) run mvn test to verify.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pattern_substitution_duplicated_across_packages",
+      "summary": "PatternSubstitution in api/ duplicates CQL constraint-merging logic already in RelationConfig (config/)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.substituteCollocate builds a new [lemma=... & xpos=...] constraint by calling CqlUtils.extractConstraintAttribute — identical approach to RelationConfig.mergeLemmaConstraint",
+        "RelationConfig.getFullPattern(String, String) performs the same two-step substitution (head then collocate) that PatternSubstitution performs manually in SketchHandlers.handleConcordanceExamples"
+      ],
+      "suggestion": "Remove PatternSubstitution.java and have SketchHandlers call rel.getFullPattern(word1, word2) directly, which already handles both substitutions. Validate by running PatternSubstitutionTest (it can be removed once migrated) and HandlersTest.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "query_results_namespace_class",
+      "summary": "QueryResults.java bundles unrelated result records under a single namespace class, obscuring discoverability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java"
+      ],
+      "evidence": [
+        "QueryResults.java contains inner records: WordSketchResult, CollocateResult, ConcordanceResult, SnippetResult",
+        "WordSketchResult is used in exploration and sketch contexts; CollocateResult is used in concordance/BCQL contexts — they have different consumers",
+        "Navigating to WordSketchResult requires knowing it is inside QueryResults.java"
+      ],
+      "suggestion": "Extract each inner record into its own top-level file in model/: WordSketchResult.java, CollocateResult.java, SnippetResult.java. Staged plan: (1) create new files, (2) update all import sites, (3) delete QueryResults.java, (4) run mvn test.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["api/ package accumulated config-adjacent utilities over time without placement review", "QueryResults namespace pattern likely originated as a convenience that was never revisited"],
+    "likely_symptoms": ["pattern_substitution_duplicated_across_packages is the most actionable — it is a real duplication not just organizational preference"],
+    "possible_false_positives": ["viz/ being a thin package is low-impact since RadialPlot is a cohesive standalone component"]
+  }
+}

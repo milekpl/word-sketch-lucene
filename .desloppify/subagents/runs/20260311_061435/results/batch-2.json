@@ -1,0 +1,93 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 2,
+  "assessments": {"high_level_elegance": 74.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package tree maps cleanly to domain capabilities: api (HTTP layer), config (grammar loading), exploration (semantic field analysis), indexer (corpus ingestion), model (domain types), query (corpus search), utils (shared primitives), viz (visualization)",
+        "CLAUDE.md and README.md accurately reflect the code structure: package listings, API endpoints, and command names all match runtime",
+        "ExplorationResult and ComparisonResult are documented as traditional classes (not records) with explicit rationale in Javadoc — ownership philosophy is documented",
+        "AdjectiveCollocateRanker was extracted from SemanticFieldExplorer 'to keep that class below the 400-line threshold' — this is a size-driven split, not a cohesion-driven split; the extractor is only used by SemanticFieldExplorer and is public rather than package-private",
+        "RelationUtils (in api package) contains alias-to-config-ID mapping that is logically config-domain knowledge; it belongs closer to GrammarConfigLoader or RelationConfig",
+        "PatternSubstitution (in api package) performs CQL token manipulation; its logic uses CqlUtils and is tightly coupled to the config/query domain, not the HTTP api domain",
+        "The viz package contains only RadialPlot.java — this is a thin package that makes the top-level structure look deeper than it is",
+        "The model package mixes result DTOs (WordSketchResult, CollocateResult), option bags (ExploreOptions), edge types (RelationEdgeType, Edge), and exploration model objects (DiscoveredNoun, CoreCollocate) — the package is a catch-all rather than a coherent domain boundary"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Top-level packages map consistently to domain capabilities; a new engineer can understand what each package does from its name alone",
+        "Documentation (CLAUDE.md, README.md) is accurate and in sync with the actual code structure",
+        "Public surface of each package is small: handler classes are package-private; only the explorer and API server are public-facing",
+        "The QueryExecutor interface cleanly defines the query subsystem's contract"
+      ],
+      "issue_character": "Issues are moderate boundary blurriness — helpers and utilities placed in the api package that belong to the config or query domain, and a model package that is slightly catch-all.",
+      "score_rationale": "The high-level structure is understandable and doc-accurate, which is a genuine strength. However, RelationUtils and PatternSubstitution misplaced in api, and a model package that mixes too many concerns, create minor friction for someone trying to find or change domain logic. This is solid-but-uneven quality — a 74 reflects the good architectural intent undermined by a few placement decisions."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_utils_misplaced",
+      "summary": "RelationUtils (relation alias mapping) is in the api package but belongs in config",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationUtils.RELATION_ALIASES maps short names ('adj_modifier', 'predicate', etc.) to grammar-config IDs ('noun_modifiers', 'noun_adj_predicates', etc.)",
+        "This knowledge is about the grammar config domain, not the HTTP api domain",
+        "GrammarConfigLoader.getRelation() is the natural neighbour for alias resolution"
+      ],
+      "suggestion": "Move RelationUtils into the config package (or fold alias resolution directly into GrammarConfigLoader.getRelation()) so that config knowledge lives in the config layer.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "pattern_substitution_misplaced",
+      "summary": "PatternSubstitution (CQL token manipulation) is in the api package but belongs in utils or config",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.substituteCollocate() calls CqlUtils.splitCqlTokens() and CqlUtils.extractConstraintAttribute() — it is logically an extension of CqlUtils",
+        "The class is package-private to api but its logic (CQL pattern transformation) is domain-neutral and reusable"
+      ],
+      "suggestion": "Move PatternSubstitution into the utils package alongside CqlUtils, or merge its single method into CqlUtils as a static utility.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "adjective_ranker_extraction_rationale",
+      "summary": "AdjectiveCollocateRanker was extracted from SemanticFieldExplorer for size, not cohesion, creating an artificially split subsystem",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "AdjectiveCollocateRanker Javadoc: 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold'",
+        "AdjectiveCollocateRanker is public but only ever used by SemanticFieldExplorer; it has no independent callers",
+        "SemanticFieldExplorer.compareCollocateProfiles is documented as 'an intentional facade over AdjectiveCollocateRanker' — indicating the split is artificial"
+      ],
+      "suggestion": "Either make AdjectiveCollocateRanker package-private (since it has no external callers), or re-merge it into SemanticFieldExplorer and accept a longer class. A size heuristic is not a valid reason for a public type.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["api package used as a convenience location for helpers that don't have an obvious home", "model package grew incrementally without periodic reshaping of its responsibility boundary"],
+    "likely_symptoms": ["new engineers adding config-domain logic to api package following the existing pattern of RelationUtils"]
+  }
+}

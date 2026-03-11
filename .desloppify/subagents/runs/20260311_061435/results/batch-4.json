@@ -1,0 +1,93 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {"error_consistency": 63.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "BlackLabQueryExecutor consistently wraps InvalidQuery → IOException, preserving original cause: catch (InvalidQuery e) { throw new IOException('CQL parse error: ' + e.getMessage(), e); }",
+        "CollocateQueryHelper.getTotalFrequency wraps RuntimeException → IOException with context: throw new IOException('Unexpected failure retrieving frequency for lemma ...' + lemma, e)",
+        "WordSketchApiServer.wrapHandler provides uniform top-level catch(IOException) and catch(Exception) for all registered endpoints — prevents unhandled propagation reaching the HTTP server",
+        "ExplorationHandlers consistently separates IOException (→500) from IllegalArgumentException (→400) across all 4 handler methods",
+        "SketchHandlers.handleRelationsForType calls relationType.orElseThrow(() -> new NoSuchElementException(...)) inside the handler body — this NoSuchElementException is not caught by the method signature (throws IOException) and will be caught only by the generic catch(Exception) in wrapHandler, losing the specific error context in the response",
+        "handleVisualRadial uses catch(Exception e) broadly with no distinction between parse errors (4xx) and server errors (5xx) — all become HTTP 500",
+        "handleBcqlQueryPost distinguishes IOException (500) from Exception (400) but does so with a comment 'BCQL query error' that conflates parse errors with parameter validation errors",
+        "SketchHandlers.handleFullSketchForType and handleDepSketchForType accumulate per-relation errors in a List<String> and include them in the response rather than failing — good defensive pattern for multi-result aggregation",
+        "Main.requireNextArg calls System.exit(1) — acceptable for CLI but signals a mixed strategy (exceptions for runtime, System.exit for CLI argument errors) that is contextually appropriate but undocumented",
+        "ConlluConverter has a nested try-finally that correctly closes the writer even on exception, but the structure is complex and the resource-close pattern could use try-with-resources more uniformly"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "IOException wrapping is consistent throughout the query layer — InvalidQuery and RuntimeException are always wrapped with context before propagating",
+        "ExplorationHandlers has a clean two-tier error strategy (IOException→500, IllegalArgumentException→400) applied uniformly",
+        "wrapHandler in WordSketchApiServer provides a safety net so no raw exception can escape to the HTTP server"
+      ],
+      "issue_character": "Issues are a mix of broad catches masking failure modes (handleVisualRadial catching Exception→500) and one silent type mismatch (NoSuchElementException escaping the IOException contract in handleRelationsForType), suggesting the error strategy was designed carefully in most places but was not applied consistently in the handler layer.",
+      "score_rationale": "The query and exploration layers have well-designed, consistent error handling. The api layer is uneven: some handlers are careful (ExplorationHandlers), others are broad or have escape paths (handleVisualRadial, handleRelationsForType). This is significant drag in a user-facing layer — a 63 reflects a strong core with a leaky outer boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "nosuchelement_escapes_ioexception_contract",
+      "summary": "handleRelationsForType throws NoSuchElementException via orElseThrow, which escapes the IOException contract and is caught only by the generic Exception handler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleRelationsForType (line ~83): obj.put('relation_type', rel.relationType().orElseThrow(() -> new java.util.NoSuchElementException('relationType absent for relation: ' + rel.id())).name())",
+        "The method signature is 'throws IOException' — NoSuchElementException is a RuntimeException that will propagate past the method and be caught by wrapHandler's catch(Exception) block",
+        "wrapHandler logs it as 'unexpected error' and returns HTTP 500 with 'Unexpected error: ...' — the client receives no actionable information about which relation was misconfigured"
+      ],
+      "suggestion": "Replace orElseThrow(NoSuchElementException) with an explicit check: if the relationType is empty, log a warning and skip the relation (or throw IOException with a descriptive message). This makes the failure mode consistent with the rest of the handler layer.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "visual_radial_broad_catch",
+      "summary": "handleVisualRadial catches Exception broadly and always returns HTTP 500, masking client-side errors (e.g., malformed JSON body) that should return 400",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleVisualRadial: } catch (Exception e) { logger.error('Error rendering radial', e); HttpApiUtils.sendError(exchange, 500, 'Failed to render radial: ' + e.getMessage()); }",
+        "JSON.parseObject(body) throws com.alibaba.fastjson2.JSONException for malformed input — this is a client error (400), not a server error (500)",
+        "obj.getString('center') returning null for a missing required field is silently handled but other missing fields could cause NPE inside RadialPlot.renderFromItems"
+      ],
+      "suggestion": "Add a targeted catch for JSONException (and NullPointerException from missing required fields) before the generic catch, returning HTTP 400 with a descriptive message. Reserve HTTP 500 for actual rendering failures.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "illegal_argument_escapes_api_boundary",
+      "summary": "buildBcqlWithLemmaSubstitution throws IllegalArgumentException which is not caught at the API boundary in handleFullSketchForType",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution: throw new IllegalArgumentException('Unrecognized CQL pattern format: ' + cqlPattern)",
+        "handleFullSketchForType catches IOException | RuntimeException per relation — IllegalArgumentException IS a RuntimeException so it is caught here and added to relationErrors list",
+        "However handleRelationQueryForPattern catches only IOException — an IllegalArgumentException from executeSurfacePattern propagates past it to wrapHandler's generic catch, returning an unhelpful 'Unexpected error' 500"
+      ],
+      "suggestion": "In handleRelationQueryForPattern, catch IllegalArgumentException explicitly and return HTTP 400 ('Invalid pattern for relation: ...'). Alternatively, make buildBcqlWithLemmaSubstitution throw IOException so the error type is consistent with the rest of the query interface.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Error handling designed carefully in exploration and query layers but applied less consistently in later-developed handler methods", "wrapHandler safety net masks the impact of error inconsistencies until log analysis is needed"],
+    "likely_symptoms": ["handleRelationsForType NoSuchElementException", "handleRelationQueryForPattern IllegalArgumentException"]
+  }
+}

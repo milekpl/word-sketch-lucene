@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 
 import pl.marcinmilkowski.word_sketch.config.PosGroup;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
@@ -58,7 +57,7 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
  * <h2>Comparison Mode (multi-seed)</h2>
  * <p>Given multiple seed words, compares their collocate profiles to reveal
  * which collocates are shared across all seeds (the semantic core) and which
- * are distinctive to individual seeds. See {@link AdjectiveCollocateRanker#compareCollocateProfiles}.</p>
+ * are distinctive to individual seeds. See {@link CollocateProfileComparator#compareCollocateProfiles}.</p>
  *
  * <h2>Result classes</h2>
  * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
@@ -78,7 +77,7 @@ public class SemanticFieldExplorer {
     private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 
     private final QueryExecutor executor;
-    private final AdjectiveCollocateRanker comparator;
+    private final CollocateProfileComparator comparator;
 
     // Patterns for finding collocates by POS (using xpos field from CoNLL-U index)
     private static final String NOUN_CQL_CONSTRAINT = "[xpos=\"NN.*\"]";
@@ -87,7 +86,7 @@ public class SemanticFieldExplorer {
     // Constructor for testing with mock executor
     public SemanticFieldExplorer(QueryExecutor executor) {
         this.executor = executor;
-        this.comparator = new AdjectiveCollocateRanker(executor);
+        this.comparator = new CollocateProfileComparator(executor);
     }
 
     // ==================== EXPLORATION MODE ====================
@@ -278,20 +277,12 @@ public class SemanticFieldExplorer {
     // ==================== COMPARISON MODE ====================
 
     /**
-     * Compare collocate profiles of the given seed words using logDice scores.
-     *
-     * <p>This method is an intentional facade over {@link AdjectiveCollocateRanker#compareCollocateProfiles}
-     * so that callers need only depend on {@code SemanticFieldExplorer} rather than reaching into
-     * the internal {@code AdjectiveCollocateRanker}.</p>
-     *
-     * @param seeds          seed words to compare
-     * @param minLogDice     minimum logDice threshold
-     * @param topCollocates  maximum collocates per seed
-     * @return comparison result
+     * Returns the {@link CollocateProfileComparator} that compares collocate profiles across
+     * multiple seed nouns. Callers that need {@code compareCollocateProfiles} should invoke it
+     * directly on the comparator rather than going through this class.
      */
-    public ComparisonResult compareCollocateProfiles(Set<String> seeds, double minLogDice, int topCollocates)
-            throws IOException {
-        return comparator.compareCollocateProfiles(seeds, minLogDice, topCollocates);
+    public CollocateProfileComparator getComparator() {
+        return comparator;
     }
 
     /**

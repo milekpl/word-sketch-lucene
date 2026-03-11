@@ -97,19 +97,18 @@ class SemanticFieldExplorerTest {
             "hypothesis", List.of(wsr("empirical", 7.0), wsr("new", 6.0), wsr("bold", 5.5))
         ));
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), 0.0, 50);
 
-            List<AdjectiveProfile> fullyShared = result.getFullyShared();
-            List<String> sharedNames = fullyShared.stream()
-                .map(p -> p.adjective()).toList();
+        List<AdjectiveProfile> fullyShared = result.getFullyShared();
+        List<String> sharedNames = fullyShared.stream()
+            .map(p -> p.adjective()).toList();
 
-            assertTrue(sharedNames.contains("empirical"),
-                "empirical should be fully shared; got: " + sharedNames);
-            assertTrue(sharedNames.contains("new"),
-                "new should be fully shared; got: " + sharedNames);
-        }
+        assertTrue(sharedNames.contains("empirical"),
+            "empirical should be fully shared; got: " + sharedNames);
+        assertTrue(sharedNames.contains("new"),
+            "new should be fully shared; got: " + sharedNames);
     }
 
     @Test
@@ -120,18 +119,17 @@ class SemanticFieldExplorerTest {
             "model",   List.of(wsr("mathematical", 7.0))
         ));
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
 
-            List<AdjectiveProfile> specific = result.getSpecific();
-            List<String> specificNames = specific.stream().map(p -> p.adjective()).toList();
+        List<AdjectiveProfile> specific = result.getSpecific();
+        List<String> specificNames = specific.stream().map(p -> p.adjective()).toList();
 
-            assertTrue(specificNames.contains("abstract"),
-                "abstract should be specific to theory; got: " + specificNames);
-            assertTrue(specificNames.contains("mathematical"),
-                "mathematical should be specific to model; got: " + specificNames);
-        }
+        assertTrue(specificNames.contains("abstract"),
+            "abstract should be specific to theory; got: " + specificNames);
+        assertTrue(specificNames.contains("mathematical"),
+            "mathematical should be specific to model; got: " + specificNames);
     }
 
     @Test
@@ -139,14 +137,13 @@ class SemanticFieldExplorerTest {
     void compare_emptySeedSet() throws IOException {
         StubExecutor executor = new StubExecutor(Map.of());
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Collections.emptySet(), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Collections.emptySet(), 0.0, 50);
 
-            assertNotNull(result);
-            assertTrue(result.getNouns().isEmpty(), "Expected no nouns in empty result");
-            assertTrue(result.getAllAdjectives().isEmpty(), "Expected no adjectives in empty result");
-        }
+        assertNotNull(result);
+        assertTrue(result.getNouns().isEmpty(), "Expected no nouns in empty result");
+        assertTrue(result.getAllAdjectives().isEmpty(), "Expected no adjectives in empty result");
     }
 
     @Test
@@ -156,17 +153,16 @@ class SemanticFieldExplorerTest {
             "theory", List.of(wsr("empirical", 8.0), wsr("scientific", 7.5))
         ));
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Set.of("theory"), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Set.of("theory"), 0.0, 50);
 
-            assertNotNull(result);
-            assertEquals(1, result.getNouns().size());
-            // With only one noun all adjectives are "specific" (presentInCount == 1 == totalNouns,
-            // so isFullyShared() is also true; the important thing is results are non-empty)
-            assertFalse(result.getAllAdjectives().isEmpty(),
-                "Should have adjective profiles for the single seed");
-        }
+        assertNotNull(result);
+        assertEquals(1, result.getNouns().size());
+        // With only one noun all adjectives are "specific" (presentInCount == 1 == totalNouns,
+        // so isFullyShared() is also true; the important thing is results are non-empty)
+        assertFalse(result.getAllAdjectives().isEmpty(),
+            "Should have adjective profiles for the single seed");
     }
 
     @Test
@@ -177,16 +173,15 @@ class SemanticFieldExplorerTest {
             "model",  Collections.emptyList()   // no collocates
         ));
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
 
-            // empirical is specific to theory (model has no adjectives)
-            List<String> specificNames = result.getSpecific().stream()
-                .map(p -> p.adjective()).toList();
-            assertTrue(specificNames.contains("empirical"),
-                "empirical should be specific when model has no adjectives; got: " + specificNames);
-        }
+        // empirical is specific to theory (model has no adjectives)
+        List<String> specificNames = result.getSpecific().stream()
+            .map(p -> p.adjective()).toList();
+        assertTrue(specificNames.contains("empirical"),
+            "empirical should be specific when model has no adjectives; got: " + specificNames);
     }
 
     @Test
@@ -194,13 +189,12 @@ class SemanticFieldExplorerTest {
     void compare_nullSeedSet() throws IOException {
         StubExecutor executor = new StubExecutor(Map.of());
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(null, 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(null, 0.0, 50);
 
-            assertNotNull(result);
-            assertTrue(result.getNouns().isEmpty());
-        }
+        assertNotNull(result);
+        assertTrue(result.getNouns().isEmpty());
     }
 
     // ── ComparisonResult edge cases ───────────────────────────────────────────
@@ -215,16 +209,15 @@ class SemanticFieldExplorerTest {
             "hypothesis", List.of(wsr("empirical", 7.0), wsr("bold", 5.0))
         ));
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), 0.0, 50);
 
-            List<String> partialNames = result.getPartiallyShared().stream()
-                .map(p -> p.adjective()).toList();
+        List<String> partialNames = result.getPartiallyShared().stream()
+            .map(p -> p.adjective()).toList();
 
-            assertTrue(partialNames.contains("theoretical"),
-                "theoretical (in 2/3 nouns) should be partially shared; got: " + partialNames);
-        }
+        assertTrue(partialNames.contains("theoretical"),
+            "theoretical (in 2/3 nouns) should be partially shared; got: " + partialNames);
     }
 
     @Test
@@ -235,19 +228,18 @@ class SemanticFieldExplorerTest {
             "model",  List.of(wsr("abstract", 6.0))
         ));
 
-        try (SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor)) {
-            ComparisonResult result =
-                explorer.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ComparisonResult result =
+            explorer.getComparator().compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
 
-            List<Edge> edges = result.getEdges();
-            assertFalse(edges.isEmpty(), "Should have edges");
+        List<Edge> edges = result.getEdges();
+        assertFalse(edges.isEmpty(), "Should have edges");
 
-            // Edge from abstract → theory should have weight ~9.0
-            Edge theoryEdge = edges.stream()
-                .filter(e -> e.target().equals("theory") && e.source().equals("abstract"))
-                .findFirst().orElse(null);
-            assertNotNull(theoryEdge, "Should have abstract→theory edge");
-            assertEquals(9.0, theoryEdge.weight(), 0.001);
-        }
+        // Edge from abstract → theory should have weight ~9.0
+        Edge theoryEdge = edges.stream()
+            .filter(e -> e.target().equals("theory") && e.source().equals("abstract"))
+            .findFirst().orElse(null);
+        assertNotNull(theoryEdge, "Should have abstract→theory edge");
+        assertEquals(9.0, theoryEdge.weight(), 0.001);
     }
 }

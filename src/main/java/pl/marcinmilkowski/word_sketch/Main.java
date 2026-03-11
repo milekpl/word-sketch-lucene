@@ -139,8 +139,11 @@ public class Main {
         Path wplTempDir = Files.createTempDirectory("conllu_wpl_");
         Runtime.getRuntime().addShutdownHook(new Thread(() -> deleteRecursively(wplTempDir)));
         long[] counts = ConlluConverter.convertConlluToWplChunks(Paths.get(inputPath), wplTempDir, 10_000);
+        long sentenceCount = counts[0];
+        long tokenCount = counts[1];
+        long chunkFileCount = counts[2];
         System.out.printf("  → %,d sentences, %,d tokens in %,d chunk files%n%n",
-                counts[0], counts[1], counts[2]);
+                sentenceCount, tokenCount, chunkFileCount);
 
         // Step 2: Register format(s) from the format directory
         System.out.println("Step 2/3: Registering format 'conllu-sentences' from " + formatDir + "...");

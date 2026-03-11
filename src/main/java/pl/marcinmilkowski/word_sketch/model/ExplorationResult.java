@@ -7,6 +7,14 @@ import java.util.stream.Collectors;
 
 /**
  * Result of semantic field exploration from a seed word.
+ * <p>
+ * This is a traditional class (not a record), so accessor methods intentionally
+ * use the {@code get} prefix following standard JavaBeans conventions.
+ * Record types in this package (e.g. {@link DiscoveredNoun}, {@link CoreCollocate})
+ * omit the {@code get} prefix per Java record conventions.  This class uses
+ * traditional fields and getters rather than a record because it is built
+ * incrementally and its shape may grow over time.
+ * </p>
  */
 public class ExplorationResult {
     private final String seed;

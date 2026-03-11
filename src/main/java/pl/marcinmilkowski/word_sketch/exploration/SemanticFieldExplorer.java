@@ -14,7 +14,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
@@ -55,7 +54,7 @@ import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
  * <h2>Comparison Mode (multi-seed)</h2>
  * <p>Given multiple seed words, compares their collocate profiles to reveal
  * which collocates are shared across all seeds (the semantic core) and which
- * are distinctive to individual seeds. See {@link #compareCollocateProfiles}.</p>
+ * are distinctive to individual seeds. See {@link CollocateProfileComparator#compareCollocateProfiles}.</p>
  *
  * <h2>Result classes</h2>
  * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
@@ -70,7 +69,7 @@ import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
  *   <li>Minimum overlap threshold (default: 2 shared adjectives)</li>
  * </ul>
  */
-public class SemanticFieldExplorer implements AutoCloseable {
+public class SemanticFieldExplorer {
 
     private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 
@@ -287,20 +286,8 @@ public class SemanticFieldExplorer implements AutoCloseable {
 
     // ==================== COMPARISON MODE ====================
 
-    /**
-     * Compare adjective collocate profiles across a set of seed nouns, revealing which
-     * adjectives are shared across seeds (commonality) and which are distinctive to individual seeds.
-     *
-     * @param seedNouns Nouns to compare (e.g., "theory", "model", "hypothesis")
-     * @param minLogDice Minimum logDice score for adjective-noun pairs
-     * @param maxPerNoun Maximum adjectives to retrieve per noun
-     * @return ComparisonResult with graded adjective profiles
-     */
-    public ComparisonResult compareCollocateProfiles(
-            Set<String> seedNouns,
-            double minLogDice,
-            int maxPerNoun) throws IOException {
-        return comparator.compareCollocateProfiles(seedNouns, minLogDice, maxPerNoun);
+    public CollocateProfileComparator getComparator() {
+        return comparator;
     }
 
     /**
@@ -414,11 +401,6 @@ public class SemanticFieldExplorer implements AutoCloseable {
             String.join(",", seeds),
             seedCollocScores, seedCollocFreqs,
             discoveredNounsList, coreCollocatesList);
-    }
-
-    @Override
-    public void close() throws IOException {
-        // executor lifecycle is managed by the caller
     }
 
 }

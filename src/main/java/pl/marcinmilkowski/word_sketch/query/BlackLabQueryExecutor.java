@@ -95,15 +95,9 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         try {
             // BCQL requires the pattern to be a valid sequence
             // For simple attribute constraints, we need to use the proper syntax
-            TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcql, "lemma");
-            BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
-
-            long headwordFreq = getTotalFrequency(lemma);
-
-            // Group by the matched collocate (last token in pattern)
-            SearchHits searchHits = blackLabIndex.search().find(query);
-            HitProperty groupBy = new HitPropertyHitText(blackLabIndex, MatchSensitivity.INSENSITIVE);
-            HitGroups groups = searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute();
+            CollocateSearch cs = executeCollocateSearch(bcql, lemma, true);
+            long headwordFreq = cs.headwordFreq();
+            HitGroups groups = cs.groups();
 
             Map<String, Long> freqMap = new LinkedHashMap<>();
             Map<String, String> posMap = new HashMap<>();
@@ -135,8 +129,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
             return buildAndRankCollocates(freqMap, posMap, headwordFreq, minLogDice, maxResults);
 
-        } catch (InvalidQuery e) {
-            throw new IOException("BCQL parse error: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw e;
         }
     }
 
@@ -413,21 +407,14 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
 
         try {
-            TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcqlPattern, "lemma");
-
             // Find the position of label "2:" in the pattern
             int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
-            BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
-
-            long headwordFreq = getTotalFrequency(lemma);
+            CollocateSearch cs = executeCollocateSearch(bcqlPattern, lemma, false);
+            long headwordFreq = cs.headwordFreq();
+            HitGroups groups = cs.groups();
 
             // Build a map of collocate -> frequency by grouping hits
             Map<String, Long> freqMap = new HashMap<>();
-
-            // Use hit groups - group by the matched text to get unique collocates
-            SearchHits searchHits = blackLabIndex.search().find(query);
-            HitProperty groupBy = new HitPropertyHitText(blackLabIndex, MatchSensitivity.INSENSITIVE);
-            HitGroups groups = searchHits.group(groupBy, Results.NO_LIMIT).execute();
 
             for (HitGroup group : groups) {
                 String identity = group.identity().toString();
@@ -447,6 +434,35 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
             return buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
 
+        } catch (IOException e) {
+            throw e;
+        }
+    }
+
+    /** Holds the parsed search results needed for collocate ranking. */
+    private record CollocateSearch(long headwordFreq, HitGroups groups) {}
+
+    /**
+     * Parses {@code bcqlPattern}, executes the search, and returns headword frequency together
+     * with grouped hits.  Extracts the setup shared by {@link #findCollocations} and
+     * {@link #executeSurfacePattern}.
+     *
+     * @param withStoredHits pass {@code true} to use {@code groupWithStoredHits} (needed when
+     *                       the iteration logic reads stored XML fields), {@code false} for
+     *                       the lighter {@code group} variant.
+     */
+    private CollocateSearch executeCollocateSearch(String bcqlPattern, String lemma, boolean withStoredHits)
+            throws IOException {
+        try {
+            TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser.parse(bcqlPattern, "lemma");
+            BLSpanQuery query = pattern.toQuery(QueryInfo.create(blackLabIndex));
+            long headwordFreq = getTotalFrequency(lemma);
+            SearchHits searchHits = blackLabIndex.search().find(query);
+            HitProperty groupBy = new HitPropertyHitText(blackLabIndex, MatchSensitivity.INSENSITIVE);
+            HitGroups groups = withStoredHits
+                ? searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute()
+                : searchHits.group(groupBy, Results.NO_LIMIT).execute();
+            return new CollocateSearch(headwordFreq, groups);
         } catch (InvalidQuery e) {
             throw new IOException("BCQL parse error: " + e.getMessage(), e);
         }

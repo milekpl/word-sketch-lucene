@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.exploration.CollocateProfileComparator;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
@@ -56,12 +57,12 @@ class ExplorationHandlers {
 
         String relationType = resolvedConfig.relationType().name();
 
-        ExploreParams ep = parseExploreParams(exchange, params);
-        if (ep == null) return;
-        int topCollocates = ep.topCollocates();
-        int minShared = ep.minShared();
-        double minLogDice = ep.minLogDice();
-        int nounsPerCollocate = ep.nounsPerSeed();
+        ExploreParams exploreParams = parseExploreParams(exchange, params);
+        if (exploreParams == null) return;
+        int topCollocates = exploreParams.topCollocates();
+        int minShared = exploreParams.minShared();
+        double minLogDice = exploreParams.minLogDice();
+        int nounsPerCollocate = exploreParams.nounsPerSeed();
 
         ExploreOptions opts = new ExploreOptions(
             topCollocates, nounsPerCollocate, minLogDice, minShared, false);
@@ -116,11 +117,11 @@ class ExplorationHandlers {
 
         String relationType = resolvedConfig.relationType().name();
 
-        ExploreParams ep = parseExploreParams(exchange, params);
-        if (ep == null) return;
-        int topCollocates = ep.topCollocates();
-        int minShared = ep.minShared();
-        double minLogDice = ep.minLogDice();
+        ExploreParams exploreParams = parseExploreParams(exchange, params);
+        if (exploreParams == null) return;
+        int topCollocates = exploreParams.topCollocates();
+        int minShared = exploreParams.minShared();
+        double minLogDice = exploreParams.minLogDice();
         // nouns_per intentionally not supported in multi-seed mode — seeds parameter is required instead
 
         ExplorationResult result;
@@ -173,7 +174,7 @@ class ExplorationHandlers {
 
         ComparisonResult result;
         try {
-            result = semanticFieldExplorer.compareCollocateProfiles(nouns, minLogDice, maxPerNoun);
+            result = semanticFieldExplorer.getComparator().compareCollocateProfiles(nouns, minLogDice, maxPerNoun);
         } catch (IOException e) {
             HttpApiUtils.sendError(exchange, 500, "Comparison failed: " + e.getMessage());
             return;

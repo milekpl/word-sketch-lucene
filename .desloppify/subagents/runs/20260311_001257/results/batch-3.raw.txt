@@ -1,0 +1,78 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 3,
+  "assessments": {
+    "logic_clarity": 78.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "Guard-clause early-returns applied uniformly in all HTTP handlers (ExplorationHandlers.java): `if (seed == null) return;`, `if (resolvedConfig == null) return;`, `if (ep == null) return;`",
+        "BlackLabQueryExecutor.executeBcqlQuery decomposes into three named phases (collectHits, scoreHits, rank/limit) with matching private methods and Javadoc — linear, unambiguous control flow",
+        "collectHits handles null concordance and short parts[] with explicit continue paths rather than nested conditionals: two distinct checks, same outcome, each followed by `continue`",
+        "SemanticFieldExplorer.exploreByPattern delegates each exploration step to a single-purpose helper (fetchSeedCollocates, buildCollocateIndex, rankByLogDice, identifyCoreCollocates)",
+        "RadialPlot constructor comment says 'Extract and sort collocates by absolute score (descending)' but in signed mode stores `item.score` (signed), then sorts by `Double.compare(b.score, a.score)` — signed descending, not absolute; strongly-negative items excluded from top-30 selection",
+        "RadialPlot circle-radius formula correctly uses `Math.abs(c.score)` while the sort/selection step does not, making the two parts of signed-mode logic inconsistent with each other",
+        "PatternSubstitution.extractXposFromConstraint uses `if (end > xposStart)` as a null-guard for `indexOf` returning -1; works because xposStart>=0 makes -1>xposStart false, but the idiom misrepresents intent (should be `end >= 0`); same pattern repeated for the `tag` branch"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard-clause early-returns applied consistently across all HTTP handler methods without exception, making the dominant success path immediately readable",
+        "Two-phase hit-processing in BlackLabQueryExecutor (collectHits → scoreHits → rank) is named, sequenced, and documented so the algorithm is self-narrating",
+        "ExplorationHandlers delegates relation-resolution and param-parsing to dedicated helpers, keeping each handler's own control flow at a single level of abstraction",
+        "SemanticFieldExplorer exploration phases are each a single named method with a stated postcondition, making the 4-step algorithm easy to audit",
+        "CqlUtils.splitCqlTokens uses an explicit depth counter for bracket balancing — intent is immediately obvious without boolean-flag tricks"
+      ],
+      "issue_character": "Issues are isolated to individual helper methods and manifest as either a sort-key inconsistency with the stated intent and sibling logic (RadialPlot signed mode), or a working-but-misleading indexOf null-guard idiom (PatternSubstitution); no systemic patterns of confused logic.",
+      "score_rationale": "The dominant execution paths across all subsystems are clear, correctly sequenced, and consistent. Guard clauses and named phase helpers keep logic transparent. The RadialPlot signed-mode sort is a genuine behavioral gap — the comment and circle-sizing formula both say 'absolute', but the sort does not, so the top-30 selection is skewed toward positive items in signed mode. The PatternSubstitution idiom works but obscures intent. These are two localized, fixable issues in an otherwise well-controlled codebase, placing quality at solid-but-uneven (around 80) with a modest deduction for the behavioral inconsistency."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "radial_plot_signed_sort_mismatch",
+      "summary": "RadialPlot signed-mode sorts by signed score while comment and circle-sizing both say 'absolute score', excluding strongly-negative items from top-30 selection",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"],
+      "evidence": [
+        "Constructor comment: '// Extract and sort collocates by absolute score (descending)'",
+        "For signed mode: `double scoreToUse = \"signed\".equals(mode) ? item.score : Math.abs(item.score);` — stores raw signed value",
+        "`collocates.sort((a, b) -> Double.compare(b.score, a.score));` sorts descending by signed value, not absolute value",
+        "Top-30 trim: `collocates.subList(30, collocates.size()).clear();` applied after the signed sort, so items with score=-8 rank below score=+2",
+        "Circle-radius formula correctly uses `Math.abs(c.score)` — inconsistent with the sort step which does not"
+      ],
+      "suggestion": "In signed mode, sort by absolute value so the top-30 selection captures the most extreme items in both directions, consistent with the comment and circle-sizing logic: change `collocates.sort((a, b) -> Double.compare(b.score, a.score))` to `collocates.sort((a, b) -> Double.compare(Math.abs(b.score), Math.abs(a.score)))`, or add a separate `sortKey` field to Collocate that is always `Math.abs(score)` while preserving the raw signed score for color logic.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "pattern_substitution_misleading_null_guard",
+      "summary": "PatternSubstitution.extractXposFromConstraint uses `end > xposStart` as a null-guard for indexOf returning -1, which works accidentally but misrepresents intent",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java"],
+      "evidence": [
+        "`int end = constraint.indexOf(\"\\\"\", xposStart + 6); if (end > xposStart)` — indexOf returns -1 if not found; -1 > xposStart is false only because xposStart >= 0",
+        "Same idiom repeated in the `tag` branch: `int end = constraint.indexOf(\"\\\"\", tagStart + 5); if (end > tagStart)`",
+        "The readable intent is `end != -1` (closing quote was found), not a positional comparison"
+      ],
+      "suggestion": "Replace `if (end > xposStart)` with `if (end >= 0)` and `if (end > tagStart)` with `if (end >= 0)` to make the null-guard intent explicit and remove the accidental reliance on xposStart being non-negative.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Comment-code drift: RadialPlot's signed-mode sort was likely introduced alongside the non-signed mode, with the comment written for the simpler case and not updated",
+      "Idiomatic Java null-guard for indexOf is `!= -1`; using a positional comparison instead introduces a working-but-opaque pattern that can mislead maintainers"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

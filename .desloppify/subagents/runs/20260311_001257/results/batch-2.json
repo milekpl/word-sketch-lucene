@@ -1,0 +1,90 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {
+    "abstraction_fitness": 73.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles() (lines 299-303) is a pure delegation pass-through to CollocateProfileComparator.compareCollocateProfiles() with an identical signature; no policy, translation, or added behaviour.",
+        "CollocateProfileComparator javadoc explicitly states it was 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold' — the class split was tool-metric-driven, not responsibility-driven.",
+        "SemanticFieldExplorer.close() (line 420-422) is empty — the class implements AutoCloseable but the close body contains only a comment saying 'executor lifecycle is managed by the caller', creating a false resource-ownership contract.",
+        "QueryExecutor interface has exactly one concrete implementation (BlackLabQueryExecutor), but it is used as a constructor injection point in SemanticFieldExplorer and CollocateProfileComparator, which justifies it for testability.",
+        "HttpApiUtils, CqlUtils, and PatternSubstitution are all static-only utility classes but each has a focused, coherent responsibility used across multiple callers — not dumping grounds.",
+        "WordSketchApiServer adds real value (CORS preflight, method gating, error wrapping) before delegating to SketchHandlers and ExplorationHandlers; not a hollow facade.",
+        "No util_files, facade_modules, or delegation_heavy_classes detected by the mechanical scan, consistent with direct code observation.",
+        "Model records (DiscoveredNoun, AdjectiveProfile, CoreCollocate, Edge) are direct domain objects with no unnecessary wrapper types."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 82.0,
+        "indirection_cost": 74.0,
+        "interface_honesty": 72.0,
+        "delegation_density": 95.0,
+        "definition_directness": 88.0,
+        "type_discipline": 92.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface enables constructor injection for testing in SemanticFieldExplorer and CollocateProfileComparator, providing real leverage despite having only one production implementation.",
+        "HttpApiUtils, CqlUtils, and PatternSubstitution each have a focused responsibility used across multiple callers; none are growing grab-bag util files.",
+        "WordSketchApiServer adds concrete value (CORS, method gating, error wrapping) before delegating to SketchHandlers and ExplorationHandlers — it is not a hollow passthrough router.",
+        "Model-layer records (DiscoveredNoun, AdjectiveProfile, CoreCollocate, Edge) are direct domain objects without unnecessary wrapping or option-bag patterns."
+      ],
+      "issue_character": "Both issues are localized to the SemanticFieldExplorer / CollocateProfileComparator pair and share a root cause: a line-count-motivated class split that produced one unearned delegation pass-through and a vestigial AutoCloseable contract.",
+      "score_rationale": "The codebase is broadly well-abstracted: the most important abstractions (QueryExecutor, HttpApiUtils, GrammarConfigLoader, model records) all justify their existence with measurable leverage, and the mechanical scan confirms near-zero delegation density and no facade modules. The deductions come from a pure pass-through delegation in SemanticFieldExplorer.compareCollocateProfiles() (line-count-driven class split with no added value) and a false AutoCloseable implementation that advertises resource ownership it does not exercise. These are real but limited issues — module-scoped, not codebase-wide — placing the score modestly below the 80 'solid but uneven' anchor."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explorer_comparator_passthrough",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles() is a pure pass-through to CollocateProfileComparator with an identical signature, adding no behaviour",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles (lines 299-303): return comparator.compareCollocateProfiles(seedNouns, minLogDice, maxPerNoun); — identical signature, no wrapping logic.",
+        "CollocateProfileComparator javadoc: 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold' — the split was motivated by a line-count metric, not a genuine responsibility boundary.",
+        "CollocateProfileComparator is never referenced by any caller outside the exploration package; all callers go through SemanticFieldExplorer.compareCollocateProfiles.",
+        "Both classes hold a reference to the same QueryExecutor, duplicating the dependency rather than sharing it through a coherent ownership model."
+      ],
+      "suggestion": "Inline CollocateProfileComparator's logic back into SemanticFieldExplorer, or make CollocateProfileComparator a package-private implementation detail used directly (not re-exposed via SemanticFieldExplorer). If line length remains a concern, extract private methods within SemanticFieldExplorer instead of a delegating class.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explorer_false_autocloseable",
+      "summary": "SemanticFieldExplorer implements AutoCloseable but close() is empty, advertising a resource-ownership contract it does not honour",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.close() (lines 420-422): body contains only the comment '// executor lifecycle is managed by the caller' — no resources are released.",
+        "QueryExecutor extends Closeable; SemanticFieldExplorer holds a QueryExecutor but does not forward close() to it, so try-with-resources around SemanticFieldExplorer will silently skip executor cleanup.",
+        "The class javadoc comment says 'executor lifecycle is managed by the caller', which contradicts the AutoCloseable contract that the class itself is responsible for its resources."
+      ],
+      "suggestion": "Either remove AutoCloseable from SemanticFieldExplorer (since it owns no resources) and document that callers must close the executor directly, or implement close() to forward to executor.close() if SemanticFieldExplorer is intended to be the resource owner.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A line-count enforcement tool or convention drove a class split (SemanticFieldExplorer → CollocateProfileComparator) that was not justified by genuine responsibility differences, producing an unearned delegation layer.",
+      "The AutoCloseable implementation on SemanticFieldExplorer is a vestige of an earlier design where the class may have owned more resources; the contract was not updated when ownership was moved to the caller."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

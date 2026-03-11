@@ -1,0 +1,125 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 6,
+  "assessments": {
+    "api_surface_coherence": 62.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "handleFullSketchForType (surface branch) builds relation entries with keys {name, cql, collocate_pos_group, collocations} — no 'id' or 'total_matches'",
+        "handleRelationQueryForPattern (single-relation, both SURFACE and DEP) builds entries with {id, name, collocations, total_matches} — no 'cql' or 'collocate_pos_group'",
+        "buildRelationResponse (DEP full-sketch) returns {id, name, description, deprel, total_matches, collocations} — a third distinct shape",
+        "All three paths place their result under the same outer key 'relations' in the response map",
+        "handleBcqlQueryPost sets response keys query/total_results/limit/results with no 'status' field; every other success handler sets 'status': 'ok'",
+        "handleConcordanceExamples sets 'limit_requested' (line 305); handleBcqlQueryPost sets 'limit' (line 382) for the same concept",
+        "QueryExecutor declares findCollocations(String lemma, String cqlPattern, double minLogDice, int maxResults)->List<WordSketchResult> and executeSurfacePattern(String lemma, String bcqlPattern, double minLogDice, int maxResults)->List<WordSketchResult> — identical Java signatures, incompatible pattern conventions",
+        "wrapHandler in WordSketchApiServer catches both IOException and Exception and sends uniform 500 JSON for every registered handler",
+        "HttpApiUtils provides sendJsonResponse, sendError, requireParam, parseQueryParams applied identically across all handlers",
+        "ExploreOptions record bundles 5 tuning parameters; private ExploreParams inner record in ExplorationHandlers mirrors this at the HTTP layer",
+        "QueryExecutor interface parameter ordering is consistently (lemma, pattern, minLogDice, maxResults) across all query methods"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "wrapHandler provides uniform IOException + Exception catching and consistent 500 JSON responses across every registered endpoint — no ad-hoc error divergence",
+        "HttpApiUtils is a narrow, uniformly-applied toolkit: CORS headers, content-type, and response-code wiring live in one place and are called identically from all handlers",
+        "ExploreOptions record and the private ExploreParams inner record prevent bloated method signatures at both the service and HTTP layers",
+        "QueryExecutor interface methods follow a consistent (lemma, pattern, minLogDice, maxResults) parameter order with every method declaring throws IOException",
+        "Handler split into SketchHandlers / ExplorationHandlers provides a clear, coherent boundary between sketch/concordance concerns and semantic-field exploration"
+      ],
+      "issue_character": "Issues are spread across the public response layer and the primary query interface, reflecting incremental extension of the API surface rather than a single structural flaw: shape divergence accumulated as new endpoints reused the same key names with different field sets.",
+      "score_rationale": "The HTTP infrastructure layer (utilities, error handling, parameter objects) is solid and uniformly applied, which lifts this above the 60 anchor. However, the three differently-shaped objects all returned under the same 'relations' key across full-sketch, single-relation, and dependency endpoints is a genuine API contract problem — a client cannot use a single model type. The missing 'status' field on the BCQL endpoint and the 'limit'/'limit_requested' divergence add to the friction. The QueryExecutor overload problem (identical Java signatures with incompatible pattern conventions) adds implementation-level risk for future contributors. Together these issues place the codebase in the 60–65 band: solid plumbing, uneven data contract."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_relation_shape_mismatch",
+      "summary": "Surface full-sketch, single-relation, and DEP full-sketch all return differently-shaped objects under the same 'relations' key",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Surface full-sketch (handleFullSketchForType, isDep=false) emits: {name, cql, collocate_pos_group, collocations} — no 'id' or 'total_matches'",
+        "Single-relation surface query (handleRelationQueryForPattern) emits: {id, name, collocations, total_matches} — no 'cql' or 'collocate_pos_group'",
+        "DEP full-sketch (buildRelationResponse) emits: {id, name, description, deprel, total_matches, collocations} — a third distinct shape",
+        "All three are placed under the outer key 'relations' in the response"
+      ],
+      "suggestion": "Define a canonical relation-entry shape for surface responses — at minimum, include 'id' and 'total_matches' in the surface full-sketch branch (handleFullSketchForType isDep=false) so it matches the single-relation branch. Consider a shared formatRelationEntry helper instead of three separate ad-hoc map constructions.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "response_shape_divergence"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "bcql_missing_status_field",
+      "summary": "POST /api/bcql response omits the 'status' field present in every other endpoint's success response",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleBcqlQueryPost sets: query, total_results, limit, results — no 'status' field",
+        "Every other success handler (handleRelationsForType, handleFullSketchForType, handleRelationQueryForPattern, handleConcordanceExamples, all ExplorationHandlers) sets response.put(\"status\", \"ok\")"
+      ],
+      "suggestion": "Add response.put(\"status\", \"ok\") to handleBcqlQueryPost's success path, consistent with all other endpoints.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "response_shape_divergence"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "limit_vs_limit_requested_naming",
+      "summary": "Concordance-examples response uses 'limit_requested' while BCQL response uses 'limit' for the same concept",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleConcordanceExamples: response.put(\"limit_requested\", limit) — line ~305",
+        "handleBcqlQueryPost: response.put(\"limit\", limit) — line ~382",
+        "Both fields represent the maximum number of results requested by the caller"
+      ],
+      "suggestion": "Standardise on one name — 'limit' is shorter and matches the parameter name — and apply it consistently in both handlers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "response_shape_divergence"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "findcollocations_vs_executesurfacepattern_signature_collision",
+      "summary": "QueryExecutor.findCollocations and executeSurfacePattern have identical Java signatures and return type but incompatible pattern format conventions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations(String lemma, String cqlPattern, double minLogDice, int maxResults): List<WordSketchResult> — expects CQL with %s placeholder or bracket-suffix form",
+        "executeSurfacePattern(String lemma, String bcqlPattern, double minLogDice, int maxResults): List<WordSketchResult> — expects BCQL with labeled 1:/2: positions",
+        "The distinction between CQL and BCQL pattern conventions is only communicated via Javadoc, not via the type system"
+      ],
+      "suggestion": "Introduce a thin wrapper type (e.g. CqlPattern vs BcqlPattern, or a Pattern record with a format enum) so the compiler enforces correct pattern format at each call site, eliminating the silent mis-routing risk.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "overloaded_interface"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "response_shape_divergence: the surface-sketch relation entry was never aligned to the shape used by the single-relation and DEP branches as new code paths were added",
+      "overloaded_interface: findCollocations and executeSurfacePattern evolved independently for different callers without a type-level convention to distinguish their input formats"
+    ],
+    "likely_symptoms": [
+      "bcql_missing_status_field — isolated oversight, symptom-level",
+      "limit_vs_limit_requested_naming — isolated naming divergence, symptom-level"
+    ],
+    "possible_false_positives": []
+  }
+}

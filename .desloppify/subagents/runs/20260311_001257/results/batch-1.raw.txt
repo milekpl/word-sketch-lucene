@@ -1,0 +1,102 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 77.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "All 9 packages form a strict acyclic dependency graph: utils/model → config/query → exploration → api → Main. No upward imports detected via grep of all import statements.",
+        "QueryExecutor is an interface in the query package; BlackLabQueryExecutor is only referenced in Main.java. SemanticFieldExplorer and all handlers depend only on the interface.",
+        "api/PatternSubstitution.java imports only utils.CqlUtils and performs pure CQL string transformation (splitCqlTokens, extractXposFromConstraint, substituteCollocate). No HTTP types used; belongs in utils.",
+        "api/RelationUtils.java is a static map of relation-alias strings with no HTTP dependencies; it belongs in config, not api.",
+        "WordSketchApiServer constructor: `SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor);` — service construction inside the adapter layer, partially displacing the composition root in Main.",
+        "SemanticFieldExplorer.exploreByPattern(String, RelationConfig, ExploreOptions) and exploreMultiSeed(Set, RelationConfig, ...) both accept RelationConfig from the config package, coupling the exploration service boundary to configuration types.",
+        "indexer and viz packages have zero intra-project imports; both are fully isolated subsystems.",
+        "model package (ExplorationResult, DiscoveredNoun, CoreCollocate, ComparisonResult, Edge, ExploreOptions, AdjectiveProfile) has zero intra-project imports — a stable shared vocabulary."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Strictly acyclic dependency graph across all 9 packages with a clear directional flow: utils/model → config/query → exploration → api → Main.",
+        "QueryExecutor interface used as a consistent seam; the concrete BlackLabQueryExecutor never leaks beyond Main.java.",
+        "Main.java is the explicit composition root that constructs and wires all top-level services.",
+        "model and utils are pure leaf packages with zero intra-project imports, providing a stable shared vocabulary.",
+        "indexer and viz subsystems are fully isolated — neither imports any other project package."
+      ],
+      "issue_character": "Issues are precision-of-placement problems rather than direction violations: a CQL utility housed in the api package, a service instantiated inside an adapter constructor, and a config record type accepted at the exploration service boundary — all one tier off from ideal, none breaking the overall flow direction.",
+      "score_rationale": "The codebase is well above the 60=significant-drag anchor: a developer can reliably trace dependencies, find no cycles, and reason about which layer owns what. It falls short of 85+ exemplary because three seams are slightly imprecise — PatternSubstitution and RelationUtils live in the wrong packages, service construction leaks into the api layer, and the exploration service's public API is coupled to a config type. These are real but low-severity concerns that make the architecture solid and consistent rather than exemplary, placing it around 77."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "pattern_sub_misplaced_in_api",
+      "summary": "PatternSubstitution and RelationUtils belong in utils/config, not api",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RelationUtils.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.java has exactly one intra-project import (utils.CqlUtils) and performs pure CQL bracket-walking and lemma substitution — no HttpExchange, no HTTP types.",
+        "RelationUtils.java is a static Map<String,String> of relation alias strings; it references no HTTP or api types and is a configuration concern.",
+        "Both files use package-private visibility (class, not public class) yet are consumed only from within the api package — moving them would not require visibility changes to consumers outside api."
+      ],
+      "suggestion": "Move PatternSubstitution to the utils package alongside CqlUtils, and move RelationUtils to the config package alongside RelationConfig. Update package declarations and the single import in PatternSubstitution. This tightens the api/utils boundary and makes these utilities discoverable to future non-HTTP consumers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "server_constructs_service_internally",
+      "summary": "WordSketchApiServer constructs SemanticFieldExplorer internally, dispersing composition-root responsibility into the api layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer constructor line: `SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor);` — the api-layer adapter directly constructs a domain service.",
+        "Main.java constructs GrammarConfigLoader and BlackLabQueryExecutor and passes them to WordSketchApiServer, but does not construct SemanticFieldExplorer — that lifecycle is hidden inside the server.",
+        "A TODO comment in the constructor (`// TODO(595bb84c): Move HttpServer creation and route registration here so start() only calls server.start().`) acknowledges deferred refactoring but does not cover this separate construction concern."
+      ],
+      "suggestion": "Add a SemanticFieldExplorer parameter to the WordSketchApiServer constructor and pass the instance from Main.java. This makes all service construction visible at the composition root and allows Main to control lifecycle (e.g., closing the executor). The change is a single constructor signature update plus one line added to Main.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "exploration_coupled_to_config_type",
+      "summary": "SemanticFieldExplorer public API accepts RelationConfig, coupling the exploration service boundary to the config layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern(String seed, RelationConfig relationConfig, ExploreOptions opts) accepts a config record directly.",
+        "SemanticFieldExplorer.exploreMultiSeed(Set<String> seeds, RelationConfig relationConfig, ...) similarly accepts RelationConfig.",
+        "RelationConfig is a rich record with id, name, description, pattern, headPosition, collocatePosition, dual, defaultSlop, relationType, explorationEnabled — the exploration service only actually uses getFullPattern(seed) and collocateReversePattern() from it.",
+        "The exploration package thereby depends on the config package, adding a cross-tier coupling that would not exist if the API layer resolved the pattern strings before calling into exploration."
+      ],
+      "suggestion": "Replace the RelationConfig parameter in SemanticFieldExplorer's public methods with the two resolved string values it actually uses: String bcqlPattern (already expanded with seed) and String collocateReversePattern. Let ExplorationHandlers call relationConfig.getFullPattern(seed) and relationConfig.collocateReversePattern() and pass the results. This removes the exploration→config import entirely and makes the service contract self-contained.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The project grew iteratively (single-seed then multi-seed exploration added), and utility/config helpers were placed in the api package for convenience rather than following the existing layer conventions.",
+      "Service lifecycle ownership was not made explicit when WordSketchApiServer was introduced — the constructor became a secondary composition point without a clear policy."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

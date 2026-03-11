@@ -46,7 +46,8 @@ public class PatternSubstitution {
         int xposStart = constraint.indexOf("xpos=\"");
         if (xposStart >= 0) {
             int end = constraint.indexOf("\"", xposStart + 6);
-            if (end > xposStart) {
+            // end >= 0 guards against indexOf returning -1 (closing quote not found)
+            if (end >= 0) {
                 return constraint.substring(xposStart, end + 1);
             }
         }
@@ -54,7 +55,8 @@ public class PatternSubstitution {
         int tagStart = constraint.indexOf("tag=\"");
         if (tagStart >= 0) {
             int end = constraint.indexOf("\"", tagStart + 5);
-            if (end > tagStart) {
+            // end >= 0 guards against indexOf returning -1 (closing quote not found)
+            if (end >= 0) {
                 return constraint.substring(tagStart, end + 1);
             }
         }

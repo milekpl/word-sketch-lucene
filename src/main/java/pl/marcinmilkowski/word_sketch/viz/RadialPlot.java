@@ -110,7 +110,7 @@ public class RadialPlot {
             double scoreToUse = "signed".equals(mode) ? item.score : Math.abs(item.score);
             collocates.add(new Collocate(item.label, scoreToUse));
         }
-        collocates.sort((a, b) -> Double.compare(b.score, a.score));
+        collocates.sort((a, b) -> Double.compare(Math.abs(b.score), Math.abs(a.score)));
 
         // Take top 30 for clarity
         if (collocates.size() > 30) {

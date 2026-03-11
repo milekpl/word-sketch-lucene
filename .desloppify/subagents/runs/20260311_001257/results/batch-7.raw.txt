@@ -1,0 +1,123 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 7,
+  "assessments": {
+    "design_coherence": 68.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "RelationConfig (a record) carries 10+ non-trivial methods: getFullPattern, substituteHeadword, mergeLemmaConstraint, extractConstraintAttribute, collocateReversePattern, collocatePosGroup, extractLabelContent, posGroupFromConstraint, getDeprel, toJson — mixing data representation with CQL string manipulation and POS-inference logic.",
+        "RelationConfig.relationType() is documented as nullable with an explicit TODO to convert to Optional<RelationType>: 'Converting this field to Optional<RelationType> was deferred because the value is used in many places…with both == comparisons and .name() calls'. The fix has been deferred indefinitely while the null-check obligation spreads to all callers.",
+        "SketchHandlers.handleFullSketchForType uses boolean isDep = relationType == RelationType.DEP and branches in three places inside the method body, producing two structurally different response shapes from one method.",
+        "BlackLabQueryExecutor.findCollocations and executeSurfacePattern each independently: parse BCQL via CorpusQueryLanguageParser, call toQuery(QueryInfo.create(…)), call getTotalFrequency, invoke blackLabIndex.search().find(), group by HitPropertyHitText, iterate groups to extract collocate lemma (with different extractors), then converge at buildAndRankCollocates — ~35 lines of structural duplication differing only in which lemma extractor is used.",
+        "QueryExecutor interface distinguishes five methods (findCollocations, executeSurfacePattern, executeBcqlQuery, executeDependencyPattern, executeQuery) with explicit Javadoc explaining when each applies — honest interface design.",
+        "executeBcqlQuery is decomposed into collectHits/scoreHits/rank with a HitRecord intermediate record, keeping each phase single-purpose.",
+        "CqlUtils.splitCqlTokens is shared between GrammarConfigLoader and PatternSubstitution, eliminating duplication of the CQL bracket-walking primitive.",
+        "Model package uses records for immutable value types and traditional classes where mutability or richer behaviour is appropriate; the choice is documented."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Layering (query / api / exploration / model / config / utils / indexer) is clean with single-direction dependencies enforced in practice.",
+        "QueryExecutor interface honestly names and documents five distinct query strategies, explaining when each should be preferred over the others.",
+        "BlackLabQueryExecutor.executeBcqlQuery decomposes its work into collectHits / scoreHits / rank phases with a HitRecord private record making the phase boundary explicit.",
+        "CqlUtils.splitCqlTokens is extracted as a shared primitive, eliminating duplication of bracket-walking between GrammarConfigLoader and PatternSubstitution.",
+        "Model classes deliberately mix records (for immutable value types) and classes (for result objects with richer API), with the rationale documented in Javadoc."
+      ],
+      "issue_character": "Issues concentrate at the highest-complexity nodes — RelationConfig, BlackLabQueryExecutor, SketchHandlers — where behaviour was added locally rather than extracted, following a consistent pattern of responsibility creep rather than scattered isolated defects.",
+      "score_rationale": "The codebase demonstrates genuine structural awareness: layering, interface design, and phase decomposition in the query executor are solid. However, the three highest-complexity classes each show the same root cause — complexity was absorbed in-place rather than extracted — producing a record with business logic, two parallel collocate-search paths, and a boolean-flag method. The nullable-relationType field is an acknowledged architectural debt with no resolution path, propagating null-check obligations across the API surface. These problems are real but localised, placing the score clearly in 'solid but uneven' territory rather than 'significant drag', with the localisation preventing a higher score: approximately 68.0."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "relation_config_responsibility_creep",
+      "summary": "RelationConfig record accumulates CQL pattern manipulation and POS-inference logic that belongs in utilities",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "RelationConfig (a record) defines 10+ non-trivial methods beyond toJson: getFullPattern, substituteHeadword (private), mergeLemmaConstraint (private), extractConstraintAttribute (private), collocateReversePattern, collocatePosGroup, extractLabelContent (private), posGroupFromConstraint (private), getDeprel — totalling ~100 lines of CQL string assembly and POS-tag scanning.",
+        "posGroupFromConstraint is 20+ lines of string scanning (xpos/tag attribute detection) with no dependency on record state — a pure utility function embedded in a data type.",
+        "substituteHeadword/mergeLemmaConstraint duplicate the token-substitution structure that PatternSubstitution.substituteCollocate already implements for collocates, just targeting the head position instead."
+      ],
+      "suggestion": "Extract CQL pattern manipulation (getFullPattern, substituteHeadword, mergeLemmaConstraint, extractConstraintAttribute) and POS inference (collocatePosGroup, extractLabelContent, posGroupFromConstraint, collocateReversePattern) into a RelationPatternUtils class in the config or utils package. Leave RelationConfig as a data record with only toJson() and getDeprel() (which reads a regex from the stored pattern field). This makes the manipulation logic independently testable and avoids growing the record further.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "responsibility_creep_at_complexity_nodes"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nullable_relation_type_deferred",
+      "summary": "RelationConfig.relationType() is documented as nullable with a known-but-deferred conversion to Optional, spreading null-check obligations to all callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "RelationConfig Javadoc on relationType(): 'May be null when the grammar JSON omits the relation_type field.' The parseRelationType method returns null on missing or unrecognised values.",
+        "GrammarConfigLoader Javadoc: 'Converting this field to Optional<RelationType> was deferred because the value is used in many places across SketchHandlers and ExplorationHandlers with both == comparisons and .name() calls that would all require updates simultaneously.'",
+        "SketchHandlers.handleRelationsForType filters on rel.relationType() == relationType; handleRelationQueryForPattern guards rel.relationType() != relationType — both must null-check implicitly (relationType() == null would silently fail the type check, not throw).",
+        "ExplorationHandlers.resolveRelationConfig explicitly checks var relType = relationConfig.get().relationType(); if (relType == null) { sendError(...) } — the null handling is distributed rather than encapsulated."
+      ],
+      "suggestion": "Convert relationType to Optional<RelationType> in the record definition. Update parseRelationType to return Optional.empty() instead of null. Update all call sites (SketchHandlers, ExplorationHandlers) to use .orElse(null) or .isPresent() guards. The Javadoc acknowledges this is the right fix; the deferral cost compounds as new endpoints and tests are added.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "responsibility_creep_at_complexity_nodes"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "handle_full_sketch_boolean_flag",
+      "summary": "SketchHandlers.handleFullSketchForType uses a boolean isDep flag to bifurcate two structurally different response shapes in one method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketchForType(HttpExchange, String, RelationType) computes boolean isDep = relationType == RelationType.DEP and then branches on it in three places: a guard ('if (isDep && rel.getDeprel() == null) continue'), response construction ('if (isDep) { relData = buildRelationResponse(...) } else { relData = new HashMap<>()... }'), and response assembly ('if (isDep) { response.put(\"type\", \"dependency\"); response.put(\"relations\", byRelation); } else { response.put(\"relations\", byRelation); }').",
+        "The two response shapes differ in field names and included metadata. The boolean-flag approach forces a reader to mentally simulate both execution paths simultaneously."
+      ],
+      "suggestion": "Split into handleFullSurfaceSketch (private) and handleFullDepSketch (private), each with its own response-building logic. Extract the shared 'query all relations of type T, skip failures, collect into map' loop into a private collectRelationResults(String lemma, RelationType type) helper that both can call. This makes each response contract visible independently.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "responsibility_creep_at_complexity_nodes"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "collocate_search_setup_duplication",
+      "summary": "BlackLabQueryExecutor.findCollocations and executeSurfacePattern duplicate ~35 lines of hit-group search setup before converging at buildAndRankCollocates",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations: parses BCQL pattern via CorpusQueryLanguageParser, calls toQuery(QueryInfo.create(blackLabIndex)), calls getTotalFrequency(lemma), invokes blackLabIndex.search().find(query), groups by HitPropertyHitText with groupWithStoredHits(..., NO_LIMIT), iterates groups extracting collocate lemma via BlackLabSnippetParser.extractLemmaFromMatch/lastIndexOf fallback, then calls buildAndRankCollocates.",
+        "executeSurfacePattern: parses BCQL pattern via CorpusQueryLanguageParser, calls toQuery(QueryInfo.create(blackLabIndex)), calls getTotalFrequency(lemma), invokes blackLabIndex.search().find(query), groups by HitPropertyHitText with group(..., NO_LIMIT) (no stored hits), iterates groups extracting collocate via BlackLabSnippetParser.extractLemmaAt/extractPlainTextTokenAt, then calls buildAndRankCollocates.",
+        "The only substantive difference is the lemma-extraction strategy (XML lemma attribute vs position-indexed extraction) and whether stored hits are retained for concordances."
+      ],
+      "suggestion": "Extract a private groupCollocatesByLemma(BLSpanQuery query, Function<HitGroup, String> lemmaExtractor) helper that handles the search().find() / group / iterate loop and returns a Map<String, Long>. Both methods call getTotalFrequency and buildAndRankCollocates independently (those are fast and contextual), but the grouping loop no longer needs to be written twice. The lemma extractor function captures the only meaningful difference.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "responsibility_creep_at_complexity_nodes"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Complexity added in-place rather than extracted: when RelationConfig, BlackLabQueryExecutor, and SketchHandlers grew in complexity, new behaviour was appended to existing classes/methods rather than extracted into focused utilities or split into separate methods.",
+      "Nullable contract accepted as permanent: the Optional<RelationType> conversion was deferred once and documented, but without a deadline or incremental path, it has effectively become permanent API debt."
+    ],
+    "likely_symptoms": [
+      "Tests for RelationConfig.collocatePosGroup or collocateReversePattern would need to instantiate a full RelationConfig record rather than calling a utility method — symptom of logic trapped in a data type."
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -377,7 +377,7 @@ class ExplorationHandlers {
 
     private ExploreParams resolveExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
         try {
-            int top = Integer.parseInt(params.getOrDefault("top", "15"));
+            int top = Integer.parseInt(params.getOrDefault("top", "10"));
             int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
             double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
             int nounsPerSeed = Integer.parseInt(params.getOrDefault("nouns_per", "30"));

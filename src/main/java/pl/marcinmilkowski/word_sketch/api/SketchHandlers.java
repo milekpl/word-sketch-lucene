@@ -26,6 +26,7 @@ import java.util.Map;
 class SketchHandlers {
 
     private static final Logger logger = LoggerFactory.getLogger(SketchHandlers.class);
+    private static final int MAX_REQUEST_BODY_BYTES = 65536;
 
     private final QueryExecutor executor;
     private final GrammarConfigLoader grammarConfig;
@@ -345,7 +346,12 @@ class SketchHandlers {
      */
     void handleVisualRadial(HttpExchange exchange) throws IOException {
         try {
-            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            byte[] bodyBytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BODY_BYTES + 1);
+            if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) {
+                HttpApiUtils.sendError(exchange, 413, "Request body too large");
+                return;
+            }
+            String body = new String(bodyBytes, StandardCharsets.UTF_8);
             logger.debug("Radial: body = {}", body);
             JSONObject obj = JSON.parseObject(body);
             String center = obj.getString("center");
@@ -382,7 +388,12 @@ class SketchHandlers {
      */
     void handleBcqlQueryPost(HttpExchange exchange) throws IOException {
         try {
-            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            byte[] bodyBytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BODY_BYTES + 1);
+            if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) {
+                HttpApiUtils.sendError(exchange, 413, "Request body too large");
+                return;
+            }
+            String body = new String(bodyBytes, StandardCharsets.UTF_8);
             JSONObject obj = JSON.parseObject(body);
             String bcqlQuery = obj.getString("query");
             if (bcqlQuery == null || bcqlQuery.isBlank()) {
@@ -390,7 +401,7 @@ class SketchHandlers {
                 return;
             }
             int limit = obj.getIntValue("limit");
-            if (limit <= 0) limit = 20;
+            if (limit <= 0) limit = 10;
 
             logger.debug("BCQL query: {}", bcqlQuery);
 

@@ -114,7 +114,7 @@ public class SemanticFieldExplorer {
         return exploreByPattern(
             seed,
             relationConfig.name(),
-            relationConfig.buildPattern(seed),
+            relationConfig.getFullPattern(seed),
             relationConfig.collocateReversePattern(),
             opts);
     }
@@ -301,7 +301,7 @@ public class SemanticFieldExplorer {
      */
     public List<String> fetchExamples(String adjective, String noun, RelationConfig relationConfig, int maxExamples)
             throws IOException {
-        String bcqlQuery = relationConfig.buildPattern(noun.toLowerCase(), adjective.toLowerCase());
+        String bcqlQuery = relationConfig.getFullPattern(noun.toLowerCase(), adjective.toLowerCase());
 
         List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, maxExamples);
 
@@ -337,7 +337,7 @@ public class SemanticFieldExplorer {
         Map<String, Integer> collocateSharedCount = new HashMap<>();
 
         for (String seed : seeds) {
-            String bcqlPattern = relationConfig.buildPattern(seed);
+            String bcqlPattern = relationConfig.getFullPattern(seed);
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
                 seed, bcqlPattern,
                 minLogDice, topCollocates);

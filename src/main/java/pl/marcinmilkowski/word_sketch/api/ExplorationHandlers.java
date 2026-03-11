@@ -74,7 +74,7 @@ class ExplorationHandlers {
         int nounsPerSeed = exploreParams.nounsPerSeed();
 
         ExploreOptions opts = new ExploreOptions(
-            topCollocates, nounsPerSeed, minLogDice, minShared, false);
+            topCollocates, nounsPerSeed, minLogDice, minShared);
 
         ExplorationResult result;
         try {

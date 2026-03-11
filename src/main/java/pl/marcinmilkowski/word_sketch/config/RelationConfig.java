@@ -69,15 +69,6 @@ public record RelationConfig(
         if (headword == null || headword.isBlank()) return pattern;
 
         // Parse the pattern and substitute the headword at head_position
-        return substituteHeadword(pattern, headword, headPosition);
-    }
-
-    /**
-     * Substitute the headword into the BCQL pattern at the specified position.
-     * E.g., pattern "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]" with head at position 1
-     * becomes "[lemma=\"theory\" & xpos=\"NN.*\"] [xpos=\"JJ.*\"]"
-     */
-    private static String substituteHeadword(String pattern, String headword, int headPosition) {
         return CqlUtils.substituteAtPosition(pattern, headword, headPosition);
     }
 

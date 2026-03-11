@@ -216,7 +216,7 @@ class SketchHandlers {
 
         List<QueryResults.WordSketchResult> results;
         try {
-            String fullPattern = rel.buildPattern(lemma);
+            String fullPattern = rel.getFullPattern(lemma);
             results = executor.executeSurfacePattern(
                 lemma, fullPattern,
                 0.0, 50);
@@ -254,7 +254,7 @@ class SketchHandlers {
      */
     private ExecutedSketch executeAndFormatCollocations(String lemma,
             pl.marcinmilkowski.word_sketch.config.RelationConfig rel) throws IOException {
-        String fullPattern = rel.buildPattern(lemma);
+        String fullPattern = rel.getFullPattern(lemma);
         List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
         if (results.isEmpty()) return null;
         List<Map<String, Object>> collocations = new ArrayList<>();
@@ -321,7 +321,7 @@ class SketchHandlers {
         String bcqlQuery = null;
         var rel = grammarConfig.getRelation(relation);
         if (rel.isPresent()) {
-            String patternWithHead = rel.get().buildPattern(noun);
+            String patternWithHead = rel.get().getFullPattern(noun);
             bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, adjective, rel.get().collocatePosition());
         }
 

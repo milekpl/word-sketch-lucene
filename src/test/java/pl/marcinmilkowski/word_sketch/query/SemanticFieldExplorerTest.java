@@ -260,7 +260,7 @@ class SemanticFieldExplorerTest {
         ));
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
-        ExploreOptions opts = new ExploreOptions(10, 5, 0.0, 1, false);
+        ExploreOptions opts = new ExploreOptions(10, 5, 0.0, 1);
 
         ExplorationResult result = explorer.exploreByPattern(
             "theory", "test-relation",
@@ -280,7 +280,7 @@ class SemanticFieldExplorerTest {
         ));
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
-        ExploreOptions opts = new ExploreOptions(10, 5, 0.0, 1, false);
+        ExploreOptions opts = new ExploreOptions(10, 5, 0.0, 1);
 
         ExplorationResult result = explorer.exploreByPattern(
             "theory", "test-relation",

@@ -17,5 +17,4 @@ public record ExploreOptions(
         /** Maximum nouns to expand per seed adjective. Applies to single-seed exploration only. */
         int nounsPerSeed,
         double minLogDice,
-        int minShared,
-        boolean includeExamples) {}
+        int minShared) {}

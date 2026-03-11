@@ -1,0 +1,96 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 15,
+  "assessments": {
+    "initialization_coupling": 72.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "RadialPlot declares three static final fields computed at class-load time: `private static final DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance(Locale.US); private static final DecimalFormat df = new DecimalFormat(\"0.00\", dfs); private static final DecimalFormat dfInt = new DecimalFormat(\"0\", dfs);` — DecimalFormat is explicitly NOT thread-safe per its Javadoc. The HTTP server may dispatch concurrent requests; concurrent calls to renderFromItems() → toSVG() → fmt() → df.format() will race on shared mutable formatter state.",
+        "WordSketchApiServer has a two-phase initialization: the constructor creates SketchHandlers, ExplorationHandlers, and SemanticFieldExplorer but does NOT create the HttpServer. start() creates the HttpServer and registers routes. The field `private com.sun.net.httpserver.HttpServer server` is null from construction until start() is called. This implicit ordering is not enforced by the type system.",
+        "Main.handleServerCommand constructs a BlackLabQueryExecutor before constructing WordSketchApiServer, then adds a shutdown hook that calls executor.close(). If WordSketchApiServer construction throws (e.g., the grammarConfig NPE), the executor is leaked because the shutdown hook is not registered until after both constructions succeed — but the hook references a variable that may be partially initialized.",
+        "GrammarConfigLoader.createDefaultEnglish() reads `System.getProperty(\"grammar.config\", \"grammars/relations.json\")` at call time. This is correct; however, the method is a static factory whose underlying path resolution depends on the JVM working directory at the time it is first called. Tests that change the working directory after class load would observe different behaviour from production, creating a fragile environment dependency.",
+        "RelationUtils.RELATION_ALIASES is a static final Map computed at class load. There is no external dependency, no I/O, and no mutable state — this is a safe static initializer."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "All major components (BlackLabQueryExecutor, SemanticFieldExplorer, CollocateQueryHelper, GrammarConfigLoader) follow a constructor-injection pattern with no hidden global singletons outside RadialPlot.",
+        "GrammarConfigLoader reads the system property at call time rather than at class load, keeping the config path dynamic and testable.",
+        "BlackLabConllUIndexer properly uses AtomicLong for its counters, showing awareness of concurrency at class-field level.",
+        "The shutdown hook in Main.handleServerCommand explicitly sequences resource teardown (stop server, then close executor), preventing use-after-close."
+      ],
+      "issue_character": "The codebase's main initialization-coupling problem is a single class (RadialPlot) with a thread-unsafe static field, combined with a two-phase construction in WordSketchApiServer that leaves an object partially usable after its constructor returns.",
+      "score_rationale": "Constructor injection is used consistently and there are no import-time I/O calls or module-level global singletons beyond the mutable RadialPlot formatters. The two-phase WordSketchApiServer construction is a moderate lifecycle smell but is contained and clearly documented in a TODO. The DecimalFormat thread-safety issue is a latent concurrency bug activated under production load. A score of 72 reflects a generally clean initialization design with one latent concurrent-access defect and one lifecycle asymmetry."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "ic_decimal_format_not_threadsafe",
+      "summary": "RadialPlot static DecimalFormat instances are not thread-safe; concurrent HTTP requests will race on shared mutable formatter state",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"],
+      "evidence": [
+        "`private static final DecimalFormat df = new DecimalFormat(\"0.00\", dfs);` — shared across all calls to fmt().",
+        "`private static String fmt(double value) { return df.format(value); }` — called hundreds of times per SVG render.",
+        "java.text.DecimalFormat Javadoc: 'DecimalFormat is not synchronized. It is recommended to create separate format instances for each thread.' The com.sun.net.httpserver server uses a thread pool; concurrent /api/visual/radial requests will produce garbled output or throw NumberFormatException."
+      ],
+      "suggestion": "Replace the static DecimalFormat with a ThreadLocal<DecimalFormat>, or — simpler — replace the fmt() helper with String.format(Locale.US, \"%.2f\", value) and dfInt usage with String.format(Locale.US, \"%.0f\", value), eliminating the shared mutable state entirely.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "shared_mutable_static_state"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "ic_server_two_phase_init",
+      "summary": "WordSketchApiServer is partially constructed in the constructor and fully usable only after start() — the null HttpServer field is an implicit ordering contract not enforced by the type",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "Constructor builds SketchHandlers, ExplorationHandlers, SemanticFieldExplorer but leaves `private com.sun.net.httpserver.HttpServer server;` as null.",
+        "start() creates the HttpServer and calls registerRoutes(). stop() guards on `if (server != null)` to tolerate the uninitialised state.",
+        "A caller that calls stop() before start() silently does nothing. A caller that calls registerRoutes() via any future refactor that makes it accessible would get NPE on `server.createContext()`.",
+        "The TODO comment acknowledges this: 'Move HttpServer creation and route registration here so start() only calls server.start()'"
+      ],
+      "suggestion": "Complete the TODO: move HttpServer creation and registerRoutes() into the constructor; declare the constructor as throwing IOException. start() becomes a one-liner: `server.start(); logger.info(...)`. This makes the object fully and correctly constructed at construction time.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "ic_executor_leaked_on_server_construction_failure",
+      "summary": "BlackLabQueryExecutor is constructed before WordSketchApiServer in Main; if server construction throws, the executor is not closed because the shutdown hook is not yet registered",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "handleServerCommand: `QueryExecutor executor = new BlackLabQueryExecutor(indexPath);` — BlackLab index is opened.",
+        "Next: `WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig);` — can throw NPE if grammarConfig is null.",
+        "The shutdown hook that calls `executor.close()` is registered only after both lines succeed. If WordSketchApiServer throws, executor.close() is never called, leaking the BlackLab index file handles.",
+        "This is especially likely given the grammarConfig null path identified in error_consistency batch (ec_main_null_grammar_config)."
+      ],
+      "suggestion": "Wrap the server construction in a try block: `try { server = new WordSketchApiServer(...); } catch (Exception e) { executor.close(); throw e; }`. Alternatively, use try-with-resources if QueryExecutor implements AutoCloseable (which it does via Closeable).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "swallowed_startup_errors"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RadialPlot's thread-unsafe formatters are a legacy of single-threaded design where static formatters are a common micro-optimisation; the risk was not re-evaluated when the class was embedded in a multi-threaded HTTP server.",
+      "WordSketchApiServer's two-phase init was an explicit deferral (see TODO comment) triggered by the breaking-API-change cost of adding IOException to the constructor signature — the technical debt is known but unresolved."
+    ],
+    "likely_symptoms": [
+      "ic_decimal_format_not_threadsafe will manifest as intermittent garbled SVG output or NumberFormatException under moderate concurrent load on the /api/visual/radial endpoint — reproducible with 2+ concurrent requests."
+    ],
+    "possible_false_positives": [
+      "GrammarConfigLoader.createDefaultEnglish() reads a system property at call time — this is intentionally dynamic and not a static-init side effect; it should not be flagged as initialization coupling."
+    ]
+  }
+}

@@ -156,7 +156,7 @@ class CollocateQueryHelper {
 
     /** Per-hit data collected in phase 1 of {@link #executeBcqlQuery}. */
     record HitRecord(String xmlSnippet, String leftText, String matchText, String rightText,
-                     String collocateLemma, int docId, int start, int end) {}
+                     /* nullable */ String collocateLemma, int docId, int start, int end) {}
 
     /**
      * Full two-phase BCQL query execution: parse → collect hits → score → rank.

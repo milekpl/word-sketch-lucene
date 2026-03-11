@@ -1,0 +1,81 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 19,
+  "assessments": {"authorization_consistency": 65.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "The server binds exclusively to the loopback address: 'new InetSocketAddress(InetAddress.getLoopbackAddress(), port)' (WordSketchApiServer.java line 94). This is the primary network-level access control and is consistently applied at startup.",
+        "No authentication or authorisation framework exists. All endpoints are equally open to any process on the local machine. This is consistent (no endpoint has auth while a sibling does not) but means any local process can issue arbitrary queries.",
+        "CORS is hardcoded to 'http://localhost:3000' across sendJsonResponse, sendError, sendOptionsResponse, and sendBinaryResponse in HttpApiUtils — four separate call-sites all carry the same string literal rather than a named constant. The comment 'Dev-only: restrict to specific origins in production' appears four times with no enforcement mechanism.",
+        "POST /api/bcql accepts an arbitrary BCQL query string from the request body and passes it directly to executor.executeBcqlQuery() without any sanitisation, pattern restriction, or query complexity limit. All structured endpoints (sketch, explore, etc.) validate the relation ID against grammarConfig before constructing a query; the BCQL endpoint bypasses this.",
+        "Lemma values from URL path segments and query parameters are passed through CqlUtils.escapeForRegex() before being embedded in CQL patterns (RelationConfig.getFullPattern → mergeLemmaConstraint). This escaping is applied consistently for structured endpoints.",
+        "Relation IDs from query parameters are validated via grammarConfig.getRelation(relationId).isEmpty() before use — unknown relations return 400. This input trust boundary is consistently applied across all structured endpoints.",
+        "Numeric parameters (top, min_logdice, limit, max) are individually parsed with try/catch and return 400 on NumberFormatException — consistent across all handlers.",
+        "No rate limiting, request size cap, or timeout is applied to any endpoint. A caller can issue unlimited requests or a very complex BCQL pattern without constraint."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Loopback-only binding provides a consistent, correctly-applied network-level isolation boundary.",
+        "Relation ID validation against the grammar config is applied uniformly across all structured endpoints, preventing unknown pattern injection.",
+        "CqlUtils.escapeForRegex is applied consistently to user-supplied lemma values before CQL embedding."
+      ],
+      "issue_character": "The tool is internally consistent in having no authentication (appropriate for a local research tool), but the open-ended /api/bcql endpoint deliberately bypasses the structured validation that all other endpoints apply — creating an inconsistent trust boundary: every other endpoint restricts the query space via grammar config validation, while BCQL accepts arbitrary patterns without restriction.",
+      "score_rationale": "For a local tool binding to loopback, the absence of auth is appropriate and consistently applied. The score is held below 75 by two genuine inconsistencies: the CORS origin is a repeated string literal rather than a constant (minor), and more significantly, /api/bcql is an unconstrained bypass of the query validation that all structured endpoints share. If this tool were ever exposed beyond localhost, the BCQL endpoint would be the sole unguarded attack surface. The CORS comment itself acknowledges future-proofing is needed."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "bcql_endpoint_bypasses_input_validation",
+      "summary": "POST /api/bcql accepts and executes arbitrary user-supplied BCQL without any structural validation applied by all sibling endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "handleBcqlQueryPost (lines 354-395): bcqlQuery = obj.getString(\"query\"); ... executor.executeBcqlQuery(bcqlQuery, limit); — the pattern string is used verbatim.",
+        "All structured endpoints (sketch, explore, semantic-field/*) go through grammarConfig.getRelation(id) and rel.getFullPattern(lemma) which validates the relation ID and escapes the lemma before constructing a query.",
+        "The BCQL endpoint makes no check on query length, structural complexity, or allowed pattern operators.",
+        "CollocateQueryHelper.executeBcqlQuery will attempt to parse and execute whatever BCQL string is provided, with error propagation only if the parser itself rejects it."
+      ],
+      "suggestion": "Add an optional allowlist mode: accept only BCQL queries generated from known grammar patterns, or at minimum add a configurable maximum query length and document that this endpoint is intentionally unrestricted. If the endpoint is intended only for developer debugging, gate it behind a system property (e.g., -Dbcql.enabled=true) so that production deployments can disable it.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_origin_repeated_literal",
+      "summary": "CORS allowed-origin 'http://localhost:3000' is a repeated magic string at four separate call-sites with no constant or configuration point",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "sendJsonResponse (line 29), sendError (line 44), sendOptionsResponse (line 58), sendBinaryResponse (line 70) all contain: exchange.getResponseHeaders().set(\"Access-Control-Allow-Origin\", \"http://localhost:3000\");",
+        "All four sites carry the same comment 'Dev-only: restrict to specific origins in production' with no enforcement mechanism.",
+        "Changing the allowed origin for deployment requires four separate edits, each of which can be missed."
+      ],
+      "suggestion": "Extract a private static final String CORS_ORIGIN = \"http://localhost:3000\" constant in HttpApiUtils (or make it configurable via a constructor parameter), and reference it from all four sites. This makes the 'production override' path a single change point.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The BCQL endpoint was added as a developer escape hatch and was never revisited for consistency with the structured endpoint validation model.",
+      "The CORS string repetition is a copy-paste artifact from adding each new response helper method."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "No-auth design: the absence of authentication is intentional for a single-user local tool and should not be treated as an inconsistency finding."
+    ]
+  }
+}

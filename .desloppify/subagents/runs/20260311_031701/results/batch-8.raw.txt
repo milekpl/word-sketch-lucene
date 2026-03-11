@@ -1,0 +1,94 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 8,
+  "assessments": {"incomplete_migration": 77.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "RelationConfig.posGroupFromConstraint contains dual support: a primary xpos= block and a secondary tag= block explicitly labeled '// legacy: tag= attribute support — use xpos= in new grammars'. The two code paths coexist with no removal plan or deprecation timeline",
+        "GrammarConfigLoader.validateNoLegacyKeys actively rejects the 'copulas' key with a clear migration error message: 'Grammar config must NOT contain copulas key... Copulas must be embedded in CQL patterns' — this is a completed migration with hard enforcement",
+        "GrammarConfigLoader.parseRelation comment: '// Canonical field name is \"pattern\"; cql_pattern is no longer supported' — the old field name was removed cleanly with no compatibility shim",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution handles two CQL template formats: %s-style substitution AND [constraint]-prefix-appended format. Both branches are active; no comment indicates which is the new or old form",
+        "WordSketchApiServer constructor has TODO(595bb84c): 'Move HttpServer creation and route registration here so start() only calls server.start(). Requires declaring IOException on this constructor, which is a breaking-API change — defer to v2.'",
+        "Main.java uses command names 'blacklab-index', 'blacklab-query' — the 'blacklab-' prefix is retained even though the indexer is now the only implementation, suggesting the names are a migration vestige from when a non-BlackLab path may have existed"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "cql_pattern field rename to pattern was completed cleanly with no backward-compat code — the old name is simply rejected",
+        "copulas key migration enforced at load time with a clear, actionable error message guiding the user to the new pattern",
+        "No old-and-new API coexistence at the query execution or exploration layers — there is exactly one executor implementation and one exploration path"
+      ],
+      "issue_character": "The migration issues are narrow and deliberate: the legacy tag= attribute fallback in posGroupFromConstraint is the only live dead-end, while other apparent migration artifacts (validateNoLegacyKeys, the cql_pattern comment) are clean migration guards rather than incomplete transitions.",
+      "score_rationale": "The codebase shows signs of careful cleanup — copulas removal, cql_pattern removal — but the tag= legacy path remains open indefinitely and the dual CQL template format in buildBcqlWithLemmaSubstitution has no clear target state. These are small, contained issues. Compared to codebases with pervasive old+new coexistence, this scores in the upper-middle range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy_tag_pos_attribute_support",
+      "summary": "posGroupFromConstraint retains a full legacy tag= attribute code path alongside the current xpos= path, with no removal plan",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "Lines 186-202: primary block checks xpos= patterns for ADJ/VERB/NOUN/ADV/OTHER",
+        "Lines 193-202: secondary block labeled '// legacy: tag= attribute support — use xpos= in new grammars' checks tag= patterns for the same categories",
+        "Both branches are active. The comment prescribes xpos= for new grammars but provides no timeline or gate to remove the legacy branch",
+        "The grammar config's parseRelation already rejected the legacy 'cql_pattern' field name — the same migration discipline has not been applied to the tag= attribute"
+      ],
+      "suggestion": "Audit whether any grammar config files in the repository still use tag= attribute. If none do, remove the tag= block from posGroupFromConstraint and add a test that rejects tag= in the collocate POS derivation. If legacy grammar files must be supported temporarily, add a @deprecated annotation to the tag= path and a GitHub issue tracking removal.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dual_bcql_template_formats",
+      "summary": "buildBcqlWithLemmaSubstitution supports two CQL template formats (%s substitution and [constraint]-prefix) with no indication of which is preferred or being phased out",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "'if (cqlPattern.contains(\"%s\")) { return String.format(cqlPattern, lemma.toLowerCase()); }' handles the old %s substitution style",
+        "'else if (cqlPattern.startsWith(\"[\")) { return String.format(\"\\\"%s\\\" %s\", lemma.toLowerCase(), cqlPattern); }' handles the newer [constraint]-prefix style",
+        "No comment explains which format is canonical or which callers use which; the IllegalArgumentException for unrecognized formats suggests this is a known limited set rather than an open extension point"
+      ],
+      "suggestion": "Document which format is canonical in the method Javadoc and mark the other as deprecated. If the grammar-config layer now always produces patterns in the [constraint]-prefix form (which RelationConfig.getFullPattern already handles), remove the %s branch and its callers. If %s patterns are still generated anywhere, track them explicitly.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "server_constructor_init_todo",
+      "summary": "WordSketchApiServer has a tracked TODO to move HttpServer creation into the constructor, deferred indefinitely to v2",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "'// TODO(595bb84c): Move HttpServer creation and route registration here so start() only calls server.start(). Requires declaring IOException on this constructor, which is a breaking-API change — defer to v2.'",
+        "As a result, start() combines HttpServer.create(), registerRoutes(), and server.start() in a single method that does more than start; calling start() twice would re-create the server"
+      ],
+      "suggestion": "If v2 is on a near-term roadmap, keep the TODO. If not, evaluate whether the IOException on the constructor is actually breaking (it is not for internal callers since Main.java already handles IOException). Completing the migration now by declaring IOException on the constructor would eliminate the deferred state.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The tag= legacy path was retained at the same time cql_pattern was removed, suggesting the team applied migration discipline selectively — removing field names but not attribute value formats",
+      "The dual CQL template format may reflect an evolutionary shift in how grammar patterns are authored, with the old %s style predating the grammar-config-driven approach"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "The blacklab- prefix in command names is likely intentional naming not a migration vestige — the README documents these names and there is no evidence of a non-BlackLab command path having existed"
+    ]
+  }
+}

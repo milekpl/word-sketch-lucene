@@ -190,7 +190,9 @@ public record RelationConfig(
         if (s.contains("xpos=\"in") || s.contains("xpos=in")) return PosGroup.OTHER;
         if (s.contains("xpos=\"rp") || s.contains("xpos=rp")
          || s.contains("xpos=\"to") || s.contains("xpos=to")) return PosGroup.OTHER;
-        // legacy: tag= attribute support — use xpos= in new grammars
+        // Legacy: tag= attribute — used by IPI_PAN Polish grammar (IPI_PAN_1.1_pl.txt).
+        // New English grammars always use xpos= above. Keep this path as long as non-English
+        // grammars that use tag= are supported.
         if (s.contains("tag=\"jj") || s.contains("tag=jj")) return PosGroup.ADJ;
         if (s.contains("tag=\"vb") || s.contains("tag=vb")) return PosGroup.VERB;
         if (s.contains("tag=\"nn") || s.contains("tag=nn")

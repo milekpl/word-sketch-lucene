@@ -1,0 +1,97 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 2,
+  "assessments": {"high_level_elegance": 67.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package-to-domain mapping is generally clear: api (HTTP), config (grammar), exploration (semantic analysis), indexer (corpus ingestion), model (DTOs), query (corpus search), utils (shared utilities), viz (SVG rendering).",
+        "AdjectiveCollocateRanker Javadoc: 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold.' — decomposition driven by mechanical line count, not cohesion; the ranker is always used through a one-line delegation in SemanticFieldExplorer.",
+        "model package mixes two conventions without consistency: AdjectiveProfile, CoreCollocate, DiscoveredNoun, ExploreOptions, Edge are records (component-style accessors); ComparisonResult and ExplorationResult are classes with getX() JavaBeans accessors. Each has a Javadoc comment explaining the rationale, but this requires a developer to read two different access patterns in the same package.",
+        "ExplorationHandlers contains 7+ private static formatXxx methods (formatSeedCollocate, formatDiscoveredNoun, formatCoreCollocate, formatEdge, formatAdjectiveProfile) that serialize domain objects into Map<String,Object>. This serialization concern co-habitates with HTTP routing in the handler.",
+        "SketchHandlers.handleFullSketchForType has an isDep boolean that branches throughout the method to produce two structurally similar but differently shaped responses — the method owns two different logical paths.",
+        "WordSketchApiServer constructor has a TODO comment: 'Move HttpServer creation and route registration here so start() only calls server.start()... defer to v2.' The current split between constructor and start() is a known design shortcut left in production code.",
+        "RelationUtils is a small package-private class mapping alias strings to canonical IDs — a clean, well-scoped helper."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package boundaries map to domain capabilities without historical accidents: api, config, exploration, model, query, viz are all independently navigable.",
+        "The model package clearly owns all domain result types; callers in api and exploration import from model without circular ownership.",
+        "RelationUtils is a minimal, well-scoped alias resolver that keeps relation-name logic out of the handler bodies.",
+        "QueryExecutor's Javadoc precisely distinguishes findCollocations, executeQuery, executeBcqlQuery, and executeSurfacePattern, making the public surface understandable."
+      ],
+      "issue_character": "Issues stem from incomplete separation of serialization from routing in the API layer and a size-driven decomposition of the exploration subsystem that obscures semantic ownership.",
+      "score_rationale": "The codebase scores above 60 because the domain-to-package mapping is coherent and model ownership is predictable. It falls short of 80 because AdjectiveCollocateRanker is a mechanical size-relief extraction rather than a genuinely independent concept, the model package requires developers to switch between two accessor conventions, and ExplorationHandlers conflates HTTP response serialization with handler routing, blurring what a 'handler' owns."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "mechanical_decomposition_ranker",
+      "summary": "AdjectiveCollocateRanker extracted from SemanticFieldExplorer for size reasons rather than domain cohesion",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "AdjectiveCollocateRanker Javadoc: 'Extracted from SemanticFieldExplorer to keep that class below the 400-line threshold.'",
+        "SemanticFieldExplorer.compareCollocateProfiles is a one-line delegation: return comparator.compareCollocateProfiles(seeds, minLogDice, topCollocates);",
+        "AdjectiveCollocateRanker is public but its only caller is SemanticFieldExplorer via the comparator field — it is not an independently usable subsystem concept."
+      ],
+      "suggestion": "Reintegrate AdjectiveCollocateRanker into SemanticFieldExplorer (accepting the line count) or redefine the boundary by responsibility: if comparison is a genuinely distinct capability, expose it with a clear entry point rather than through a delegating passthrough.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "mixed_model_accessor_conventions",
+      "summary": "model package uses two different accessor conventions (records vs JavaBeans getters) without consistent rule",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/DiscoveredNoun.java"
+      ],
+      "evidence": [
+        "ComparisonResult and ExplorationResult use getNouns(), getAllAdjectives(), getSeed(), getSeedCollocates(), etc.",
+        "AdjectiveProfile, CoreCollocate, DiscoveredNoun, Edge, ExploreOptions use record component accessors adjective(), nounScores(), sharedCollocates(), etc.",
+        "The Javadoc in ComparisonResult documents the inconsistency as intentional, but a developer must still switch reading patterns within the same package."
+      ],
+      "suggestion": "Standardize on Java records for immutable result types. ComparisonResult and ExplorationResult can be converted to records now that they are built in a single constructor call; the 'may grow over time' rationale in ExplorationResult is not borne out by current usage.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "serialization_in_handler_layer",
+      "summary": "Domain object serialization logic co-located in HTTP handler classes rather than in model or a dedicated serializer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers contains formatSeedCollocate, formatDiscoveredNoun, formatCoreCollocate, formatEdge, formatAdjectiveProfile — 7 private static formatter methods each returning Map<String,Object>.",
+        "These methods encode which fields appear in the JSON response and how they are named, which is a separate concern from routing and parameter validation."
+      ],
+      "suggestion": "Move formatXxx methods to a dedicated ExplorationResponseBuilder class or add toMap()/toResponseMap() methods to the domain records, keeping handler methods focused on request parsing and dispatch.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A line-count ceiling was applied mechanically to SemanticFieldExplorer, producing a split that doesn't reflect a genuine domain boundary.",
+      "ExplorationHandlers grew its formatting methods inline as features were added, without a dedicated serialization layer."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

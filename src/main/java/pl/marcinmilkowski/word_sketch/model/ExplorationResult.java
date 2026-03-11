@@ -65,13 +65,13 @@ public class ExplorationResult {
 
         // Edges from seed to its collocates
         for (Map.Entry<String, Double> colloc : seedCollocates.entrySet()) {
-            edges.add(new Edge(seed, colloc.getKey(), colloc.getValue(), "seed_adj"));
+            edges.add(new Edge(seed, colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_ADJ));
         }
 
         // Edges from discovered nouns to shared collocates
         for (DiscoveredNoun noun : discoveredNouns) {
             for (Map.Entry<String, Double> colloc : noun.sharedCollocates().entrySet()) {
-                edges.add(new Edge(noun.noun(), colloc.getKey(), colloc.getValue(), "discovered_adj"));
+                edges.add(new Edge(noun.noun(), colloc.getKey(), colloc.getValue(), RelationEdgeType.DISCOVERED_ADJ));
             }
         }
 

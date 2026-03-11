@@ -1,0 +1,119 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 20,
+  "assessments": {"design_coherence": 60.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "SketchHandlers.handleFullSketchForType (lines 114-162): a boolean flag 'isDep' is passed into the method and threads through the entire body. Inside the per-relation loop, the response map is built with completely different keys for SURFACE vs DEP. The method handles two distinct responsibilities (surface sketch formatting, DEP sketch formatting) in a single body, controlled by a boolean rather than dispatched polymorphically.",
+        "ExplorationHandlers.handleSemanticFieldComparison (lines 144-199) does not reuse the resolveExploreParams helper that its sibling handlers use, and instead inlines the same parsing logic with different defaults. This creates a silent divergence in default values ('top' is 50 here vs 15 in resolveExploreParams).",
+        "SemanticFieldExplorer.exploreByPattern has two overloads: a 3-arg (seed, relationConfig, opts) convenience method and a 5-arg (seed, relationName, bcqlPattern, simplePattern, opts) implementation method. The 5-arg overload is public despite being an implementation detail — it exposes raw pattern strings that are already encapsulated in RelationConfig. The 3-arg overload is the correct public API.",
+        "CollocateQueryHelper.buildAndRankCollocates (lines 124-151) calls getTotalFrequency(collocateLemma) for each entry in freqMap inside a loop, making O(N) index lookups per scoring call. This is a design-level concern: the collocate frequencies could be batch-fetched or pre-computed at the search stage rather than per-entry in the ranking stage.",
+        "SemanticFieldExplorer.buildNounCollocateMap (lines 221-237) calls executor.findCollocations once per entry in seedCollocScores — an O(N) loop of index queries. N can be up to topPredicates (default 15). This is an unavoidable architectural cost of the two-phase exploration algorithm, but the method makes no attempt to short-circuit on empty results or parallelize, which would be a straightforward improvement.",
+        "AdjectiveCollocateRanker.compareCollocateProfiles and SemanticFieldExplorer.exploreMultiSeed share the same two-phase pattern: (1) iterate seeds, fetch collocates, accumulate a collocateSharedCount map; (2) threshold and collect common collocates. The structural pattern is duplicated without a shared abstraction.",
+        "SketchHandlers.handleFullSketchForType (line 156-162): the DEP path sets response.put(\"type\", \"dependency\") while the SURFACE path sets nothing for type — an implicit 'surface' type. If both paths go through the same formatter, the type should be explicit in both.",
+        "GrammarConfigLoader.deriveTokenPosition (lines 260-302): 40-line character-scanning loop that is a second complete implementation of the bracket-walking logic already in CqlUtils.splitCqlTokens. The method itself notes this in a Javadoc comment ('Extends the bracket-walking in CqlUtils.splitCqlTokens') but the logic is not actually shared — it is a parallel copy with an added label-prefix detection feature."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "CollocateQueryHelper cleanly separates the three phases of BCQL execution (parse/search, collect hits, score), with each phase as a named private method.",
+        "The ExploreOptions record cleanly groups all tuning parameters for the exploration algorithm, avoiding a long argument list.",
+        "buildBaseExploreResponse and buildExploreResponseBody in ExplorationHandlers are correctly extracted as shared helpers across both explore endpoints.",
+        "SemanticFieldExplorer is split from AdjectiveCollocateRanker to keep individual class sizes manageable — the comment in AdjectiveCollocateRanker explains why ('extracted to keep SemanticFieldExplorer below 400 lines')."
+      ],
+      "issue_character": "The primary design issue is repeated structural duplication at the branching points: the boolean-flag anti-pattern in handleFullSketchForType, duplicated bracket-scanning logic between GrammarConfigLoader and CqlUtils, and duplicated two-phase seed-collocate accumulation between exploreMultiSeed and compareCollocateProfiles — each point where a common abstraction should have been applied but wasn't.",
+      "score_rationale": "The codebase shows awareness of design concerns (extracted helpers, ExploreOptions record, phase-separated BCQL pipeline), but there are several places where that discipline breaks down under the pressure of adding new features. The boolean-flag method in SketchHandlers, the public internal overload in SemanticFieldExplorer, and the duplicated seed-accumulation pattern are each individually fixable but together indicate a pattern of incremental addition without refactoring back to coherence. The score reflects a codebase that is partially well-designed with visible regressions in specific hotspots."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "handle_full_sketch_boolean_flag",
+      "summary": "handleFullSketchForType uses a boolean isDep flag to mix two distinct response-building responsibilities in one method body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Lines 114-162: isDep is a boolean parameter that controls (a) the rel.getDeprel() null check, (b) which response builder branch runs, and (c) whether 'type':'dependency' is added to the response.",
+        "The SURFACE response map has keys {name, cql, collocate_pos_group, collocations}; the DEP response map is built by buildRelationResponse and has {id, name, description, deprel, total_matches, collocations}.",
+        "Both branches share the executeSurfacePattern call, but the response shapes are semantically incompatible — they are not two views of the same data but two different data models sharing a scaffolding method."
+      ],
+      "suggestion": "Split into handleFullSurfaceSketch and handleFullDepSketch, each calling executeSurfacePattern and building their own response. Extract a common helper for the iteration + error-logging skeleton. Remove the isDep parameter. This aligns the method structure with the existing handleSurfaceRelations / handleDepRelations split at the relations-list level.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "grammar_config_loader_duplicate_bracket_walk",
+      "summary": "GrammarConfigLoader.deriveTokenPosition re-implements the bracket-walking logic from CqlUtils.splitCqlTokens instead of reusing it",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.deriveTokenPosition (lines 260-302): 40-line character-scanning loop that depth-counts brackets and handles quoted strings.",
+        "CqlUtils.splitCqlTokens (lines 74-120): equivalent bracket-depth algorithm that handles the same quoted-string edge cases.",
+        "GrammarConfigLoader.countPatternTokens already delegates to CqlUtils.splitCqlTokens — so deriveTokenPosition could call splitCqlTokens and then walk the resulting token list to find the target label."
+      ],
+      "suggestion": "Replace deriveTokenPosition's manual character loop with: call CqlUtils.splitCqlTokens(pattern), then iterate the resulting token list looking for the leading label prefix (e.g., the raw pattern text before the token was extracted contains '1:' or '2:'). This removes ~35 lines of duplicated logic and ensures both callers share the same parser.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "explore_multi_compare_duplicated_accumulation",
+      "summary": "SemanticFieldExplorer.exploreMultiSeed and AdjectiveCollocateRanker.compareCollocateProfiles duplicate the two-phase seed→collocate accumulation pattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "exploreMultiSeed (lines 342-413): iterates seeds, fetches collocates via executeSurfacePattern, builds collocateSharedCount map, thresholds to commonCollocates.",
+        "buildRawAdjectiveProfiles in AdjectiveCollocateRanker (lines 77-96): iterates seeds (nouns), fetches collocates via findCollocations, builds adjectiveProfiles map keyed by collocate.",
+        "Both methods build a 'collocate → count across seeds' accumulation structure. The difference is the query method (BCQL surface vs CQL collocations) and the data model for the result.",
+        "If the threshold logic or frequency model changes, both implementations must be updated."
+      ],
+      "suggestion": "Extract a SeedCollocateAccumulator utility (or method on QueryExecutor) that given a set of seeds, a query function, and a threshold, returns a Map<String, List<WordSketchResult>> indexed by seed. Both exploreMultiSeed and compareCollocateProfiles can delegate to this, supplying their respective query methods via a functional parameter.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "explore_by_pattern_public_internal_overload",
+      "summary": "The 5-arg exploreByPattern overload is public but is an implementation detail that exposes raw pattern strings already encapsulated in RelationConfig",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "public ExplorationResult exploreByPattern(String seed, String relationName, String bcqlPattern, String simplePattern, ExploreOptions opts) (line 121): all four non-seed parameters can be derived from a RelationConfig.",
+        "The 3-arg overload (seed, RelationConfig, opts) at line 109 is the correct public API — it already calls the 5-arg overload as an implementation detail.",
+        "Tests directly call the 5-arg overload with raw pattern strings, embedding CQL syntax in test code rather than using the grammar config fixture."
+      ],
+      "suggestion": "Reduce the 5-arg overload to package-private or protected visibility. If tests need to exercise the method directly, create a test-fixture RelationConfig in GrammarConfigHelper rather than embedding raw BCQL in tests.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The boolean-flag anti-pattern in handleFullSketchForType and the inline param duplication in handleSemanticFieldComparison both stem from feature additions (DEP sketch, comparison endpoint) that were layered on top of existing methods rather than refactored.",
+      "The bracket-walking duplication in GrammarConfigLoader arose because deriveTokenPosition needs the raw character positions (to find label prefixes) while CqlUtils.splitCqlTokens discards the label prefix context — the fix requires CqlUtils to either preserve prefix context or expose a lower-level primitive."
+    ],
+    "likely_symptoms": [
+      "explore_by_pattern_public_internal_overload"
+    ],
+    "possible_false_positives": [
+      "buildNounCollocateMap O(N) loop: the N sequential index queries are an unavoidable cost of the two-phase exploration algorithm, not a design defect — the algorithm requires collocate data for each seed collocate independently."
+    ]
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 14,
+  "assessments": {
+    "error_consistency": 60.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "Main.handleServerCommand catches IOException from GrammarConfigLoader construction and prints 'No grammar config found...using defaults.' It then passes null to WordSketchApiServer whose constructor immediately calls Objects.requireNonNull(grammarConfig) — the IOException is swallowed and replaced with an NPE at the next line, and the user sees a misleading 'using defaults' message before a crash.",
+        "GrammarConfigLoader.readConfigFile declares throws IOException but throws IllegalStateException (unchecked) for the missing-file case via throwForMissingConfig. The checked/unchecked split is inconsistent and surprises callers who catch IOException expecting to handle the missing-file path.",
+        "SketchHandlers.handleFullSketchForType catches `Exception` broadly for each relation iteration and logs a warning without surfacing the partial-failure in the API response. The caller receives a 200 response with silently missing relations and no indication that an error occurred.",
+        "BlackLabConllUIndexer.errorOccurred returns true (continue indexing) after logging the error. The final document/token counts will be silently incorrect with no exception propagated to the caller and no error count exposed.",
+        "handleVisualRadial and handleBcqlQueryPost each have their own catch(Exception) blocks, and both are additionally wrapped by wrapHandler in WordSketchApiServer which also catches IOException and Exception. The outer wrapper can only trigger for exceptions that escape the inner handlers, but the layering is asymmetric: handleVisualRadial logs and sends 500 in the inner catch, so the outer wrapper never fires — yet its presence creates a misleading impression of dual-layer protection.",
+        "HttpApiUtils.parseQueryParams catches Exception broadly and logs a warning, silently dropping the malformed parameter. The caller receives an empty params map entry for that key without any indication that parsing failed, which can cause confusing 'missing required parameter' errors downstream."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "The wrapHandler pattern in WordSketchApiServer provides a consistent last-resort boundary: all unhandled exceptions produce a 500 JSON response rather than hanging the connection.",
+        "IOException is consistently propagated through the query layer (BlackLabQueryExecutor, CollocateQueryHelper) with cause chaining, preserving the original stack trace.",
+        "ExplorationHandlers handlers distinguish IOException (500) from IllegalArgumentException (400) at each handler's call site, giving clients actionable HTTP status codes."
+      ],
+      "issue_character": "The dominant failure pattern is swallowed exceptions at integration seams: missing config in Main, silently-partial results in the full-sketch handler, and silent discard of malformed query parameters.",
+      "score_rationale": "The query core propagates errors faithfully, but the startup path and several API handlers trade correctness for resilience without informing the caller. The most serious issue — passing null grammarConfig after catching IOException — creates a deceptive 'using defaults' message followed by a hard crash, which is worse than simply propagating the original error. A score of 60 reflects a codebase where error strategy is sound in the core but breaks down at key integration boundaries."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec_main_null_grammar_config",
+      "summary": "Main swallows grammarConfig IOException and passes null to a constructor that NPE-fails, printing a misleading 'using defaults' message",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "handleServerCommand: `GrammarConfigLoader grammarConfig = null; try { grammarConfig = new GrammarConfigLoader(grammarPath); } catch (IOException e) { System.out.println(\"No grammar config found...using defaults.\"); }`",
+        "The next statement: `WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig);`",
+        "WordSketchApiServer constructor: `this.grammarConfig = Objects.requireNonNull(grammarConfig, \"grammarConfig must not be null\");`",
+        "Result: the catch block prints a benign message, then the server construction throws NullPointerException — the original IOException context is lost."
+      ],
+      "suggestion": "Either (a) remove the try-catch and let the IOException propagate naturally to the top-level handler in main() which already logs it, or (b) if a missing config is truly recoverable, provide a real default GrammarConfigLoader instance rather than null. The 'using defaults' message should only appear when an actual default is in use.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "swallowed_startup_errors"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec_readconfig_unchecked_throw",
+      "summary": "GrammarConfigLoader.readConfigFile declares throws IOException but throws unchecked IllegalStateException for the missing-file case",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "readConfigFile: `if (!Files.exists(p)) throwForMissingConfig(p); return Files.readString(p);`",
+        "throwForMissingConfig: `throw new IllegalStateException(\"Grammar config file not found: \" + p);`",
+        "The method signature promises IOException, but the missing-file path throws an unchecked IllegalStateException that bypasses any caller catch(IOException) block.",
+        "This means catch(IOException) in Main.handleServerCommand never fires for a missing config — the IllegalStateException propagates directly to main()."
+      ],
+      "suggestion": "Throw IOException consistently for the missing-file path: `throw new IOException(\"Grammar config file not found: \" + p);` in readConfigFile. Remove throwForMissingConfig or change it to throw IOException.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "swallowed_startup_errors"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec_silent_relation_failure",
+      "summary": "handleFullSketchForType suppresses per-relation exceptions without surfacing partial failures in the API response",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "Inner loop: `} catch (Exception e) { logger.warn(\"Relation {} failed for lemma {}: {}\", rel.id(), lemma, e.getMessage()); }`",
+        "The response is returned with a 200 status and only the successfully-resolved relations. A client receiving an empty 'relations' object cannot distinguish 'no results for this lemma' from 'all queries failed'.",
+        "No error or warnings key is added to the response to indicate partial failure."
+      ],
+      "suggestion": "Add an optional 'warnings' array to the response listing the IDs of relations that failed and why. This preserves partial-result resilience while giving clients enough context to decide how to handle the response.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec_indexer_silent_error_continue",
+      "summary": "BlackLabConllUIndexer.errorOccurred logs and continues, leaving final document/token counts silently incorrect",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"],
+      "evidence": [
+        "errorOccurred: `logger.error(\"Indexing error in {}: {}\", path, e.getMessage()); logger.error(\"Stack trace:\", e); return true; // continue indexing`",
+        "getDocumentCount() and getTokenCount() return accumulated values that do not reflect how many files actually failed.",
+        "The caller in Main prints `%,d sentences, %,d tokens` without knowing whether these counts include or exclude errored files."
+      ],
+      "suggestion": "Maintain an AtomicLong errorCount alongside documentCount. Return it via getErrorCount(). In close(), if errorCount > 0, log a warning (or throw if errors should be fatal). Main should print the error count alongside the success counts.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec_parseparams_swallows_decode_failure",
+      "summary": "HttpApiUtils.parseQueryParams catches Exception broadly and silently drops malformed query parameters",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "parseQueryParams catch block: `} catch (Exception e) { logger.warn(\"Failed to decode query parameter '{}': {}\", pair, e.getMessage(), e); }` — the key-value pair is silently omitted from the returned map.",
+        "Downstream callers that use requireParam() on the dropped key receive a confusing 400 'Missing required parameter' response instead of a more specific 'malformed parameter encoding' message.",
+        "URLDecoder.decode(x, \"UTF-8\") in Java 8 onwards uses a charset that is always valid; the catch scope is broader than necessary, masking other potential bugs."
+      ],
+      "suggestion": "Use java.net.URLDecoder.decode(s, StandardCharsets.UTF_8) which does not declare a checked exception. If a malformed sequence is genuinely possible, propagate a 400 error at the point of decode failure rather than silently dropping the parameter.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The startup path (Main) was written defensively to allow the server to start without a grammar config, but the assumption that null is acceptable was invalidated when WordSketchApiServer added a requireNonNull guard.",
+      "Broad catch(Exception) blocks at boundary layers (parseQueryParams, handleFullSketchForType, errorOccurred) follow a 'best effort' philosophy that is appropriate for partial-result scenarios but was applied uniformly without distinguishing recoverable from unrecoverable errors."
+    ],
+    "likely_symptoms": [
+      "ec_main_null_grammar_config and ec_readconfig_unchecked_throw are coupled: the IllegalStateException from throwForMissingConfig bypasses the catch(IOException) in Main entirely, meaning the 'using defaults' message is never printed and the crash happens at the constructor NPE instead — the error messages seen by users are entirely wrong."
+    ],
+    "possible_false_positives": [
+      "ec_silent_relation_failure: suppressing per-relation errors in a full-sketch response is a defensible UX decision (partial results are more useful than a hard failure). The issue is the lack of surfacing, not the continuation strategy itself."
+    ]
+  }
+}

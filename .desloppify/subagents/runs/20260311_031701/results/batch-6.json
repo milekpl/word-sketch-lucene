@@ -1,0 +1,134 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 6,
+  "assessments": {"mid_level_elegance": 64.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreOptions record cleanly bundles 4 numeric tuning parameters, preventing parameter-list explosion at the handler→explorer seam",
+        "RelationUtils.resolveRelationAlias is the single translation point for alias → grammar-config-ID mapping; both ExplorationHandlers and SketchHandlers use it without reimplementing",
+        "buildExploreResponseBody() is shared between handleSemanticFieldExplore and handleSemanticFieldExploreMulti, so the JSON serialization seam is defined once",
+        "ExplorationResult used as the output contract for both exploreByPattern and exploreMultiSeed, but with incompatible semantics: in single-seed mode discoveredNouns contains nouns discovered in the field; in multi-seed mode discoveredNouns contains the seeds themselves",
+        "ExploreOptions.nounsPerSeed is unused in the multi-seed call path (confirmed by in-code comment 'nouns_per intentionally not supported in multi-seed mode')",
+        "handleFullSketchForType uses a boolean isDep flag to fork both query dispatch and response structure — the DEP path adds a 'type':'dependency' key and uses buildRelationResponse(), the SURFACE path builds an anonymous map inline",
+        "CORS origin 'http://localhost:3000' is hardcoded in 4 separate HttpApiUtils methods (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse) — the origin value is a cross-cutting boundary policy repeated rather than centralized"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreOptions record as a parameter-bundle eliminates a 5-arg method signature at the handler→explorer boundary",
+        "RelationUtils.resolveRelationAlias provides a single, explicit translation seam between HTTP alias strings and grammar-config IDs",
+        "buildExploreResponseBody() and buildBaseExploreResponse() factored as shared formatters, preventing response-shape duplication across single/multi-seed handlers",
+        "HttpApiUtils provides a minimal, consistent boundary layer: parseQueryParams, requireParam, sendJsonResponse cover the shared path without overfitting to any single handler"
+      ],
+      "issue_character": "The dominant pattern is semantic overloading: ExplorationResult is reused for two structurally-different modes (single-seed discovery vs. multi-seed comparison), silently changing what discoveredNouns means and making the shared buildExploreResponseBody seam work by coincidence rather than contract.",
+      "score_rationale": "The handler→service→query layering is largely clean and the seam utilities are well-extracted. However, ExplorationResult's dual-mode overload is a genuine seam design flaw — callers cannot tell from the type what the discoveredNouns represent, and ExploreOptions carries a dead field in one mode. The isDep flag splitting response structure inside one method adds a second seam impurity. These are concentrated but impactful enough to place the codebase below a 70 on this dimension."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "exploration_result_dual_semantics",
+      "summary": "ExplorationResult overloaded for two incompatible semantics: discoveredNouns means discovered field members in single-seed mode but means input seeds in multi-seed mode",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "exploreByPattern adds DiscoveredNoun entries for nouns found in the semantic field of the seed",
+        "exploreMultiSeed populates discoveredNounsList with the seeds themselves: 'discoveredNounsList.add(new DiscoveredNoun(seed, sharedCollocs, ...))' (SemanticFieldExplorer.java:394)",
+        "buildExploreResponseBody() labels the section 'discovered_nouns' in the JSON response — in multi-seed mode this section contains the input seeds, not discovered nouns",
+        "ExplorationResult.getSeed() returns String.join(',', seeds) in multi-seed mode — a comma-joined string rather than a noun lemma"
+      ],
+      "suggestion": "Introduce a separate MultiSeedExplorationResult (or a sealed variant) that names the 'seeds' field explicitly rather than reusing ExplorationResult. Alternatively, add a mode discriminant to ExplorationResult and rename the field to 'participants' in multi-seed mode. Update buildExploreResponseBody to branch on the mode when labeling JSON keys.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_options_dead_field",
+      "summary": "ExploreOptions.nounsPerSeed is silently ignored in the multi-seed call path, creating a dead parameter in the boundary contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExploreOptions.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExploreMulti resolves nounsPerSeed from exploreParams but never passes it to exploreMultiSeed (line 115+: 'nouns_per intentionally not supported in multi-seed mode' comment)",
+        "ExploreOptions record includes nounsPerSeed as a first-class field, suggesting it is part of the contract for all exploration calls",
+        "A caller constructing ExploreOptions for multi-seed use would reasonably expect the field to have effect"
+      ],
+      "suggestion": "Either create a separate ExploreOptions variant without nounsPerSeed for multi-seed use, or document the field as SURFACE/single-seed-only in the record and add an assertion in exploreMultiSeed that the field is not relied upon. The current silent discard violates least-surprise at the parameter boundary.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "orphaned_javadoc_explore_by_pattern",
+      "summary": "Orphaned Javadoc for the 5-arg exploreByPattern overload sits before the 3-arg method's Javadoc, leaving the 5-arg method effectively undocumented",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 95-107: Javadoc with @param bcqlPattern, @param simplePattern, @param relationName — none of which are parameters of the immediately following 3-arg method",
+        "Lines 108-110: Second Javadoc 'Convenience overload...' is attached to the 3-arg method at line 109",
+        "The 5-arg method starting at line 121 has no Javadoc: in Java the last Javadoc before a declaration is attached, so the 5-arg method inherits nothing"
+      ],
+      "suggestion": "Move the @param bcqlPattern/@param simplePattern Javadoc block to immediately precede the 5-arg method signature (line 121), and place the 3-arg convenience overload's Javadoc immediately before the 3-arg method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "is_dep_flag_mixed_concerns",
+      "summary": "isDep boolean flag in handleFullSketchForType controls both query dispatch and divergent response shape, conflating two separate seam concerns in one method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketchForType checks 'isDep' twice: once to skip relations without deprel, and again to choose between buildRelationResponse() and an inline anonymous map",
+        "The SURFACE path builds relData inline with 'name', 'cql', 'collocate_pos_group', 'collocations' keys; the DEP path calls buildRelationResponse() which uses 'id', 'name', 'description', 'deprel', 'total_matches', 'collocations'",
+        "Response keys differ between the two paths: SURFACE includes 'cql' and 'collocate_pos_group', DEP includes 'id', 'description', 'deprel', 'total_matches' — the same method produces structurally different outputs depending on a flag"
+      ],
+      "suggestion": "Split handleFullSketchForType into two private methods handleFullSurfaceSketch and handleFullDepSketch. Each method produces a coherent, single-responsibility response structure. The flag-based fork disappears and each branch becomes independently navigable.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "cors_origin_repeated",
+      "summary": "CORS origin 'http://localhost:3000' hardcoded in 4 separate HttpApiUtils methods rather than defined once at the boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "sendJsonResponse: exchange.getResponseHeaders().set('Access-Control-Allow-Origin', 'http://localhost:3000')",
+        "sendError: same literal repeated",
+        "sendOptionsResponse: same literal repeated",
+        "sendBinaryResponse: same literal repeated",
+        "Each occurrence has a comment '// Dev-only: restrict to specific origins in production' indicating this is known boundary policy, not local behavior"
+      ],
+      "suggestion": "Extract the CORS origin to a single private constant (e.g., CORS_ORIGIN = 'http://localhost:3000') in HttpApiUtils, or better, pass it as a constructor-time configuration to the server. This makes the boundary policy visible and changeable in one place.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult was designed for single-seed exploration and later reused for multi-seed without introducing a new type, spreading semantic ambiguity to every consumer of the model",
+      "HTTP boundary utilities evolved one method at a time rather than from a single CORS policy decision, causing the origin to be copy-pasted rather than referenced"
+    ],
+    "likely_symptoms": ["exploration_result_dual_semantics is root; explore_options_dead_field is a symptom of the same design choice"],
+    "possible_false_positives": []
+  }
+}

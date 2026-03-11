@@ -1,0 +1,77 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {"cross_module_architecture": 65.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Package layers are api → query/exploration/config → model/utils with no visible cycles; CollocateQueryHelper and BlackLabSnippetParser are correctly package-private to the query package.",
+        "SemanticFieldExplorer (exploration) hardcodes corpus-format-specific tagset patterns: private static final String NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\"; these are corpus-configuration decisions that cross the boundary between exploration logic and the corpus indexing format contract.",
+        "AdjectiveCollocateRanker also hardcodes private static final String ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\"; — same tagset coupling into the exploration subsystem.",
+        "Main.handleServerCommand explicitly handles a missing grammar config with a user-friendly message 'No grammar config found, using defaults' yet sets grammarConfig = null and immediately passes it to new WordSketchApiServer(executor, port, grammarConfig), whose constructor calls Objects.requireNonNull — the module boundary contract is violated, producing a silent runtime crash rather than the advertised graceful fallback.",
+        "WordSketchApiServer private methods registerGetHandler and registerPostHandler accept com.sun.net.httpserver.HttpServer as a parameter, binding the internal JDK HTTP server type into the class's own structural seams even though no external caller sees this directly."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Package-to-layer mapping is coherent: api, query, exploration, config, model, utils, viz are distinct with no observed import cycles.",
+        "CollocateQueryHelper and BlackLabSnippetParser are package-private, correctly hiding BlackLab internals from the API and exploration layers.",
+        "The sealed QueryResults hierarchy (SnippetResult, KwicResult, CollocateResult) provides an honest, bounded type boundary between the query layer and its consumers.",
+        "LongIntHashMap is self-contained in utils with no upward dependencies; RadialPlot is similarly isolated with no domain coupling."
+      ],
+      "issue_character": "Issues are concentrated at subsystem boundaries rather than scattered: two exploration-layer classes directly encode corpus-format assumptions that belong in config, and a cross-boundary null contract between Main and WordSketchApiServer creates a crash that contradicts user-visible messaging.",
+      "score_rationale": "The codebase sits above 60 (significant drag) because the overall layer structure is sound and internal encapsulation is consistently applied. It falls short of 80 (solid but uneven) due to the hardcoded tagset patterns that cross the config/exploration boundary — a developer adding a new corpus format would need to edit exploration internals — and the null-grammarConfig contract violation, which is a real trap at the Main-to-API module seam."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "hardcoded_tagset_in_exploration",
+      "summary": "Corpus-format tagset patterns hardcoded inside exploration layer instead of sourced from config",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer: private static final String NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\";",
+        "AdjectiveCollocateRanker: private static final String ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\";",
+        "These Penn Treebank xpos values are a corpus-format decision; the exploration layer should receive them from RelationConfig or a config parameter rather than hardcoding them."
+      ],
+      "suggestion": "Add optional reverse-lookup pattern fields to RelationConfig (e.g. noun_pattern and collocate_pattern) and pass them through ExploreOptions or RelationConfig. Exploration classes should read from config, eliminating the tagset constants.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "null_grammarconfig_contract_violation",
+      "summary": "Main passes null grammarConfig to WordSketchApiServer after advertising graceful fallback, causing NPE",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Main.handleServerCommand: catch (IOException e) { System.out.println(\"No grammar config found at '\" + grammarConfigPath + \"', using defaults.\"); } then WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig); with grammarConfig still null.",
+        "WordSketchApiServer constructor: this.grammarConfig = Objects.requireNonNull(grammarConfig, \"grammarConfig must not be null\"); — throws NullPointerException at runtime.",
+        "The user-facing message 'using defaults' is contradicted by the immediate NPE in the constructor."
+      ],
+      "suggestion": "Either (a) create a GrammarConfigLoader.defaultConfig() factory that returns a built-in default config and call it on load failure in Main, or (b) make WordSketchApiServer tolerate a null grammarConfig by building a default loader internally.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Exploration logic was written assuming Penn Treebank xpos tags, conflating exploration algorithm with corpus-format convention.",
+      "GrammarConfigLoader was made mandatory after an initial design that treated it as optional, leaving Main's fallback path inconsistent with the enforced non-null contract."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

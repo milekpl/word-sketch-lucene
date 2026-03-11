@@ -1,0 +1,116 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 11,
+  "assessments": {
+    "logic_clarity": 72.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "SketchHandlers.handleFullSketchForType: response.put(\"relations\", byRelation) appears in both the isDep=true and isDep=false branches; the else branch is identical to the then-branch minus the extra 'type' key, so the common put could be lifted above the conditional.",
+        "CollocateQueryHelper.scoreHits: the guard `collocateLemma != null && !collocateLemma.isEmpty()` is evaluated twice in immediate succession within the same loop iteration — first for the jointFreq lookup block and again for the collocateFreq ternary.",
+        "SemanticFieldExplorer: an orphaned Javadoc block (describing a 5-parameter signature: seed, relationName, bcqlPattern, simplePattern, opts) immediately precedes a second Javadoc block that attaches to the 3-parameter overload (seed, RelationConfig, ExploreOptions). Java associates only the immediately preceding Javadoc with a declaration, so the first block documents nothing and misleadingly describes parameters that do not match the method that follows.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti caps minShared to seeds.size() before calling exploreMultiSeed; exploreMultiSeed then re-caps the same value again with `int threshold = Math.min(minShared, seeds.size())`. Both clamps produce the same result, obscuring which site owns the constraint.",
+        "RadialPlot.toSVG() recomputes centerX, centerY, and scale from scratch using the same formulas that the constructor already evaluated; since these values are not stored as fields there is no single source of truth for these layout constants."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "The four-phase exploration pipeline in SemanticFieldExplorer is decomposed into clearly named private helpers (fetchSeedCollocates, buildNounCollocateMap, scoreAndFilterCandidates, identifyCoreCollocates), making each phase easy to reason about independently.",
+        "CollocateQueryHelper.executeBcqlQuery explicitly labels its three phases with comments (Phase 1: collect, Phase 2: score, Phase 3: rank), leaving no ambiguity about the intended control flow.",
+        "Guard clauses at method entry (null/empty lemma, null pattern) return early before complex logic, keeping the happy path unobstructed.",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution throws IllegalArgumentException for unrecognised formats rather than silently proceeding, making the failure mode explicit."
+      ],
+      "issue_character": "Issues are mild redundancies and structural oversights (orphaned comment, duplicated puts, double-clamping) rather than correctness defects; no code path provably does the wrong thing.",
+      "score_rationale": "The codebase is largely correct and readable. The issues found — a duplicate branch sub-expression, a double null guard, an orphaned Javadoc, a redundant clamp, and re-computed layout constants — are real but local in scope and none breaks observable behaviour. This puts the codebase solidly above the median (50) but below the 'near-zero defects' range (85+); a score of 72 reflects good overall clarity with a handful of avoidable redundancies."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_duplicate_relations_put",
+      "summary": "response.put(\"relations\", byRelation) duplicated in both if/else branches of handleFullSketchForType",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "Lines ~155-162: `if (isDep) { response.put(\"type\", \"dependency\"); response.put(\"relations\", byRelation); } else { response.put(\"relations\", byRelation); }` — the put on 'relations' is present in both branches and could be unconditionally executed before the if."
+      ],
+      "suggestion": "Move `response.put(\"relations\", byRelation)` above the if/else block. The conditional body then only needs `response.put(\"type\", \"dependency\")` for the isDep=true case.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_double_guard_collocate_lemma",
+      "summary": "collocateLemma null-and-empty check duplicated twice in sequence within scoreHits loop",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "In scoreHits: `if (collocateLemma != null && !collocateLemma.isEmpty()) { jointFreq = ...; }` followed immediately by `long collocateFreq = (collocateLemma != null && !collocateLemma.isEmpty()) ? getTotalFrequency(...) : 0L;` — the same predicate over the same immutable variable evaluated twice."
+      ],
+      "suggestion": "Extract `boolean hasCollocate = collocateLemma != null && !collocateLemma.isEmpty();` before both statements and reference that boolean in both places.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_orphaned_javadoc",
+      "summary": "Orphaned Javadoc block in SemanticFieldExplorer describes wrong parameter set for the 3-arg exploreByPattern overload",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Lines ~100-118: a Javadoc block listing @param relationName, @param bcqlPattern, @param simplePattern, @param opts is immediately followed by a second Javadoc block attaching to the 3-param overload (seed, RelationConfig, ExploreOptions). Java attaches only the last Javadoc before a declaration; the first block documents nothing and incorrectly describes a different signature."
+      ],
+      "suggestion": "Remove the orphaned Javadoc block entirely, or move it to immediately precede the 5-parameter method it actually describes (the one below the overload).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_minshared_double_clamp",
+      "summary": "minShared is clamped to seeds.size() independently in both ExplorationHandlers and exploreMultiSeed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: `int minShared = Math.min(exploreParams.minShared(), seeds.size());`",
+        "SemanticFieldExplorer.exploreMultiSeed: `int threshold = Math.min(minShared, seeds.size());` — identical clamp on a value that was already clamped by the caller."
+      ],
+      "suggestion": "Remove the redundant clamp from one site. If the contract of exploreMultiSeed guarantees clamping internally, remove the pre-clamp in the handler. Document the contract in the method Javadoc so callers know clamping is handled.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_radialplot_layout_recomputed",
+      "summary": "RadialPlot.toSVG() recomputes centerX, centerY, and scale that were already computed in the constructor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"],
+      "evidence": [
+        "Constructor (line ~101): `double centerX = width / 2.0; double centerY = height / 2.0; double scale = Math.min(width,height)/BASELINE_CANVAS_SIZE;` used to position collocates.",
+        "toSVG() (line ~159): same three expressions recomputed from scratch — they are not stored as fields, so there is no single authoritative computation."
+      ],
+      "suggestion": "Promote centerX, centerY, and scale to private final fields computed once in the constructor. toSVG() reads them without recomputing.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental refactoring left orphaned comments and duplicate puts that were not cleaned up after method extraction.",
+      "Absence of a policy for where defensive clamps live (caller vs callee) leads to redundant guards."
+    ],
+    "likely_symptoms": [
+      "lc_orphaned_javadoc may confuse maintainers into thinking the 3-arg overload accepts 5 parameters.",
+      "lc_radialplot_layout_recomputed would produce wrong SVG if toSVG() is ever called with different width/height, because the collocate positions stored in the constructor would disagree with the re-derived layout constants."
+    ],
+    "possible_false_positives": []
+  }
+}

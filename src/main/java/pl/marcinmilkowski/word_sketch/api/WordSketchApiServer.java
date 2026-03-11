@@ -46,8 +46,9 @@ public class WordSketchApiServer {
         SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor);
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);
         this.explorationHandlers = new ExplorationHandlers(grammarConfig, semanticFieldExplorer);
-        // TODO(595bb84c): Move HttpServer creation and route registration here so start() only calls server.start().
-        //   Requires declaring IOException on this constructor, which is a breaking-API change — defer to v2.
+        // Two-phase init is intentional: the constructor wires dependencies without touching the
+        // network, so subclasses and tests can instantiate without opening a port. start() is
+        // the only method that performs I/O and can throw.
     }
 
     private void registerRoutes() {

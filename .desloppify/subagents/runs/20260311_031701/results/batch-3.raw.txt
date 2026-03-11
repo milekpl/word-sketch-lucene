@@ -1,0 +1,108 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 3,
+  "assessments": {"abstraction_fitness": 62.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles delegates entirely to AdjectiveCollocateRanker.compareCollocateProfiles in a single line: return comparator.compareCollocateProfiles(seeds, minLogDice, topCollocates); — pure pass-through with no added policy.",
+        "QueryExecutor is an interface with 6 methods, one implementation (BlackLabQueryExecutor) in production. Testability justifies the interface but it is a single-implementation contract throughout.",
+        "ExplorationHandlers contains 7+ private static formatXxx(DomainObject) → Map<String,Object> methods. These are unnamed serializers embedded inside a handler class rather than defined on the domain types or a dedicated serializer.",
+        "SemanticFieldExplorer hardcodes NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\"; and AdjectiveCollocateRanker hardcodes ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\"; — config-layer decisions embedded as implementation constants.",
+        "CollocateQueryHelper is a well-fitted package-private abstraction: it extracts cohesive collocate-search-and-rank logic shared across three methods of BlackLabQueryExecutor, adding real value by consolidating frequency lookup and logDice scoring.",
+        "BlackLabSnippetParser is a cohesive static utility class extracting all XML/text parsing from BlackLabQueryExecutor and CollocateQueryHelper; it pays for itself across multiple calling sites.",
+        "LongIntHashMap provides a boxing-free long→int map for performance-critical collocate counting; the custom primitive implementation is justified by the specific performance need in corpus processing.",
+        "ExploreOptions record bundles 5 parameters that would otherwise appear on every exploration method signature — appropriate parameter-object pattern.",
+        "CqlUtils.splitCqlTokens and PatternSubstitution.substituteCollocate together form a small, coherent CQL-manipulation layer serving both config loading and concordance example building."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 65.0,
+        "indirection_cost": 60.0,
+        "interface_honesty": 68.0,
+        "delegation_density": 55.0,
+        "definition_directness": 62.0,
+        "type_discipline": 70.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "CollocateQueryHelper extracts real shared logic — frequency lookup, grouped search, and logDice ranking — from three callers in BlackLabQueryExecutor, paying for the abstraction with genuine deduplication.",
+        "LongIntHashMap is a purposeful custom data structure for boxing-free collocate frequency accumulation; the trade-off is explicitly stated.",
+        "ExploreOptions bundles exploration parameters into a named type, eliminating a 5-argument method signature.",
+        "BlackLabSnippetParser consolidates all XML/text extraction into one place used by both CollocateQueryHelper and BlackLabQueryExecutor."
+      ],
+      "issue_character": "The main abstraction fitness problem is pass-through delegation: SemanticFieldExplorer wraps AdjectiveCollocateRanker without adding policy, and response formatting logic is scattered as anonymous static helpers inside handler classes rather than living on domain types.",
+      "score_rationale": "The codebase scores above 60 because core infrastructure abstractions (CollocateQueryHelper, BlackLabSnippetParser, LongIntHashMap, ExploreOptions) are well-fitted. It falls short of 70 due to the one-line delegation passthrough in SemanticFieldExplorer.compareCollocateProfiles, the hardcoded tagset patterns that should be config-sourced, and the informal serialization helpers embedded in handler classes that prevent the domain model from being self-describing."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "passthrough_compare_delegation",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles is a zero-value passthrough to AdjectiveCollocateRanker",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles body: return comparator.compareCollocateProfiles(seeds, minLogDice, topCollocates);",
+        "No pre-processing, validation, transformation, or post-processing is added by SemanticFieldExplorer over AdjectiveCollocateRanker for this path.",
+        "ExplorationHandlers calls semanticFieldExplorer.compareCollocateProfiles(...) — if SemanticFieldExplorer adds no value, the handler could call AdjectiveCollocateRanker directly or the ranker should be merged back."
+      ],
+      "suggestion": "Remove the delegation by either (a) making AdjectiveCollocateRanker directly accessible from ExplorationHandlers (inject it as a collaborator), or (b) reintegrating AdjectiveCollocateRanker into SemanticFieldExplorer so the single-class explorer is the canonical entry point without empty forwarding.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "hardcoded_pos_patterns_in_logic",
+      "summary": "Tagset-specific POS patterns hardcoded in exploration classes instead of sourced from config",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer: private static final String NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\";",
+        "AdjectiveCollocateRanker: private static final String ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\";",
+        "These constants are configuration values (Penn Treebank xpos patterns) embedded as implementation constants in logic classes; changing the tagset requires editing exploration code."
+      ],
+      "suggestion": "Add nounPattern and adjectivePattern fields to RelationConfig or ExploreOptions (or a dedicated config class) and source them from the grammar config JSON at startup. Pass the resolved patterns into SemanticFieldExplorer via constructor or ExploreOptions.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "informal_serializers_in_handlers",
+      "summary": "Domain-to-map serialization methods embedded as private static helpers in handler classes rather than on domain types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers has: formatSeedCollocate(String, double, long), formatDiscoveredNoun(DiscoveredNoun), formatCoreCollocate(CoreCollocate), formatEdge(Edge), formatAdjectiveProfile(AdjectiveProfile) — all returning Map<String,Object>.",
+        "These methods encode the JSON field names and rounding rules for domain types defined in the model package; they leak serialization knowledge into the handler layer.",
+        "No equivalent accessor exists on DiscoveredNoun, CoreCollocate, etc. — the domain types are unable to describe their own wire representation."
+      ],
+      "suggestion": "Add toResponseMap() methods to the relevant record/class types in the model package, or create a dedicated ExplorationSerializer class in the api package, moving all formatXxx logic there to keep ExplorationHandlers focused on HTTP concerns.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SemanticFieldExplorer was split for size reasons, leaving a delegation seam that serves no logical purpose.",
+      "Exploration classes were written against a fixed corpus tagset without anticipating tagset variability, so tagset constants were embedded inline."
+    ],
+    "likely_symptoms": [
+      "passthrough_compare_delegation is a symptom of the mechanical_decomposition_ranker identified in high_level_elegance."
+    ],
+    "possible_false_positives": []
+  }
+}

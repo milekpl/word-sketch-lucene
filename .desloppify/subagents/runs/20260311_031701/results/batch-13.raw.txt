@@ -1,0 +1,118 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 13,
+  "assessments": {
+    "naming_quality": 74.0
+  },
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "SemanticFieldExplorer declares `private final AdjectiveCollocateRanker comparator` — the field name 'comparator' suggests a java.util.Comparator-like role, but the object is a domain-specific collocate ranker that profiles and ranks adjective distributions across nouns. The name/type mismatch is confusing when reading SemanticFieldExplorer code.",
+        "BlackLabQueryExecutor declares `private final CollocateQueryHelper helper` — 'helper' communicates no behaviour or responsibility. The type name CollocateQueryHelper already encodes the domain; the field should carry enough of that meaning to be readable without inspecting the type declaration.",
+        "ExplorationHandlers.handleSemanticFieldComparison uses `String nounsParam = HttpApiUtils.requireParam(exchange, params, \"seeds\")` — the variable is named 'nounsParam' but the HTTP parameter key is 'seeds'. The divergence means anyone searching for 'seeds' in the handler code will not find the local variable by name.",
+        "QueryExecutor interface mixes `findCollocations` (find-prefix, returns collocates ranked by logDice) with `executeSurfacePattern` (execute-prefix, also returns collocates ranked by logDice). Both methods serve the same caller purpose — collocate extraction — but their names imply different abstraction levels, making it non-obvious which to use for a new caller.",
+        "SemanticFieldExplorer.buildNounCollocateMap performs a reverse lookup: for each collocate, it queries what nouns co-occur with it. The name suggests building a noun→collocate map (forward direction) but the actual algorithm is: for each collocate, find its nouns (reverse direction). The naming hides the key algorithmic insight."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "Domain terminology is used consistently: 'lemma', 'collocate', 'logDice', 'headword', 'deprel' appear with the same meaning throughout the codebase, reducing vocabulary switching cost.",
+        "Phase-helper methods in SemanticFieldExplorer have descriptive names that map directly to the exploration algorithm stages: fetchSeedCollocates, buildNounCollocateMap, scoreAndFilterCandidates, identifyCoreCollocates.",
+        "Record types in the model package (DiscoveredNoun, CoreCollocate, AdjectiveProfile, ExploreOptions) are precisely named after their domain concepts.",
+        "Utility classes follow a clear convention: LogDiceCalculator, PatternSubstitution, CqlUtils — each name predicts the file contents accurately."
+      ],
+      "issue_character": "Issues are isolated to field names that are too generic for their types ('helper', 'comparator'), one local variable that diverges from the HTTP parameter name it wraps, and a method-naming inconsistency at the QueryExecutor interface boundary.",
+      "score_rationale": "The codebase demonstrates genuine naming discipline at the model and utility layers. Weaknesses are concentrated in a few field names within complex orchestration classes where a generic name was chosen for convenience. No method name actively misleads about behaviour (no mutation-in-getter pattern, no non-boolean is*() methods). A score of 74 reflects good overall naming with a small cluster of avoidable generic identifiers."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq_comparator_field_name",
+      "summary": "SemanticFieldExplorer field named 'comparator' does not communicate that it is an AdjectiveCollocateRanker",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "`private final AdjectiveCollocateRanker comparator;` — the name 'comparator' connotes a sorting/ordering role (cf. java.util.Comparator), but the object profiles adjective distributions and computes comparative collocate rankings across seed nouns.",
+        "All usages: `this.comparator = new AdjectiveCollocateRanker(executor);` and `return comparator.compareCollocateProfiles(...)` — a reader must inspect the type to understand what 'comparator' does."
+      ],
+      "suggestion": "Rename the field to `adjectiveCollocateRanker` (matching the class name) or `collocateRanker` to communicate its domain responsibility without ambiguity.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq_helper_field_name",
+      "summary": "BlackLabQueryExecutor field named 'helper' communicates no domain responsibility",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "`private final CollocateQueryHelper helper;` — 'helper' is the most generic possible field name and conveys nothing about the field's role or the queries it handles.",
+        "Every delegation call — `helper.executeCollocateSearch(...)`, `helper.buildAndRankCollocates(...)`, `helper.executeBcqlQuery(...)` — requires jumping to the type to understand context."
+      ],
+      "suggestion": "Rename to `collocateHelper` or `queryHelper` to carry at least the domain dimension of the type name.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq_nounsParam_vs_seeds",
+      "summary": "Local variable 'nounsParam' diverges from the HTTP parameter name 'seeds' it wraps",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticFieldComparison: `String nounsParam = HttpApiUtils.requireParam(exchange, params, \"seeds\");`",
+        "The HTTP API documents this parameter as 'seeds'; internally it is stored as 'nounsParam', making it harder to grep for the parameter by its API name and creating a semantic gap (the endpoint accepts any words as seeds, not necessarily nouns)."
+      ],
+      "suggestion": "Rename the local variable to `seedsParam` or simply `seeds` to align with the parameter key name used in the API contract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq_find_vs_execute_inconsistency",
+      "summary": "QueryExecutor mixes 'find' and 'execute' prefixes for methods that both return ranked collocate results",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "`findCollocations(lemma, cqlPattern, minLogDice, maxResults)` — returns collocates ranked by logDice.",
+        "`executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults)` — also returns collocates ranked by logDice.",
+        "Both have identical return types (List<WordSketchResult>) and identical conceptual purpose. The prefix difference ('find' vs 'execute') implies different abstraction levels without a documented rule distinguishing them."
+      ],
+      "suggestion": "Adopt a single prefix for methods that return ranked collocates. Either use `findCollocations` and `findCollocatesForPattern` (emphasising the retrieval goal) or `executeQuery` and `executePattern` (emphasising execution). Document the distinction in the interface Javadoc.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nq_buildNounCollocateMap_hides_reverse_lookup",
+      "summary": "buildNounCollocateMap does not communicate that it performs a reverse lookup (collocate → nouns)",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Phase 2 in exploreByPattern calls `buildNounCollocateMap(seedCollocScores, seed, minLogDice, nounsPerPredicate)` — the name implies building a noun-keyed map.",
+        "The implementation iterates collocates and for each calls `executor.findCollocations(collocate, NOUN_PATTERN, ...)` — the algorithmic direction is the opposite: collocate→nouns (reverse lookup). The name hides this inversion, which is the central insight of the exploration algorithm."
+      ],
+      "suggestion": "Rename to `buildReverseNounCollocateMap` or `buildCollocateToNounsMap` to communicate that the lookup direction is inverted relative to the seed query.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Generic field names ('helper', 'comparator') were likely chosen at initial implementation when the class was small and the type was obvious from proximity; as the file grew they became opaque.",
+      "The find/execute split in QueryExecutor may reflect different implementation origins (findCollocations predates the pattern-based surface query API) rather than a deliberate naming scheme."
+    ],
+    "likely_symptoms": [
+      "nq_find_vs_execute_inconsistency: new contributors are likely to misuse executeSurfacePattern where findCollocations would be correct or vice versa, since the interface docs must be read carefully to distinguish them."
+    ],
+    "possible_false_positives": [
+      "handle* prefix for HTTP handler methods (handleSketchRequest, handleSemanticFieldExplore) is idiomatic for HTTP handler classes in Java and should not be flagged."
+    ]
+  }
+}

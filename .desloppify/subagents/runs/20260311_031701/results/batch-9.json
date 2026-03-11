@@ -1,0 +1,98 @@
+{
+  "batch": "package_organization",
+  "batch_index": 9,
+  "assessments": {"package_organization": 69.0},
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "Directory structure: api/ (5 files), config/ (4 files), exploration/ (2 files), indexer/blacklab/ (2 files), model/ (8 files), query/ (4 files), tools/ (empty), utils/ (3 files), viz/ (1 file), root Main.java",
+        "PatternSubstitution.java in utils/ implements substituteCollocate(): inserts a lemma constraint at a given token position. RelationConfig.java in config/ implements mergeLemmaConstraint() and substituteHeadword() — structurally identical operations (bracket-walk, extract existing xpos constraint, build new [lemma=x & xpos=y] token). Same algorithm, different packages",
+        "viz/ package contains exactly one file: RadialPlot.java. All callers (SketchHandlers) are in api/. A single-class package with no sibling classes is a package that exists only to hold one file",
+        "tools/ directory exists in the source tree but contains no .java files",
+        "model/ package contains QueryResults.java which houses 4 inner types (WordSketchResult, ConcordanceResult, SnippetResult, KwicResult, CollocateResult). The ConcordanceResult sealed interface and its subtypes are tightly used by the query layer but are placed in model/",
+        "exploration/ package contains SemanticFieldExplorer and AdjectiveCollocateRanker — both correctly placed as domain orchestration above the query layer. AdjectiveCollocateRanker was extracted from SemanticFieldExplorer specifically to manage class size, which is explicitly noted in its Javadoc",
+        "config/ contains GrammarConfigLoader, RelationConfig, RelationType, PosGroup — all grammar-configuration types. Clean cohesion.",
+        "api/ contains WordSketchApiServer, SketchHandlers, ExplorationHandlers, HttpApiUtils, RelationUtils — all HTTP boundary concerns. Clean cohesion."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "api/, config/, exploration/, query/ are all semantically coherent — each package's name accurately reflects its contents",
+        "exploration/ correctly isolates domain orchestration (SemanticFieldExplorer, AdjectiveCollocateRanker) from HTTP handling and query execution",
+        "indexer/blacklab/ nesting isolates the BlackLab-specific indexing concern with clear ownership",
+        "model/ as a pure-DTO package (all records and simple classes, no business logic) follows the standard layered architecture convention"
+      ],
+      "issue_character": "The main organizational deficiency is fragmented ownership of CQL substitution logic: the same structural operation (lemma injection into a CQL token) is independently implemented in both utils/PatternSubstitution and config/RelationConfig, and the single-file viz/ package and empty tools/ package add navigational noise without corresponding cohesion.",
+      "score_rationale": "For a medium-sized Java project (~30 classes), the package decomposition is clear and mostly purposeful. The primary issue — split CQL substitution logic across utils/ and config/ — is a real cohesion problem that makes it non-obvious where to find or modify this concern. The thin viz/ package and orphaned tools/ directory add minor navigational friction. This places the codebase in the 65-75 range: organized enough for easy navigation on the main paths, but with identified fragmentation."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "cql_substitution_split_across_packages",
+      "summary": "CQL lemma-injection logic is implemented twice in different packages: PatternSubstitution.substituteCollocate() in utils/ and RelationConfig.mergeLemmaConstraint()/substituteHeadword() in config/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.substituteCollocate(): splits tokens with CqlUtils, extracts xpos/tag from existing constraint, builds '[lemma=\"x\" & xpos=\"y\"]'",
+        "RelationConfig.mergeLemmaConstraint(): same structure — extracts xpos/tag with CqlUtils.extractConstraintAttribute, builds '[lemma=\"x\" & xpos=\"y\"]'",
+        "RelationConfig.substituteHeadword() calls mergeLemmaConstraint for the head; PatternSubstitution.substituteCollocate is called from SketchHandlers for the collocate — two callers, same algorithm, two packages",
+        "CqlUtils.splitCqlTokens is the shared primitive, but the layer above it is duplicated"
+      ],
+      "suggestion": "Stage 1: Move PatternSubstitution.substituteCollocate() into RelationConfig as a package-private or public static method alongside mergeLemmaConstraint(). Stage 2: Update SketchHandlers to call RelationConfig's method directly (or via a static helper on RelationConfig). Stage 3: Delete PatternSubstitution.java if it becomes empty, or retain it as a thin re-export if external callers exist. Validate with: grep -r 'PatternSubstitution' src/ to find all callers before moving.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "viz_thin_single_file_package",
+      "summary": "viz/ package contains exactly one file (RadialPlot.java) with no other visualization concerns, adding package-navigation overhead for a single class",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "viz/ directory contains only RadialPlot.java",
+        "RadialPlot is called exclusively from SketchHandlers in the api/ package",
+        "The class has no siblings or collaborators that would justify a dedicated package"
+      ],
+      "suggestion": "Move RadialPlot.java into utils/ (it is a rendering utility with no domain state) or into api/ (its only consumer is SketchHandlers). Prefer utils/ to avoid making api/ depend on a large SVG-generation class. Update the package declaration and any imports. Validate with: mvn compile after the move.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "tools_empty_package",
+      "summary": "tools/ directory exists in the source tree but contains no production .java files, creating a dead navigation path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/tools"
+      ],
+      "evidence": [
+        "Directory listing shows tools/ as a subdirectory of the root package but it produced no files when viewed",
+        "No .java files are reported in tools/"
+      ],
+      "suggestion": "If tools/ is a placeholder for planned future utilities, add a package-info.java with a brief description of intent. If it was created by mistake or the planned content was moved elsewhere, delete the directory to avoid misleading future contributors.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "PatternSubstitution.substituteCollocate and RelationConfig.mergeLemmaConstraint likely evolved independently from different call sites (SketchHandlers vs. RelationConfig internal use) without a consolidation step",
+      "viz/ as a single-file package reflects an incremental addition without revisiting package boundaries"
+    ],
+    "likely_symptoms": ["cql_substitution_split_across_packages is the root; any future change to the lemma-injection format would need to be applied in two places"],
+    "possible_false_positives": [
+      "model/QueryResults.java hosting multiple inner types could look like a flat-dir overload but is a standard Java pattern for grouping closely related sealed interface variants"
+    ]
+  }
+}

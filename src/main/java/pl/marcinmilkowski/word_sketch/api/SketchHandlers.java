@@ -114,6 +114,7 @@ class SketchHandlers {
     private void handleFullSketchForType(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {
         boolean isDep = relationType == RelationType.DEP;
         Map<String, Object> byRelation = new HashMap<>();
+        List<String> relationErrors = new ArrayList<>();
 
         for (var rel : grammarConfig.getRelations()) {
             if (rel.relationType().orElse(null) == relationType) {
@@ -146,6 +147,7 @@ class SketchHandlers {
                     }
                 } catch (Exception e) {
                     logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
+                    relationErrors.add(rel.id() + ": " + e.getMessage());
                 }
             }
         }
@@ -158,6 +160,9 @@ class SketchHandlers {
             response.put("relations", byRelation);
         } else {
             response.put("relations", byRelation);
+        }
+        if (!relationErrors.isEmpty()) {
+            response.put("errors", relationErrors);
         }
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -320,8 +325,8 @@ class SketchHandlers {
             String center = obj.getString("center");
             if (center == null) center = "";
             logger.debug("Radial: center = {}", center);
-            int width = obj.getIntValue("width") == 0 ? 840 : obj.getIntValue("width");
-            int height = obj.getIntValue("height") == 0 ? 520 : obj.getIntValue("height");
+            int width = (!obj.containsKey("width") || obj.isNull("width")) ? 840 : obj.getIntValue("width");
+            int height = (!obj.containsKey("height") || obj.isNull("height")) ? 520 : obj.getIntValue("height");
 
             JSONArray itemsArr = obj.getJSONArray("items");
             List<RadialPlot.Item> items = new ArrayList<>();

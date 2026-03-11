@@ -1,0 +1,77 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 16,
+  "assessments": {"convention_outlier": 72.0},
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Java naming conventions (camelCase methods, PascalCase classes, UPPER_SNAKE_CASE constants) are applied uniformly across all packages.",
+        "Package structure is consistent: api, config, exploration, indexer, model, query, utils, viz — each with a single concern level.",
+        "Handler classes (SketchHandlers, ExplorationHandlers, RelationUtils) are package-private; public surface classes (WordSketchApiServer, HttpApiUtils, GrammarConfigLoader) are public — consistent with standard Java encapsulation.",
+        "model package mixes records (DiscoveredNoun, CoreCollocate, Edge, ExploreOptions) with a traditional JavaBeans class (ExplorationResult). The divergence is explicitly documented in ExplorationResult's Javadoc ('This is a traditional class (not a record)... because it is built incrementally') — intentional and documented.",
+        "SketchHandlers.handleFullSketchForType builds different-shaped relData maps for SURFACE vs DEP inside the same loop: SURFACE uses keys {name, cql, collocate_pos_group, collocations} while DEP (via buildRelationResponse) uses {id, name, description, deprel, total_matches, collocations}. The key for the CQL pattern string itself differs: 'cql' in SURFACE, absent in DEP (description is present instead). This is a style island within the handler response-building pattern.",
+        "SemanticFieldExplorer.java lines 100-107 contain an orphaned Javadoc fragment ('Convenience overload...') immediately followed by a second, properly-attached Javadoc block on the actual method (lines 108-119). The stale fragment is misleading.",
+        "All static utility classes (HttpApiUtils, CqlUtils, LogDiceCalculator, PatternSubstitution) consistently use private constructors to prevent instantiation."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Uniform Java naming conventions (camelCase/PascalCase/UPPER_SNAKE_CASE) with no drift detected across any package.",
+        "Package-private visibility is consistently applied to internal handler classes, keeping the public API surface small and intentional.",
+        "The record vs traditional-class divergence in the model package is explicitly self-documented with rationale, making it easy to understand for future contributors.",
+        "Static utility classes all follow the same private-constructor singleton-prevention pattern."
+      ],
+      "issue_character": "The main convention irregularity is a within-class style island: the surface vs DEP branch of handleFullSketchForType builds response maps with different key schemas and shapes, and a stale orphaned Javadoc block in SemanticFieldExplorer creates a minor but confusing documentation artifact.",
+      "score_rationale": "The codebase scores well on inter-file convention consistency — naming, visibility, and package layout are disciplined throughout. Two localised issues prevent a higher score: the surface/DEP response shape asymmetry inside SketchHandlers (which a developer consuming the API would notice immediately) and the orphaned comment in SemanticFieldExplorer. Neither is pervasive, which keeps the score above average but short of 80+."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "surface_dep_response_shape_asymmetry",
+      "summary": "Surface and DEP sketch relation responses use different key schemas within the same response map",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "SURFACE branch (lines 139-144) builds {name, cql, collocate_pos_group, collocations} — note the pattern key is 'cql'.",
+        "DEP branch (via buildRelationResponse, lines 223-231) builds {id, name, description, deprel, total_matches, collocations} — no 'cql' key, adds 'id', 'description', 'deprel', 'total_matches'.",
+        "The outer response wraps both under the same 'relations' key, so callers receive inconsistently-shaped objects depending on the request path."
+      ],
+      "suggestion": "Define a unified relation response shape with all fields (id, name, description, cql/pattern, collocations, total_matches) and use Optional/null for fields not applicable to a given type, or split the endpoint into /api/sketch/{lemma}/surface and /api/sketch/{lemma}/dep with formally documented distinct shapes.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "orphaned_javadoc_explore_by_pattern",
+      "summary": "SemanticFieldExplorer has a stale orphaned Javadoc block immediately before the real Javadoc for exploreByPattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Lines 100-107: a detached Javadoc block ('/** Explore semantic field using a BCQL pattern...') describes an overload that no longer exists at that position.",
+        "Lines 108-119: the actual Javadoc for the RelationConfig convenience overload immediately follows.",
+        "The detached block is misleading — its parameter list (@param bcqlPattern, @param simplePattern) describes the 5-arg overload but sits above the 3-arg overload."
+      ],
+      "suggestion": "Remove the stale Javadoc block at lines 100-107. Move its content (if still accurate) into the 5-arg overload's Javadoc at line 121.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The surface/DEP asymmetry likely arose from incremental feature addition: DEP support was added after the surface sketch response format was established, and the response shape was not unified at that time.",
+      "The orphaned Javadoc is a refactoring artifact — the 5-arg overload was likely the original single method before the RelationConfig convenience overload was extracted."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

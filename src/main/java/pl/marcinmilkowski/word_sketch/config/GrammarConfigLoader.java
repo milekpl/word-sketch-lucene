@@ -82,15 +82,15 @@ public class GrammarConfigLoader {
         }
     }
 
-    /** Reads config file content, throwing {@link IOException} if the file does not exist. */
+    /** Reads config file content, throwing {@link java.io.FileNotFoundException} if the file does not exist. */
     private static String readConfigFile(Path p) throws IOException {
         if (!Files.exists(p)) throwForMissingConfig(p);
         return Files.readString(p);
     }
 
-    /** Always throws {@link IllegalStateException} for a missing config file. */
-    private static void throwForMissingConfig(Path p) {
-        throw new IllegalStateException("Grammar config file not found: " + p);
+    /** Always throws {@link java.io.FileNotFoundException} for a missing config file. */
+    private static void throwForMissingConfig(Path p) throws java.io.FileNotFoundException {
+        throw new java.io.FileNotFoundException("Grammar config file not found: " + p);
     }
 
     /** Primary constructor: parses JSON content directly. */

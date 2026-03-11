@@ -276,7 +276,7 @@ class ExplorationHandlers {
         result.put("source", edge.source());
         result.put("target", edge.target());
         result.put("log_dice", Math.round(edge.weight() * 100.0) / 100.0);
-        result.put("type", edge.type());
+        result.put("type", edge.type().label());
         return result;
     }
 

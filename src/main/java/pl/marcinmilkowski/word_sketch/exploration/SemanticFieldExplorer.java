@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import pl.marcinmilkowski.word_sketch.config.PosGroup;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
@@ -110,6 +111,15 @@ public class SemanticFieldExplorer {
             String seed,
             RelationConfig relationConfig,
             ExploreOptions opts) throws IOException {
+        if (relationConfig.relationType().isEmpty()) {
+            throw new IllegalArgumentException(
+                "Relation '" + relationConfig.id() + "' has no relation_type — cannot perform exploration");
+        }
+        if (relationConfig.collocatePosGroup() == PosGroup.OTHER) {
+            throw new IllegalArgumentException(
+                "Relation '" + relationConfig.id() + "' has unsupported collocate POS group (OTHER)" +
+                " — cannot perform reverse pattern lookup");
+        }
         return exploreByPattern(
             seed,
             relationConfig.name(),

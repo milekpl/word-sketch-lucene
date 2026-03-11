@@ -66,7 +66,7 @@ public class ComparisonResult {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
                 if (entry.getValue() > 0) {
                     edges.add(new Edge(adj.adjective(), entry.getKey(),
-                        entry.getValue(), "modifier"));
+                        entry.getValue(), RelationEdgeType.MODIFIER));
                 }
             }
         }

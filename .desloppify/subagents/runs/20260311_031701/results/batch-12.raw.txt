@@ -1,0 +1,130 @@
+{
+  "batch": "type_safety",
+  "batch_index": 12,
+  "assessments": {
+    "type_safety": 69.0
+  },
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "Edge.type is declared as String; values 'seed_adj', 'discovered_adj', 'modifier' are hardcoded at every call site with no compile-time validation. An EdgeType enum exists nowhere in the codebase but the values are functionally an enumeration.",
+        "All API response payloads are constructed as Map<String, Object>. Key typos and wrong value types (e.g., putting a List where a String is expected) are not caught until runtime serialisation.",
+        "HitRecord (package-private record in CollocateQueryHelper) declares `String collocateLemma` which is explicitly set to null at multiple construction sites, yet the record component type does not communicate nullability. Callers must null-check but the type provides no contract.",
+        "RelationUtils.RELATION_ALIASES keys are raw String literals ('adj_predicate', 'adj_modifier', etc.) with no tie to any enum constant. A misspelled alias returns the input unchanged (pass-through), silently failing at the downstream config lookup rather than at the alias definition site.",
+        "ExplorationHandlers.resolveRelationConfig explicitly validates that relationType() is non-empty before returning the config, but both callers then immediately call resolvedConfig.relationType().orElseThrow() — trusting validation they already performed via a redundant Optional unwrap that adds no safety.",
+        "SketchHandlers.handleVisualRadial calls obj.getIntValue(\"width\") twice: once to test == 0 and once to read the value. A legitimate width of 0 (edge case, but valid) is misclassified as 'not provided' and silently replaced with 840."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "The QueryExecutor interface and its implementation use strongly-typed domain records (WordSketchResult, CollocateResult, ConcordanceResult) as return types rather than raw maps for query results.",
+        "RelationConfig is a sealed record with typed fields; Optional<RelationType> is used deliberately to distinguish 'absent' from 'invalid' relation type entries.",
+        "GrammarConfigLoader validates config shape at load time, throwing typed IOExceptions for missing fields rather than deferring failures to first use.",
+        "PosGroup and RelationType are proper enums used in the config and query layers."
+      ],
+      "issue_character": "The dominant pattern is raw String used where a small enum or typed wrapper would close gaps — Edge.type, relation alias keys — combined with untyped Map<String,Object> for the entire API response surface.",
+      "score_rationale": "The core domain (query execution, config parsing, model records) is well-typed. The API boundary layer reverts to Map<String,Object> throughout, and a handful of string-typed discriminators that are functionally enumerations escape the type system. This is typical for JSON-over-HTTP Java without a dedicated DTO layer, but it leaves the widest code surface (all handlers) unprotected by types. A score of 69 reflects good discipline in the core with a significant gap at the boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_edge_type_raw_string",
+      "summary": "Edge.type is a raw String where a small enum would prevent invalid values",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java"
+      ],
+      "evidence": [
+        "Edge.java: `public record Edge(String source, String target, double weight, String type) {}`",
+        "ExplorationResult.getEdges(): new Edge(seed, colloc.getKey(), ..., \"seed_adj\"), new Edge(noun.noun(), ..., \"discovered_adj\")",
+        "ComparisonResult.getEdges(): new Edge(adj.adjective(), entry.getKey(), ..., \"modifier\")",
+        "No validation prevents callers from passing any arbitrary string as 'type'."
+      ],
+      "suggestion": "Introduce an EdgeType enum with values SEED_ADJ, DISCOVERED_ADJ, MODIFIER (and SEED_TO_COLLOCATE / COLLOCATE_TO_NOUN if needed). Change Edge.type to EdgeType. Serialise to lowercase string in the JSON layer via enum.name().toLowerCase().",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_response_map_untyped",
+      "summary": "All API response payloads are Map<String, Object>, providing no compile-time key or value type checking",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers: every handler builds `Map<String, Object> response = new HashMap<>()` and populates it with ad-hoc string keys.",
+        "formatAdjectiveProfile, formatEdge, formatCoreCollocate, formatDiscoveredNoun all return Map<String, Object>.",
+        "A key rename or value-type change (e.g. log_dice from Double to String) compiles silently and only fails at serialisation or on the client."
+      ],
+      "suggestion": "Introduce response DTO records (e.g., AdjectiveProfileDto, ExploreResponseDto) or at minimum define String constants for key names used across multiple handler methods. This eliminates key-name typos and makes response shape discoverable at the type level.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_nullable_collocate_lemma_undocumented",
+      "summary": "HitRecord.collocateLemma is nullable without a type-level contract, requiring callers to null-check a nominally non-null field",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "HitRecord record: `record HitRecord(... String collocateLemma ...)` — no @Nullable annotation.",
+        "collectHits creates HitRecord with explicit null: `new HitRecord(\"\", \"\", \"\", \"\", null, ...)` in two places.",
+        "scoreHits checks `if (collocateLemma != null && !collocateLemma.isEmpty())` twice — the nullable contract is implicit and must be inferred from usage."
+      ],
+      "suggestion": "Either annotate collocateLemma with @Nullable (e.g., org.jetbrains.annotations or javax.annotation) so IDE and static analysis tools enforce null safety, or use Optional<String> to make the absent-value contract explicit at the type level.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_relation_alias_raw_strings",
+      "summary": "RelationUtils alias map uses raw String keys with no tie to RelationType or any validated constant set",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/RelationUtils.java"],
+      "evidence": [
+        "RELATION_ALIASES = Map.of(\"adj_modifier\", \"noun_modifiers\", \"modifier\", \"noun_modifiers\", \"adj_predicate\", \"noun_adj_predicates\", ...)",
+        "resolveRelationAlias returns the input unchanged for unrecognised aliases — a misspelled alias key silently passes through to the grammar config lookup where it silently returns Optional.empty() and surfaces as a 400 error with the misleading message 'Unknown relation: <misspelled-alias>'."
+      ],
+      "suggestion": "Define alias keys as String constants (e.g., static final String ALIAS_ADJ_MODIFIER = \"adj_modifier\") co-located with the map. Alternatively, validate that all target values in the alias map correspond to known relation IDs at server startup.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_getintvalue_zero_ambiguity",
+      "summary": "SketchHandlers.handleVisualRadial uses getIntValue()==0 to detect absent JSON fields, misclassifying a legitimate zero value",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "`int width = obj.getIntValue(\"width\") == 0 ? 840 : obj.getIntValue(\"width\");`",
+        "FastJSON2's getIntValue returns 0 for both a missing key and for an explicit JSON value of 0. A caller sending `{\"width\": 0}` receives 840 silently.",
+        "The same pattern is used for height."
+      ],
+      "suggestion": "Use `obj.containsKey(\"width\")` to distinguish absent from zero: `int width = obj.containsKey(\"width\") ? obj.getIntValue(\"width\") : 840;`. This also reads the value only once.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The API boundary layer was designed for rapid iteration, favouring untyped maps for JSON serialisation over DTO classes.",
+      "Small discriminator strings (Edge type, relation aliases) were not promoted to enums when the codebase was simple; the cost of raw strings was low, but the codebase has grown past the point where this is safe."
+    ],
+    "likely_symptoms": [
+      "ts_response_map_untyped is the widest-impact finding; all handler tests must rely on string key equality rather than type-checked accessor methods."
+    ],
+    "possible_false_positives": [
+      "ts_relation_alias_raw_strings: the pass-through behaviour of resolveRelationAlias is deliberate (canonical IDs pass through unchanged), so the risk is only at the alias-key definition site, not at every call."
+    ]
+  }
+}

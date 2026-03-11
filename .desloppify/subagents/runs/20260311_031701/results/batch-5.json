@@ -1,0 +1,130 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 5,
+  "assessments": {"low_level_elegance": 61.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "Main.handleServerCommand: the catch branch for a missing grammar config prints 'No grammar config found at ..., using defaults.' but leaves grammarConfig = null, which is then passed to new WordSketchApiServer(executor, port, grammarConfig) where Objects.requireNonNull throws NPE. The control flow communicates graceful fallback but executes a crash.",
+        "ExplorationHandlers.handleSemanticFieldExplore unpacks ExploreParams into four local variables (topCollocates, minShared, minLogDice, nounsPerSeed) immediately after calling resolveExploreParams, then re-packages them into ExploreOptions in the next line. The intermediate variables are noise — ExploreOptions could be built directly from the record.",
+        "CollocateQueryHelper.scoreHits: int limit = Math.min(records.size(), maxResults * OVER_FETCH_FACTOR); — OVER_FETCH_FACTOR is 3, so if maxResults is near Integer.MAX_VALUE / 3, the multiplication overflows silently. The cast to long is missing.",
+        "LongIntHashMap: EMPTY_KEY = Long.MIN_VALUE is the sentinel for an unused slot, but the public put(long, int) and get(long) methods do not document that Long.MIN_VALUE cannot be stored. A caller who stores Long.MIN_VALUE will corrupt the map silently.",
+        "GrammarConfigLoader.throwForMissingConfig is a void private method whose only behavior is throwing an exception; its name does not signal this (compare: throwIfMissing, ensureExists). The method is called unconditionally after a conditional check, so it always throws when called — the name should reflect that.",
+        "BlackLabSnippetParser.findLabelPosition uses a manual character scan with nested depth tracking; the method mixes two concerns: finding '[' character count (for position) and finding the labeled token offset. The increment logic has a subtle issue: when ch == '[', depth is incremented and then i is incremented again at the bottom of the while loop, meaning a '[' that opens a block is counted and then the inner loop also advances i, which can cause correct behavior in simple cases but is fragile for patterns with nested brackets.",
+        "CollocateQueryHelper.collectHits constructs records.add(new HitRecord(...)) with empty strings in two null-guard paths before the main extraction; the null-guard paths are correct but the HitRecord constructor call is repeated identically twice — extract a helper or use a single guarded-return flow.",
+        "SemanticFieldExplorer.exploreByPattern has a well-structured four-phase decomposition (fetchSeedCollocates, buildNounCollocateMap, scoreAndFilterCandidates, identifyCoreCollocates) with clearly named helper methods for each phase."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer's four-phase exploration pipeline (fetch collocates → build noun map → score candidates → identify core) is clearly decomposed with one private method per phase, each with a focused responsibility.",
+        "BlackLabSnippetParser collects all regex Pattern constants as pre-compiled static finals at the top of the class, avoiding repeated compilation in hot paths.",
+        "LogDiceCalculator uses a named UNCOMPUTABLE sentinel (Double.NaN) with documentation directing callers to use Double.isNaN(), correctly distinguishing the uncomputable case from a legitimate zero score."
+      ],
+      "issue_character": "Issues are a mix of one correctness-affecting control-flow problem (null grammarConfig crash) and several precision/clarity issues: redundant variable unpacking, an integer overflow potential in an over-fetch multiplier, and an undocumented sentinel collision in LongIntHashMap.",
+      "score_rationale": "The codebase sits near 60 (significant drag). The exploration pipeline and snippet-parsing code are well-structured with clear extraction. However, the grammarConfig null control-flow crash in Main is a direct, observable bug that contradicts explicit user-facing messaging; the LongIntHashMap sentinel collision is an undocumented correctness trap; and the integer overflow in the over-fetch limit calculation is a silent correctness risk. These are substantive, not stylistic, issues."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "null_grammarconfig_control_flow_crash",
+      "summary": "Main.handleServerCommand prints 'using defaults' but passes null grammarConfig causing NPE at server construction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Main.java: catch (IOException e) { System.out.println(\"No grammar config found at '\" + grammarConfigPath + \"', using defaults.\"); } — grammarConfig remains null.",
+        "Immediately after: WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig);",
+        "WordSketchApiServer constructor: this.grammarConfig = Objects.requireNonNull(grammarConfig, \"grammarConfig must not be null\"); — throws NullPointerException.",
+        "The message 'using defaults' communicates graceful fallback; the code executes a crash."
+      ],
+      "suggestion": "On IOException in the grammar config load block in Main, construct a GrammarConfigLoader.defaultConfig() (or equivalent) instead of leaving grammarConfig null. Alternatively, make WordSketchApiServer accept null and fall back to a built-in default internally.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "longinthashmap_sentinel_collision_undocumented",
+      "summary": "LongIntHashMap uses Long.MIN_VALUE as empty-slot sentinel without documenting that this key cannot be stored",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LongIntHashMap.java"
+      ],
+      "evidence": [
+        "private static final long EMPTY_KEY = Long.MIN_VALUE;",
+        "put(long key, int value): while (keys[idx] != EMPTY_KEY && keys[idx] != key) — if key == Long.MIN_VALUE, the first slot check treats the new entry as already-occupied by EMPTY_KEY and the loop may place the entry inconsistently.",
+        "Public method signatures have no @throws or @note documenting that Long.MIN_VALUE is a forbidden key value."
+      ],
+      "suggestion": "Add a Javadoc note to put() and containsKey() specifying that Long.MIN_VALUE cannot be used as a key, and add a guard: if (key == EMPTY_KEY) throw new IllegalArgumentException(\"Long.MIN_VALUE is not a valid key\");",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "overfetch_integer_overflow",
+      "summary": "maxResults * OVER_FETCH_FACTOR in CollocateQueryHelper.scoreHits can overflow for large maxResults",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "private static final int OVER_FETCH_FACTOR = 3;",
+        "int limit = Math.min(records.size(), maxResults * OVER_FETCH_FACTOR); — if maxResults > Integer.MAX_VALUE / 3 (~715 million), the multiplication overflows to a negative or wrapped value.",
+        "Math.min with a negative operand would silently set limit to a wrong value."
+      ],
+      "suggestion": "Cast to long before multiplication: int limit = (int) Math.min((long) records.size(), (long) maxResults * OVER_FETCH_FACTOR);",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "redundant_local_var_unpacking",
+      "summary": "ExploreParams record unpacked into four local variables only to be immediately re-packed into ExploreOptions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: ExploreParams exploreParams = resolveExploreParams(exchange, params); if (exploreParams == null) return; int topCollocates = exploreParams.topCollocates(); int minShared = exploreParams.minShared(); double minLogDice = exploreParams.minLogDice(); int nounsPerSeed = exploreParams.nounsPerSeed();",
+        "Followed immediately by: ExploreOptions opts = new ExploreOptions(topCollocates, nounsPerSeed, minLogDice, minShared, false);",
+        "The four local variables are read once and serve no other purpose."
+      ],
+      "suggestion": "Add a convenience factory method ExploreOptions.from(ExploreParams params) or convert ExploreParams directly, eliminating the four intermediate locals: ExploreOptions opts = new ExploreOptions(exploreParams.topCollocates(), exploreParams.nounsPerSeed(), exploreParams.minLogDice(), exploreParams.minShared(), false);",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "always_throws_method_misleading_name",
+      "summary": "GrammarConfigLoader.throwForMissingConfig is a void method that always throws but its name does not communicate unconditional exception",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "private static void throwForMissingConfig(Path p) { throw new IllegalStateException(\"Grammar config file not found: \" + p); }",
+        "Called unconditionally: if (!Files.exists(p)) throwForMissingConfig(p); — the method always throws when called, but the name suggests conditional behavior.",
+        "Java convention for methods that always throw is to return a type (e.g. private static String failForMissingConfig(...) that throw or to name them clearly as always-exceptional (e.g. failWithMissingConfig)."
+      ],
+      "suggestion": "Rename to failForMissingConfig or inline the throw directly: if (!Files.exists(p)) throw new IllegalStateException(\"Grammar config file not found: \" + p); — the method is one line and adds no abstraction value.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The grammarConfig null path was introduced when the constructor gained Objects.requireNonNull after Main's fallback path was already written, leaving the two sides unsynchronized.",
+      "LongIntHashMap was written as a performance-focused data structure without the usual guard-clause documentation expected for public APIs with hidden constraints."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

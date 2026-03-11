@@ -1,0 +1,118 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 17,
+  "assessments": {"test_strategy": 58.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "20 test files exist covering: utilities (LogDiceCalculator, LongIntHashMap, PatternSubstitution, CqlUtils), config (GrammarConfigLoader, RelationsValidation), API handlers (HandlersTest, HttpApiUtilsTest, RelationUtilsTest), query components (BlackLabSnippetParserTest, CollocateQueryHelperTest, SemanticFieldExplorerTest, BCQLParserTest), and integration paths (BlackLabQueryExecutorTest, DependencySketchTest, HybridAlgorithmTest, BlackLabBcqlConcordanceTest).",
+        "SemanticFieldExplorerTest uses a StubExecutor implementing QueryExecutor — tests are decoupled from the real index for the exploration logic path.",
+        "HandlersTest uses a MockExchange and emptyExecutor() stub, testing handler validation logic without real HTTP or index dependencies.",
+        "Main.java CLI argument parsing (handleBlackLabIndexCommand, handleBlackLabQueryCommand, handleServerCommand) has no corresponding tests. Argument errors (e.g. missing --input) are handled with System.err.println and early returns — this critical entry-point code path is entirely untested.",
+        "ConlluConverter (CoNLL-U → WPL chunk conversion) has no test file. This is the corpus pre-processing step; bugs here corrupt the entire index silently.",
+        "RadialPlot (SVG generation, handleVisualRadial handler) has no test. The handleVisualRadial handler is also not covered in HandlersTest.",
+        "BlackLabDummyTest filename suggests it may be a minimal placeholder rather than a meaningful test.",
+        "CollocateQueryHelper.scoreHits performs per-collocate frequency lookups in a loop (getTotalFrequency called per entry in freqMap): this hot-path logic is not directly unit-tested with mock data.",
+        "The 5-arg exploreByPattern overload (raw pattern strings) is directly called in SemanticFieldExplorerTest, which creates test-production coupling: if the public signature changes, tests break for an implementation-detail overload.",
+        "AdjectiveCollocateRanker has its own test file (AdjectiveCollocateRankerTest) — comparison logic has dedicated coverage."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Core business logic (logDice, snippet parsing, CQL token splitting, grammar config loading) is thoroughly unit-tested with clear assertions.",
+        "Handler tests use a lightweight mock HttpExchange, enabling fast validation of all error paths (400/405 responses) without a running server.",
+        "SemanticFieldExplorer tests use a proper StubExecutor, correctly decoupling exploration algorithm tests from the real index.",
+        "Config validation (RelationsValidationTest) tests the grammar JSON schema independently of the query engine."
+      ],
+      "issue_character": "Critical entry-point and data-pipeline code (Main CLI, ConlluConverter, RadialPlot) has no test coverage, and the integration tests for BlackLab execution likely require a physical index that may not be available in CI, making the test suite structurally incomplete for the most error-prone paths.",
+      "score_rationale": "The utility and config layers are well-tested, which is good. However, the critical data-flow path — corpus ingestion (ConlluConverter), CLI argument handling (Main), and SVG output (RadialPlot) — lacks any tests. The blacklab integration tests' reliability depends on index availability. These gaps represent the highest-risk untested code in a research tool where indexing mistakes are silent and hard to detect. The score reflects solid coverage at the unit level but significant gaps at the system boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "main_cli_untested",
+      "summary": "Main.java CLI argument parsing has no tests — all three command handlers are uncovered",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "handleBlackLabIndexCommand, handleBlackLabQueryCommand, handleServerCommand each parse args[] in a for-loop switch — incorrect flags silently fall through to the default branch which prints to stderr and continues.",
+        "No test file targets Main.java; the showUsage() method and error branches (null indexPath, null lemma) are untested.",
+        "handleBlackLabQueryCommand constructs a BlackLabQueryExecutor inline — not easily mockable without refactoring to accept an executor factory."
+      ],
+      "suggestion": "Extract argument parsing from each command handler into a dedicated Args record or builder. Test the parsers in isolation. Use a CommandRunner functional interface so that tests can inject a no-op runner rather than starting a real index.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "conllu_converter_untested",
+      "summary": "ConlluConverter corpus-ingestion logic has no unit tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "convertConlluToWplChunks is a pure file-transformation function — it reads CoNLL-U and writes WPL chunk files — which is straightforwardly testable with a small in-memory CoNLL-U fixture.",
+        "No test file for the indexer.blacklab package exists.",
+        "Bugs in sentence boundary detection or token field mapping here silently corrupt the index and would only surface as wrong query results."
+      ],
+      "suggestion": "Add ConlluConverterTest that uses a small CoNLL-U string written to a temp file, calls convertConlluToWplChunks, and asserts the chunk count, sentence count, and spot-checks a single output file's WPL content.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "radial_plot_untested",
+      "summary": "RadialPlot SVG generation and its HTTP handler path have no tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "RadialPlot.renderFromItems is a pure function (String → String) trivially testable without any infrastructure.",
+        "handleVisualRadial is not exercised in HandlersTest; the 'no items' and malformed-JSON paths are uncovered.",
+        "SVG output defects (e.g., coordinate overflow, label escaping) would only be discovered visually."
+      ],
+      "suggestion": "Add a RadialPlotTest asserting that renderFromItems returns a non-empty string containing an SVG root element for a minimal item list, and add a handleVisualRadial test in HandlersTest using a MockExchange with a ByteArrayInputStream body.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "explore_by_pattern_public_raw_overload",
+      "summary": "Public 5-arg exploreByPattern overload exposes implementation-detail pattern strings, coupling tests to internal signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorerTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerTest calls the 5-arg overload directly: exploreByPattern(\"theory\", \"test-relation\", \"[lemma=\\\"theory\\\"] [xpos=\\\"JJ.*\\\"]\", \"[xpos=\\\"JJ.*\\\"]\", opts).",
+        "The 5-arg overload takes bcqlPattern and simplePattern as raw strings — these are implementation details already encapsulated in RelationConfig.",
+        "If the method signature changes (e.g., adding a third pattern parameter), test code breaks for no semantic reason."
+      ],
+      "suggestion": "Reduce the 5-arg overload to package-private or protected visibility, and rewrite the two tests that use it to go through the RelationConfig-based overload (using a test RelationConfig fixture). This removes the coupling without losing test coverage.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The CLI entry point and corpus ingestion code predate the well-factored handler/explorer layer and were never retrofitted with tests.",
+      "Integration tests that require a physical BlackLab index cannot run in a clean CI environment, creating a structural gap where the most complex query-path code can only be tested manually."
+    ],
+    "likely_symptoms": [
+      "explore_by_pattern_public_raw_overload"
+    ],
+    "possible_false_positives": []
+  }
+}

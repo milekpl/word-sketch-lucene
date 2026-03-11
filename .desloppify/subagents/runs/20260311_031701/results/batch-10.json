@@ -1,0 +1,144 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 10,
+  "assessments": {"contract_coherence": 53.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "Main.java: 'catch (IOException e) { System.out.println(\"No grammar config found at '\" + grammarConfigPath + \"', using defaults.\"); }' — then immediately calls new WordSketchApiServer(executor, port, grammarConfig) where grammarConfig is still null. WordSketchApiServer constructor calls Objects.requireNonNull(grammarConfig) which throws NullPointerException. The 'using defaults' message actively misrepresents the outcome.",
+        "ExplorationResult.getSeed() returns String.join(',', seeds) in exploreMultiSeed: 'return new ExplorationResult(String.join(\",\", seeds), ...)'. getSeed() is named as a single-lemma accessor but returns 'theory,model,hypothesis' in multi-seed mode.",
+        "ComparisonResult.getEdges() iterates over all adjectives and builds a new ArrayList on every invocation — computation hidden as a get* accessor. ExplorationResult.getEdges() similarly builds new lists from seedCollocates and discoveredNouns on each call.",
+        "SemanticFieldExplorer.exploreByPattern(String, RelationConfig, ExploreOptions) declares 'throws IOException' but delegates to collocateReversePattern() which throws IllegalStateException — an unchecked exception that propagates invisibly to callers expecting only IOException failures.",
+        "BlackLabQueryExecutor.executeSurfacePattern: contract says 'collocate position is inferred from the 2: label in bcqlPattern' but when findLabelPosition returns -1 (label absent), both extractCollocateFromXmlByPosition and extractPlainTextTokenAt return null for position -1, the freqMap stays empty, and an empty list is returned with no error signal.",
+        "QueryExecutor interface has carefully differentiated Javadoc for findCollocations, executeQuery, executeBcqlQuery, executeSurfacePattern — these are genuine contract-level distinctions that callers rely on.",
+        "RelationConfig.collocateReversePattern() throws IllegalStateException with a detailed message when relationType is absent — the precondition failure is explicit and informative.",
+        "SketchHandlers constructor accepts grammarConfig without a null check, but WordSketchApiServer wraps it with requireNonNull before constructing SketchHandlers, so the effective null gate is at the right level."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface clearly documents the behavioral distinctions between its four similar methods, making the contract explicit for implementors and callers",
+        "RelationConfig.collocateReversePattern() uses fail-fast IllegalStateException with a descriptive message rather than returning null or a sentinel",
+        "GrammarConfigLoader uses IOException with actionable messages for all config validation failures, maintaining a consistent error contract across the parsing pipeline"
+      ],
+      "issue_character": "The most severe contract violation is in Main.java where the error message promises graceful fallback ('using defaults') but the actual code path throws; the remaining issues are subtler — getter methods concealing computation, a multi-mode method returning structurally different values from a single-valued accessor, and undocumented unchecked exceptions on a checked-exception method.",
+      "score_rationale": "The contract violations are not pervasive but they are consequential: the 'using defaults' lie in Main.java will mislead any operator trying to run without a grammar config, and the ExplorationResult.getSeed() multi-mode anomaly creates a silent mismatch in any code path that calls getSeed() on a multi-seed result. The getEdges() hidden computation is widespread across two model classes. These substantive issues — combined with the undocumented IllegalStateException escape from a declared-IOException method — place the codebase below 60 on this dimension."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "main_false_defaults_message",
+      "summary": "Main.java prints 'using defaults' when grammar config load fails, but then passes null to WordSketchApiServer which throws NullPointerException via requireNonNull",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Main.java handleServerCommand: 'catch (IOException e) { System.out.println(\"No grammar config found at '\" + grammarConfigPath + \"', using defaults.\"); }' — grammarConfig remains null",
+        "Immediately after: 'WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig);'",
+        "WordSketchApiServer constructor: 'this.grammarConfig = Objects.requireNonNull(grammarConfig, \"grammarConfig must not be null\");' — throws NullPointerException",
+        "The message 'using defaults' implies the server will start with default grammar; instead the JVM throws and the server never starts"
+      ],
+      "suggestion": "Either (a) implement actual defaults by calling GrammarConfigLoader.createDefaultEnglish() as the fallback (which already exists), or (b) change the catch block to print an error and exit: 'System.err.println(\"Grammar config required. Start server with a valid --grammar-config path.\"); return;'. Remove the misleading 'using defaults' message regardless.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_result_get_seed_contract_violation",
+      "summary": "ExplorationResult.getSeed() returns a comma-joined multi-seed string in exploreMultiSeed mode, violating its single-lemma naming contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "exploreMultiSeed: 'return new ExplorationResult(String.join(\",\", seeds), seedCollocScores, ...)'",
+        "ExplorationResult.getSeed() is defined as 'public String getSeed() { return seed; }' — the field is named 'seed', singular",
+        "ExplorationResult Javadoc says 'seed' is 'the seed word' for single-seed exploration; no documentation adjusts the contract for multi-seed",
+        "In single-seed ExplorationHandlers: 'response.put(\"seed\", result.getSeed())' — safe. In multi-seed, the response instead uses 'response.put(\"seeds\", new ArrayList<>(seeds))' without calling getSeed() — the bad value is latent but present"
+      ],
+      "suggestion": "Add a separate String seeds field to ExplorationResult (or a List<String> seeds), and populate it in exploreMultiSeed. In single-seed mode, getSeed() returns the single lemma; in multi-seed mode, a getSeeds() method returns the set. Alternatively, if ExplorationResult is extended to a sealed class, provide a SingleSeedResult and MultiSeedResult variant.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "get_edges_hidden_computation",
+      "summary": "getEdges() in both ComparisonResult and ExplorationResult performs non-trivial list construction on every call, hiding computation behind a getter naming convention",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ComparisonResult.getEdges(): iterates all adjectives and all their noun score entries, building a new ArrayList<Edge> each time",
+        "ExplorationResult.getEdges(): iterates seedCollocates and all discoveredNouns' sharedCollocates, building a new ArrayList<Edge> each time",
+        "Both are called in ExplorationHandlers: 'for (Edge edge : result.getEdges())' — a full rebuild on every HTTP request",
+        "Java getX() convention implies inexpensive field retrieval; the actual cost is O(collocates * nouns)"
+      ],
+      "suggestion": "Either (a) rename both methods to buildEdges() to signal that they are computations, or (b) compute the edge list once (lazily or eagerly in the constructor) and cache it as a final field, returning the cached list from getEdges(). The cached variant is preferred since ExplorationResult is immutable by construction.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "explore_by_pattern_undeclared_illegal_state",
+      "summary": "SemanticFieldExplorer.exploreByPattern(String, RelationConfig, ExploreOptions) declares throws IOException but can throw undeclared IllegalStateException from collocateReversePattern()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "exploreByPattern(seed, RelationConfig, ExploreOptions) delegates to: 'relationConfig.collocateReversePattern()'",
+        "collocateReversePattern() throws IllegalStateException when relationType() is empty or POS group is OTHER: 'throw new IllegalStateException(\"No reverse pattern defined for collocate POS group: ...\")'",
+        "ExplorationHandlers.handleSemanticFieldExplore catches IOException and IllegalArgumentException but not IllegalStateException — an IllegalStateException from a malformed RelationConfig would propagate as a 500 through the generic catch in wrapHandler, with no 400 for the bad-config case",
+        "The method signature 'throws IOException' implies to callers that IOException is the only failure mode beyond RuntimeException"
+      ],
+      "suggestion": "Either (a) validate that relationType is present and the POS group is not OTHER before calling collocateReversePattern() in exploreByPattern and throw IllegalArgumentException (which ExplorationHandlers already catches for 400 responses), or (b) document the IllegalStateException in the method Javadoc so callers know to expect it. Option (a) gives better user-facing error messages.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "execute_surface_pattern_silent_empty_on_missing_label",
+      "summary": "executeSurfacePattern silently returns empty results when the '2:' label is absent from bcqlPattern instead of signaling the contract failure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "executeSurfacePattern: 'int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);' — returns -1 if label absent",
+        "Loop body: 'String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocateLabelPos);' — extractCollocateFromXmlByPosition returns null when position < 1",
+        "Fallback: 'extractPlainTextTokenAt(identity, collocateLabelPos)' with -1 also returns null",
+        "freqMap stays empty → buildAndRankCollocates returns empty list. No log warning, no exception.",
+        "QueryExecutor interface Javadoc says 'The collocate position is inferred from the 2: label in bcqlPattern' — implying the label is required, but the silent-empty behavior makes it optional"
+      ],
+      "suggestion": "Add a precondition check in executeSurfacePattern: if findLabelPosition returns -1, throw IllegalArgumentException('bcqlPattern must contain a 2: labeled position for collocate extraction') or at minimum log a warning. Update the Javadoc to state explicitly whether the label is required or optional and what happens when absent.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult was designed as a single-seed DTO and reused for multi-seed without updating the contract — causing getSeed(), getEdges(), and discoveredNouns semantics to be silently wrong in one mode",
+      "Main.java error handling was written optimistically ('using defaults') without verifying that a null-tolerant path was actually implemented"
+    ],
+    "likely_symptoms": [
+      "exploration_result_get_seed_contract_violation is a symptom of the dual-semantics root cause also flagged in mid_level_elegance",
+      "explore_by_pattern_undeclared_illegal_state is a symptom of the incomplete validation flow before collocateReversePattern() is called"
+    ],
+    "possible_false_positives": [
+      "SketchHandlers not null-checking grammarConfig in its constructor could look like a contract gap, but WordSketchApiServer.requireNonNull gates it at the right composition boundary"
+    ]
+  }
+}

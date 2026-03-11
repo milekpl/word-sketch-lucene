@@ -29,6 +29,7 @@ public class BlackLabConllUIndexer implements AutoCloseable {
     private final Path indexPath;
     private final AtomicLong documentCount = new AtomicLong(0);
     private final AtomicLong tokenCount = new AtomicLong(0);
+    private final AtomicLong errorCount = new AtomicLong(0);
 
     public BlackLabConllUIndexer(String indexPath, String formatName) throws IOException {
         this.indexPath = Paths.get(indexPath);
@@ -60,8 +61,11 @@ public class BlackLabConllUIndexer implements AutoCloseable {
 
                 @Override
                 public boolean errorOccurred(Throwable e, String path, File f) {
-                    logger.error("Indexing error in {}: {}", path, e.getMessage());
+                    long errors = errorCount.incrementAndGet();
+                    logger.error("Indexing error in {} (error #{}, docs so far: {}, tokens so far: {}): {}",
+                        path, errors, documentCount.get(), tokenCount.get(), e.getMessage());
                     logger.error("Stack trace:", e);
+                    logger.warn("Continuing after error — document/token counts may be understated");
                     return true; // continue indexing
                 }
             });
@@ -111,8 +115,12 @@ public class BlackLabConllUIndexer implements AutoCloseable {
             } catch (Exception e) {
                 throw new IOException("Failed to finalize index: " + e.getMessage(), e);
             }
-            logger.info("Indexing complete! Documents: {}, Tokens: {}",
-                    documentCount.get(), tokenCount.get());
+            logger.info("Indexing complete! Documents: {}, Tokens: {}, Errors: {}",
+                    documentCount.get(), tokenCount.get(), errorCount.get());
+            if (errorCount.get() > 0) {
+                logger.warn("Indexing completed with {} error(s) — document/token counts may be understated",
+                    errorCount.get());
+            }
         }
     }
 

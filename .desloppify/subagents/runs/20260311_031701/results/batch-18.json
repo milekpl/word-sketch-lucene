@@ -1,0 +1,132 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 18,
+  "assessments": {"api_surface_coherence": 54.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "POST /api/bcql response does not include a 'status' field. Every other endpoint (sketch, relations, semantic-field/explore, semantic-field, semantic-field/examples, concordance/examples, visual/radial error path) returns a top-level 'status: \"ok\"'. The BCQL response omits it, breaking the caller's ability to use a uniform success check.",
+        "QueryExecutor interface exposes two methods with overlapping semantics: findCollocations(lemma, cqlPattern, minLogDice, maxResults) and executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) both return List<WordSketchResult> for the same lemma+pattern combination. The distinction (CQL vs BCQL, labeled positions vs unlabeled) is documented in Javadoc but is not reflected in the method names or parameter types. Callers must read the interface contract to avoid mixing them.",
+        "handleSemanticFieldComparison (ExplorationHandlers, lines 144-199) inlines its own numeric parameter parsing: 'minLogDice = Double.parseDouble(...)' and 'topCollocates = Integer.parseInt(...)'. Its sibling handlers handleSemanticFieldExplore and handleSemanticFieldExploreMulti delegate to resolveExploreParams(). The default values also diverge: 'top' defaults to '50' in comparison vs '15' in resolveExploreParams.",
+        "The semantic-field comparison endpoint (/api/semantic-field) response omits 'relation_type' and 'parameters' keys that both explore endpoints include. All three are sibling semantic-field endpoints but their response envelopes are shaped differently.",
+        "executeBcqlQuery and executeQuery on QueryExecutor both accept a bcql/cql pattern and a limit, but differ in return type (CollocateResult vs ConcordanceResult) with no type-level signal to the caller. The names 'executeQuery' vs 'executeBcqlQuery' do not clearly indicate that the parsers (ContextualQueryLanguageParser vs CorpusQueryLanguageParser) are different.",
+        "handleConcordanceExamples (SketchHandlers) silently falls back to a proximity pattern when the named relation is not found, returning 'fallback: true' in the response. No other endpoint has a fallback mode. Callers cannot distinguish a correct relation-matched result from an approximate proximity result without inspecting the 'fallback' field.",
+        "WordSketchApiServer.registerGetHandler and registerPostHandler are private helpers that mirror each other exactly except for the method string. This structural duplication could be unified into a single registerHandler(path, allowedMethod, handler) method."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Error responses are consistent across all endpoints: always a JSON object with a single 'error' key and an appropriate HTTP status code.",
+        "CORS and method-enforcement (registerGetHandler/registerPostHandler) are applied uniformly at the routing layer rather than per-handler.",
+        "The explore endpoints share buildBaseExploreResponse and buildExploreResponseBody helpers, keeping the shared sections of their response envelopes identical."
+      ],
+      "issue_character": "The API surface suffers from incremental growth without a unifying schema: each sub-system (sketch, exploration, semantic-field comparison, BCQL) was added with its own response shape, leaving a patchwork of inconsistent envelope fields (missing 'status', differing defaults, silent fallback in one endpoint only) that a frontend developer must learn case by case.",
+      "score_rationale": "The error envelope is consistent, which is the baseline contract, but the success envelope is not. Missing 'status' in BCQL, divergent defaults between sibling exploration endpoints, and the QueryExecutor interface's overlapping method pair are genuine friction points for any developer consuming or extending the API. The score reflects a codebase that has good individual modules but no API contract enforcement across them."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "bcql_response_missing_status",
+      "summary": "POST /api/bcql response omits the 'status: ok' field present in every other success response",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleBcqlQueryPost (line 369): response.put(\"query\", bcqlQuery); response.put(\"total_results\", ...); — no 'status' key.",
+        "All other handlers include response.put(\"status\", \"ok\") as the first field before any data keys.",
+        "Frontend code that checks 'response.status === \"ok\"' will treat BCQL success responses as indeterminate."
+      ],
+      "suggestion": "Add response.put(\"status\", \"ok\") as the first statement in handleBcqlQueryPost's success path, mirroring every other handler.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "semantic_field_comparison_inconsistent_envelope",
+      "summary": "Semantic-field comparison endpoint response shape diverges from sibling explore endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldComparison response (lines 174-196): {status, seeds, min_logdice, adjectives, ...} — no 'relation_type', no 'parameters' sub-object.",
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti both include 'relation_type' and a nested 'parameters' map at the top level.",
+        "All three endpoints are in the same class and serve the same /api/semantic-field/* namespace."
+      ],
+      "suggestion": "Add 'relation_type' and a 'parameters' map to the comparison response, or document the explicit reason the comparison endpoint has a different envelope shape (e.g., it supports all relations simultaneously). If not applicable, note it as intentional with a code comment.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "comparison_handler_inline_param_parsing",
+      "summary": "handleSemanticFieldComparison inlines numeric param parsing with different defaults instead of using the resolveExploreParams helper",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldComparison (lines 155-161): minLogDice = Double.parseDouble(params.getOrDefault(\"min_logdice\", \"3.0\")); topCollocates = Integer.parseInt(params.getOrDefault(\"top\", \"50\")).",
+        "resolveExploreParams (line 411): int top = Integer.parseInt(params.getOrDefault(\"top\", \"15\")).",
+        "The 'top' default is 15 in the helper but 50 in the comparison handler — callers using identical query strings against the two endpoints get different result sizes."
+      ],
+      "suggestion": "Route handleSemanticFieldComparison through resolveExploreParams (or an overload of it) to share the same defaults and error-handling. If the comparison endpoint intentionally needs top=50, document this with a constant or a dedicated resolver.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "concordance_silent_fallback",
+      "summary": "handleConcordanceExamples silently falls back to proximity search without informing the caller via a non-200 response",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Lines 278-282: when the relation is not found, bcqlQuery is replaced with a proximity pattern and fallback=true is added to the response — but the HTTP status code remains 200.",
+        "No other endpoint has a partial-success / degraded mode.",
+        "Callers that do not inspect 'fallback' will receive results that do not reflect the requested linguistic relation."
+      ],
+      "suggestion": "Either return a 400 error when the relation is unknown (consistent with all other endpoints) or, if fallback is intentional, add a 'warnings' array to the standard response envelope and populate it from the fallback path so callers have a structured way to detect degraded results.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "query_executor_overlapping_methods",
+      "summary": "QueryExecutor exposes findCollocations and executeSurfacePattern with near-identical signatures but different undocumented parser semantics",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations(lemma, cqlPattern, minLogDice, maxResults) — uses ContextualQueryLanguageParser and CQL pattern format.",
+        "executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) — uses CorpusQueryLanguageParser and BCQL with labeled positions (1:, 2:).",
+        "Both return List<WordSketchResult> and accept the same four parameter types in the same order. The difference is only visible by reading the Javadoc or implementation.",
+        "SemanticFieldExplorer.fetchSeedCollocates calls executeSurfacePattern first and falls back to findCollocations — callers must understand both methods to predict the fallback behaviour."
+      ],
+      "suggestion": "Rename one or both methods to make the parser distinction explicit in the name (e.g., findCollocationsBcql vs findCollocationsCql), or consolidate into a single method that accepts a typed PatternQuery value object carrying both the pattern string and the parser hint. Consider removing findCollocations entirely if all new patterns use BCQL.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The API grew incrementally: sketch, then exploration, then multi-seed, then comparison, then BCQL — each addition was locally reasonable but no global response schema was enforced.",
+      "The two-parser situation (CQL / BCQL) in QueryExecutor arose from BlackLab exposing two distinct parsers; the interface grew to expose both without unifying the abstraction."
+    ],
+    "likely_symptoms": [
+      "bcql_response_missing_status",
+      "concordance_silent_fallback"
+    ],
+    "possible_false_positives": []
+  }
+}

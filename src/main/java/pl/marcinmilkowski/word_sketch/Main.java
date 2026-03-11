@@ -269,31 +269,39 @@ public class Main {
 
         QueryExecutor executor = new BlackLabQueryExecutor(indexPath);
 
-        // Load grammar configuration (optional)
+        // Load grammar configuration (required)
         // Override path via system property: -Dgrammar.config=path/to/relations.json
-        GrammarConfigLoader grammarConfig = null;
         String grammarConfigPath = System.getProperty("grammar.config", "grammars/relations.json");
+        GrammarConfigLoader grammarConfig;
         try {
             var grammarPath = java.nio.file.Paths.get(grammarConfigPath);
             grammarConfig = new GrammarConfigLoader(grammarPath);
             System.out.println("Loaded grammar config: " + grammarConfig.getVersion());
         } catch (IOException e) {
-            System.out.println("No grammar config found at '" + grammarConfigPath + "', using defaults.");
+            logger.error("Failed to load grammar config at '{}': {}", grammarConfigPath, e.getMessage());
+            System.err.println("Error: failed to load grammar config at '" + grammarConfigPath + "': " + e.getMessage());
+            System.err.println("Ensure the file exists and is valid JSON, or set -Dgrammar.config=<path>.");
+            executor.close();
+            return;
         }
 
-        WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig);
-
-        server.start();
-
+        // Register the shutdown hook before constructing the server so the executor is
+        // always closed even if server construction throws.
+        WordSketchApiServer[] serverHolder = new WordSketchApiServer[1];
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("\nShutting down...");
-            server.stop();
+            if (serverHolder[0] != null) serverHolder[0].stop();
             try {
                 executor.close();
             } catch (IOException e) {
                 System.err.println("Warning: failed to close index during shutdown: " + e.getMessage());
             }
         }));
+
+        WordSketchApiServer server = new WordSketchApiServer(executor, port, grammarConfig);
+        serverHolder[0] = server;
+
+        server.start();
 
         try {
             Thread.currentThread().join();

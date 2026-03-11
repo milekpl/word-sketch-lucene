@@ -1,0 +1,78 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 4,
+  "assessments": {"dependency_health": 74.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares 5 production dependencies: blacklab-engine, blacklab-query-parser, fastjson2, slf4j-api, logback-classic. Test dependencies are JUnit 5 (api, engine, platform-launcher). No duplication or alternative libraries for the same purpose.",
+        "fastjson2 is used consistently for both JSON serialization (JSON.toJSONString in HttpApiUtils) and deserialization (JSON.parseObject in SketchHandlers, GrammarConfigLoader). Single library, no mixing with Gson/Jackson/etc.",
+        "blacklab-engine and blacklab-query-parser are both required: the engine handles index open/search operations, the parser handles CQL and BCQL query parsing. These are distinct modules of the BlackLab framework, not alternatives.",
+        "BlackLab 4.0.0 is resolved from a non-standard repository: https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/ (GitHub raw URL). This is a raw file server, not a proper Maven repository, creating a build reproducibility risk if the GitHub repository moves, is renamed, or the raw URL structure changes.",
+        "com.sun.net.httpserver is used as the HTTP server throughout the api package. This is a JDK-internal package available in JDK 6+ but not on the official javax.* or jakarta.* module paths; it is not a Maven dependency but represents an implicit platform-tier dependency on an internal JDK API.",
+        "SLF4J 2.0.7 paired with logback-classic 1.5.18: SLF4J 2.x requires logback 1.4+, so this pairing is correct and compatible.",
+        "JUnit Platform 1.9.0 paired with JUnit Jupiter 5.9.0: these correspond to the same BOM version, no misalignment.",
+        "No version ranges or SNAPSHOT dependencies that could cause non-reproducible builds (all versions are pinned constants)."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Dependency set is minimal: 5 production libraries, all actively used throughout the codebase.",
+        "Single JSON library (fastjson2) used consistently for both serialization and deserialization with no alternatives.",
+        "All versions are pinned constants — no ranges or SNAPSHOTs that could cause non-reproducible builds.",
+        "SLF4J and logback versions are compatible (SLF4J 2.x + logback 1.4+)."
+      ],
+      "issue_character": "Issues are limited to a single external availability risk (non-standard BlackLab repository) and an implicit reliance on a JDK-internal HTTP server API, neither of which affect day-to-day build behavior but both create future brittleness.",
+      "score_rationale": "The dependency set scores well above 60 because it is lean, consistent, and correctly versioned with no duplicate libraries. It falls short of 80 because BlackLab 4.0.0 is sourced from a raw GitHub URL rather than Maven Central or a proper artifact repository, and the implicit reliance on com.sun.net.httpserver ties the runtime to an internal JDK API that could be restricted in future Java versions."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab_nonstandard_repo",
+      "summary": "BlackLab 4.0.0 resolved from GitHub raw URL repository, creating build reproducibility and availability risk",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml repository entry: <url>https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/</url>",
+        "This is a raw GitHub file server, not a proper Maven repository service. GitHub raw URLs are not content-addressed and can change if the repository is renamed, moved, or deleted.",
+        "If the URL becomes unavailable, CI and fresh developer checkouts will fail to resolve the dependency."
+      ],
+      "suggestion": "Publish the local BlackLab JAR to a proper repository (GitHub Packages, JitPack, or a self-hosted Nexus/Artifactory) or vendor the JAR into the project's local Maven repository directory and configure a local file:// repository path. Alternatively, check whether BlackLab 4.x is available on Maven Central.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "jdk_internal_http_server",
+      "summary": "Production HTTP server relies on com.sun.net.httpserver, a JDK-internal API not guaranteed across JDK distributions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer uses com.sun.net.httpserver.HttpServer, HttpHandler, HttpExchange throughout all handler methods.",
+        "com.sun.net.httpserver is an internal package present in HotSpot JDKs but not part of the Java SE specification; it may be unavailable on non-Oracle/OpenJDK distributions or restricted by future module encapsulation.",
+        "No maven dependency declares this; it is an implicit platform dependency."
+      ],
+      "suggestion": "Replace com.sun.net.httpserver with a lightweight, properly specified HTTP server dependency such as the JDK's com.sun.net.httpserver exposed via --add-exports (acceptable as a short-term shim) or migrate to a small embedded server like Jetty, Undertow, or the JEP 408 Simple Web Server (Java 18+).",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab was not available on Maven Central at time of project inception, leading to use of the project's own raw-URL Maven mirror.",
+      "com.sun.net.httpserver was chosen for zero-dependency HTTP serving, avoiding adding a new Maven dependency for a simple use case."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

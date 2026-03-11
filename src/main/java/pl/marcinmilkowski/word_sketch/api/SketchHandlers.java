@@ -284,10 +284,10 @@ class SketchHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String word1 = HttpApiUtils.requireParam(exchange, params, "word1");
-        if (word1 == null) return;
-        String word2 = HttpApiUtils.requireParam(exchange, params, "word2");
-        if (word2 == null) return;
+        String noun = HttpApiUtils.requireParam(exchange, params, "word1");
+        if (noun == null) return;
+        String adjective = HttpApiUtils.requireParam(exchange, params, "word2");
+        if (adjective == null) return;
         String relation = params.getOrDefault("relation", "noun_adj_predicates");
 
         int limit;
@@ -301,14 +301,14 @@ class SketchHandlers {
         String bcqlQuery = null;
         var rel = grammarConfig.getRelation(relation);
         if (rel.isPresent()) {
-            String patternWithHead = rel.get().getFullPattern(word1);
-            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, word2, rel.get().collocatePosition());
+            String patternWithHead = rel.get().getFullPattern(noun);
+            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, adjective, rel.get().collocatePosition());
         }
 
         boolean fallback = false;
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
-                word1.toLowerCase(), word2.toLowerCase());
+                noun.toLowerCase(), adjective.toLowerCase());
             fallback = true;
             logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", relation, bcqlQuery);
         }
@@ -317,8 +317,8 @@ class SketchHandlers {
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("word1", word1);
-        response.put("word2", word2);
+        response.put("word1", noun);
+        response.put("word2", adjective);
         response.put("relation", relation);
         response.put("bcql", bcqlQuery);
         response.put("fallback", fallback);

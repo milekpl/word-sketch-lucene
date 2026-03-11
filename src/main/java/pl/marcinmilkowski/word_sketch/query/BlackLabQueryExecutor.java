@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Query executor using BlackLab for CoNLL-U dependency tree indexing and querying.
@@ -135,7 +136,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
 
         String bcql = String.format("\"%s\" -%s-> _", CqlUtils.escapeForRegex(lemma.toLowerCase()), deprel);
-        return runDependencyQuery(bcql, lemma, minLogDice, maxResults);
+        return collectDependencyFrequencies(bcql, lemma, minLogDice, maxResults);
     }
 
     /**
@@ -156,10 +157,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         String bcql = String.format("[lemma=\"%s\" & xpos=\"%s\"] -%s-> _",
                                     CqlUtils.escapeForRegex(lemma.toLowerCase()), headPosConstraint, deprel);
-        return runDependencyQuery(bcql, lemma, minLogDice, maxResults);
+        return collectDependencyFrequencies(bcql, lemma, minLogDice, maxResults);
     }
 
-    private List<QueryResults.WordSketchResult> runDependencyQuery(
+    private List<QueryResults.WordSketchResult> collectDependencyFrequencies(
             String bcql, String lemma, double minLogDice, int maxResults) throws IOException {
         CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearch(bcql, lemma, true);
         long headwordFreq = collocateSearch.headwordFreq();
@@ -169,7 +170,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, String> lemmaPosMap = new HashMap<>();
 
         collectFrequenciesFromGroups(groups,
-            identity -> BlackLabSnippetParser.extractCollocateLemma(identity),
+            BlackLabSnippetParser::extractCollocateLemma,
             freqMap, lemmaPosMap);
 
         return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
@@ -181,7 +182,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
      */
     private void collectFrequenciesFromGroups(
             HitGroups groups,
-            java.util.function.Function<String, String> lemmaExtractor,
+            Function<String, String> lemmaExtractor,
             Map<String, Long> freqMap,
             Map<String, String> lemmaPosMap) {
         for (HitGroup group : groups) {
@@ -209,7 +210,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             return Collections.emptyList();
         }
 
-        int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
+        int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
         CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearch(bcqlPattern, lemma, false);
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
@@ -219,9 +220,9 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         for (HitGroup group : groups) {
             String identity = group.identity().toString();
             if (!identity.isEmpty()) {
-                String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocateLabelPos);
+                String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos);
                 if (collocate == null || collocate.isEmpty()) {
-                    collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocateLabelPos);
+                    collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocatePos);
                 }
                 if (collocate != null && !collocate.isEmpty()) {
                     freqMap.merge(collocate.toLowerCase(), group.size(), Long::sum);

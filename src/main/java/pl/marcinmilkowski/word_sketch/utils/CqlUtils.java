@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
  *
  * <p>CQL patterns consist of token constraints in square brackets, e.g.
  * {@code [xpos="NN.*"] [xpos="JJ.*"]}. Both
- * {@code pl.marcinmilkowski.word_sketch.api.PatternSubstitution} and
+ * {@code pl.marcinmilkowski.word_sketch.utils.PatternSubstitution} and
  * {@code pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader} need to
  * walk these bracket boundaries; this class provides the shared primitive.</p>
  *

@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.model;
 
 import java.util.Comparator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -25,11 +26,10 @@ public record AdjectiveProfile(
     public boolean isSpecific() { return presentInCount == 1; }
 
     /** Returns the noun this adjective is most associated with */
-    public String strongestNoun() {
+    public Optional<String> strongestNoun() {
         return nounScores.entrySet().stream()
             .max(Comparator.comparingDouble(Map.Entry::getValue))
-            .map(Map.Entry::getKey)
-            .orElse(null);
+            .map(Map.Entry::getKey);
     }
 
     @Override

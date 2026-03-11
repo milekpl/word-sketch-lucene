@@ -10,6 +10,7 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 import pl.marcinmilkowski.word_sketch.config.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.utils.PatternSubstitution;
 import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 import java.io.IOException;
@@ -73,24 +74,19 @@ class SketchHandlers {
 
     private void handleRelationsForType(HttpExchange exchange, RelationType relationType) throws IOException {
         JSONArray relationsArray = new JSONArray();
-        if (grammarConfig != null) {
-            for (var rel : grammarConfig.getRelations()) {
-                if (rel.relationType() == relationType) {
-                    Map<String, Object> obj = new HashMap<>();
-                    obj.put("id", rel.id());
-                    obj.put("name", rel.name());
-                    obj.put("description", rel.description());
-                    obj.put("relation_type", rel.relationType().name());
-                    obj.put("pattern", rel.pattern());
-                    if (relationType == RelationType.DEP) {
-                        obj.put("deprel", rel.getDeprel());
-                    }
-                    relationsArray.add(obj);
+        for (var rel : grammarConfig.getRelations()) {
+            if (rel.relationType().orElse(null) == relationType) {
+                Map<String, Object> obj = new HashMap<>();
+                obj.put("id", rel.id());
+                obj.put("name", rel.name());
+                obj.put("description", rel.description());
+                obj.put("relation_type", rel.relationType().orElseThrow().name());
+                obj.put("pattern", rel.pattern());
+                if (relationType == RelationType.DEP) {
+                    obj.put("deprel", rel.getDeprel());
                 }
+                relationsArray.add(obj);
             }
-        } else {
-            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
-            return;
         }
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -119,39 +115,37 @@ class SketchHandlers {
         boolean isDep = relationType == RelationType.DEP;
         Map<String, Object> byRelation = new HashMap<>();
 
-        if (grammarConfig != null) {
-            for (var rel : grammarConfig.getRelations()) {
-                if (rel.relationType() == relationType) {
-                    try {
-                        if (isDep && rel.getDeprel() == null) continue;
+        for (var rel : grammarConfig.getRelations()) {
+            if (rel.relationType().orElse(null) == relationType) {
+                try {
+                    if (isDep && rel.getDeprel() == null) continue;
 
-                        String fullPattern = rel.getFullPattern(lemma);
-                        List<QueryResults.WordSketchResult> results =
-                            executor.executeSurfacePattern(
-                                lemma, fullPattern,
-                                0.0, 20);
+                    String fullPattern = rel.getFullPattern(lemma);
+                    List<QueryResults.WordSketchResult> results =
+                        executor.executeSurfacePattern(
+                            lemma, fullPattern,
+                            0.0, 20);
 
-                        if (!results.isEmpty()) {
-                            List<Map<String, Object>> collocations = new ArrayList<>();
-                            for (QueryResults.WordSketchResult result : results) {
-                                collocations.add(formatWordSketchResult(result));
-                            }
-
-                            Map<String, Object> relData;
-                            if (isDep) {
-                                relData = buildRelationResponse(rel, results, collocations);
-                            } else {
-                                relData = new HashMap<>();
-                                relData.put("name", rel.name());
-                                relData.put("cql", rel.pattern());
-                                relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
-                                relData.put("collocations", collocations);
-                            }
-                            byRelation.put(rel.id(), relData);
+                    if (!results.isEmpty()) {
+                        List<Map<String, Object>> collocations = new ArrayList<>();
+                        for (QueryResults.WordSketchResult result : results) {
+                            collocations.add(formatWordSketchResult(result));
                         }
-                    } catch (Exception e) {
-                        logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
+
+                        Map<String, Object> relData;
+                        if (isDep) {
+                            relData = buildRelationResponse(rel, results, collocations);
+                        } else {
+                            relData = new HashMap<>();
+                            relData.put("name", rel.name());
+                            relData.put("cql", rel.pattern());
+                            relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+                            relData.put("collocations", collocations);
+                        }
+                        byRelation.put(rel.id(), relData);
                     }
+                } catch (Exception e) {
+                    logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
                 }
             }
         }
@@ -178,12 +172,8 @@ class SketchHandlers {
     }
 
     private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {
-        if (grammarConfig == null) {
-            HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
-            return;
-        }
         var rel = grammarConfig.getRelation(relationId).orElse(null);
-        if (rel == null || rel.relationType() != relationType) {
+        if (rel == null || rel.relationType().orElse(null) != relationType) {
             HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
             return;
         }
@@ -273,24 +263,22 @@ class SketchHandlers {
         }
 
         String bcqlQuery = null;
-        if (grammarConfig != null) {
-            var rel = grammarConfig.getRelation(relation);
-            if (rel.isPresent()) {
-                String patternWithHead = rel.get().getFullPattern(word1);
-                logger.debug("After getFullPattern: {}", patternWithHead);
-                logger.debug("collocatePosition = {}", rel.get().collocatePosition());
-                bcqlQuery = PatternSubstitution.substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
-                logger.debug("After substituteCollocate: {}", bcqlQuery);
-            } else {
-                logger.debug("Relation '{}' not found in grammar config", relation);
-            }
+        var rel = grammarConfig.getRelation(relation);
+        if (rel.isPresent()) {
+            String patternWithHead = rel.get().getFullPattern(word1);
+            logger.debug("After getFullPattern: {}", patternWithHead);
+            logger.debug("collocatePosition = {}", rel.get().collocatePosition());
+            bcqlQuery = PatternSubstitution.substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
+            logger.debug("After substituteCollocate: {}", bcqlQuery);
         } else {
-            logger.debug("grammarConfig is null");
+            logger.debug("Relation '{}' not found in grammar config", relation);
         }
 
+        boolean fallback = false;
         if (bcqlQuery == null || bcqlQuery.isEmpty()) {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
                 word1.toLowerCase(), word2.toLowerCase());
+            fallback = true;
             logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", relation, bcqlQuery);
         }
 
@@ -302,6 +290,7 @@ class SketchHandlers {
         response.put("word2", word2);
         response.put("relation", relation);
         response.put("bcql", bcqlQuery);
+        response.put("fallback", fallback);
         response.put("limit_requested", limit);
         response.put("total_results", results.size());
 

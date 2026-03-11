@@ -54,7 +54,7 @@ class ExplorationHandlers {
         RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
         if (resolvedConfig == null) return;
 
-        String relationType = resolvedConfig.relationType().name();
+        String relationType = resolvedConfig.relationType().orElseThrow().name();
 
         ExploreParams exploreParams = parseExploreParams(exchange, params);
         if (exploreParams == null) return;
@@ -114,7 +114,7 @@ class ExplorationHandlers {
         RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
         if (resolvedConfig == null) return;
 
-        String relationType = resolvedConfig.relationType().name();
+        String relationType = resolvedConfig.relationType().orElseThrow().name();
 
         ExploreParams exploreParams = parseExploreParams(exchange, params);
         if (exploreParams == null) return;
@@ -373,7 +373,7 @@ class ExplorationHandlers {
         adjMap.put("noun_scores", scores);
 
         if (adj.isSpecific()) {
-            adjMap.put("specific_to", adj.strongestNoun());
+            adj.strongestNoun().ifPresent(n -> adjMap.put("specific_to", n));
         }
         return adjMap;
     }
@@ -394,7 +394,7 @@ class ExplorationHandlers {
             return null;
         }
         var relType = relationConfig.get().relationType();
-        if (relType == null) {
+        if (relType.isEmpty()) {
             HttpApiUtils.sendError(exchange, 400,
                 "Invalid relation config: missing or unrecognised relation_type for '" + relationId + "'");
             return null;

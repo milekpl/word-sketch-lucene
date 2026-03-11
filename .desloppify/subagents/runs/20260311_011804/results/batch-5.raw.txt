@@ -1,0 +1,118 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 5,
+  "assessments": {"api_surface_coherence": 62.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "HTTP handler methods follow a single consistent signature (void handleX(HttpExchange) throws IOException) across all endpoints in SketchHandlers and ExplorationHandlers",
+        "handleFullSketchForType (SketchHandlers.java:118) produces SURFACE relation objects with keys {name, cql, collocate_pos_group, collocations} but DEP relation objects with {id, name, description, deprel, total_matches, collocations} — same endpoint, structurally divergent shapes",
+        "SemanticFieldExplorer exposes two public overloads of exploreByPattern: the 3-param (seed, RelationConfig, ExploreOptions) and a 5-param (seed, relationName, bcqlPattern, simplePattern, ExploreOptions) that leaks internal pattern strings into the public surface",
+        "exploreByPattern uses ExploreOptions value object but exploreMultiSeed (line 343) takes the same logical parameters as raw primitives (double minLogDice, int topCollocates, int minShared) — inconsistent parameter packaging within the same class",
+        "handleRelationsForType returns HTTP 500 when grammarConfig is null; handleFullSketchForType silently returns empty {relations:{}} for the same null condition — divergent error contracts for the same precondition",
+        "handleConcordanceExamples (line 291) silently falls back to a proximity BCQL query when the requested relation is not found, logging only a WARN; response body has no indicator of fallback — callers cannot distinguish resolved from degraded responses"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "All HTTP handlers share a single consistent signature (HttpExchange -> void throws IOException) across SketchHandlers and ExplorationHandlers, making the handler layer predictable",
+        "HttpApiUtils provides a uniform, reused set of helpers (sendJsonResponse, sendError, sendOptionsResponse, requireParam, parseQueryParams) that keep CORS and error shapes consistent everywhere",
+        "QueryExecutor interface documents each method's distinct semantics and return types clearly, distinguishing findCollocations, executeSurfacePattern, executeBcqlQuery, and executeQuery with explicit Javadoc contracts",
+        "Error responses are a consistent JSON {error: \"...\"} shape across all 400/500 paths"
+      ],
+      "issue_character": "The issues are not pervasive but cluster around a few specific boundaries: the SemanticFieldExplorer public API packages equivalent parameters inconsistently, the SURFACE/DEP sketch response shapes diverge silently, and two related handler error paths produce different observable behaviours for the same missing precondition.",
+      "score_rationale": "The HTTP handler layer is solid and consistent — handler signatures, CORS handling, and error formats are uniform throughout. What pulls the score down is a cluster of coherence gaps at the service and response-shape boundaries: the SURFACE vs DEP full-sketch response shapes differ structurally (no id/total_matches in SURFACE, no cql/collocate_pos_group in DEP); SemanticFieldExplorer exposes two public overloads for the same operation with different abstraction levels; and ExploreOptions is used for single-seed but bypassed for multi-seed, making the public API feel unfinished. The concordance fallback introduces a silent degradation path with no error contract. These issues would cause real friction for any client integrating against multiple endpoints, placing this comfortably below the 'solid but uneven' 80 anchor but above deep structural dysfunction."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "surface_dep_response_shape_divergence",
+      "summary": "Full-sketch SURFACE and DEP endpoints return structurally different per-relation objects inside the same response envelope",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "handleFullSketchForType (line 144-148): SURFACE branch puts {name, cql, collocate_pos_group, collocations} into byRelation",
+        "handleFullSketchForType (line 141-143, buildRelationResponse): DEP branch puts {id, name, description, deprel, total_matches, collocations} — missing id/total_matches in SURFACE, missing cql/collocate_pos_group in DEP",
+        "Both paths are accessed via the same /api/sketch/{lemma} routing function (handleSketchRequest) — a client that inspects a relation object from SURFACE versus DEP sees a completely different key set"
+      ],
+      "suggestion": "Align both shapes to a common envelope, e.g. {id, name, description, pattern, collocations, total_matches}, with DEP additionally including deprel and SURFACE additionally including collocate_pos_group. Extract buildRelationResponse into a shared factory used by both branches.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_by_pattern_leaky_overload",
+      "summary": "SemanticFieldExplorer.exploreByPattern has a public 5-parameter overload that exposes internal bcqlPattern and simplePattern strings, leaking the abstraction",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Line 119: public ExplorationResult exploreByPattern(String seed, String relationName, String bcqlPattern, String simplePattern, ExploreOptions opts) is public",
+        "Line 107: the 3-param overload (seed, RelationConfig, ExploreOptions) delegates to the 5-param one — but both are public, so callers can bypass RelationConfig and supply raw patterns directly",
+        "The 5-param version is not documented as internal; its public visibility contradicts the existence of the cleaner 3-param facade"
+      ],
+      "suggestion": "Reduce the 5-param overload to package-private or private; the 3-param (seed, RelationConfig, ExploreOptions) is the intended public API. If the raw-pattern form is needed for testing, annotate it with a @VisibleForTesting marker or move it to a test helper.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_options_inconsistent_packaging",
+      "summary": "exploreByPattern uses ExploreOptions value object while exploreMultiSeed takes the same logical parameters as raw primitives, making the public API shape inconsistent",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Line 107: exploreByPattern(String seed, RelationConfig config, ExploreOptions opts) — params bundled via ExploreOptions(topCollocates, nounsPerSeed, minLogDice, minShared, ...)",
+        "Line 343: exploreMultiSeed(Set<String> seeds, RelationConfig config, double minLogDice, int topCollocates, int minShared) — same 3 tuning parameters passed individually",
+        "ExploreOptions exists precisely to bundle these tuning parameters but is unused in multi-seed mode, requiring callers to know two different calling conventions for closely related operations"
+      ],
+      "suggestion": "Accept ExploreOptions in exploreMultiSeed as well (the nounsPerSeed field can be ignored or given a meaningful use), making both public exploration methods accept (seeds/seed, RelationConfig, ExploreOptions).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "grammar_config_null_inconsistent_error",
+      "summary": "Null grammarConfig produces a 500 error in handleRelationsForType but silently returns an empty result in handleFullSketchForType",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "handleRelationsForType (line 91-94): if (grammarConfig == null) { sendError(500, ...); return; }",
+        "handleFullSketchForType (line 122): if (grammarConfig != null) { ... } — null simply skips the loop and returns {status:ok, lemma:x, relations:{}}, with no error signalled",
+        "A client hitting /api/relations when grammarConfig is null gets 500; hitting /api/sketch/theory gets 200 with empty relations — both caused by the same configuration defect"
+      ],
+      "suggestion": "Guard handleFullSketchForType the same way as handleRelationsForType: check grammarConfig at entry and return 500 if null, rather than silently returning empty data.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "concordance_silent_fallback",
+      "summary": "handleConcordanceExamples silently falls back to a proximity query when the requested relation is not found, with no indicator in the response",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "Lines 291-295: when bcqlQuery is null or empty after relation lookup, code falls back to a proximity pattern and logs a WARN — no 400 is returned",
+        "Response includes the bcql field showing the actual query used, but no fallback: true flag or warning field",
+        "Callers requesting relation=noun_adj_predicates when config is absent receive results as if the request was valid, with no way to know the specified relation was ignored"
+      ],
+      "suggestion": "Either return a 400 error when the requested relation cannot be resolved (preferred, fail-fast), or add a response field (e.g. 'fallback': true, 'fallback_reason': '...') so clients can detect degraded responses. The silent WARN log is insufficient as an error contract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The SURFACE/DEP split was added incrementally to an existing single-relation handler (handleSketchRequest), leading to dual code paths in handleFullSketchForType with no shared response builder",
+      "SemanticFieldExplorer grew from single-seed toward multi-seed without a refactoring pass that would apply ExploreOptions consistently across both entry points",
+      "Null-guard patterns were added piecemeal at each new handler rather than enforced via constructor invariants or a shared precondition check"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

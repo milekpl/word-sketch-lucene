@@ -1,0 +1,123 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 6,
+  "assessments": {"test_strategy": 42.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "ConlluConverter.java (85 lines) and BlackLabConllUIndexer.java (126 lines) — the entire corpus-indexing pipeline — have zero test coverage despite being pure or near-pure logic amenable to unit testing with temp files.",
+        "BlackLabQueryExecutorTest has every test method annotated @Disabled('Requires live BlackLab index'); BlackLabBcqlConcordanceTest uses @EnabledIf('indexExists'); DependencySketchTest and BlackLabDummyTest use Assumptions.assumeTrue(indexDir.exists()). All four files depend on a hardcoded developer-machine path 'D:\\corpora_philsci\\bi' as the fallback, meaning they are silently skipped in any CI environment without that exact path.",
+        "StubExecutor in SemanticFieldExplorerTest throws UnsupportedOperationException for executeDependencyPattern (line 80). If SemanticFieldExplorer.compareCollocateProfiles ever delegates to that method, the tests fail at runtime with an opaque error instead of a meaningful assertion.",
+        "HttpApiUtils, RadialPlot, RelationUtils, and WordSketchApiServer have no test coverage at all.",
+        "No integration test verifies the full pipeline: ConlluConverter → BlackLabConllUIndexer → BlackLabQueryExecutor → SemanticFieldExplorer. All cross-module verification requires a live external index.",
+        "16 test files for 31 production source files; however, GrammarConfigHelper is a helper (not a test class), leaving 15 actual test classes."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "SemanticFieldExplorerTest and AdjectiveCollocateComparatorTest use well-designed stub QueryExecutors, enabling thorough isolation testing of multi-seed comparison logic without any external dependency.",
+        "HandlersTest uses an inner MockExchange class to exercise HTTP handler validation paths (400 responses, required parameters) without starting a real server.",
+        "BlackLabSnippetParserTest covers parsing edge cases (null input, missing attributes, xpos vs upos fallback) with clear @DisplayName labels.",
+        "LogDiceCalculatorTest, LongIntHashMapTest, and PatternSubstitutionTest provide solid coverage of pure-logic utility classes."
+      ],
+      "issue_character": "The test gaps are concentrated in one critical subsystem: the indexing pipeline (ConlluConverter, BlackLabConllUIndexer) is entirely untested, and all live-index integration tests are disabled with hardcoded developer-machine paths, leaving the query execution layer effectively untested in any portable automated run.",
+      "score_rationale": "The unit-test layer for pure logic and API handlers is reasonably solid (stubs, mock exchanges, good isolation), which lifts the score above the floor. However, the complete absence of tests for the indexing pipeline — which contains non-trivial file-processing logic fully amenable to temp-file-based unit tests — and the structural disability of all live-index tests represent significant drag. At 80 a codebase would have solid but uneven coverage; this one has a hard gap in its most critical data-transformation path and no portable integration layer at all, placing it firmly below 50."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexer_zero_coverage",
+      "summary": "ConlluConverter and BlackLabConllUIndexer have zero test coverage despite being testable with temp files",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "No test file references ConlluConverter or BlackLabConllUIndexer anywhere in src/test.",
+        "ConlluConverter.convertConlluToWplChunks is pure file I/O with no external dependencies beyond standard Java NIO — it can be tested by writing a small CoNLL-U string to a temp file and asserting the WPL chunk output.",
+        "BlackLabConllUIndexer wraps BlackLab's Indexer API; at minimum the constructor path and error handling can be exercised with an in-memory or temp-dir index."
+      ],
+      "suggestion": "Add ConlluConverterTest that writes a known CoNLL-U snippet to a temp Path, calls convertConlluToWplChunks, and asserts sentence count, token count, chunk count, and the presence of <s>/<\\s> markers. Add a smoke test for BlackLabConllUIndexer that creates a temp index directory and verifies the indexer initialises without throwing.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "indexing_pipeline_untested"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "live_index_tests_always_skip",
+      "summary": "All four live-index test classes are silently skipped in any environment without a hardcoded Windows path",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java"
+      ],
+      "evidence": [
+        "All four files fall back to the developer-local path 'D:\\\\corpora_philsci\\\\bi' when CONCEPT_SKETCH_TEST_INDEX is not set.",
+        "BlackLabQueryExecutorTest additionally annotates every method @Disabled, so no test in that class can ever run automatically.",
+        "On any CI runner or non-Windows machine these classes produce zero executed tests, giving a false impression of test coverage for BlackLabQueryExecutor."
+      ],
+      "suggestion": "Create a minimal test corpus (50-100 CoNLL-U sentences) committed to src/test/resources, index it into a temp directory in a @BeforeAll fixture, and run the executor tests against it. Remove the hardcoded path fallback and the blanket @Disabled annotation. This also provides a portable integration test for the full indexer → query pipeline.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "live_index_dependency"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "stub_throws_on_dependency_pattern",
+      "summary": "StubExecutor in SemanticFieldExplorerTest throws UnsupportedOperationException for executeDependencyPattern, creating a silent fragility",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorerTest.java"
+      ],
+      "evidence": [
+        "Line 80: 'throw new UnsupportedOperationException(\"executeDependencyPattern not supported in stub\");'",
+        "If SemanticFieldExplorer.compareCollocateProfiles is extended to call executeDependencyPattern, all SemanticFieldExplorerTest tests will fail with UnsupportedOperationException rather than a meaningful assertion failure, making the root cause difficult to diagnose."
+      ],
+      "suggestion": "Return Collections.emptyList() from the stub's executeDependencyPattern instead of throwing, consistent with the other stub methods. If the method should not be called in a given test scenario, add an explicit assertion or a spy to verify it is not invoked.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "live_index_dependency"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "no_integration_test_for_full_pipeline",
+      "summary": "No test verifies the complete pipeline from corpus ingestion through query execution to collocation results",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerTest and AdjectiveCollocateComparatorTest use stubs that bypass all real query logic.",
+        "BlackLabQueryExecutorTest is fully @Disabled.",
+        "No test class exercises the chain: CoNLL-U input → ConlluConverter → BlackLabConllUIndexer → BlackLabQueryExecutor → logDice scoring output."
+      ],
+      "suggestion": "Create an IntegrationTest class (excluded from the default Surefire run via a 'integration' JUnit tag) that builds a small in-memory or temp-dir BlackLab index from a committed CoNLL-U fixture, then asserts that BlackLabQueryExecutor.findCollocations returns expected collocates with correct logDice ordering.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "live_index_dependency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The project appears to have been developed primarily against a large external corpus on a developer's local Windows machine, so integration tests were written to run only when that index is present rather than against a self-contained test fixture.",
+      "The indexing subsystem (ConlluConverter, BlackLabConllUIndexer) was likely treated as a one-time setup tool rather than production logic requiring ongoing test coverage."
+    ],
+    "likely_symptoms": [
+      "indexer_zero_coverage is a direct symptom of the development workflow rather than a deeper design problem.",
+      "live_index_tests_always_skip and no_integration_test_for_full_pipeline are manifestations of the same root cause: dependency on an external large corpus."
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "batch": "type_safety",
+  "batch_index": 4,
+  "assessments": {"type_safety": 65.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "RelationConfig.relationType() is typed as RelationType (non-Optional enum) but parseRelationType explicitly returns null for absent/unrecognised values, documented in comment: 'Callers that access relationType() must guard against null before calling .name() or comparing with enum constants' — the return type actively misrepresents the runtime contract",
+        "SketchHandlers constructor accepts GrammarConfigLoader grammarConfig with no nullability annotation, but has null guards (if grammarConfig != null) throughout the class body — while WordSketchApiServer enforces non-null via Objects.requireNonNull, the handler itself silently accepts null and changes behaviour, creating a split type contract",
+        "AdjectiveProfile.strongestNoun() is typed as String but implemented with orElse(null), meaning it can return null — it is called at ExplorationHandlers.java:376 as adj.strongestNoun() inside an isSpecific() guard, which holds the invariant in practice, but the return type offers no guarantee",
+        "RelationConfig.getFullPattern() returns null when pattern == null (line 51), yet no caller guards against the null return — the loading code in GrammarConfigLoader throws IOException when pattern is absent, so the null path is dead in production, but the method signature continues to promise a nullable String where only non-null is valid",
+        "Java records are used for all core DTOs (WordSketchResult, ExploreOptions, KwicResult, CollocateResult, AdjectiveProfile) providing correct structural types",
+        "ConcordanceResult is a sealed interface with permits: SnippetResult, KwicResult, CollocateResult — exhaustive type narrowing is supported",
+        "getRelation() correctly returns Optional<RelationConfig> rather than a nullable reference",
+        "ExplorationHandlers.resolveRelationConfig() guards against null relationType before returning and before .name() is called downstream"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Java records used uniformly for all core data types (WordSketchResult, ExploreOptions, AdjectiveProfile, KwicResult, CollocateResult) — structural types are precise and immutable",
+        "ConcordanceResult sealed interface with explicit permits enables safe exhaustive pattern-matching across SnippetResult, KwicResult, CollocateResult",
+        "getRelation() returns Optional<RelationConfig> instead of a nullable reference, making absence explicit at one of the most-called boundary points",
+        "ExplorationHandlers.resolveRelationConfig() explicitly validates relationType != null before returning, guarding the .name() call downstream",
+        "Non-null enforcement via Objects.requireNonNull for grammarConfig at WordSketchApiServer construction catches the null case at the boundary"
+      ],
+      "issue_character": "The issues are not scattered random omissions but form a documented, deferred debt cluster around one field: RelationConfig.relationType() is explicitly called nullable in a comment while the Java type says otherwise, and this propagates confusion into SketchHandlers (defensive null checks that contradict the enforced non-null contract) and a secondary nullable-String return in AdjectiveProfile.strongestNoun() — the codebase is aware of the problem but has not resolved it.",
+      "score_rationale": "The data model layer is well-typed (records, sealed interfaces, Optional where appropriate), which pushes the score above 60. However, the core configuration type RelationConfig.relationType() is documented as nullable while typed as non-null — a textbook type lie — and the ripple effect is visible in SketchHandlers' defensive null guards that contradict the enforced non-null guarantee from the caller. A developer reading SketchHandlers would rightfully wonder whether grammarConfig can be null in production, because the code says yes but the type flow says no. This pattern of documented-but-unresolved nullable returns on non-Optional types meets the 60-70 range: the developer must independently verify which fields are actually nullable rather than trusting the types."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "relationType_nullable_untyped",
+      "summary": "RelationConfig.relationType() is typed as RelationType but is documented and implemented as nullable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.parseRelationType() returns null when relation_type is absent or unrecognised, and the javadoc explicitly says 'Callers that access relationType() must guard against null before calling .name() or comparing with enum constants'",
+        "RelationConfig is a Java record with field 'RelationType relationType' — the type system promises a non-null enum value but the implementation delivers null",
+        "The comment acknowledges this: 'Converting this field to Optional<RelationType> was deferred because the value is used in many places'"
+      ],
+      "suggestion": "Change the RelationConfig record field to Optional<RelationType> relationType, update all call sites to use relationType().isPresent() / relationType().get(), and remove the informal nullable doc comment. Alternatively, require relation_type in the grammar JSON and throw IOException in parseRelation when it is absent, making non-null a load-time guarantee rather than a runtime hope.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "nullable_relationType_debt"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "sketchHandlers_grammarConfig_split_contract",
+      "summary": "SketchHandlers accepts GrammarConfigLoader as implicitly non-null but guards against null throughout, contradicting the enforced non-null contract from its only caller",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer constructor calls Objects.requireNonNull(grammarConfig) before constructing SketchHandlers, guaranteeing non-null",
+        "SketchHandlers.handleRelationsForType() (line 76), handleFullSketchForType() (line 122), and handleConcordanceExamples() (line 276) all contain 'if (grammarConfig != null)' guards",
+        "The null branch in handleRelationsForType sends a 500 error for a state that cannot occur at runtime — the code describes a contract that does not match reality"
+      ],
+      "suggestion": "Remove the null guards in SketchHandlers. Add an explicit Objects.requireNonNull(grammarConfig) in the SketchHandlers constructor to make the non-null contract explicit and enforced at the class level, matching the reality enforced by its caller.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "nullable_relationType_debt"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "strongestNoun_nullable_string_return",
+      "summary": "AdjectiveProfile.strongestNoun() returns String but can return null via orElse(null) — should return Optional<String>",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "AdjectiveProfile.strongestNoun() ends with .orElse(null), making the return type String but the actual runtime type nullable",
+        "Called at ExplorationHandlers.java:376 as adjMap.put(\"specific_to\", adj.strongestNoun()) inside an isSpecific() guard — the null is safe by invariant but the method signature does not communicate this",
+        "A developer reading the call site must trace through isSpecific() → presentInCount == 1 → nounScores must be non-empty to know null cannot occur; the type should carry that guarantee"
+      ],
+      "suggestion": "Change the return type of strongestNoun() to Optional<String> and update ExplorationHandlers to use adj.strongestNoun().orElse(null) explicitly at the call site, or restructure to only emit the \"specific_to\" key when the Optional is present.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A single deferred decision — keeping RelationConfig.relationType() as a nullable non-Optional field — propagates nullable confusion into SketchHandlers and ExplorationHandlers and was explicitly documented as technical debt in parseRelationType's javadoc",
+      "The Java type system has no built-in @Nullable annotation; without a JSR-305 or JetBrains annotation dependency, nullable returns can only be communicated via Optional or doc comments, neither of which was consistently applied here"
+    ],
+    "likely_symptoms": [
+      "strongestNoun_nullable_string_return"
+    ],
+    "possible_false_positives": []
+  }
+}

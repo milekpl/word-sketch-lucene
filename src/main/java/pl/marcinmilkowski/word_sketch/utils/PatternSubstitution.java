@@ -1,7 +1,6 @@
-package pl.marcinmilkowski.word_sketch.api;
+package pl.marcinmilkowski.word_sketch.utils;
 
 import java.util.List;
-import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 /**
  * Static helpers for substituting collocates into CQL patterns.

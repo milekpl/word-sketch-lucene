@@ -1,0 +1,104 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {
+    "high_level_elegance": 72.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package names map cleanly to domain capabilities: api/, config/, exploration/, indexer/, model/, query/, utils/, viz/ \u2014 each name predicts its content with no ambiguity.",
+        "RelationConfig is a record in config/ but contains ~100 lines of parsing and transformation logic (substituteHeadword, collocatePosGroup, posGroupFromConstraint, collocateReversePattern, getDeprel, extractLabelContent, mergeLemmaConstraint). A config record is expected to carry data; this one also acts as a query-building service.",
+        "ExplorationResult.getEdges() and ComparisonResult.getEdges() are view-assembly methods that construct List<Edge> for visualization. They live in the model/ data layer, blurring the boundary between data representation and API serialization concerns.",
+        "WordSketchApiServer constructor directly instantiates SemanticFieldExplorer from the injected QueryExecutor, while GrammarConfigLoader is injected. A new engineer reading the constructor cannot predict which dependencies are external vs. internally created.",
+        "QueryExecutor interface provides a clear, well-documented abstraction boundary between the API/exploration layer and the underlying BlackLab engine.",
+        "ExplorationHandlers is package-private (no public modifier), which is good boundary discipline hiding it from external callers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package names directly reflect domain capabilities (api, config, exploration, indexer, model, query, utils, viz) \u2014 a new engineer can navigate by directory name alone.",
+        "QueryExecutor interface clearly demarcates the query engine boundary; the rest of the codebase uses it without knowing the underlying BlackLab implementation.",
+        "model/ uses Java records consistently for immutable DTOs, with an explicit Javadoc in ComparisonResult explaining the mixed record/class convention.",
+        "ExplorationHandlers is package-private, signalling correct ownership scope within the api/ subsystem."
+      ],
+      "issue_character": "The issues are not pervasive but cluster at two specific ownership seams: the config/ package (RelationConfig carries parsing logic it should not own) and the model/ package (data classes contain view-assembly methods), both causing a developer to question where responsibility ends for those subsystems.",
+      "score_rationale": "The top-level decomposition is coherent and a developer can explain why each package exists. However, two meaningful boundary blurs prevent a score in the 80+ range: RelationConfig mixes data-holding with query-pattern interpretation (a service responsibility), and model data classes contain getEdges() view-construction logic that belongs in the API or exploration layer. These are not isolated style issues \u2014 they affect where a developer looks when extending the system. Anchoring against the global scale, this is mixed (70-range) territory: good skeleton, but the ownership seams at config/ and model/ would produce confusion when making targeted changes, placing the score at 72."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_config_service_in_data_record",
+      "summary": "RelationConfig record in config/ contains parsing and transformation business logic, blurring data vs. service ownership",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "RelationConfig is declared as a record (config data bag) but contains ~100 lines of methods: substituteHeadword, mergeLemmaConstraint, collocateReversePattern, collocatePosGroup, posGroupFromConstraint, extractLabelContent, getDeprel.",
+        "posGroupFromConstraint scans raw CQL constraint strings with 14 distinct string-contains checks \u2014 this is parser logic, not config accessor logic.",
+        "collocateReversePattern performs a switch over PosGroup to return a CQL fragment \u2014 this is query-building logic that should live in a query or config service, not in a data record."
+      ],
+      "suggestion": "Extract the parsing and query-building methods (substituteHeadword, mergeLemmaConstraint, collocatePosGroup, collocateReversePattern, posGroupFromConstraint, getDeprel) into a companion service class RelationConfigProcessor or PatternBuilder in config/ or query/. RelationConfig itself should remain a pure data record with only toJson() and the static factory.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "ownership_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "model_view_assembly_in_data_layer",
+      "summary": "ExplorationResult.getEdges() and ComparisonResult.getEdges() build visualization graph structures inside the model data layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationResult.getEdges() iterates seedCollocates and discoveredNouns to build a List<Edge> used by the API response; this construction logic belongs with the serialization code in ExplorationHandlers.",
+        "ComparisonResult.getEdges() iterates adjectives x nounScores to produce visualization edges \u2014 the same pattern.",
+        "ExplorationHandlers.buildExploreResponseBody() calls result.getEdges() and then immediately maps each Edge into a Map for JSON \u2014 the edge-building step is an intermediate transformation that has no value as a method on the model class."
+      ],
+      "suggestion": "Move the edge-building logic from ExplorationResult and ComparisonResult into private static helper methods in ExplorationHandlers (or a dedicated ExploreResponseSerializer). Model classes should expose raw data fields; view assembly belongs in the API layer that consumes them.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "ownership_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_server_partial_dependency_injection",
+      "summary": "WordSketchApiServer constructor creates SemanticFieldExplorer internally while injecting other dependencies, making the ownership boundary unpredictable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer constructor takes QueryExecutor and GrammarConfigLoader as injected dependencies but internally creates SemanticFieldExplorer: new SemanticFieldExplorer(executor).",
+        "A new engineer reading the constructor cannot predict that SemanticFieldExplorer is a hidden dependency \u2014 its presence is invisible from the public API surface.",
+        "The TODO comment in the constructor acknowledges that HttpServer creation also leaks between constructor and start(), confirming awareness of the pattern but leaving it unresolved."
+      ],
+      "suggestion": "Inject SemanticFieldExplorer as a constructor parameter alongside QueryExecutor and GrammarConfigLoader. This makes all dependencies visible in the signature and allows callers (e.g., Main.java, tests) to control its creation. The existing HandlersTest pattern may need updating to supply the SemanticFieldExplorer mock.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "ownership_blur"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ownership_blur: Two subsystem seams (config/ and model/) have accumulated responsibilities that belong to adjacent layers, suggesting incremental growth without ownership review checkpoints.",
+      "The RelationConfig record started as a data bag but grew parsing/transformation methods as grammar interpretation logic was added, without a corresponding architectural decision to split it."
+    ],
+    "likely_symptoms": [
+      "Changes to CQL pattern interpretation will require edits to both RelationConfig and any code calling its query-building methods, producing unexpected ripple edits.",
+      "Adding a new visualization format would require modifying model data classes rather than only the API/serialization layer."
+    ],
+    "possible_false_positives": []
+  }
+}

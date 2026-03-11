@@ -1,0 +1,121 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 2,
+  "assessments": {"mid_level_elegance": 61.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "QueryExecutor interface defines a clean contract between the BlackLab query layer and upper layers; all four executor methods are thoroughly documented with preconditions and format conventions (QueryExecutor.java).",
+        "CollocateQueryHelper extracts the shared collocate-search and ranking pipeline into a single collaborator, exposing a narrow CollocateSearch record as the handoff DTO (CollocateQueryHelper.java:86).",
+        "buildExploreResponseBody() in ExplorationHandlers is a single consolidation point for JSON serialization of ExplorationResult; both single-seed and multi-seed handlers call it after setting their mode-specific keys (ExplorationHandlers.java:~291).",
+        "Error translation at the HTTP boundary is consistent: IOException → 500, IllegalArgumentException → 400 across all four exploration handlers.",
+        "ExplorationResult.discoveredNouns has dual semantics: in exploreByPattern it contains nouns discovered from exploration; in exploreMultiSeed it contains the input seeds themselves (Javadoc: 'Seeds become the discoveredNouns'). The single consumer (buildExploreResponseBody) iterates the list uniformly without awareness of this semantic difference (SemanticFieldExplorer.java:330, ExplorationHandlers.java:309).",
+        "buildNounCollocateMap in SemanticFieldExplorer hardcodes NOUN_PATTERN = '[xpos=\"NN.*\"]' for phase-2 reverse lookups (line 81, 225), ignoring the simplePattern parameter passed from RelationConfig.collocateReversePattern(). The simplePattern is only used in the phase-1 fallback (fetchSeedCollocates), not in phase-2 reverse lookup.",
+        "In SketchHandlers.handleFullSketchForType, the DEP branch delegates to buildRelationResponse() which includes id, description, deprel, and total_matches; the SURFACE branch assembles relData inline, producing a different shape with 'cql' and 'collocate_pos_group' keys but missing id, description, and total_matches (lines 140-150 vs 229-240).",
+        "exploreMultiSeed does not have the fallback to findCollocations that exploreByPattern has in fetchSeedCollocates, creating asymmetric behaviour at the query boundary for rare seeds."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "QueryExecutor interface is a clean, well-documented seam between the BlackLab layer and upper layers; CQL pattern format conventions are explicitly stated in Javadocs.",
+        "CollocateQueryHelper narrows the shared search/ranking pipeline into a dedicated collaborator with a purpose-built CollocateSearch handoff record.",
+        "buildExploreResponseBody() is a single serialization point that both single-seed and multi-seed handlers share, avoiding duplicated JSON-mapping code.",
+        "Error propagation follows a consistent model (IOException→500, IllegalArgumentException→400) at the HTTP boundary across all handlers.",
+        "RelationConfig.getFullPattern / collocateReversePattern provides a clean config-driven abstraction that the single-seed explore path correctly uses end-to-end."
+      ],
+      "issue_character": "The issues are concentrated at two seams — the ExplorationResult model is reused with subtly incompatible semantics between the two exploration modes, and the sketch response serialization diverges between surface and DEP relations without a shared formatter — indicating that abstraction boundaries were established but then quietly undermined at integration points.",
+      "score_rationale": "The codebase sits between 60 (significant drag) and 70 (functional but uneven). The QueryExecutor interface, CollocateQueryHelper, and shared buildExploreResponseBody are genuinely well-designed seams that make the system navigable. However, ExplorationResult.discoveredNouns carrying different semantics depending on the calling path is a meaningful seam violation — the shared consumer cannot know which semantics it is dealing with. The NOUN_PATTERN bypass means the RelationConfig collocate-reverse abstraction is only partially honoured at the boundary it was designed to serve. Together these pull the score below 65."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "exploration_result_dual_semantics",
+      "summary": "ExplorationResult.discoveredNouns carries incompatible semantics in single-seed vs multi-seed paths",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern populates discoveredNouns with nouns semantically similar to the seed (the exploration output).",
+        "SemanticFieldExplorer.exploreMultiSeed repurposes discoveredNouns to hold the input seeds themselves ('Seeds become the discoveredNouns' — Javadoc at line 330), each carrying their common collocates as sharedCollocates.",
+        "ExplorationHandlers.buildExploreResponseBody iterates result.getDiscoveredNouns() uniformly at line 307, serialising them as 'discovered_nouns' in both modes without any semantic distinction. A caller reading the JSON response cannot tell whether the list represents discovered neighbours or the original seeds."
+      ],
+      "suggestion": "Introduce a separate ExplorationMode enum (SINGLE_SEED / MULTI_SEED) on ExplorationResult, or split into two distinct result types (SemanticNeighboursResult and MultiSeedOverlapResult) each with a specific DTO field name ('similar_nouns' vs 'seeds'). Update buildExploreResponseBody or the individual handlers to emit the semantically correct field name for each mode.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "noun_pattern_bypass_relation_config",
+      "summary": "Phase-2 reverse lookup hardcodes NOUN_PATTERN, bypassing RelationConfig.collocateReversePattern() at the exploration boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer declares NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\" at line 81 and uses it unconditionally in buildNounCollocateMap (line 225): executor.findCollocations(collocate, NOUN_PATTERN, minLogDice, nounsPerPredicate).",
+        "The convenience overload exploreByPattern(seed, RelationConfig, opts) calls relationConfig.collocateReversePattern() and passes it as simplePattern (line 115), but simplePattern is only consumed by fetchSeedCollocates as a phase-1 fallback (line 210). Phase 2 (buildNounCollocateMap) always uses the hardcoded constant.",
+        "For a VERB-collocate relation, the reverse lookup should target verbs, not nouns; the NOUN_PATTERN bypass makes all exploration implicitly noun-centric regardless of the configured relation."
+      ],
+      "suggestion": "Pass the simplePattern (or the full RelationConfig) into buildNounCollocateMap so that the reverse lookup uses the configured collocate POS pattern. Remove the NOUN_PATTERN constant or limit it to the default case. Document in the method signature which pattern governs the reverse lookup step.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "sketch_response_surface_dep_format_divergence",
+      "summary": "Surface and DEP sketch relations are serialised with divergent response shapes inside the same method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "In handleFullSketchForType (SketchHandlers lines 140-150), the DEP branch calls buildRelationResponse() which returns a map with keys: id, name, description, deprel, total_matches, collocations.",
+        "The SURFACE branch builds relData inline with keys: name, cql, collocate_pos_group, collocations — missing id, description, and total_matches.",
+        "handleRelationQueryForPattern (single-relation path) constructs yet a third variant at lines 208-215 with id, name, collocations, total_matches but no cql, description, or deprel.",
+        "Three different serialisation shapes for the same conceptual entity (a relation result) means API consumers cannot rely on a stable schema."
+      ],
+      "suggestion": "Introduce a single buildRelationResponse overload (or a dedicated RelationResponseBuilder) that accepts a RelationType parameter and produces a consistent shape. Both full-sketch and single-relation handlers should call it, with optional fields (deprel, cql) conditionally included based on type rather than being omitted entirely.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "multi_seed_fallback_asymmetry",
+      "summary": "exploreMultiSeed lacks the findCollocations fallback that exploreByPattern uses for rare seeds",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern delegates phase-1 to fetchSeedCollocates, which calls executor.findCollocations as a fallback when executeSurfacePattern returns empty (lines 208-211).",
+        "exploreMultiSeed calls executor.executeSurfacePattern directly (line 364) with no fallback. A rare seed that returns empty from executeSurfacePattern silently contributes nothing to the multi-seed results without any log warning or error propagation.",
+        "The asymmetry is not documented; a caller cannot predict differing behaviour for the same seed word depending on which exploration mode is used."
+      ],
+      "suggestion": "Extract the fetchSeedCollocates fallback logic into a shared method on SemanticFieldExplorer (or a helper) and call it from both exploreByPattern and exploreMultiSeed. Add a debug-level log in exploreMultiSeed when a seed returns empty collocates so that silent data loss is visible.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult was designed for the single-seed case and then reused for multi-seed without a clear separation of concerns, causing the dual-semantics problem.",
+      "The RelationConfig collocate abstraction was added later; the exploration phase helpers predate it and were not updated to consume it consistently.",
+      "The HTTP handler serialisation layer grew organically per endpoint rather than from a shared response schema, leading to divergent shapes for conceptually identical data."
+    ],
+    "likely_symptoms": [
+      "exploration_result_dual_semantics",
+      "sketch_response_surface_dep_format_divergence"
+    ],
+    "possible_false_positives": []
+  }
+}

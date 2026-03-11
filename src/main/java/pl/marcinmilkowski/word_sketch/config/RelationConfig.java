@@ -7,6 +7,7 @@ import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,8 +23,8 @@ public record RelationConfig(
     int collocatePosition,
     boolean dual,
     int defaultSlop,
-    /** May be {@code null} when the grammar JSON omits the {@code relation_type} field. */
-    RelationType relationType,
+    /** Empty when the grammar JSON omits or has an unrecognised {@code relation_type} field. */
+    Optional<RelationType> relationType,
     boolean explorationEnabled
 ) {
     private static final Logger logger = LoggerFactory.getLogger(RelationConfig.class);
@@ -38,7 +39,7 @@ public record RelationConfig(
         obj.put("collocate_position", collocatePosition);
         obj.put("dual", dual);
         obj.put("default_slop", defaultSlop);
-        if (relationType != null) obj.put("relation_type", relationType.name());
+        relationType.ifPresent(rt -> obj.put("relation_type", rt.name()));
         obj.put("exploration_enabled", explorationEnabled);
         return obj;
     }
@@ -105,13 +106,13 @@ public record RelationConfig(
      * Each POS group maps to a single, specific pattern so that reverse lookups target exactly the
      * right tokens and never produce an incoherent union (e.g. {@code NN.*|VB.*}).
      *
-     * @throws IllegalStateException if {@code relationType()} is {@code null} or the collocate POS
+     * @throws IllegalStateException if {@code relationType()} is empty or the collocate POS
      *         group cannot be mapped to a unique pattern.
      */
     public String collocateReversePattern() {
-        if (relationType() == null) {
+        if (relationType().isEmpty()) {
             throw new IllegalStateException(
-                "Cannot determine collocate reverse pattern: relationType is null for relation '" + id + "'");
+                "Cannot determine collocate reverse pattern: relationType is absent for relation '" + id + "'");
         }
         return switch (collocatePosGroup()) {
             case ADJ  -> "[xpos=\"JJ.*\"]";
@@ -189,7 +190,7 @@ public record RelationConfig(
      * If not found, extracts from the relation ID (e.g., "dep_amod" -> "amod").
      */
     public String getDeprel() {
-        if (pattern == null || relationType != RelationType.DEP) {
+        if (pattern == null || !RelationType.DEP.equals(relationType().orElse(null))) {
             return null;
         }
         // Look for deprel="xxx" or deprel='xxx' attribute constraint

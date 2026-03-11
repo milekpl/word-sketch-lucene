@@ -77,7 +77,7 @@ class SemanticFieldExplorerTest {
         public List<QueryResults.WordSketchResult> executeDependencyPattern(
                 String lemma, String deprel, String headPosConstraint,
                 double minLogDice, int maxResults) {
-            throw new UnsupportedOperationException("executeDependencyPattern not supported in stub");
+            return Collections.emptyList();
         }
     }
 

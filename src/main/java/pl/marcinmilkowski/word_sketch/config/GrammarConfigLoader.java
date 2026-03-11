@@ -214,20 +214,15 @@ public class GrammarConfigLoader {
     }
 
     /**
-     * Parse a nullable relation-type string to the {@link RelationType} enum.
+     * Parse a nullable relation-type string to an {@link Optional} {@link RelationType}.
      *
-     * <p><strong>Nullable contract:</strong> returns {@code null} when the {@code relation_type} field
-     * is absent or unrecognised in the grammar JSON. Callers that access
-     * {@link RelationConfig#relationType()} must guard against {@code null} before calling
-     * {@code .name()} or comparing with enum constants. Converting this field to
-     * {@code Optional<RelationType>} was deferred because the value is used in many places
-     * across {@code SketchHandlers} and {@code ExplorationHandlers} with both {@code ==}
-     * comparisons and {@code .name()} calls that would all require updates simultaneously.
+     * <p>Returns {@code Optional.empty()} when the {@code relation_type} field is absent or
+     * unrecognised in the grammar JSON.
      */
-    private static RelationType parseRelationType(String value) {
-        if (value == null || value.isBlank()) return null;
-        try { return RelationType.valueOf(value.toUpperCase(Locale.ROOT)); }
-        catch (IllegalArgumentException e) { return null; }
+    private static Optional<RelationType> parseRelationType(String value) {
+        if (value == null || value.isBlank()) return Optional.empty();
+        try { return Optional.of(RelationType.valueOf(value.toUpperCase(Locale.ROOT))); }
+        catch (IllegalArgumentException e) { return Optional.empty(); }
     }
 
     /**

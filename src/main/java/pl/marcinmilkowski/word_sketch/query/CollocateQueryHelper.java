@@ -150,9 +150,10 @@ class CollocateQueryHelper {
             long jointFreq = entry.getValue();
             long collocateFreq = getTotalFrequency(collocateLemma);
 
-            double logDice = LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq);
+            double logDice = (headwordFreq > 0 && collocateFreq > 0)
+                    ? LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
 
-            if (!Double.isNaN(logDice) && logDice >= minLogDice) {
+            if (logDice >= minLogDice) {
                 double relFreq = LogDiceCalculator.relativeFrequency(jointFreq, headwordFreq);
                 String pos = posMap.isEmpty()
                         ? QueryResults.WordSketchResult.UNKNOWN_POS
@@ -288,9 +289,8 @@ class CollocateQueryHelper {
             long collocateFreq = validCollocate
                     ? collocateCorpusFreqs.getOrDefault(collocateLemma.toLowerCase(), 0L) : 0L;
 
-            double rawLogDice = (headwordFreq > 0 && collocateFreq > 0)
+            double logDice = (headwordFreq > 0 && collocateFreq > 0)
                     ? LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
-            double logDice = Double.isNaN(rawLogDice) ? 0.0 : rawLogDice;
 
             String plainText = BlackLabSnippetParser.trimToSentence(
                     rec.leftText(), rec.matchText(), rec.rightText());

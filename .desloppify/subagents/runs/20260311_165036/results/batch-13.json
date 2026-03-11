@@ -1,0 +1,87 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 13,
+  "assessments": {"contract_coherence": 76.5},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "HttpApiUtils.parseQueryParams Javadoc has an empty description body — only a @throws clause is present. The @param for 'query' is absent, leaving the nullability contract undocumented at the method signature level.",
+        "Main.requireNextArgOrExit is named requireNextArg but calls System.exit(1) on invalid input — the 'require' naming convention in the codebase (see HttpApiUtils.requireParam) implies an exception, not process termination. The Javadoc does warn about this, but the name misleads callers scanning the call-site.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti calls parseBaseExploreRequest twice (lines 118 and internally via validateExploreRequest at line 61) — the rawParams check is performed on one parse, then silently discarded; validateExploreRequest re-parses the same URI. The effective contract (rawParams is checked then re-parsed) is not documented.",
+        "parseBcqlRequest in CorpusQueryHandlers returns null for 413 and throws IAE for 400-class errors — this dual mechanism is explicitly documented in the Javadoc, making the contract honest.",
+        "SemanticFieldExplorer.exploreByPattern (package-private overload): Javadoc clearly states it is a 'package-private testing seam' and production code must use the public overload — the contract distinction is explicitly documented.",
+        "QueryExecutor interface: each method has a complete Javadoc with @param, @return, @throws, including the note that findCollocations 'returns an empty list silently if null or empty' — matches the implementation.",
+        "ExplorationHandlers.validateExploreRequest returns @Nullable with the convention documented: null means a 400 has already been sent and the handler should return. This is an unusual contract but is explicitly stated in the Javadoc.",
+        "CollocateQueryHelper constructor accepts @Nullable BlackLabIndex with a Javadoc explaining the testing seam — honest contract."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "Java's compiler enforces all return type contracts — no annotation-lie return types possible.",
+        "QueryExecutor interface has complete, accurate Javadoc for all 7 methods.",
+        "The nullable-return-means-400-already-sent convention in validateExploreRequest is explicitly documented.",
+        "The dual-mechanism in parseBcqlRequest (null for 413, IAE for 400) is clearly documented.",
+        "The testing-seam package-private overload of exploreByPattern is clearly labeled and discouraged for production use."
+      ],
+      "issue_character": "The main contract issues are a misleading method name (requireNextArg calling System.exit) and an undocumented double-parse side-effect in handleSemanticFieldExploreMulti — both are localized and low-severity.",
+      "score_rationale": "The codebase demonstrates strong contract discipline overall: Java's static typing handles the structural contracts, and the handful of unusual conventions (nullable sentinel returns, testing seams) are explicitly documented. The score is held below 80 by the requireNextArg naming mismatch and the undocumented double-parse side-effect, which create minor misleading signals for developers reading call-sites. Neither is a correctness bug — they are honesty gaps in the documented contracts."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "require_next_arg_exit_name",
+      "summary": "requireNextArg calls System.exit(1) but name implies an exception like requireParam",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "Method is named requireNextArg, matching the requireParam naming convention from HttpApiUtils which throws IAE.",
+        "Actual behavior: calls System.exit(1) on missing argument — terminates the JVM, not throws.",
+        "Javadoc does document the exit behavior, but the name leads developers to expect an exception at the call-site."
+      ],
+      "suggestion": "Rename to `requireNextArgOrExit` or `requireArgOrDie` to make the termination behavior visible at call-sites without reading the Javadoc. Alternatively, throw an exception and let main() catch it for consistent error handling.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "double_parse_undocumented",
+      "summary": "handleSemanticFieldExploreMulti parses query string twice without documenting the double-parse side-effect",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Line 118: `Map<String,String> rawParams = parseBaseExploreRequest(exchange)` — first parse for nouns_per check.",
+        "Line 126: `ValidatedExploreRequest req = validateExploreRequest(exchange)` — calls parseBaseExploreRequest again internally at line 61.",
+        "rawParams is checked and discarded; validateExploreRequest re-parses from the URI. No comment explains why rawParams is not reused."
+      ],
+      "suggestion": "Extract the nouns_per check into validateExploreRequest itself (accept an optional validation function), or pass rawParams into a validateExploreRequest overload that accepts a pre-parsed param map — eliminating the silent double-parse and documenting the single source of truth.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "parseQueryParams_incomplete_javadoc",
+      "summary": "HttpApiUtils.parseQueryParams Javadoc body is empty — only @throws clause present, @param missing",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "Javadoc block contains only a @throws clause; the description body is empty (starts directly with '*').",
+        "@param for 'query' is absent — nullability and empty-string behavior are unspecified at the API boundary.",
+        "Implementation handles null query defensively (returns empty map), but this is not documented."
+      ],
+      "suggestion": "Add a description line and @param javadoc: `@param query the raw query string from the request URI; may be null or empty, in which case an empty map is returned`.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Minor documentation incompleteness during iterative development; no structural contract violations."],
+    "likely_symptoms": ["double_parse_undocumented is a symptom of the nouns_per early-return being added without refactoring the shared parse path."],
+    "possible_false_positives": ["The null-return contract in validateExploreRequest may appear unusual but is an intentional and documented pattern — not a violation."]
+  }
+}

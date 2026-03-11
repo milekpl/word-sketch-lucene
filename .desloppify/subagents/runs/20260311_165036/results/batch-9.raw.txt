@@ -1,0 +1,86 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {"mid_level_elegance": 73.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "The api → exploration → query layering is clean and one-directional. ExplorationHandlers calls SemanticFieldExplorer, which delegates to CollocateProfileComparator and MultiSeedExplorer, which call QueryExecutor. Each boundary is explicit.",
+        "ExploreResponseAssembler is the single translation layer between model objects (ExplorationResult, ComparisonResult) and JSON-ready maps. Model-to-presentation translation happens in one obvious place.",
+        "ExplorationOptions and SingleSeedExplorationOptions cleanly represent the input contract at the api→exploration boundary. SingleSeedExplorationOptions.toBaseOptions() provides a clean downward projection.",
+        "ExplorationResult is reused for both single-seed and multi-seed exploration results, but the semantics of the seed field differ: in single-seed mode it holds one lemma; in multi-seed mode it holds a comma-joined string of seeds (e.g. 'theory,model,hypothesis'). This implicit format contract at the boundary is not documented anywhere and callers that read result.getSeed() get different data shapes.",
+        "SemanticFieldExplorer.exploreMultiSeed delegates almost immediately to MultiSeedExplorer.explore after validation — a thin layer that adds only a pre-condition check. This is appropriate given the documented intent (facade over two collaborators).",
+        "handleSemanticFieldComparison does not validate that seeds.size() >= 2 at the handler level. The validation is inside SemanticFieldExplorer.compareCollocateProfiles which throws IAE. The 400 error message will reference 'compareCollocateProfiles requires at least 2 seed nouns' — an internal method name exposed to API clients.",
+        "The three-argument CollocateProfileComparator.compareCollocateProfiles(Set, double, int) receives parameters destructured from ExplorationOptions at the SemanticFieldExplorer boundary: opts.minLogDice(), opts.topCollocates(). This means the options object is constructed in the API layer, threaded through the facade, then immediately destructured into primitives at the implementation level — the options abstraction doesn't fully survive the boundary.",
+        "model.ComparisonResult docs say it's produced by CollocateProfileComparator#compareCollocateProfiles (internal), while the public contract is SemanticFieldExplorer#compareCollocateProfiles. This documentation seam mismatch was noted in high_level_elegance; from mid_level_elegance it means the model's stated origin and actual API origin diverge.",
+        "CorpusQueryHandlers.handleCorpusQuery reads the request body, parses JSON, extracts the 'query' field, and delegates to executor.executeBcqlQuery. The boundary handoff is explicit and minimal.",
+        "ConcordanceHandlers.handleConcordanceExamples extracts params, delegates to the executor, and formats results — clean three-step handoff with no glue accumulation.",
+        "VisualizationHandlers.handleVisualRadial reads and parses the JSON body, constructs RadialPlot.Item list, calls RadialPlot.renderFromItems — the boundary between HTTP parsing and rendering is clear."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler provides a single, explicit translation boundary between model and presentation — no duplicated assembly logic across handlers.",
+        "ExplorationOptions/SingleSeedExplorationOptions cleanly model the input contract at the API-to-exploration seam.",
+        "Handler classes each have a well-defined integration role: parsing, delegating to domain layer, assembling response — no tangled back-and-forth.",
+        "The api→exploration→query dependency chain is one-directional with no circular call patterns."
+      ],
+      "issue_character": "The seam issues concentrate around ExplorationResult being semantically overloaded (same type for single and multi-seed results with different seed field semantics) and ExplorationOptions being destructured at the final delegation point rather than threaded through intact.",
+      "score_rationale": "The layering is clean and most handoffs are explicit and minimal. Two localized seam issues — the implicit comma-joined seed encoding in ExplorationResult and the error message from a domain method leaking an internal class name to API clients — are genuine mid-level design gaps that prevent a higher score. The options-destructuring pattern is a minor awkwardness, not a serious coupling issue."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "exploration_result_seed_field_overloading",
+      "summary": "ExplorationResult.seed field carries a single lemma in single-seed mode and a comma-joined string in multi-seed mode — implicit format contract undocumented at the boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.explore: new ExplorationResult(String.join(',', seeds), seedCollocScores, ...) — the seed field is assigned a comma-joined multi-seed string.",
+        "ExplorationResult.getSeed() Javadoc: '@return the seed word this result was built from; never null or blank' — 'seed word' (singular) does not communicate the multi-seed comma-joined format.",
+        "ExploreResponseAssembler.populateExploreResponse uses result.getSeed() which is placed in the 'seed' field of single-seed responses. For multi-seed, the seeds are placed in a separate 'seeds' array (set by the handler) so result.getSeed() is not used in the JSON response — but the field is still reused.",
+        "A future consumer of ExplorationResult.getSeed() for multi-seed results will get 'theory,model,hypothesis' rather than a structured type."
+      ],
+      "suggestion": "Add a List<String> seeds field to ExplorationResult alongside or replacing the String seed field, or introduce a separate MultiSeedExplorationResult type. If keeping one type, document the comma-joined contract explicitly in the getSeed() Javadoc for the multi-seed case.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "comparison_min_seed_error_leaks_internal_name",
+      "summary": "The 400 error for compareCollocateProfiles with < 2 seeds exposes an internal domain class name in the API response message",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles: throw new IllegalArgumentException('compareCollocateProfiles requires at least 2 seed nouns for a meaningful comparison')",
+        "This IAE is caught by wrapWithErrorHandling and its message ('Bad request: compareCollocateProfiles requires...') is returned to the API client.",
+        "API clients should not see Java method names in error responses; the message should use API-contract language such as 'At least 2 seeds are required for comparison'.",
+        "handleSemanticFieldComparison does not guard against single-seed input before delegating — the validation happens inside the domain layer and leaks domain-layer error vocabulary to the HTTP response."
+      ],
+      "suggestion": "Add a seeds.size() < 2 check in handleSemanticFieldComparison with an IAE message using API vocabulary ('At least 2 seeds are required'), so the error is caught before reaching the domain layer and its message is appropriate for external consumers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult was originally designed for single-seed exploration and then reused for multi-seed to avoid creating a parallel type hierarchy, with the seed field repurposed without documentation updates.",
+      "Validation that should live at the API boundary was placed in the domain layer, causing domain-vocabulary error messages to surface at the HTTP response level."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

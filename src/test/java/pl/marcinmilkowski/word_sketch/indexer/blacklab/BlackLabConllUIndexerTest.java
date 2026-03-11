@@ -3,6 +3,7 @@ package pl.marcinmilkowski.word_sketch.indexer.blacklab;
 import nl.inl.blacklab.index.DocumentFormats;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * to be present in the project root (working directory). Tests are skipped automatically
  * when the format config is not found.
  */
+@Disabled("Requires conllu-sentences.blf.yaml format config in the project root — not distributed with source; run from a local environment that has the BlackLab format config installed")
 @DisplayName("BlackLabConllUIndexer")
 class BlackLabConllUIndexerTest {
 

@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.jspecify.annotations.NonNull;
+
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationPatternBuilder;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
@@ -33,14 +36,16 @@ class MultiSeedExplorer {
     }
 
     /**
-     * Fetches collocates for each seed using the given relation and maps the results into an
-     * {@link ExplorationResult}. Seeds become the {@code discoveredNouns} (each carrying their
-     * common collocates as shared-collocate set); the collocate intersection becomes
-     * {@code coreCollocates}; and the aggregate collocate map becomes {@code seedCollocates}.
+     * Fetches collocates for each seed using the given relation, then intersects them across
+     * seeds to find shared and distinctive patterns.
+     *
+     * <p>Seeds become the {@code discoveredNouns} (each carrying their common collocates as
+     * shared-collocate set); the collocate intersection becomes {@code coreCollocates}; and
+     * the aggregate collocate map becomes {@code seedCollocates}.</p>
      */
-    ExplorationResult explore(
-            Set<String> seeds,
-            RelationConfig relationConfig,
+    @NonNull ExplorationResult computeCollocateIntersection(
+            @NonNull Set<String> seeds,
+            @NonNull RelationConfig relationConfig,
             double minLogDice,
             int topCollocates,
             int minShared) throws IOException {
@@ -81,7 +86,7 @@ class MultiSeedExplorer {
         Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap = new LinkedHashMap<>();
         Map<String, Integer> collocateSharedCount = new HashMap<>();
         for (String seed : seeds) {
-            String bcqlPattern = relationConfig.buildFullPattern(seed);
+            String bcqlPattern = RelationPatternBuilder.buildFullPattern(relationConfig, seed);
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
                 seed, bcqlPattern, minLogDice, topCollocates);
             seedCollocateMap.put(seed, collocates);

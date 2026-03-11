@@ -1,0 +1,57 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 87.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer.start() binds to InetAddress.getLoopbackAddress() — the server only accepts connections from localhost. This is a network-level access control applied uniformly to all endpoints.",
+        "No authentication middleware, session validation, or authorization checks are present on any route handler — all endpoints are consistently unauthenticated.",
+        "All route handlers are registered with the same registerHandler/registerGetHandler/registerPostHandler mechanisms — no per-route auth decorator present or absent on any subset.",
+        "POST /api/bcql accepts arbitrary BCQL queries and executes them against the index. Input is size-limited (65536 bytes) and complexity-limited (1024 chars, 20 bracket tokens). No auth check, but loopback binding limits caller trust boundary.",
+        "No RLS, no permission strings, no service-role bypass patterns — all database access is via BlackLab index which has no user-level access control concept.",
+        "CORS is handled uniformly via HttpApiUtils.setCorsHeader(exchange) called on every response — no per-endpoint CORS policy differences.",
+        "The /health endpoint is the only explicitly 'public' endpoint but all endpoints are equally public — no documentation distinguishing authenticated vs. unauthenticated endpoints.",
+        "No user data is stored or processed — the API operates on a static read-only corpus index. Authorization is not applicable to the data model."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The server lacks any explicit documentation that all endpoints are intentionally unauthenticated and loopback-only, and the /api/bcql query endpoint accepts arbitrary corpus queries without rate limiting — in a networked deployment (if loopback restriction were ever lifted) this would be a security gap."
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Loopback binding (InetAddress.getLoopbackAddress()) applied uniformly — consistent network-level access control for all endpoints.",
+        "No per-route auth decorator present on some routes and absent on others — zero inconsistency in auth treatment.",
+        "CORS policy applied uniformly via setCorsHeader on every response method — no per-endpoint CORS differences.",
+        "No user data stored or processed — authorization is not required by the data model."
+      ],
+      "issue_character": "There are no authorization inconsistencies — the design is uniformly unauthenticated by intent for a local research tool. The only gap is documentation: the loopback-only deployment assumption is not stated in a README warning or in the server's Javadoc.",
+      "score_rationale": "This is a local research tool where all endpoints are consistently and intentionally unauthenticated — no route has auth that its siblings lack, no RLS is applied inconsistently, and the loopback binding provides a uniform trust boundary. The score is held just below 90 because: (1) the /api/bcql endpoint accepts arbitrary corpus queries with no rate limiting — benign when loopback-only but would require auth gating if the server were ever exposed beyond localhost; (2) the loopback-only deployment assumption is not explicitly documented in server code or README, making the security model implicit rather than stated."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "loopback_assumption_undocumented",
+      "summary": "Server loopback-only security model is not documented — a future deployment change could unintentionally expose all endpoints without auth",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "start() uses InetAddress.getLoopbackAddress() — correct for local-only use.",
+        "No comment in start() or class Javadoc explaining that this loopback binding is the security boundary and that adding network binding would require auth.",
+        "The /api/bcql endpoint accepts arbitrary corpus queries — in a public deployment this would need rate-limiting and query complexity controls beyond the current size/bracket limits."
+      ],
+      "suggestion": "Add a Javadoc note to WordSketchApiServer.start() and to the README: 'This server binds to loopback only. All endpoints are unauthenticated — do not expose this server on a network interface without adding authentication middleware.' This documents the security contract so that a future change from loopback to a network address triggers a deliberate security review.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The lack of auth is a deliberate design decision for a local research tool, not an oversight. The only gap is that this decision is not explicitly stated in the code."],
+    "likely_symptoms": ["loopback_assumption_undocumented is a documentation gap, not a current security vulnerability."],
+    "possible_false_positives": ["The absence of authentication is not an authorization inconsistency — it is a uniform policy. This dimension scores highly because the policy is consistent, not because auth is present."]
+  }
+}

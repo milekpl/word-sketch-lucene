@@ -1,0 +1,82 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {"error_consistency": 76.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling establishes a uniform error mapping for all API handlers: IllegalArgumentException → 400, IOException → 500, any other Exception → 500. This is applied to every route registration in WordSketchApiServer.",
+        "HttpApiUtils.requireParam throws IllegalArgumentException when a required parameter is missing or empty — the exception propagates up and is caught by wrapWithErrorHandling, resulting in a 400 response. This is a consistent pattern across all handlers.",
+        "ExplorationHandlers.resolveRelationConfig uses a null-return pattern to signal a 400 error: it sends the error response itself and returns null, requiring all callers to check for null and return early. This diverges from the IAE-throw convention used by requireParam and creates a mixed error strategy within the same class.",
+        "SketchHandlers.executeRelationQueries catches IOException per-relation and accumulates errors in a list rather than propagating them. Failed relations appear in the response as an 'errors' array. This is an intentional partial-failure design but the semantics (success code 200 with embedded error list) are not documented on the method.",
+        "BlackLabQueryExecutor wraps BlackLab exceptions as IOException with descriptive messages — context is preserved at the adapter boundary.",
+        "SemanticFieldExplorer.exploreByPattern throws IllegalArgumentException for invalid relation config parameters (relationType absent, unsupported POS group) — consistent with the IAE-for-validation pattern.",
+        "LogDiceCalculator.compute returns Double.NaN (UNCOMPUTABLE sentinel) rather than throwing IllegalArgumentException when headwordFreq <= 0 or collocateTotal <= 0. This is the only place in the codebase where a computation-boundary error uses a sentinel return value instead of an exception. The Javadoc documents this but it is inconsistent with the IAE style used at other computation boundaries.",
+        "GrammarConfigLoader throws IOException for all config errors (missing file, invalid JSON, missing fields) — consistent, with descriptive messages and clear wrapping.",
+        "ConlluConverter leaves the in-progress sentence open on the error path (documented by comment), ensuring clean failure detection. The try-with-resources guarantees flush/close even on error.",
+        "Main.handleBlackLabServerCommand catches IOException from grammar config loading and prints an actionable error before returning — appropriate CLI-layer error boundary.",
+        "Main.requireNextArg calls System.exit(1) on missing argument — documented as CLI-only behavior, but mixing exception-style error handling (IAE in the library) with exit-style handling in the same codebase is a minor strategy inconsistency."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "wrapWithErrorHandling provides a uniform IAE→400, IOException→500 mapping applied to every API route — no handler needs to implement its own error response logic.",
+        "BlackLabQueryExecutor consistently wraps adapter errors as IOException, preserving context at the integration boundary.",
+        "GrammarConfigLoader uses descriptive IOException with specific error messages for all config validation failures.",
+        "SemanticFieldExplorer uses IllegalArgumentException consistently for precondition violations."
+      ],
+      "issue_character": "The main inconsistency is a split between IAE-throw (for validation failures in the API layer) and null-return-after-self-handling (in resolveRelationConfig) within the same handler class, combined with a sentinel-return in LogDiceCalculator that diverges from the exception style used everywhere else.",
+      "score_rationale": "Error handling is thoughtfully designed in the core pathways, with a clear top-level uniform wrapper and consistent IAE-throw for validation. Two localized deviations — the null-return pattern in resolveRelationConfig and the NaN sentinel in LogDiceCalculator — are the primary reasons the score does not reach the mid-80s. These are real inconsistencies that a developer maintaining the codebase would need to recognise and mentally switch between."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "resolve_relation_null_return_pattern",
+      "summary": "resolveRelationConfig in ExplorationHandlers sends a 400 response and returns null, mixing self-handled errors with the IAE-throw convention used by sibling methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "resolveRelationConfig: sends HttpApiUtils.sendError(exchange, 400, ...) and returns null on both 'unknown relation' and 'missing relation_type' conditions.",
+        "All callers must check 'if (resolvedConfig == null) return;' — handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticFieldExamples all replicate this null check.",
+        "requireParam in the same call chain throws IllegalArgumentException which propagates automatically to wrapWithErrorHandling — no caller null check needed.",
+        "The two error-handling patterns coexist within the same class, requiring developers to understand which methods self-handle and which throw."
+      ],
+      "suggestion": "Replace the null-return pattern with a dedicated exception (e.g. a package-private UnknownRelationException extending IllegalArgumentException) or use IAE directly. Let wrapWithErrorHandling send the 400 response, eliminating the null checks in callers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "logdice_nan_sentinel_inconsistency",
+      "summary": "LogDiceCalculator.compute returns Double.NaN (UNCOMPUTABLE) for invalid inputs instead of throwing IllegalArgumentException, inconsistent with the IAE-for-validation pattern used elsewhere",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java"
+      ],
+      "evidence": [
+        "LogDiceCalculator.compute: returns UNCOMPUTABLE (Double.NaN) when headwordFreq <= 0 or collocateTotal <= 0.",
+        "All other computation-boundary validations in this codebase throw IllegalArgumentException (requireParam, exploreByPattern preconditions).",
+        "Callers must remember to check Double.isNaN() rather than catching an exception — a different error-handling protocol for what is functionally a precondition violation."
+      ],
+      "suggestion": "Document clearly in the class Javadoc that this is an intentional NaN-sentinel design (e.g., because callers aggregate many scores and need to filter rather than abort), OR switch to throwing IllegalArgumentException on truly invalid inputs (zero/negative freq) and reserving NaN only for the score-is-uncomputable-but-inputs-are-technically-valid case.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The null-return pattern in resolveRelationConfig predates the IAE-throw convention established by requireParam, and was not updated during the error-handling refactor.",
+      "LogDiceCalculator uses a sentinel because score aggregation code historically preferred filtering NaN values over catching exceptions in tight loops."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

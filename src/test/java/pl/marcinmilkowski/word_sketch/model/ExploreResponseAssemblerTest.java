@@ -1,11 +1,6 @@
-package pl.marcinmilkowski.word_sketch.api;
+package pl.marcinmilkowski.word_sketch.model;
 
 import org.junit.jupiter.api.Test;
-import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
-import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
-import pl.marcinmilkowski.word_sketch.model.Edge;
-import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
-import pl.marcinmilkowski.word_sketch.model.RelationEdgeType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -130,5 +125,16 @@ class ExploreResponseAssemblerTest {
         assertEquals(3.14, ExploreResponseAssembler.round2dp(3.14159), 0.001);
         assertEquals(0.0, ExploreResponseAssembler.round2dp(0.0), 0.001);
         assertEquals(14.0, ExploreResponseAssembler.round2dp(14.0), 0.001);
+    }
+
+    @Test
+    void serializeEdge_includesAllFields() {
+        Edge edge = new Edge("theory", "abstract", 8.567, RelationEdgeType.SEED_ADJ);
+        Map<String, Object> m = ExploreResponseAssembler.serializeEdge(edge);
+
+        assertEquals("theory", m.get("source"));
+        assertEquals("abstract", m.get("target"));
+        assertEquals(8.57, (double) m.get("log_dice"), 0.001);
+        assertEquals("seed_adj", m.get("type"));
     }
 }

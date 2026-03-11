@@ -1,5 +1,6 @@
 package pl.marcinmilkowski.word_sketch.query;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import java.io.File;
@@ -15,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 2. Full sentences are returned (not just 5-word KWIC)
  * 3. Plain text AND raw XML both available (toggle)
  */
+@Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
 public class BlackLabBcqlConcordanceTest {
 
     private static final String INDEX_PATH = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

@@ -1,0 +1,72 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 16,
+  "assessments": {"design_coherence": 74.5},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Flagged boilerplate at ExplorationHandlers.java:3, CollocateProfileComparator.java:9, SemanticFieldExplorer.java:9 — confirmed as package/import block Java boilerplate (Logger declaration + SLF4J imports). This is structural Java boilerplate that cannot be extracted; it is not a design issue.",
+        "ExplorationHandlers has 4 handler methods but three of them share a validate→dispatch pattern (validateExploreRequest) and one (handleSemanticFieldComparison) does its own validation manually. The fourth handler (handleSemanticFieldExamples) does its own parameter parsing too. Three distinct validation styles in one class.",
+        "handleSemanticFieldExploreMulti parses the query string via parseBaseExploreRequest into rawParams for a nouns_per check, then immediately calls validateExploreRequest which calls parseBaseExploreRequest again — a design flaw where the pre-check bypass path (rawParams) is not integrated into the shared validation flow.",
+        "SketchHandlers.executeRelationQueries uses BiFunction and Predicate parameters to unify two structural paths (surface vs. dependency) — a well-designed, data-driven solution that replaces what could have been duplicated loops.",
+        "SemanticFieldExplorer is a clean facade: it delegates to MultiSeedExplorer, CollocateProfileComparator, and the internal exploration algorithm. Each class has a focused responsibility. The three-way delegation is clear.",
+        "ExplorationHandlers.ValidatedExploreRequest private record captures validated state cleanly, avoiding parameter telescoping in handler methods. The pattern is used consistently for 2 of 4 handlers (the explore and explore-multi paths) but not for comparison or examples.",
+        "CollocateProfileComparator and MultiSeedExplorer are both package-private and accessed only through SemanticFieldExplorer — the facade boundary is enforced by visibility.",
+        "CorpusQueryHandlers.parseBcqlRequest cleanly separates parsing/validation from execution (handleCorpusQuery). The handler is focused and small."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "SketchHandlers.executeRelationQueries with callback parameters is a clean data-driven design that eliminates structural duplication between surface and dependency sketches.",
+        "SemanticFieldExplorer as a facade with package-private delegates (MultiSeedExplorer, CollocateProfileComparator) cleanly enforces the exploration sub-domain boundary.",
+        "The ValidatedExploreRequest private record prevents parameter telescoping in the shared exploration handler path.",
+        "CorpusQueryHandlers cleanly separates request parsing (parseBcqlRequest) from execution (handleCorpusQuery)."
+      ],
+      "issue_character": "The main design coherence issue is ExplorationHandlers using three different validation styles across four handlers — two use the validateExploreRequest shared path, one (comparison) does manual validation, one (examples) does its own parsing — creating a fragmented pattern in a single class.",
+      "score_rationale": "The codebase has strong design coherence in the query and exploration layers, with clean facades, focused classes, and data-driven patterns. The score is held below 80 by ExplorationHandlers' fragmented handler patterns — the shared validate→dispatch path covers only 2 of 4 handlers, the double-parse is a structural artifact of adding a pre-check without refactoring the shared path, and handleSemanticFieldComparison bypasses the shared validation entirely. These are cohesion issues within a single class, not cross-cutting structural problems."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "exploration_handlers_fragmented_validation",
+      "summary": "ExplorationHandlers uses three distinct validation patterns across four handler methods",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti use validateExploreRequest (shared path).",
+        "handleSemanticFieldComparison does its own: `HttpApiUtils.requireParam(params, \"seeds\")` + manual resolveExploreParams call.",
+        "handleSemanticFieldExamples does its own: requireParam for adjective, noun, then resolveRelationConfig directly.",
+        "The result is three structural patterns for parameter validation in the same class, increasing maintenance surface."
+      ],
+      "suggestion": "Extend ValidatedExploreRequest or create per-handler request records for the comparison and examples paths. Extract a validateComparisonRequest and validateExamplesRequest that mirror validateExploreRequest's structure. This creates four parallel-shaped handlers with consistent validation, and allows the nouns_per early-return in explore-multi to be cleanly gated inside the shared validation without double-parsing.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nouns_per_precheck_outside_shared_validation",
+      "summary": "nouns_per parameter rejection in explore-multi is performed outside the shared validateExploreRequest path, causing a structural double-parse",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Lines 118-123: rawParams = parseBaseExploreRequest; if (rawParams.containsKey('nouns_per')) return 400.",
+        "Line 126: validateExploreRequest(exchange) calls parseBaseExploreRequest again — redundant re-parse.",
+        "The early-return guard and the shared validation path are structurally disconnected, creating an implicit ordering dependency."
+      ],
+      "suggestion": "Move the nouns_per blacklist check into resolveExploreParams or validateExploreRequest — for example, accept a Set<String> of disallowed parameter names and throw IllegalArgumentException if any are present in the parsed params. This removes the double-parse and makes the validation contract explicit.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["ExplorationHandlers grew incrementally: validateExploreRequest was added for the explore path, but comparison and examples handlers were written independently without adapting to the shared validation pattern."],
+    "likely_symptoms": ["exploration_handlers_fragmented_validation and nouns_per_precheck are both symptoms of incremental growth without periodic refactoring."],
+    "possible_false_positives": ["The flagged boilerplate_duplication at lines 3/9 across three files is Java import-block boilerplate — not an extractable design smell."]
+  }
+}

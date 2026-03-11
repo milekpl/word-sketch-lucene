@@ -1,5 +1,6 @@
 package pl.marcinmilkowski.word_sketch.query;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import java.io.File;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * To run these tests, set the INDEX_PATH environment variable or
  * modify the indexPath field to point to a valid BlackLab index.
  */
+@Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
 public class DependencySketchTest {
 
     private static final String INDEX_PATH = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

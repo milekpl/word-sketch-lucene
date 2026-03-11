@@ -3,6 +3,7 @@ package pl.marcinmilkowski.word_sketch.api;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.sun.net.httpserver.Headers;
+import pl.marcinmilkowski.word_sketch.model.ExploreResponseAssembler;
 import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpPrincipal;
@@ -71,7 +72,7 @@ class HandlersTest {
     @Test
     void handleConcordanceExamples_missingWord1_returns400() throws Exception {
         ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
-        MockExchange ex = new MockExchange("http://localhost/api/concordance?word2=house");
+        MockExchange ex = new MockExchange("http://localhost/api/concordance?collocate=house");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleConcordanceExamples, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
@@ -79,7 +80,7 @@ class HandlersTest {
     @Test
     void handleConcordanceExamples_missingWord2_returns400() throws Exception {
         ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
-        MockExchange ex = new MockExchange("http://localhost/api/concordance?word1=big");
+        MockExchange ex = new MockExchange("http://localhost/api/concordance?seed=big");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleConcordanceExamples, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
@@ -160,7 +161,7 @@ class HandlersTest {
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), explorer);
         MockExchange ex = new MockExchange(
-                "http://localhost/api/semantic-field/explore?seeds=theory&relation=noun_adj_predicates");
+                "http://localhost/api/semantic-field/explore?seed=theory&relation=noun_adj_predicates");
         handlers.handleSemanticFieldExplore(ex);
         assertEquals(200, ex.statusCode);
         JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
@@ -263,6 +264,19 @@ class HandlersTest {
         assertTrue(response.contains("theory"), "Response must contain the center word");
     }
 
+    @Test
+    void handleVisualRadial_responseContentTypeIsSvg() throws Exception {
+        VisualizationHandlers handlers = new VisualizationHandlers();
+        String body = "{\"center\":\"test\",\"items\":[{\"label\":\"fast\",\"score\":6.0}]}";
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/visual/radial", body);
+        handlers.handleVisualRadial(ex);
+        assertEquals(200, ex.statusCode);
+        String contentType = ex.getResponseHeaders().getFirst("Content-Type");
+        assertNotNull(contentType, "Content-Type header must be present");
+        assertTrue(contentType.startsWith("image/svg+xml"),
+            "Content-Type must be image/svg+xml, got: " + contentType);
+    }
+
     static class MockPostBodyExchange extends MockExchange {
         private final byte[] requestBodyBytes;
 
@@ -342,8 +356,8 @@ class HandlersTest {
     void handleSemanticFieldExplore_unknownRelation_returns400() throws Exception {
         ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
         MockExchange ex = new MockExchange(
-                "http://localhost/api/semantic-field/explore?seeds=theory&relation=no_such_relation");
-        handlers.handleSemanticFieldExplore(ex);
+                "http://localhost/api/semantic-field/explore?seed=theory&relation=no_such_relation");
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExplore, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
 
@@ -352,7 +366,7 @@ class HandlersTest {
         ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
         MockExchange ex = new MockExchange(
                 "http://localhost/api/semantic-field/explore-multi?seeds=theory,model&relation=no_such_relation");
-        handlers.handleSemanticFieldExploreMulti(ex);
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExploreMulti, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
 

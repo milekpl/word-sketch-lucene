@@ -23,9 +23,10 @@ import java.util.Objects;
  * - GET  /api/sketch/{lemma}/dep/{deprel}   - Specific dependency relation
  * - GET  /api/relations                     - List surface relations
  * - GET  /api/relations/dep                 - List dependency relations
- * - GET  /api/semantic-field/explore        - Single-seed semantic field exploration
- * - GET  /api/semantic-field/explore-multi  - Multi-seed semantic field exploration
- * - GET  /api/semantic-field                - Semantic field overview
+ * - GET  /api/semantic-field/explore        - Single-seed semantic field exploration (?seed=)
+ * - GET  /api/semantic-field/explore-multi  - Multi-seed semantic field exploration (?seeds=)
+ * - GET  /api/semantic-field/compare        - Semantic field comparison (canonical path)
+ * - GET  /api/semantic-field                - Semantic field comparison (legacy alias)
  * - GET  /api/semantic-field/examples       - Semantic field concordance examples
  * - GET  /api/concordance/examples          - Concordance examples for a word pair
  * - POST /api/visual/radial                 - Radial plot (POST-only)
@@ -81,8 +82,11 @@ public class WordSketchApiServer {
         registerGetHandler(server, "/api/semantic-field/explore-multi",
             wrapHandler(explorationHandlers::handleSemanticFieldExploreMulti, "Multi-seed exploration"));
 
-        registerGetHandler(server, "/api/semantic-field",
+        registerGetHandler(server, "/api/semantic-field/compare",
             wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
+
+        registerGetHandler(server, "/api/semantic-field",
+            wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison (legacy)"));
 
         registerGetHandler(server, "/api/semantic-field/examples",
             wrapHandler(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));

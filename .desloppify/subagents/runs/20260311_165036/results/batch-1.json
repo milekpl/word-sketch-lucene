@@ -1,0 +1,88 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {"cross_module_architecture": 74.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Package layout is clearly domain-aligned: api, config, exploration, indexer/blacklab, model, query, utils, viz — each with a coherent scope and no obvious mis-placements.",
+        "Dependency flow is largely top-down: api → exploration → query → model; config is a shared value layer imported by api, exploration, and query. No import cycles were found.",
+        "RelationType enum (model package) conflates two distinct roles: structural query strategy discriminators (SURFACE, DEP) and semantic relation categories (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF). The enum is consumed by SketchHandlers (structural dispatch), CollocateProfileComparator (semantic lookup), and GrammarConfigLoader (parsing) — three different semantic contexts with no enum-level documentation distinguishing the two namespaces.",
+        "All six api handler classes import com.sun.net.httpserver.HttpExchange — a JDK internal API in the com.sun namespace. While bounded to the api package, this creates a codebase-wide coupling to an unsupported API that could be removed or restricted in future JVM versions (e.g., via --illegal-access restrictions or module encapsulation).",
+        "SemanticFieldExplorer acts as a thin façade over CollocateProfileComparator and MultiSeedExplorer. The façade is intentional, documented, and provides value by offering a unified API to the exploration subsystem.",
+        "WordSketchApiServer constructs and wires all handler objects in its constructor — hub-like, but this is framework-required composition. The constructor is 2-overload with clear injection seam.",
+        "LongIntHashMap in utils has no cross-module imports and represents a well-contained low-level utility.",
+        "BlackLabConllUIndexer and ConlluConverter in indexer/blacklab form an appropriately isolated subpackage with no upward imports into the api or exploration layers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Package layout matches domain capabilities: api, config, exploration, query, model, indexer are all predictably scoped.",
+        "No circular import dependencies found across any package boundary.",
+        "The api package is self-contained with all handlers package-private and only WordSketchApiServer as the public entry point.",
+        "GrammarConfig/GrammarConfigLoader separation cleanly isolates the loaded value object from the loading machinery.",
+        "BlackLab adapter code is isolated in indexer/blacklab with no leakage into exploration or api layers."
+      ],
+      "issue_character": "The primary architectural tension is a single enum (RelationType) that silently conflates two orthogonal namespaces — structural query strategy and semantic category — causing usage patterns that are semantically inconsistent across consuming classes.",
+      "score_rationale": "The codebase demonstrates solid layer discipline and predictable dependency direction, earning a score well above the midpoint. The RelationType enum mixing and the com.sun.net.httpserver coupling are genuine boundary concerns that prevent a higher score — the former because it blurs the model contract, the latter because it anchors the entire API layer to an unsupported JDK namespace."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "relation_type_enum_dual_role",
+      "summary": "RelationType enum conflates structural query strategy (SURFACE, DEP) with semantic relation categories (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "SketchHandlers uses RelationType.SURFACE and RelationType.DEP as dispatch selectors for query strategy.",
+        "CollocateProfileComparator.deriveAdjectivePattern calls RelationUtils.findBestCollocatePattern with RelationType.ADJ_MODIFIER, RelationType.ADJ_PREDICATE — semantic categories.",
+        "SemanticFieldExplorer.deriveNounCqlConstraint uses RelationType.OBJECT_OF, RelationType.SUBJECT_OF — further semantic categories.",
+        "GrammarConfigLoader.parseRelationType parses any RelationType value from JSON, making the config file API depend on the same mixed enum."
+      ],
+      "suggestion": "Split into two enums: QueryStrategy { SURFACE, DEP } for dispatch in SketchHandlers, and SemanticRelationType { ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF } for semantic classification in config and exploration. RelationConfig can carry both where applicable.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "com_sun_httpserver_coupling",
+      "summary": "All api-layer handler classes import com.sun.net.httpserver — an unsupported internal JDK API — creating a codebase-wide dependency on a non-guaranteed namespace",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "All six api handler files begin with import com.sun.net.httpserver.HttpExchange;",
+        "com.sun.net.httpserver is not part of the Java SE public API specification — it may be restricted or encapsulated in future JDK releases.",
+        "The coupling is bounded to the api package and does not leak into exploration or query layers."
+      ],
+      "suggestion": "Accept the risk with a documented decision comment in WordSketchApiServer, or wrap the HttpExchange dependency behind a thin interface (e.g., RequestContext) to allow future migration. At minimum, add a pom.xml comment documenting the conscious choice to use this JDK-internal HTTP server.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RelationType was extended incrementally as new relation categories were added without separating structural from semantic roles.",
+      "com.sun.net.httpserver was chosen as a zero-dependency embedded HTTP server — pragmatic but it anchors the api layer to an internal namespace."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

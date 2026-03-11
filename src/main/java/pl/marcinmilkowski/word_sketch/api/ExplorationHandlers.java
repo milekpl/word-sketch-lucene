@@ -7,14 +7,13 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
+import pl.marcinmilkowski.word_sketch.model.ExploreResponseAssembler;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 
 import java.util.Objects;
-
-import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -41,32 +40,21 @@ class ExplorationHandlers {
     }
 
     /**
-     * Parses the query string from the exchange into a parameter map.
-     * All four exploration handlers share this identical preamble.
-     */
-    private static Map<String, String> parseBaseExploreRequest(HttpExchange exchange) {
-        String query = exchange.getRequestURI().getQuery();
-        return HttpApiUtils.parseQueryParams(query);
-    }
-
-    /**
-     * Shared preamble for the three exploration handlers that require a {@code seeds} parameter
-     * and a {@code RelationConfig}: parse request, require seeds, resolve relation config, and
-     * resolve numeric parameters in one call.
+     * Shared preamble for multi-seed exploration handlers that require a {@code seeds} parameter
+     * and a {@code RelationConfig}: validate seeds, resolve relation config, and resolve numeric
+     * parameters in one call.
      *
-     * @return a populated {@link ValidatedExploreRequest}, or {@code null} if a 400 has already
-     *         been sent and the handler should return immediately
+     * <p>Accepts a pre-parsed {@code params} map so callers that already parsed the query string
+     * (e.g. to inspect params before calling) avoid a double-parse.</p>
+     *
+     * @throws IllegalArgumentException if {@code seeds} is missing, the relation is unknown, or
+     *         the relation config is misconfigured — caught by
+     *         {@link HttpApiUtils#wrapWithErrorHandling} and mapped to 400
      */
-    private @Nullable ValidatedExploreRequest validateExploreRequest(HttpExchange exchange) throws IOException {
-        Map<String, String> params = parseBaseExploreRequest(exchange);
-
+    private ValidatedExploreRequest buildExploreRequest(Map<String, String> params) {
         String seedsRaw = HttpApiUtils.requireParam(params, "seeds");
-
-        RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
-        if (resolvedConfig == null) return null;
-
+        RelationConfig resolvedConfig = resolveRelationConfig(params);
         ExploreParams exploreParams = resolveExploreParams(params);
-
         return new ValidatedExploreRequest(params, seedsRaw, resolvedConfig, exploreParams);
     }
 
@@ -78,31 +66,37 @@ class ExplorationHandlers {
 
     /**
      * Handle semantic field exploration (single seed).
-     * GET /api/semantic-field/explore?seeds=house&relation=adj_predicate&top=15&min_shared=2&min_logdice=3.0
+     *
+     * <p>GET /api/semantic-field/explore?seed=house&amp;relation=adj_predicate&amp;top=15&amp;min_shared=2&amp;min_logdice=3.0</p>
+     *
+     * <p>Cardinality: accepts exactly one {@code seed} value. Providing comma-separated values
+     * is not supported — use {@code /api/semantic-field/explore-multi} for multiple seeds.</p>
+     *
+     * @param exchange the HTTP exchange; receives a 400 if {@code seed} is missing or the
+     *                 relation is unknown
      */
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
-        ValidatedExploreRequest req = validateExploreRequest(exchange);
-        if (req == null) return;
+        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
+        String seed = HttpApiUtils.requireParam(params, "seed");
+        RelationConfig resolvedConfig = resolveRelationConfig(params);
+        ExploreParams exploreParams = resolveExploreParams(params);
 
-        String seed = req.seedsRaw();
-        RelationConfig resolvedConfig = req.relationConfig();
         String relationType = resolvedConfig.relationType()
             .orElseThrow(() -> new IllegalStateException(
                 "relationType absent after validation for relation: " + resolvedConfig.id()))
             .name();
-        int topCollocates = req.exploreParams().topCollocates();
-        int minShared = req.exploreParams().minShared();
-        double minLogDice = req.exploreParams().minLogDice();
-        int nounsPerCollocate = req.exploreParams().nounsPerCollocate();
 
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(
-            topCollocates, nounsPerCollocate, minLogDice, minShared);
+            exploreParams.topCollocates(), exploreParams.nounsPerCollocate(),
+            exploreParams.minLogDice(), exploreParams.minShared());
 
         ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
 
         Map<String, Object> extraParams = new HashMap<>();
-        extraParams.put("nouns_per", nounsPerCollocate);
-        Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice, extraParams);
+        extraParams.put("nouns_per", exploreParams.nounsPerCollocate());
+        Map<String, Object> response = buildBaseExploreResponse(
+            relationType, exploreParams.topCollocates(), exploreParams.minShared(),
+            exploreParams.minLogDice(), extraParams);
         response.put("seed", result.getSeed());
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
@@ -111,40 +105,47 @@ class ExplorationHandlers {
 
     /**
      * Handle multi-seed semantic field exploration.
-     * GET /api/semantic-field/explore-multi?seeds=theory,model,hypothesis&relation=adj_predicate&top=15&min_shared=2
+     *
+     * <p>GET /api/semantic-field/explore-multi?seeds=theory,model,hypothesis&amp;relation=adj_predicate&amp;top=15&amp;min_shared=2</p>
+     *
+     * <p>Cardinality: requires at least 2 comma-separated {@code seeds} values. For a single
+     * seed use {@code /api/semantic-field/explore}.</p>
+     *
+     * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing, has fewer
+     *                 than 2 values, uses the unsupported {@code nouns_per} parameter, or the
+     *                 relation is unknown
      */
     void handleSemanticFieldExploreMulti(HttpExchange exchange) throws IOException {
-        // Reject unsupported params before any further validation or parsing.
-        Map<String, String> rawParams = parseBaseExploreRequest(exchange);
-        if (rawParams.containsKey("nouns_per")) {
+        // Parse once and reuse for both the nouns_per pre-flight and buildExploreRequest.
+        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
+        if (params.containsKey("nouns_per")) {
             HttpApiUtils.sendError(exchange, 400, "nouns_per is not supported for multi-seed exploration");
             return;
         }
 
-        ValidatedExploreRequest req = validateExploreRequest(exchange);
-        if (req == null) return;
+        ValidatedExploreRequest req = buildExploreRequest(params);
 
         Set<String> seeds = parseSeedSet(req.seedsRaw());
 
         if (seeds.size() < 2) {
-            HttpApiUtils.sendError(exchange, 400, "Need at least 2 seeds for multi-seed exploration");
+            HttpApiUtils.sendError(exchange, 400,
+                "Multi-seed exploration requires at least 2 seeds; received " + seeds.size());
             return;
         }
 
-        RelationConfig resolvedConfig = req.relationConfig();
-        String relationType = resolvedConfig.relationType()
+        String relationType = req.relationConfig().relationType()
             .orElseThrow(() -> new IllegalStateException(
-                "relationType absent after validation for relation: " + resolvedConfig.id()))
+                "relationType absent after validation for relation: " + req.relationConfig().id()))
             .name();
 
-        int topCollocates = req.exploreParams().topCollocates();
-        int minShared = req.exploreParams().minShared();
-        double minLogDice = req.exploreParams().minLogDice();
+        ExplorationOptions opts = new ExplorationOptions(
+            req.exploreParams().topCollocates(), req.exploreParams().minLogDice(),
+            req.exploreParams().minShared());
+        ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, req.relationConfig(), opts);
 
-        ExplorationOptions opts = new ExplorationOptions(topCollocates, minLogDice, minShared);
-        ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
-
-        Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice, Map.of());
+        Map<String, Object> response = buildBaseExploreResponse(
+            relationType, req.exploreParams().topCollocates(), req.exploreParams().minShared(),
+            req.exploreParams().minLogDice(), Map.of());
         response.put("seeds", new ArrayList<>(seeds));
         response.put("seed_count", seeds.size());
 
@@ -155,42 +156,60 @@ class ExplorationHandlers {
 
     /**
      * Handle semantic field comparison.
-     * GET /api/semantic-field?seeds=theory,model,hypothesis&min_logdice=3.0
+     *
+     * <p>GET /api/semantic-field/compare?seeds=theory,model,hypothesis&amp;min_logdice=3.0</p>
+     *
+     * <p>Also reachable at the legacy path {@code /api/semantic-field}.</p>
+     *
+     * <p>Cardinality: requires exactly 2 comma-separated {@code seeds} values to form a
+     * meaningful pairwise comparison.
+     * This endpoint does not accept a {@code relation} parameter because
+     * {@link pl.marcinmilkowski.word_sketch.exploration.CollocateProfileComparator} aggregates
+     * collocates across all loaded relations rather than filtering to one relation type.</p>
+     *
+     * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing or has
+     *                 fewer than 2 values
      */
     void handleSemanticFieldComparison(HttpExchange exchange) throws IOException {
-        Map<String, String> params = parseBaseExploreRequest(exchange);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
         String seedsParam = HttpApiUtils.requireParam(params, "seeds");
-
         Set<String> seeds = parseSeedSet(seedsParam);
+        if (seeds.size() < 2) {
+            throw new IllegalArgumentException(
+                "Comparison requires at least 2 seed nouns; received " + seeds.size());
+        }
 
         ExploreParams exploreParams = resolveExploreParams(params);
-        int topCollocates = exploreParams.topCollocates();
-        double minLogDice = exploreParams.minLogDice();
 
-        ExplorationOptions opts = new ExplorationOptions(topCollocates, minLogDice, exploreParams.minShared());
+        ExplorationOptions opts = new ExplorationOptions(
+            exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared());
         ComparisonResult result = semanticFieldExplorer.compareCollocateProfiles(seeds, opts);
 
         Map<String, Object> response = new HashMap<>();
-        ExploreResponseAssembler.populateComparisonResponse(response, result, seeds, topCollocates, minLogDice);
+        ExploreResponseAssembler.populateComparisonResponse(response, result, seeds,
+            exploreParams.topCollocates(), exploreParams.minLogDice());
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
      * Handle semantic field examples.
-     * GET /api/semantic-field/examples?adjective=good&noun=theory&max=10&relation=adj_predicate
+     *
+     * <p>GET /api/semantic-field/examples?adjective=good&amp;noun=theory&amp;top=10&amp;relation=adj_predicate</p>
+     *
+     * @param exchange the HTTP exchange; receives a 400 if {@code adjective} or {@code noun}
+     *                 is missing or the relation is unknown
      */
     void handleSemanticFieldExamples(HttpExchange exchange) throws IOException {
-        Map<String, String> params = parseBaseExploreRequest(exchange);
+        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
         String adjective = HttpApiUtils.requireParam(params, "adjective");
         String noun = HttpApiUtils.requireParam(params, "noun");
 
         int maxExamples = HttpApiUtils.parseIntParam(params, "top", 10);
 
-        RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
-        if (resolvedConfig == null) return;
+        RelationConfig resolvedConfig = resolveRelationConfig(params);
 
         List<String> examples = semanticFieldExplorer.fetchExamples(adjective, noun, resolvedConfig, maxExamples);
 
@@ -242,22 +261,21 @@ class ExplorationHandlers {
 
     /**
      * Resolves and validates the relation parameter from request params.
-     * Sends a 400 error response and returns null if the relation is unknown or misconfigured.
-     * Both exploration handlers share this preamble.
+     *
+     * @throws IllegalArgumentException if the relation is unknown or misconfigured — caught by
+     *         {@link HttpApiUtils#wrapWithErrorHandling} and mapped to 400
      */
-    private @Nullable RelationConfig resolveRelationConfig(HttpExchange exchange, Map<String, String> params) throws IOException {
+    private RelationConfig resolveRelationConfig(Map<String, String> params) {
         String relationId = RelationUtils.resolveRelationAlias(
             params.getOrDefault("relation", "noun_adj_predicates"));
         var relationConfig = grammarConfig.getRelation(relationId);
         if (relationConfig.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
-            return null;
+            throw new IllegalArgumentException("Unknown relation: " + relationId);
         }
         var relType = relationConfig.get().relationType();
         if (relType.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400,
+            throw new IllegalArgumentException(
                 "Invalid relation config: missing or unrecognised relation_type for '" + relationId + "'");
-            return null;
         }
         return relationConfig.get();
     }

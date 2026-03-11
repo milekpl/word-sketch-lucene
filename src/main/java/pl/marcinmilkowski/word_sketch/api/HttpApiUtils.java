@@ -3,6 +3,8 @@ package pl.marcinmilkowski.word_sketch.api;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.sun.net.httpserver.HttpExchange;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,13 +34,15 @@ class HttpApiUtils {
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
 
     /**
-     * Allowed CORS origin. Read at use time via {@link #getCorsAllowOrigin()} so that
-     * the system property is evaluated when the response is sent, not at class-load time.
-     * Override at runtime via the {@code cors.allow.origin} JVM system property:
-     * {@code -Dcors.allow.origin=https://myapp.example.com}
+     * Allowed CORS origin. Cached at class-load time from the {@code cors.allow.origin} JVM
+     * system property (default: {@code http://localhost:3000}).
+     * Override at startup via {@code -Dcors.allow.origin=https://myapp.example.com}.
      */
+    private static final String CORS_ALLOW_ORIGIN =
+            System.getProperty("cors.allow.origin", "http://localhost:3000");
+
     private static String getCorsAllowOrigin() {
-        return System.getProperty("cors.allow.origin", "http://localhost:3000");
+        return CORS_ALLOW_ORIGIN;
     }
 
     /**
@@ -76,7 +80,7 @@ class HttpApiUtils {
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", getCorsAllowOrigin());
     }
 
-    public static void sendJsonResponse(HttpExchange exchange, Object data) throws IOException {
+    public static void sendJsonResponse(@NonNull HttpExchange exchange, @NonNull Object data) throws IOException {
         String json = JSON.toJSONString(data);
         byte[] bytes = json.getBytes("UTF-8");
 
@@ -89,7 +93,7 @@ class HttpApiUtils {
         }
     }
 
-    public static void sendError(HttpExchange exchange, int code, String message) throws IOException {
+    public static void sendError(@NonNull HttpExchange exchange, int code, @NonNull String message) throws IOException {
         JSONObject error = new JSONObject();
         error.put("error", message);
         String json = JSON.toJSONString(error);
@@ -107,7 +111,7 @@ class HttpApiUtils {
     /**
      * Responds to an OPTIONS preflight request with the appropriate CORS headers and 204 No Content.
      */
-    public static void sendOptionsResponse(HttpExchange exchange, String allowedMethods) throws IOException {
+    public static void sendOptionsResponse(@NonNull HttpExchange exchange, @NonNull String allowedMethods) throws IOException {
         setCorsHeader(exchange);
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", allowedMethods + ", OPTIONS");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
@@ -117,7 +121,7 @@ class HttpApiUtils {
     /**
      * Sends a binary response with the given content type (e.g., image/svg+xml) and CORS header.
      */
-    public static void sendBinaryResponse(HttpExchange exchange, String contentType, byte[] bytes) throws IOException {
+    public static void sendBinaryResponse(@NonNull HttpExchange exchange, @NonNull String contentType, @NonNull byte[] bytes) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", contentType);
         setCorsHeader(exchange);
         exchange.sendResponseHeaders(200, bytes.length);
@@ -130,7 +134,7 @@ class HttpApiUtils {
      * Validates that the request uses the expected HTTP method.
      * If it does not, sends a 405 Method Not Allowed response and returns false.
      */
-    public static boolean requireMethod(HttpExchange exchange, String method) throws IOException {
+    public static boolean requireMethod(@NonNull HttpExchange exchange, @NonNull String method) throws IOException {
         if (!method.equals(exchange.getRequestMethod())) {
             exchange.getResponseHeaders().set("Allow", method);
             sendError(exchange, 405, "Method Not Allowed");
@@ -143,7 +147,7 @@ class HttpApiUtils {
      * Returns the parameter value, or throws {@link IllegalArgumentException} if missing or empty.
      * {@link #wrapWithErrorHandling} catches IAE and maps it to a 400 Bad Request response.
      */
-    public static String requireParam(Map<String, String> params, String name) {
+    public static @NonNull String requireParam(@NonNull Map<String, String> params, @NonNull String name) {
         String v = params.getOrDefault(name, "").trim();
         if (v.isEmpty()) {
             throw new IllegalArgumentException("Missing required parameter: " + name);
@@ -156,7 +160,7 @@ class HttpApiUtils {
      * Throws {@link IllegalArgumentException} on parse failure so {@link #wrapWithErrorHandling}
      * catches it and sends a 400 Bad Request response.
      */
-    static int parseIntParam(Map<String, String> params, String name, int defaultValue) {
+    static int parseIntParam(@NonNull Map<String, String> params, @NonNull String name, int defaultValue) {
         String raw = params.getOrDefault(name, String.valueOf(defaultValue));
         try {
             return Integer.parseInt(raw);
@@ -171,7 +175,7 @@ class HttpApiUtils {
      * Throws {@link IllegalArgumentException} on parse failure so {@link #wrapWithErrorHandling}
      * catches it and sends a 400 Bad Request response.
      */
-    static double parseDoubleParam(Map<String, String> params, String name, double defaultValue) {
+    static double parseDoubleParam(@NonNull Map<String, String> params, @NonNull String name, double defaultValue) {
         String raw = params.getOrDefault(name, String.valueOf(defaultValue));
         try {
             return Double.parseDouble(raw);
@@ -187,7 +191,7 @@ class HttpApiUtils {
      *         callers and {@code wrapHandler} can return a 400 Bad Request response rather than
      *         silently producing a malformed parameter map.
      */
-    public static Map<String, String> parseQueryParams(String query) {
+    public static @NonNull Map<String, String> parseQueryParams(@Nullable String query) {
         Map<String, String> params = new HashMap<>();
         if (query == null || query.isEmpty()) {
             return params;

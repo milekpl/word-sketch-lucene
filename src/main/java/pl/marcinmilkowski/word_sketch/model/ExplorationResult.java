@@ -20,6 +20,14 @@ import java.util.stream.Collectors;
  * factory keeps the construction logic encapsulated and co-located with the type.</p>
  */
 public class ExplorationResult {
+    /**
+     * The seed word(s) this result was built from.
+     *
+     * <p><strong>Single-seed mode:</strong> contains the lemma string (e.g. {@code "house"}).
+     * <strong>Multi-seed mode:</strong> contains the seeds joined with a comma
+     * (e.g. {@code "theory,model,hypothesis"}). Use {@link #seeds()} to iterate them
+     * independently of the mode.</p>
+     */
     private final String seed;
     private final Map<String, Double> seedCollocates;  // collocate -> logDice with seed
     private final Map<String, Long> seedCollocateFrequencies;  // collocate -> raw frequency
@@ -36,8 +44,19 @@ public class ExplorationResult {
         this.coreCollocates = coreCollocates;
     }
 
-    /** @return the seed word this result was built from; never null or blank */
+    /** @return the seed word(s); in single-seed mode this is the lemma, in multi-seed mode it is a
+     *          comma-joined string — see field Javadoc for details */
     public String getSeed() { return seed; }
+
+    /**
+     * Returns individual seed lemmas.
+     * In single-seed mode returns a one-element list; in multi-seed mode splits on {@code ","}.
+     *
+     * @return non-null, non-empty list of individual seed lemmas
+     */
+    public List<String> seeds() {
+        return List.of(seed.split(","));
+    }
 
     /** @return collocate lemma → logDice score for the seed; never null, may be empty */
     public Map<String, Double> getSeedCollocates() { return seedCollocates; }

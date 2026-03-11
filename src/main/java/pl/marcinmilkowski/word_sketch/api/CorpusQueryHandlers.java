@@ -41,7 +41,7 @@ class CorpusQueryHandlers {
     /**
      * Handle arbitrary BCQL query (POST with JSON body to avoid URL encoding issues).
      * POST /api/bcql with body: {"query": "[lemma=\"test\"]", "top": 20}
-     * The deprecated "limit" field is also accepted for backward compatibility.
+     * The {@code top} field controls the maximum number of results returned.
      */
     void handleCorpusQuery(HttpExchange exchange) throws IOException {
         BcqlRequest req = parseBcqlRequest(exchange);
@@ -89,12 +89,7 @@ class CorpusQueryHandlers {
             throw new IllegalArgumentException(
                     "Pattern too complex: " + bracketCount + " token constraints (max " + MAX_BCQL_BRACKET_DEPTH + ")");
         }
-        // 'top' is the canonical parameter name.
-        // 'limit' is a @deprecated alias retained for backward compatibility.
-        // No active callers of 'limit' have been found in webapp JS or test suites (verified via grep).
-        // Planned removal: remove the 'limit' alias in v2.0 or whenever breaking API changes are acceptable.
         Integer top = obj.get("top") != null ? obj.getIntValue("top") : null;
-        if (top == null) top = obj.get("limit") != null ? obj.getIntValue("limit") : null; // @deprecated alias
         int resolvedTop = (top != null && top > 0) ? top : 10;
         return new BcqlRequest(bcqlQuery, resolvedTop);
     }

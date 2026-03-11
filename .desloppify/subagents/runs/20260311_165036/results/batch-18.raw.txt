@@ -1,0 +1,98 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 68.5},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "27 test classes for 39 production files — good ratio. 230 tests pass per task description, with 9 skipped due to live-index dependency.",
+        "Live-index tests are in 5 files: BlackLabQueryExecutorTest, BlackLabBcqlConcordanceTest, BlackLabDummyTest, DependencySketchTest, BlackLabConllUIndexerTest. All skip via Assumptions.assumeTrue when the index directory is absent — these tests validate the BlackLabQueryExecutor execution path but only when a local corpus index is available.",
+        "SemanticFieldExplorerInternalTest and SemanticFieldExplorerTest use StubExecutor (mock) to test exploration logic without an index — good unit isolation.",
+        "HandlersTest has 25 @Test methods and uses a hand-rolled MockExchange to test HTTP handlers — covers 400/200 response codes for most handler paths.",
+        "WordSketchApiServer (route registration, start(), stop()) has no dedicated test class — the server binding, route registration, and OPTIONS handling are not directly exercised in CI.",
+        "VisualizationHandlers.handleVisualRadial HTTP path is not covered by HandlersTest — RadialPlotTest covers the SVG rendering logic only, not the HTTP handler entry point.",
+        "CorpusQueryHandlers.handleCorpusQuery is not explicitly tested in HandlersTest (no test method name visible for BCQL endpoint).",
+        "HybridAlgorithmTest and CollocateQueryHelperTest use mock/stub BlackLabIndex subclasses to test ranking and scoring logic — coverage of logDice and collocate ranking paths is present.",
+        "No snapshot tests found — zero snapshot overuse.",
+        "Test fragility: live-index tests depend on local file system state (index directory existence) via environment variable CONCEPT_SKETCH_TEST_INDEX — CI builds silently skip these without a failure signal."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Core domain logic (exploration algorithms, logDice scoring, CQL parsing, grammar config loading) is well covered by unit tests using stub/mock executors.",
+        "No snapshot test overuse — tests use explicit assertions.",
+        "Live-index tests are correctly gated with Assumptions.assumeTrue rather than permanently disabled.",
+        "SemanticFieldExplorerInternalTest accesses package-private seams correctly via package co-location."
+      ],
+      "issue_character": "The gap is at the integration boundary: the HTTP layer (WordSketchApiServer route registration, VisualizationHandlers, CorpusQueryHandlers HTTP path) and the live-index execution path (BlackLabQueryExecutor against a real corpus) are systematically skipped in CI, leaving two important entry points without automated coverage.",
+      "score_rationale": "The test suite is solid for domain logic — stub-based unit tests cover exploration, config loading, CQL parsing, and scoring. The score is held below 70 by two structural gaps: (1) WordSketchApiServer's route registration and HTTP infrastructure are never directly tested, meaning a registration error would not be caught in CI; (2) the live-index tests, which validate the actual BlackLabQueryExecutor execution path, are silently skipped in all environments without a corpus index, creating a CI blind spot for the most complex production code path. These are missing critical-path tests, not low-value gaps."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "server_route_registration_untested",
+      "summary": "WordSketchApiServer route registration, start(), and stop() are not tested in CI",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/HandlersTest.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.registerRoutes() is called from start() but no test instantiates and starts the server.",
+        "HandlersTest tests individual handler classes directly (SketchHandlers, ConcordanceHandlers) but never exercises the route registration or the OPTIONS/method-enforcement wrappers in WordSketchApiServer.",
+        "A route mis-registration (e.g., wrong path prefix) would produce 404s in production without any CI failure."
+      ],
+      "suggestion": "Add a WordSketchApiServerTest that starts the server on a random port, hits at least the /health, /api/sketch/, and /api/semantic-field/explore endpoints with HttpClient, verifies 200/400 status codes, and stops the server. This validates route registration and HTTP infrastructure without requiring a real corpus index.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "visualization_handler_http_path_untested",
+      "summary": "VisualizationHandlers.handleVisualRadial HTTP handler path is not tested — only the rendering logic is covered",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/RadialPlotTest.java"
+      ],
+      "evidence": [
+        "RadialPlotTest tests RadialPlot.renderFromItems — the underlying SVG renderer.",
+        "VisualizationHandlers.handleVisualRadial parses JSON body, validates size, extracts parameters, and dispatches to RadialPlot — this entry path is not exercised by any test.",
+        "A JSON parse error or body-size limit logic change would not be caught."
+      ],
+      "suggestion": "Add HandlersTest cases for VisualizationHandlers.handleVisualRadial using MockExchange with a ByteArrayInputStream request body — test valid input (200 SVG response), missing 'items' (empty result), and oversized body (413 response).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "live_index_ci_blind_spot",
+      "summary": "Live-index tests (9) silently skip in CI with no failure signal — BlackLabQueryExecutor execution path is uncovered in automated builds",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java"
+      ],
+      "evidence": [
+        "All live-index tests use Assumptions.assumeTrue(INDEX_PATH != null, ...) — silently skipped when no index is available.",
+        "BlackLabQueryExecutor.findCollocations, executeSurfacePattern, executeBcqlQuery paths are not covered by any CI test.",
+        "The CollocateQueryHelper stub-based tests cover the scoring pipeline but not the index-access pipeline."
+      ],
+      "suggestion": "Create a small test corpus (10-50 sentences) checked into the repository as a test fixture. Add a @BeforeAll in BlackLabQueryExecutorTest to index it on-the-fly using BlackLabConllUIndexer into a temp directory. This converts the live-index tests from environment-dependent to hermetic, providing CI coverage without requiring an external corpus.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Live-index test gap is structural: the tests were written for a development environment with a real corpus and were never made hermetic.", "HTTP handler test gaps are incremental: individual handler logic was unit-tested but server integration was deferred."],
+    "likely_symptoms": ["live_index_ci_blind_spot is the highest-risk gap since BlackLabQueryExecutor is the most complex production class and its behavior changes with BlackLab version upgrades."],
+    "possible_false_positives": ["The assumed-true pattern in live-index tests is not test fragility (timing/ordering) — it is intentional conditional test execution."]
+  }
+}

@@ -294,17 +294,15 @@ public class Main {
     }
 
     /**
-     * Returns the next argument from {@code args} at index {@code i}, or terminates the JVM
-     * with exit code 1 if the index is out of bounds.
+     * Returns the next argument from {@code args} at index {@code i}, or throws
+     * {@link IllegalArgumentException} if the index is out of bounds.
      *
-     * <p><strong>Caution:</strong> calls {@link System#exit(int)} — only for use in CLI
-     * {@code main} methods where abnormal exit is an acceptable response to bad input.
+     * <p>Callers in {@code main} let this propagate to the top-level {@code catch (Exception e)}
+     * handler which prints the message and exits cleanly.</p>
      */
     private static String requireNextArg(String[] args, int i, String option) {
         if (i >= args.length) {
-            System.err.println("Error: " + option + " requires an argument");
-            System.err.println("Use 'help' for usage information.");
-            System.exit(1);
+            throw new IllegalArgumentException(option + " requires an argument");
         }
         return args[i];
     }

@@ -1,0 +1,76 @@
+{
+  "batch": "type_safety",
+  "batch_index": 15,
+  "assessments": {"type_safety": 75.5},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "Java's static type system enforces return types at compile time — no annotation-lie return types are possible across the codebase.",
+        "ExploreResponseAssembler.formatAdjectiveProfile uses magic string literals for category: `String category = adj.isFullyShared() ? \"fully_shared\" : adj.isPartiallyShared() ? \"partially_shared\" : \"specific\"`. The three string values duplicate the semantics of AdjectiveProfile's boolean methods but have no enum backing — a change to one would not be caught by the compiler.",
+        "All handler classes build JSON responses as Map<String, Object> — the standard Java pattern for dynamic JSON output, but it means response shapes cannot be statically verified. A missed key or wrong value type only manifests at runtime.",
+        "@Nullable / @NonNull annotations from jspecify are used in 3 locations (CollocateQueryHelper constructor, ExplorationHandlers.validateExploreRequest return type, QueryExecutor.executeDependencyPatternWithPos) but absent from most other public API parameters — inconsistent nullability documentation.",
+        "QueryResults contains nested records (WordSketchResult, CollocateResult, ConcordanceResult, SnippetResult) — all well-typed with explicit field types.",
+        "RelationEdgeType, RelationType, PosGroup enums are used consistently throughout; no raw string or integer comparisons bypass them in production code.",
+        "GrammarConfig, RelationConfig are final/record-like value objects with explicit types — no Object or untyped collections as fields.",
+        "CollocateQueryHelper.buildAndRankCollocates accepts `Map<String, String> posMap` — the caller passes `Collections.emptyMap()` when POS is unavailable. The empty map is an acceptable type-safe sentinel but `Optional<Map<String,String>>` would be more expressive of optionality."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Java's compiler enforces all method signature types — no return-type annotation lies are structurally possible.",
+        "Domain enums (RelationType, RelationEdgeType, PosGroup) are used consistently; no enum-bypass raw string comparisons found.",
+        "Model layer uses Java records with well-typed fields (AdjectiveProfile, CoreCollocate, DiscoveredNoun, Edge).",
+        "QueryResults nested records provide type-safe result containers for all three query modes."
+      ],
+      "issue_character": "The primary type safety concerns are the magic string literals for adjective categories (duplicating enum semantics without a backing enum) and the inconsistent application of nullability annotations on public API surfaces.",
+      "score_rationale": "Java's static typing provides a strong baseline — no annotation-lie returns, no raw types, no unchecked casts are visible. The score is held below 80 by: (1) the magic string literals for adjective category serialization, which duplicate AdjectiveProfile boolean semantics without compile-time safety; (2) inconsistent @Nullable/@NonNull coverage on public parameters; and (3) the Map<String,Object> response pattern, which is conventional but sacrifices response-shape verifiability. These are common Java patterns rather than egregious issues, but they represent real type discipline gaps."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "adjective_category_magic_strings",
+      "summary": "Adjective sharing category serialized as magic string literals without a backing enum",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"],
+      "evidence": [
+        "Line: `String category = adj.isFullyShared() ? \"fully_shared\" : adj.isPartiallyShared() ? \"partially_shared\" : \"specific\";`",
+        "AdjectiveProfile already has isFullyShared(), isPartiallyShared(), isSpecific() — the string literals duplicate these semantics.",
+        "No compile-time check prevents a rename of the boolean methods from breaking the serialized values."
+      ],
+      "suggestion": "Add a `SharingCategory` enum (FULLY_SHARED, PARTIALLY_SHARED, SPECIFIC) to the model package with a `label()` method. Add `AdjectiveProfile.sharingCategory()` that returns the enum. Use `adj.sharingCategory().label()` in ExploreResponseAssembler.formatAdjectiveProfile for type-safe serialization.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "inconsistent_nullability_annotations",
+      "summary": "@Nullable/@NonNull from jspecify used in 3 locations but absent from most public API parameters",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper constructor: `@Nullable BlackLabIndex index` — annotated.",
+        "ExplorationHandlers.validateExploreRequest: `@Nullable ValidatedExploreRequest` return — annotated.",
+        "QueryExecutor.executeDependencyPatternWithPos: `@NonNull String headPosConstraint` — annotated.",
+        "All other public parameters on QueryExecutor, SemanticFieldExplorer, GrammarConfigLoader, etc. have no nullability annotations — whether null is accepted is only documented in prose Javadoc."
+      ],
+      "suggestion": "Adopt a consistent nullability policy: either apply @NonNull by default at the package level and mark exceptions with @Nullable, or annotate all public API method parameters. The jspecify dependency is already present — extend its usage systematically, starting with QueryExecutor and SemanticFieldExplorer public methods.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Magic string literals for category arose because AdjectiveProfile was designed as a data container without a serialization concern; nullability annotations were added opportunistically rather than systematically."],
+    "likely_symptoms": ["adjective_category_magic_strings would surface as a runtime string mismatch if AdjectiveProfile boolean semantics were ever refactored."],
+    "possible_false_positives": ["Map<String,Object> for JSON responses is a Java idiom not a type safety defect — the absence of TypedDict equivalents is a language constraint, not a codebase defect."]
+  }
+}

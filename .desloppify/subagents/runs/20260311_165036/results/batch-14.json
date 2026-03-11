@@ -1,0 +1,84 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 14,
+  "assessments": {"logic_clarity": 77.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "SemanticFieldExplorer.identifyCoreCollocates: `totalScore / Math.max(1, freq)` — freq is drawn from collocFrequency which is only incremented for nouns in discoveredNouns. The entry is only added to coreCollocates when `freq >= minNounsForCore` which is `Math.max(2, discoveredNouns.size() / 3)`, so freq is always >= 2 at this point. The `Math.max(1, freq)` guard against division-by-zero is unreachable.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: query string parsed twice — line 118 calls parseBaseExploreRequest(exchange) into rawParams for a nouns_per guard check, then line 126 calls validateExploreRequest(exchange) which internally calls parseBaseExploreRequest(exchange) again. The first rawParams map is discarded.",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution: the else branch after throw is structurally unnecessary — `if (startsWith) return ...; else throw ...` is equivalent to `if (startsWith) return ...; throw ...`. Not wrong but adds a syntactic else that is never reached after the throw.",
+        "SemanticFieldExplorer.exploreByPattern: `if (seed == null || seed.isEmpty()) { return ExplorationResult.empty(seed != null ? seed : \"\"); }` — inside the if-body, when seed is null, the outer condition is already true, so `seed != null ? seed : \"\"` correctly handles both null and empty cases. This is NOT dead logic.",
+        "MultiSeedExplorer.identifyCommonCollocates: `int threshold = Math.min(minShared, seedCount)` followed immediately by the filter — clear and correct.",
+        "handleSemanticFieldExplore: `String seed = req.seedsRaw()` takes the seeds parameter as a raw (unsplit) string and passes it directly as a single seed to exploreByPattern. If a client passes 'theory,model', the combined string is used as the seed lemma. The behavior is well-defined (corpus won't match the multi-word string) but the lack of validation or splitting could silently return empty results for multi-value inputs."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Control flow in exploration algorithms is well-structured with clear phase separation (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates).",
+        "Early-return guard clauses are used consistently (empty lemma checks, empty seed checks).",
+        "The executeRelationQueries method uses explicit Predicate and BiFunction parameters, making conditional filtering logic explicit rather than scattered.",
+        "Boolean conditions are direct and unambiguous throughout handlers."
+      ],
+      "issue_character": "The main logic clarity issues are a single unreachable defensive guard (Math.max(1, freq) where freq>=2) and the double-parse of query string in one handler — both are minor clarity issues without correctness impact.",
+      "score_rationale": "The codebase shows solid logic discipline: no dead branches after unconditional returns, no always-true/false conditions, and no async-without-await patterns. The unreachable Math.max guard and the double-parse create modest clarity noise. The silent acceptance of a comma-separated value as a single seed in handleSemanticFieldExplore (no validation, no splitting) is the most user-visible logic ambiguity. Overall these are small issues in an otherwise clear control flow."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "unreachable_max1_guard",
+      "summary": "Math.max(1, freq) division guard in identifyCoreCollocates is unreachable — freq is always >= 2 at that point",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "`int minNounsForCore = Math.max(2, discoveredNouns.size() / 3)` — minimum is 2.",
+        "`if (freq >= minNounsForCore)` — therefore freq >= 2 when the coreCollocates.add() line is reached.",
+        "`totalScore / Math.max(1, freq)` — Math.max(1, freq) when freq >= 2 always returns freq; the guard for freq=0 cannot trigger."
+      ],
+      "suggestion": "Replace `Math.max(1, freq)` with plain `freq` to remove the dead guard. If the intent is future-proofing against freq=0, add a comment explaining the invariant: `// freq >= minNounsForCore >= 2, so no division-by-zero risk`.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "double_parse_query_string",
+      "summary": "handleSemanticFieldExploreMulti parses the same query string twice, creating redundant logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Line 118: rawParams = parseBaseExploreRequest(exchange) — parsed once for nouns_per check.",
+        "Line 126: validateExploreRequest(exchange) internally calls parseBaseExploreRequest(exchange) again.",
+        "The rawParams map from the first parse is checked and then discarded — the second parse re-creates the same map."
+      ],
+      "suggestion": "Refactor validateExploreRequest to accept a pre-parsed Map<String,String> as an optional first argument, or add a blacklist of unsupported parameters to validateExploreRequest's contract so the nouns_per check can be performed inside it using the already-parsed params.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "single_seed_no_comma_split",
+      "summary": "handleSemanticFieldExplore silently accepts comma-separated seeds as a single seed, returning empty results",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Line 87: `String seed = req.seedsRaw()` — takes the raw, unsplit seeds parameter.",
+        "If client passes `seeds=theory,model`, seed = 'theory,model' — a multi-word string unlikely to match corpus lemmas.",
+        "explore-multi correctly calls parseSeedSet which splits by comma; the single-seed handler has no equivalent guard."
+      ],
+      "suggestion": "Add a guard in handleSemanticFieldExplore: if seedsRaw contains a comma, return a 400 with a message like 'Multiple seeds not supported for single-seed exploration; use /explore-multi'. This prevents silent empty results from a common API usage mistake.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The double-parse and single-seed ambiguity both arose when the nouns_per early-return was inserted into handleSemanticFieldExploreMulti without refactoring the shared path."],
+    "likely_symptoms": ["single_seed_no_comma_split may be a UX bug surfacing as empty-result confusion for API users."],
+    "possible_false_positives": ["The null-then-ternary in exploreByPattern looks like a redundant check but is actually correct for both null and empty-string cases."]
+  }
+}

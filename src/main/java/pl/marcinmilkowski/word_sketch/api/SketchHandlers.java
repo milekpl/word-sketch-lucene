@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationPatternBuilder;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
@@ -205,7 +206,7 @@ class SketchHandlers {
             return;
         }
 
-        String fullPattern = rel.buildFullPattern(lemma);
+        String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
         List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(
             lemma, fullPattern,
             0.0, 50);
@@ -238,7 +239,7 @@ class SketchHandlers {
      */
     private Optional<ExecutedSketch> executeAndFormatCollocations(String lemma,
             pl.marcinmilkowski.word_sketch.config.RelationConfig rel) throws IOException {
-        String fullPattern = rel.buildFullPattern(lemma);
+        String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
         List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
         if (results.isEmpty()) return Optional.empty();
         List<Map<String, Object>> collocations = new ArrayList<>();

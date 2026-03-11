@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import java.io.File;
 import java.io.IOException;
@@ -10,6 +11,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryResults;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
 public class BlackLabDummyTest {
     @Test
     public void testSubjectOf() throws Exception {

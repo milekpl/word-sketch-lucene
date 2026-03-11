@@ -54,7 +54,7 @@ class MultiSeedExplorerTest {
         data.put("model",   List.of(wsr("important", 7.0, 40), wsr("large",  4.0, 10)));
 
         MultiSeedExplorer explorer = new MultiSeedExplorer(stubExecutor(data));
-        ExplorationResult result = explorer.explore(
+        ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 2);
 
         assertTrue(result.getCoreCollocates().stream()
@@ -72,7 +72,7 @@ class MultiSeedExplorerTest {
                 "model",  List.of(wsr("abstract", 6.0, 20)));
 
         MultiSeedExplorer explorer = new MultiSeedExplorer(stubExecutor(data));
-        ExplorationResult result = explorer.explore(
+        ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 2);
 
         List<String> nounNames = result.getDiscoveredNouns().stream()
@@ -88,7 +88,7 @@ class MultiSeedExplorerTest {
                 "model",  List.of(wsr("large",    6.0, 20)));
 
         MultiSeedExplorer explorer = new MultiSeedExplorer(stubExecutor(data));
-        ExplorationResult result = explorer.explore(
+        ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 2);
 
         assertTrue(result.getCoreCollocates().isEmpty(),
@@ -98,7 +98,7 @@ class MultiSeedExplorerTest {
     @Test
     void explore_emptyExecutor_returnsEmptyResult() throws IOException {
         MultiSeedExplorer explorer = new MultiSeedExplorer(stubExecutor(Map.of()));
-        ExplorationResult result = explorer.explore(
+        ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 1);
 
         assertTrue(result.getCoreCollocates().isEmpty());
@@ -112,7 +112,7 @@ class MultiSeedExplorerTest {
                 "model",  List.of(wsr("common", 7.0, 5)));
 
         MultiSeedExplorer explorer = new MultiSeedExplorer(stubExecutor(data));
-        ExplorationResult result = explorer.explore(
+        ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 1);
 
         // With minShared=1 every collocate qualifies regardless of overlap
@@ -127,7 +127,7 @@ class MultiSeedExplorerTest {
         data.put("model",  List.of(wsr("recent",    6.0, 30)));
 
         MultiSeedExplorer explorer = new MultiSeedExplorer(stubExecutor(data));
-        ExplorationResult result = explorer.explore(
+        ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 1);
 
         assertTrue(result.getSeedCollocates().containsKey("important"),

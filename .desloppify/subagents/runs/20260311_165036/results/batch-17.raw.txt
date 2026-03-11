@@ -1,0 +1,60 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {"initialization_coupling": 88.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "HttpApiUtils.getCorsAllowOrigin() reads System.getProperty('cors.allow.origin', 'http://localhost:3000') at call time (not class-load time) — the property can be changed between calls. This is a deliberate design: the Javadoc explicitly states 'Read at use time via getCorsAllowOrigin() so that the system property is evaluated when the response is sent, not at class-load time.'",
+        "Main.handleBlackLabServerCommand reads System.getProperty('grammar.config', 'grammars/relations.json') at server startup time — appropriate for a CLI entry point.",
+        "BlackLabQueryExecutor constructor opens BlackLabIndex eagerly: `this.blackLabIndex = BlackLab.open(new File(indexPath))`. This is a resource acquisition, not a hidden side effect — the constructor declares IOException and the caller manages lifecycle.",
+        "SemanticFieldExplorer constructor creates CollocateProfileComparator and MultiSeedExplorer eagerly — deterministic initialization order with no external dependencies.",
+        "WordSketchApiServer constructor builds all handler instances but defers port binding to start() — construction and network initialization are explicitly separated (documented in the constructor Javadoc).",
+        "GrammarConfigLoader is a static utility class with no instance state — no initialization order concerns.",
+        "LongIntHashMap initializes with DEFAULT_CAPACITY = 16 and LOAD_FACTOR = 0.75f as static final constants — pure data, no side effects.",
+        "No global mutable singletons found in production code — all state is instance-scoped and constructed through the call chain from main().",
+        "Main.handleBlackLabServerCommand uses AtomicReference<WordSketchApiServer> serverHolder to register a shutdown hook before server construction, ensuring cleanup even if construction throws — the initialization sequence is explicit and safe.",
+        "No circular initialization dependencies: config/ does not depend on api/, query/ does not depend on exploration/, etc."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The getCorsAllowOrigin() pattern reads a system property on every response — while intentional, it means the CORS origin can change between requests in the same JVM run, which may be unexpected in production. This is a minor semantic concern, not a correctness bug."
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "getCorsAllowOrigin() explicitly defers system property read to call time — avoids stale snapshot.",
+        "WordSketchApiServer separates construction from port binding (start()) — testable without network binding.",
+        "AtomicReference<WordSketchApiServer> for shutdown hook ensures cleanup even on construction failure.",
+        "No global mutable singletons in production code — all dependencies are constructor-injected.",
+        "GrammarConfigLoader is a stateless static utility, avoiding singleton initialization order issues."
+      ],
+      "issue_character": "No significant initialization coupling issues found — the codebase consistently uses constructor injection and defers I/O-bound initialization to start() or explicit open() calls.",
+      "score_rationale": "This codebase achieves a high score on initialization coupling: no import-time side effects, no module-level globals with construction-order dependencies, no circular init dependencies, and explicit lifecycle management (WordSketchApiServer.start()/stop(), BlackLabQueryExecutor.close()). The minor gap from a perfect score is that getCorsAllowOrigin() reads a system property on every request (intentional, documented) which makes the effective 'initialization' dynamic rather than settled at startup — a low-severity semantic issue."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "cors_origin_runtime_mutation",
+      "summary": "getCorsAllowOrigin() re-reads system property on every HTTP response, allowing CORS origin to change mid-runtime",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "getCorsAllowOrigin() body: `return System.getProperty(\"cors.allow.origin\", \"http://localhost:3000\")`.",
+        "Called from setCorsHeader(exchange) which is called by every response-sending method.",
+        "Javadoc says this is intentional — 'evaluated when the response is sent, not at class-load time' — but provides no rationale for why a mid-run change is desirable."
+      ],
+      "suggestion": "Unless dynamic CORS origin changes are a real use case (e.g., for testing), read the system property once at server startup in WordSketchApiServer.start() and pass it as a constructor parameter to HttpApiUtils or store as a package-visible constant. This makes the effective CORS origin stable and predictable for the server's lifetime without sacrificing testability.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The getCorsAllowOrigin dynamic read was added to improve testability, which is a legitimate goal — the issue is that it was designed as dynamic when static-at-startup with injection would serve both needs."],
+    "likely_symptoms": ["cors_origin_runtime_mutation is a minor semantic concern, not a functional bug."],
+    "possible_false_positives": ["BlackLabQueryExecutor eagerly opening the index in the constructor could appear to be initialization coupling but is a correct resource acquisition pattern bounded by the Closeable lifecycle."]
+  }
+}

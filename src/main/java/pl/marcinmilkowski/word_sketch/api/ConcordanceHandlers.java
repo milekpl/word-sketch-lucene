@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationPatternBuilder;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
@@ -32,15 +33,24 @@ class ConcordanceHandlers {
 
     /**
      * Handle concordance examples.
-     * GET /api/concordance/examples?word1=theory&word2=good&relation=noun_adj_predicates&top=10
+     *
+     * <p>GET /api/concordance/examples?seed=theory&amp;collocate=good&amp;relation=noun_adj_predicates&amp;top=10</p>
+     *
+     * <p>Parameters:
+     * <ul>
+     *   <li>{@code seed} — headword (required); formerly {@code word1}</li>
+     *   <li>{@code collocate} — the collocate word form to look up (required); formerly {@code word2}</li>
+     *   <li>{@code relation} — grammar relation ID (default: noun_adj_predicates)</li>
+     *   <li>{@code top} — max results (default: 10)</li>
+     * </ul>
      * Uses BCQL pattern from relations.json for the specified relation.
      */
     void handleConcordanceExamples(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String noun = HttpApiUtils.requireParam(params, "word1");
-        String adjective = HttpApiUtils.requireParam(params, "word2");
+        String noun = HttpApiUtils.requireParam(params, "seed");
+        String adjective = HttpApiUtils.requireParam(params, "collocate");
         String relation = params.getOrDefault("relation", "noun_adj_predicates");
 
         int top = HttpApiUtils.parseIntParam(params, "top", 10);
@@ -48,7 +58,7 @@ class ConcordanceHandlers {
         String bcqlQuery = null;
         var rel = grammarConfig.getRelation(relation);
         if (rel.isPresent()) {
-            String patternWithHead = rel.get().buildFullPattern(noun);
+            String patternWithHead = RelationPatternBuilder.buildFullPattern(rel.get(), noun);
             bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, adjective, rel.get().collocatePosition());
         }
 
@@ -64,8 +74,8 @@ class ConcordanceHandlers {
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("word1", noun);
-        response.put("word2", adjective);
+        response.put("seed", noun);
+        response.put("collocate", adjective);
         response.put("relation", relation);
         response.put("bcql", bcqlQuery);
         response.put("fallback", fallback);

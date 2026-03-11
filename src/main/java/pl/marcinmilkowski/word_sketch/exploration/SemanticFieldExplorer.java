@@ -8,11 +8,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationPatternBuilder;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
@@ -103,10 +106,10 @@ public class SemanticFieldExplorer {
      * Convenience overload that extracts pattern strings from a {@link RelationConfig},
      * mirroring the delegation style used by the multi-seed path.
      */
-    public ExplorationResult exploreByPattern(
-            String seed,
-            RelationConfig relationConfig,
-            SingleSeedExplorationOptions opts) throws IOException {
+    public @NonNull ExplorationResult exploreByPattern(
+            @NonNull String seed,
+            @NonNull RelationConfig relationConfig,
+            @NonNull SingleSeedExplorationOptions opts) throws IOException {
         if (relationConfig.relationType().isEmpty()) {
             throw new IllegalArgumentException(
                 "Relation '" + relationConfig.id() + "' has no relation_type — cannot perform exploration");
@@ -119,8 +122,8 @@ public class SemanticFieldExplorer {
         return exploreByPattern(
             seed,
             relationConfig.name(),
-            relationConfig.buildFullPattern(seed),
-            relationConfig.buildCollocateReversePattern(),
+            RelationPatternBuilder.buildFullPattern(relationConfig, seed),
+            RelationPatternBuilder.buildCollocateReversePattern(relationConfig),
             opts);
     }
 
@@ -274,7 +277,7 @@ public class SemanticFieldExplorer {
                 double totalScore = collocTotalScore.getOrDefault(collocate, 0.0);
                 double seedScore = seedCollocScores.get(collocate);
                 coreCollocates.add(new CoreCollocate(
-                    collocate, freq, discoveredNouns.size(), seedScore, totalScore / Math.max(1, freq)));
+                    collocate, freq, discoveredNouns.size(), seedScore, totalScore / freq));
             }
         }
         coreCollocates.sort((a, b) -> {
@@ -294,16 +297,21 @@ public class SemanticFieldExplorer {
      * <p>Policy: requires at least 2 non-blank seed nouns so the comparison is meaningful.
      * Delegates computation to {@link CollocateProfileComparator}.</p>
      *
+     * <p>Design note: unlike {@link #exploreByPattern} and {@link #exploreMultiSeed}, this method
+     * does not accept a {@link pl.marcinmilkowski.word_sketch.config.RelationConfig} parameter.
+     * {@link CollocateProfileComparator} aggregates collocates across all loaded relations rather
+     * than filtering to a single relation type, which gives a broader cross-relational profile.</p>
+     *
      * @param seedNouns   Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
      * @return ComparisonResult with graded adjective profiles
      * @throws IllegalArgumentException if fewer than 2 seed nouns are provided
      */
-    public ComparisonResult compareCollocateProfiles(
-            Set<String> seedNouns, ExplorationOptions opts) throws IOException {
+    public @NonNull ComparisonResult compareCollocateProfiles(
+            @NonNull Set<String> seedNouns, @NonNull ExplorationOptions opts) throws IOException {
         if (seedNouns == null || seedNouns.size() < 2) {
             throw new IllegalArgumentException(
-                "compareCollocateProfiles requires at least 2 seed nouns for a meaningful comparison");
+                "Comparison requires at least 2 seed nouns for a meaningful result");
         }
         return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates());
     }
@@ -317,9 +325,10 @@ public class SemanticFieldExplorer {
      * @param maxExamples    Maximum number of examples to fetch
      * @return List of example sentences showing the adjective-noun combination
      */
-    public List<String> fetchExamples(String adjective, String noun, RelationConfig relationConfig, int maxExamples)
+    public @NonNull List<String> fetchExamples(@NonNull String adjective, @NonNull String noun,
+            @NonNull RelationConfig relationConfig, int maxExamples)
             throws IOException {
-        String bcqlQuery = relationConfig.buildFullPattern(noun.toLowerCase(), adjective.toLowerCase());
+        String bcqlQuery = RelationPatternBuilder.buildFullPattern(relationConfig, noun.toLowerCase(), adjective.toLowerCase());
 
         List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, maxExamples);
 
@@ -339,11 +348,11 @@ public class SemanticFieldExplorer {
      * @param opts           tuning parameters (topCollocates, minLogDice, minShared)
      * @return ExplorationResult mapping multi-seed data into the shared exploration model
      */
-    public ExplorationResult exploreMultiSeed(
-            Set<String> seeds,
-            RelationConfig relationConfig,
-            ExplorationOptions opts) throws IOException {
-        return multiSeedExplorer.explore(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());
+    public @NonNull ExplorationResult exploreMultiSeed(
+            @NonNull Set<String> seeds,
+            @NonNull RelationConfig relationConfig,
+            @NonNull ExplorationOptions opts) throws IOException {
+        return multiSeedExplorer.computeCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());
     }
 
 }

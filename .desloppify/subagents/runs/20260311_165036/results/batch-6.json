@@ -1,0 +1,111 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {"abstraction_fitness": 72.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has a single production implementation (BlackLabQueryExecutor). The interface Javadoc explicitly acknowledges this and states it acts primarily as a testability seam. This is honest and the deferred-split rationale is documented.",
+        "SemanticFieldExplorer is a facade over CollocateProfileComparator and MultiSeedExplorer. The facade provides genuine value: it presents a unified API, validates pre-conditions, and handles the 'which implementation' decision for callers. Not a pass-through wrapper.",
+        "Edge.toMap() in the model package serializes itself into a plain Map for JSON output. This presentation concern belongs in ExploreResponseAssembler, not in a model value object. The method is called from ExploreResponseAssembler.buildEdges via a stream map — moving the logic there would not require changing callers outside the assembler.",
+        "RelationConfig builds CQL patterns (buildFullPattern, buildCollocateReversePattern) and infers the collocate POS group from the pattern string (computeCollocatePosGroup). A config/value object is doing structural analysis that is closer to parsing logic — these responsibilities sit with the data but are not data.",
+        "ExplorationHandlers.parseBaseExploreRequest is a one-liner that delegates entirely to HttpApiUtils.parseQueryParams. The method name differs from the underlying method but adds no behavior, policy, or error handling — a pass-through wrapper that exists only to give a local name.",
+        "HttpApiUtils is a utility class combining HTTP response writing and request parsing. The Javadoc explicitly justifies the co-location (both serve a single concern — HTTP layer of the REST API — and are used exclusively within the api package). The justification is sound; this is not a low-cohesion dumping ground.",
+        "WordSketchApiServer.wrapHandler delegates directly to HttpApiUtils.wrapWithErrorHandling with no added logic. The method comment says it exists to enable unit testing, but the actual testability benefit is on wrapWithErrorHandling itself — wrapHandler is a pure pass-through.",
+        "GrammarConfigLoader/GrammarConfig separation is well-fitted: GrammarConfigLoader handles I/O and parsing, GrammarConfig is the data value object. No abstraction fitness issue here.",
+        "CqlUtils is a focused utility with cohesive methods (splitCqlTokens, substituteAtPosition, mergeLemmaConstraint, extractConstraintAttribute, escapeForRegex) — all closely related CQL string manipulation operations. Not a dumping ground.",
+        "LongIntHashMap is a custom data structure with a clear performance rationale — memory-efficient long→int map. Justified abstraction.",
+        "CollocateQueryHelper encapsulates collocate search, scoring, and ranking logic — cohesive helper with a defined responsibility cluster. Not a generic util."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 74.0,
+        "indirection_cost": 72.0,
+        "interface_honesty": 80.0,
+        "delegation_density": 76.0,
+        "definition_directness": 68.0,
+        "type_discipline": 72.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface is honest about its single-implementation status and deferred-split rationale is documented.",
+        "SemanticFieldExplorer facade provides genuine value as a unified exploration API over two collaborating classes.",
+        "GrammarConfig/GrammarConfigLoader is a well-fitted separation with no unnecessary indirection.",
+        "CqlUtils and LongIntHashMap are cohesive utilities that justify their existence."
+      ],
+      "issue_character": "The primary issue is presentation logic (Edge.toMap, pattern-building in RelationConfig) leaking into value objects, and a few pass-through delegates (parseBaseExploreRequest, wrapHandler) that add indirection without adding value.",
+      "score_rationale": "Abstractions in this codebase generally pay for themselves — the interface, facade, and utility patterns are justified and the Javadoc honestly documents the design decisions. The score is held back by Edge.toMap embedding serialisation in the model, RelationConfig doing pattern analysis beyond data storage, and two pass-through wrappers that increase call depth without benefit."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "edge_tomap_serialization_in_model",
+      "summary": "Edge.toMap() puts JSON serialization logic in the model class, which should be a pure value object free of presentation concerns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "Edge.toMap() creates a HashMap and puts 'source', 'target', 'log_dice' (rounded), 'type' — this is presentation-layer serialisation.",
+        "ExploreResponseAssembler.populateExploreResponse calls 'edges.stream().map(Edge::toMap).toList()' — the assembler delegates serialisation back to the model.",
+        "RelationEdgeType.label() is designed as 'stable serialization key' — serialization intent is already bleeding into the model enum.",
+        "Moving toMap() into ExploreResponseAssembler would make Edge a pure value object and centralise all model→JSON translation in the assembler."
+      ],
+      "suggestion": "Move Edge.toMap() into a private helper in ExploreResponseAssembler (e.g. serializeEdge(Edge e)). Edge becomes a pure record. RelationEdgeType.label() can stay as a stable domain label used for both display and serialization.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "relation_config_pattern_analysis_beyond_data",
+      "summary": "RelationConfig builds and parses CQL patterns (buildFullPattern, buildCollocateReversePattern, computeCollocatePosGroup) — structural analysis and construction beyond data storage responsibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationConfig.buildFullPattern(String seed) and buildFullPattern(String head, String collocate) use CqlUtils.substituteAtPosition to construct full CQL patterns from the stored template.",
+        "RelationConfig.buildCollocateReversePattern extracts the collocate-position token from the pattern string.",
+        "RelationConfig.computeCollocatePosGroup parses the collocate token's xpos constraint to infer the POS group.",
+        "All three methods do string analysis that is closer to parsing/construction logic than to data property access. This logic could live in a companion class (RelationPatternBuilder) or in GrammarConfigLoader."
+      ],
+      "suggestion": "Extract pattern-building and POS inference into a companion class (e.g. RelationPatternBuilder) or into static methods in GrammarConfigLoader/RelationUtils. RelationConfig becomes a leaner data record storing pattern, positions, and already-computed POS group.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "parse_base_explore_request_passthrough",
+      "summary": "ExplorationHandlers.parseBaseExploreRequest is a pure pass-through to HttpApiUtils.parseQueryParams with no added behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "parseBaseExploreRequest(HttpExchange exchange): returns HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery()) — single-line body.",
+        "The method's Javadoc says 'All four exploration handlers share this identical preamble' — but this is extracting a one-liner for naming purposes only.",
+        "Calling through an extra method increases call depth and obscures the origin of the parameter map."
+      ],
+      "suggestion": "Remove parseBaseExploreRequest and call HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery()) directly at each call site, or fold it into validateExploreRequest.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Edge.toMap() was likely added as a convenience when the model was assembled inline before ExploreResponseAssembler existed.",
+      "RelationConfig pattern methods accumulated as the CQL pattern system grew, with each new operation added to the config object rather than a dedicated builder.",
+      "parseBaseExploreRequest was extracted for DRY reasons but its body is too thin to justify the indirection."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

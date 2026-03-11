@@ -1,0 +1,109 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 66.5},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "REST parameter naming inconsistency: explore and explore-multi endpoints use 'seeds' (plural) but /api/concordance/examples uses 'word1' and 'word2' — two different conventions for referencing lemmas in the same API family.",
+        "handleSemanticFieldExplore uses the 'seeds' parameter name but accepts a single unsplit string as the seed lemma — the plural name implies comma-separated multi-seed input, creating a naming mismatch with the single-seed contract.",
+        "explore: seeds=house (single); explore-multi: seeds=theory,model,hypothesis (comma-separated multi); /api/semantic-field: seeds=theory,model (comparison). All three use the same parameter name 'seeds' with different cardinality semantics.",
+        "/api/semantic-field endpoint path does not indicate 'comparison' mode in the URL — the endpoint name implies semantic field overview, but it actually computes pairwise collocate profile comparisons across seeds.",
+        "Java QueryExecutor interface: findCollocations(lemma, cqlPattern, minLogDice, maxResults) and executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) have identical signatures but different pattern format requirements. The difference (cqlPattern must start with '['; bcqlPattern uses labeled positions) is documented but the caller must know which method to use based on pattern semantics, not the type system.",
+        "SemanticFieldExplorer public methods: exploreByPattern(seed, relationConfig, opts) takes RelationConfig; exploreMultiSeed(seeds, relationConfig, opts) takes RelationConfig; compareCollocateProfiles(seedNouns, opts) does NOT take a RelationConfig — the comparison path uses a hard-coded adjective pattern from grammar, not a caller-specified relation.",
+        "handleSemanticFieldExamples uses 'adjective' and 'noun' parameter names — completely different from 'seeds' used by all other exploration endpoints, even though it operates on the same domain.",
+        "REST API mixing of query parameters: /api/sketch/{lemma} takes the lemma in the URL path; all exploration endpoints take seeds as query parameters — two conventions for the main noun/lemma input."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "All exploration endpoints use the same 'relation', 'top', 'min_logdice', 'min_shared' parameter names consistently.",
+        "POST /api/bcql uses a JSON body with 'query' and 'top' — appropriate for complex patterns that would be awkward as query params.",
+        "QueryExecutor interface methods have consistent (lemma, pattern, minLogDice, maxResults) parameter ordering.",
+        "RelationEdgeType enum provides stable JSON serialization labels ('seed_adj', 'discovered_adj', 'modifier')."
+      ],
+      "issue_character": "The REST API surface has a fragmented naming vocabulary: 'seeds' is overloaded across three endpoints with different cardinality semantics, 'word1'/'word2' contradict the 'seeds' convention, and 'adjective'/'noun' in examples add a third naming pattern — a developer using multiple endpoints must track three different naming conventions for the same concept.",
+      "score_rationale": "The Java API layer (QueryExecutor, SemanticFieldExplorer) is relatively coherent with consistent parameter ordering and documented interface contracts. The REST API layer scores significantly lower: three different naming conventions for lemma inputs ('seeds', 'word1'/'word2', 'adjective'/'noun'), the 'seeds' parameter overloaded with different cardinality semantics across three endpoints, and an endpoint path (/api/semantic-field) that does not signal its comparative function. These are concrete navigability issues for API clients integrating multiple endpoints."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "seeds_cardinality_overload",
+      "summary": "'seeds' parameter name overloaded with different cardinality semantics across three exploration endpoints",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "/api/semantic-field/explore?seeds=house — single seed (unsplit, taken as literal string).",
+        "/api/semantic-field/explore-multi?seeds=theory,model,hypothesis — comma-separated multi-seed (split by comma).",
+        "/api/semantic-field?seeds=theory,model — comma-separated for comparison (split by comma).",
+        "Same parameter name, three different parsing behaviors and cardinality expectations."
+      ],
+      "suggestion": "Rename the single-seed endpoint parameter from 'seeds' to 'seed' (singular) to match its actual single-value contract. This makes the cardinality difference explicit at the URL level: `/explore?seed=house` vs `/explore-multi?seeds=theory,model`. Update ExplorationHandlers.handleSemanticFieldExplore to call requireParam(params, 'seed') and add the comma-split guard for invalid multi-value input.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "concordance_word1_word2_naming",
+      "summary": "/api/concordance/examples uses 'word1'/'word2' parameter names inconsistent with 'seeds' convention in exploration endpoints",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"],
+      "evidence": [
+        "handleConcordanceExamples: `String noun = HttpApiUtils.requireParam(params, \"word1\")` and `adjective = requireParam(params, \"word2\")`.",
+        "All exploration endpoints use 'seeds' for lemma input; concordance uses positional 'word1'/'word2'.",
+        "The parameter role (which is noun vs. adjective) is encoded in the positional name rather than a semantic name."
+      ],
+      "suggestion": "Rename concordance parameters from 'word1'/'word2' to 'noun'/'adjective' (or 'head'/'collocate' for generality) to align with the semantic vocabulary used in the domain model and in handleSemanticFieldExamples. Update the Javadoc endpoint description accordingly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "semantic_field_path_ambiguity",
+      "summary": "/api/semantic-field endpoint path does not signal its comparison/profiling function",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "GET /api/semantic-field maps to handleSemanticFieldComparison — computes pairwise adjective profile comparisons.",
+        "The URL path suggests a 'semantic field' resource overview, not a comparison operation.",
+        "The endpoint family: /api/semantic-field, /api/semantic-field/explore, /api/semantic-field/explore-multi, /api/semantic-field/examples — the root path does not follow the sub-resource naming pattern of its siblings."
+      ],
+      "suggestion": "Rename the root endpoint to `/api/semantic-field/compare` to align with its siblings and signal the comparison operation. Alternatively, restructure: `/api/semantic-field/explore` (single), `/api/semantic-field/explore-multi` (multi), `/api/semantic-field/compare` (profiles). Update WordSketchApiServer.registerRoutes() and the Javadoc listing.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "comparison_no_relation_param",
+      "summary": "compareCollocateProfiles Java API does not accept a RelationConfig, while all other exploration methods do — asymmetric interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "exploreByPattern(seed, RelationConfig, SingleSeedExplorationOptions) — takes relation.",
+        "exploreMultiSeed(seeds, RelationConfig, ExplorationOptions) — takes relation.",
+        "compareCollocateProfiles(seedNouns, ExplorationOptions) — NO relation param; uses hard-coded adjective pattern from grammar config.",
+        "Callers cannot select which grammatical relation to use for comparison — fixed to adjective modifier/predicate."
+      ],
+      "suggestion": "Add a RelationConfig overload to compareCollocateProfiles so callers can specify the comparison relation: `compareCollocateProfiles(Set<String> seedNouns, RelationConfig relation, ExplorationOptions opts)`. Pass the relation's collocate pattern to CollocateProfileComparator rather than using the hard-coded adjective pattern. This symmetrizes the Java API surface with the other two exploration methods.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The 'seeds' overload grew as single-seed and multi-seed endpoints were added to share a parameter name for convenience; the word1/word2 naming predates the semantic vocabulary alignment."],
+    "likely_symptoms": ["seeds_cardinality_overload is a client-facing usability bug — API users calling explore with a comma-separated string will get silent empty results."],
+    "possible_false_positives": ["The path vs. query-param difference for lemma input (/sketch/{lemma} vs ?seeds=) is a REST convention difference (resource identifier vs. filter parameter) — not necessarily an inconsistency."]
+  }
+}

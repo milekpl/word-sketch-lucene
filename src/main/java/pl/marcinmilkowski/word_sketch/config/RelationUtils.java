@@ -71,11 +71,11 @@ public class RelationUtils {
             .filter(r -> r.relationType().map(primary::contains).orElse(false)
                 && r.collocatePosGroup() == posGroup)
             .findFirst()
-            .map(RelationConfig::buildCollocateReversePattern)
+            .map(r -> RelationPatternBuilder.buildCollocateReversePattern(r))
             .orElseGet(() -> grammarConfig.getRelations().stream()
                 .filter(r -> r.collocatePosGroup() == posGroup && r.relationType().isPresent())
                 .findFirst()
-                .map(RelationConfig::buildCollocateReversePattern)
+                .map(r -> RelationPatternBuilder.buildCollocateReversePattern(r))
                 .orElse(fallback));
     }
 }

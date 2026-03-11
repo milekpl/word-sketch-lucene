@@ -50,15 +50,17 @@ class LogDiceCalculatorTest {
     }
 
     @Test
-    void testZeroHeadwordFrequency() {
-        double logDice = LogDiceCalculator.compute(100, 0, 100);
-        assertTrue(Double.isNaN(logDice), "Expected UNCOMPUTABLE (NaN) for zero headword frequency");
+    void testZeroHeadwordFrequency_throwsIAE() {
+        assertThrows(IllegalArgumentException.class,
+                () -> LogDiceCalculator.compute(100, 0, 100),
+                "Expected IAE for zero headword frequency");
     }
 
     @Test
-    void testZeroCollocateTotal() {
-        double logDice = LogDiceCalculator.compute(100, 100, 0);
-        assertTrue(Double.isNaN(logDice), "Expected UNCOMPUTABLE (NaN) for zero collocate total");
+    void testZeroCollocateTotal_throwsIAE() {
+        assertThrows(IllegalArgumentException.class,
+                () -> LogDiceCalculator.compute(100, 100, 0),
+                "Expected IAE for zero collocate total");
     }
 
     @Test

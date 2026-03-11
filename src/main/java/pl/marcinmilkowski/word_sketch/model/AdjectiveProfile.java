@@ -30,6 +30,16 @@ public record AdjectiveProfile(
     /** @return {@code true} when this adjective appears in exactly one seed noun */
     public boolean isSpecific() { return presentInCount == 1; }
 
+    /**
+     * Returns the sharing category for this adjective profile.
+     * Convenience method for type-safe serialization and dispatch without string comparisons.
+     */
+    public SharingCategory sharingCategory() {
+        if (isFullyShared()) return SharingCategory.FULLY_SHARED;
+        if (isPartiallyShared()) return SharingCategory.PARTIALLY_SHARED;
+        return SharingCategory.SPECIFIC;
+    }
+
     /** Returns the noun this adjective is most strongly associated with, or empty if {@code nounScores} is empty */
     public Optional<String> strongestNoun() {
         return nounScores.entrySet().stream()

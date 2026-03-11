@@ -1,12 +1,4 @@
-package pl.marcinmilkowski.word_sketch.api;
-
-import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
-import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
-import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
-import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
-import pl.marcinmilkowski.word_sketch.model.Edge;
-import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
-import pl.marcinmilkowski.word_sketch.model.RelationEdgeType;
+package pl.marcinmilkowski.word_sketch.model;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,12 +13,12 @@ import java.util.Set;
  * and {@link ComparisonResult} stay free of presentation concerns. All response-body assembly
  * for exploration endpoints is centralised here.</p>
  */
-final class ExploreResponseAssembler {
+public final class ExploreResponseAssembler {
 
     private ExploreResponseAssembler() {}
 
     /** Builds {@link RelationEdgeType#SEED_ADJ} edges from seed collocates and {@link RelationEdgeType#DISCOVERED_ADJ} edges from each discovered noun's shared collocates. */
-    static List<Edge> buildEdges(ExplorationResult result) {
+    public static List<Edge> buildEdges(ExplorationResult result) {
         List<Edge> edges = new ArrayList<>();
         for (Map.Entry<String, Double> colloc : result.getSeedCollocates().entrySet()) {
             edges.add(new Edge(result.getSeed(), colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_ADJ));
@@ -40,7 +32,7 @@ final class ExploreResponseAssembler {
     }
 
     /** Builds {@link RelationEdgeType#MODIFIER} edges for adjective-noun pairs with positive logDice scores. */
-    static List<Edge> buildEdges(ComparisonResult result) {
+    public static List<Edge> buildEdges(ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
         for (AdjectiveProfile adj : result.getAllAdjectives()) {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
@@ -55,9 +47,9 @@ final class ExploreResponseAssembler {
     /**
      * Populates {@code response} with all exploration result fields:
      * {@code seed_collocates}, {@code discovered_nouns}, {@code core_collocates}, and {@code edges}.
-     * Centralises response assembly so {@link ExplorationHandlers} only handles HTTP concerns.
+     * Centralises response assembly so HTTP handler classes only handle HTTP concerns.
      */
-    static void populateExploreResponse(Map<String, Object> response, ExplorationResult result) {
+    public static void populateExploreResponse(Map<String, Object> response, ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = formatSeedCollocates(result);
         response.put("seed_collocates", seedCollocs);
         response.put("seed_collocates_count", seedCollocs.size());
@@ -71,10 +63,10 @@ final class ExploreResponseAssembler {
         response.put("core_collocates_count", coreCollocs.size());
 
         List<Edge> edges = buildEdges(result);
-        response.put("edges", edges.stream().map(Edge::toMap).toList());
+        response.put("edges", edges.stream().map(ExploreResponseAssembler::serializeEdge).toList());
     }
 
-    static List<Map<String, Object>> formatSeedCollocates(ExplorationResult result) {
+    public static List<Map<String, Object>> formatSeedCollocates(ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         for (Map.Entry<String, Double> e : result.getSeedCollocates().entrySet()) {
             Map<String, Object> c = new HashMap<>();
@@ -86,7 +78,7 @@ final class ExploreResponseAssembler {
         return seedCollocs;
     }
 
-    static List<Map<String, Object>> formatDiscoveredNouns(ExplorationResult result) {
+    public static List<Map<String, Object>> formatDiscoveredNouns(ExplorationResult result) {
         List<Map<String, Object>> nouns = new ArrayList<>();
         for (DiscoveredNoun n : result.getDiscoveredNouns()) {
             Map<String, Object> nm = new HashMap<>();
@@ -100,7 +92,7 @@ final class ExploreResponseAssembler {
         return nouns;
     }
 
-    static List<Map<String, Object>> formatCoreCollocates(ExplorationResult result) {
+    public static List<Map<String, Object>> formatCoreCollocates(ExplorationResult result) {
         List<Map<String, Object>> coreCollocs = new ArrayList<>();
         for (CoreCollocate c : result.getCoreCollocates()) {
             Map<String, Object> cm = new HashMap<>();
@@ -118,7 +110,7 @@ final class ExploreResponseAssembler {
      * Serialises a single {@link AdjectiveProfile} into the JSON-compatible map that the
      * {@code /api/semantic-field} endpoint returns for each adjective entry.
      */
-    static Map<String, Object> formatAdjectiveProfile(AdjectiveProfile adj) {
+    public static Map<String, Object> formatAdjectiveProfile(AdjectiveProfile adj) {
         Map<String, Object> adjMap = new HashMap<>();
         adjMap.put("word", adj.adjective());
         adjMap.put("present_in", adj.presentInCount());
@@ -129,9 +121,7 @@ final class ExploreResponseAssembler {
         adjMap.put("commonality_score", round2dp(adj.commonalityScore()));
         adjMap.put("distinctiveness_score", round2dp(adj.distinctivenessScore()));
 
-        String category = adj.isFullyShared() ? "fully_shared"
-            : adj.isPartiallyShared() ? "partially_shared" : "specific";
-        adjMap.put("category", category);
+        adjMap.put("category", adj.sharingCategory().label());
 
         Map<String, Double> scores = new HashMap<>();
         for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
@@ -151,7 +141,7 @@ final class ExploreResponseAssembler {
      * {@code adjectives_count}, {@code fully_shared_count}, {@code partially_shared_count},
      * {@code specific_count}, {@code edges}, and {@code edges_count}.
      */
-    static void populateComparisonResponse(Map<String, Object> response, ComparisonResult result,
+    public static void populateComparisonResponse(Map<String, Object> response, ComparisonResult result,
             Set<String> seeds, int topCollocates, double minLogDice) {
         response.put("status", "ok");
         response.put("seeds", new java.util.ArrayList<>(result.getNouns()));
@@ -175,11 +165,26 @@ final class ExploreResponseAssembler {
         response.put("specific_count", counts.specific());
 
         List<Edge> edges = buildEdges(result);
-        response.put("edges", edges.stream().map(Edge::toMap).toList());
+        response.put("edges", edges.stream().map(ExploreResponseAssembler::serializeEdge).toList());
         response.put("edges_count", edges.size());
     }
 
-    static double round2dp(double value) {
+    /**
+     * Serialises an {@link Edge} to a plain map for JSON output.
+     * The {@code log_dice} field is rounded to two decimal places.
+     *
+     * @return mutable map with keys {@code source}, {@code target}, {@code log_dice}, {@code type}
+     */
+    public static Map<String, Object> serializeEdge(Edge edge) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("source", edge.source());
+        m.put("target", edge.target());
+        m.put("log_dice", Math.round(edge.weight() * 100.0) / 100.0);
+        m.put("type", edge.type().label());
+        return m;
+    }
+
+    public static double round2dp(double value) {
         return Math.round(value * 100.0) / 100.0;
     }
 }

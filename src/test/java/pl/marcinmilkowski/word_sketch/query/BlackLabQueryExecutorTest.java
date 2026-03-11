@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import java.nio.file.Path;
@@ -15,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * directory via the {@code CONCEPT_SKETCH_TEST_INDEX} environment variable or
  * the {@code conceptSketch.testIndex} system property.
  */
+@Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
 class BlackLabQueryExecutorTest {
 
     private static final String INDEX_PATH = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

@@ -1,0 +1,76 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 13,
+  "assessments": {"contract_coherence": 79.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "buildBcqlWithLemmaSubstitution: Javadoc says 'cqlPattern must start with ['; throws IAE on any other format — honored by implementation",
+        "parseBcqlRequest: Javadoc documents all three exception types (IAE for 400-class, RequestEntityTooLargeException for 413, IOException for I/O) — wrapWithErrorHandling fulfills this contract",
+        "requireParam: documented to throw IAE when missing/empty; wrapWithErrorHandling catches IAE and maps to 400 — contract is end-to-end coherent",
+        "executeCollocations accepts @Nullable String lemma and documents that it 'returns an empty list silently if null or empty' — implemented as documented",
+        "ExplorationResult constructor does not defensively copy seedCollocates, seedCollocateFrequencies, discoveredNouns, or coreCollocates — the class Javadoc claims 'All collections are non-null' but callers can mutate the internal state by holding a reference to the passed-in map",
+        "CollocateQueryHelper(@Nullable BlackLabIndex index): Javadoc says 'Null is accepted to support test subclasses'; but getTotalFrequency() throws NPE-via-requireNonNull when called with null — this is partially documented but the 'null is safe' implication is misleading for any method that actually needs the index",
+        "compareCollocateProfiles returns ComparisonResult.empty() for null/fewer-than-2 seeds without logging — callers that pass a single-element set receive an empty result with no indication of why",
+        "SemanticFieldExplorer.exploreByPattern convenience overload: throws IAE for relationType.isEmpty() and for collocatePosGroup==OTHER — these preconditions are not documented in the method Javadoc",
+        "GrammarConfigLoader.fromReader: Javadoc says 'throws IOException if the reader fails or the JSON is invalid' — fulfilled but fromReader also wraps all JSON parse errors, so the contract is broader than stated",
+        "ConlluConverter: processLines calls writerOpt.get() inside an inSentence-guarded block — safe but the invariant (inSentence==true implies writerOpt.isPresent()) is implicit and not documented"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "wrapWithErrorHandling provides a consistent and documented error-mapping contract for all HTTP handlers",
+        "buildBcqlWithLemmaSubstitution has a precise precondition and throws IAE — the contract is tight and testable",
+        "requireParam, parseIntParam, parseDoubleParam all document and honor the same IAE-for-missing-input contract",
+        "QueryExecutor interface method contracts are detailed and distinguish executeCollocations/executeSurfacePattern/executeBcqlQuery semantics"
+      ],
+      "issue_character": "The primary contract gap is mutable exposure: ExplorationResult stores caller-supplied collections by reference without defensive copying, undermining the 'all collections non-null' invariant documented in its Javadoc. Secondary gaps are implicit invariants in ConlluConverter and undocumented preconditions in SemanticFieldExplorer.",
+      "score_rationale": "The HTTP-layer contracts are well-specified and honored end-to-end. Domain-layer contracts have two meaningful gaps: ExplorationResult does not defend its stated immutability guarantee, and CollocateProfileComparator silently returns empty on invalid input without any indication to the caller. These gaps are real but localized."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_result_mutable_collections",
+      "summary": "ExplorationResult stores caller-supplied collections by reference, contradicting its 'immutable' Javadoc",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"],
+      "evidence": [
+        "Constructor: 'this.seedCollocates = seedCollocates;' — no defensive copy",
+        "Same for seedCollocateFrequencies, discoveredNouns, coreCollocates",
+        "Class Javadoc: 'All collections are non-null' implies stable read access but mutations by the caller are possible",
+        "seeds field IS correctly copied via 'this.seeds = List.copyOf(seeds)' — inconsistent treatment within the same constructor"
+      ],
+      "suggestion": "Apply the same defensive-copy pattern used for 'seeds' to all mutable fields: 'this.seedCollocates = Map.copyOf(seedCollocates); this.seedCollocateFrequencies = Map.copyOf(seedCollocateFrequencies); this.discoveredNouns = List.copyOf(discoveredNouns); this.coreCollocates = List.copyOf(coreCollocates);'",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "silent_empty_on_invalid_seed_count",
+      "summary": "CollocateProfileComparator.compareCollocateProfiles silently returns empty result for null or single-seed input without logging a warning",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"],
+      "evidence": [
+        "Method: 'if (seedNouns == null || seedNouns.size() < 2) { return ComparisonResult.empty(); }'",
+        "No log.warn() call before returning empty — callers that supply a single seed receive an empty result with no diagnostic"
+      ],
+      "suggestion": "Add a logger.warn() before the early return: 'logger.warn(\"compareCollocateProfiles called with {} seeds (minimum 2); returning empty result\", seedNouns == null ? 0 : seedNouns.size());' The calling path in SemanticFieldExplorer validates seeds >= 2 before this point, but defensive logging here aids debugging if the invariant is ever violated.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Partial immutability: seeds field was recently migrated to a List (the seeds() accessor was added in rounds 21-22) and received a defensive copy, but the other fields were not updated consistently",
+      "Silent sentinel returns are a recurring pattern from earlier organic growth"
+    ],
+    "likely_symptoms": ["exploration_result_mutable_collections"],
+    "possible_false_positives": []
+  }
+}

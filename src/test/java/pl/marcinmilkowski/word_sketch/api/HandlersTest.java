@@ -64,7 +64,7 @@ class HandlersTest {
     void handleSketchRequest_missingLemma_returns400() throws Exception {
         SketchHandlers handlers = new SketchHandlers(null, null);
         MockExchange ex = new MockExchange("http://localhost/api/sketch/");
-        handlers.handleSketchRequest(ex);
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleSketchRequest, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
 
@@ -274,6 +274,24 @@ class HandlersTest {
         assertNotNull(contentType, "Content-Type header must be present");
         assertTrue(contentType.startsWith("image/svg+xml"),
             "Content-Type must be image/svg+xml, got: " + contentType);
+    }
+
+    @Test
+    void handleVisualRadial_bodyTooLarge_returns413() throws Exception {
+        VisualizationHandlers handlers = new VisualizationHandlers();
+        // Body > 65536 bytes triggers RequestEntityTooLargeException → 413 via wrapWithErrorHandling
+        String bigBody = "x".repeat(65537);
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/visual/radial", bigBody);
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleVisualRadial, "test").handle(ex);
+        assertEquals(413, ex.statusCode);
+    }
+
+    @Test
+    void handleSketchRequest_unknownRelation_returns400() throws Exception {
+        SketchHandlers handlers = new SketchHandlers(emptyExecutor(), GrammarConfigHelper.requireTestConfig());
+        MockExchange ex = new MockExchange("http://localhost/api/sketch/house/no_such_relation");
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleSketchRequest, "test").handle(ex);
+        assertEquals(400, ex.statusCode);
     }
 
     static class MockPostBodyExchange extends MockExchange {

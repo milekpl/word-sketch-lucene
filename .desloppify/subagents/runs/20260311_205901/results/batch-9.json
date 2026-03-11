@@ -1,0 +1,78 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {"mid_level_elegance": 77.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExplorationHandlers → SemanticFieldExplorer seam is clean: handlers own HTTP parameter parsing and response assembly; explorer owns domain algorithm — no HTTP concerns leak into the explorer",
+        "ExploreResponseAssembler is the single translation point from model to JSON-ready maps — centralised, no scattered ad-hoc serialization in handler methods",
+        "ValidatedExploreRequest and ValidatedSingleSeedRequest records capture the HTTP→domain parameter translation boundary cleanly",
+        "GrammarConfig (value object) + GrammarConfigLoader (file I/O) separation makes the config loading seam explicit and testable via fromReader()",
+        "buildBaseExploreResponse in ExplorationHandlers builds a partial response map; callers then add seed/seeds-specific fields before calling ExploreResponseAssembler.populateExploreResponse — response assembly is spread across three call sites rather than one",
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc explains why it asymmetrically does not call buildExploreRequest — correct justification, but the asymmetry itself adds seam friction for a reader learning the handler protocol",
+        "ExploreResponseAssembler.populateComparisonResponse takes Set<String> seeds parameter AND accesses result.nouns() for the 'seeds' response field — same data concept enters from two different sources at the same boundary",
+        "SemanticFieldExplorer is a stable facade insulating the HTTP layer from multi-seed vs single-seed vs comparison algorithm distinctions — clean seam design",
+        "ConcordanceHandlers.parseConcordanceExamplesRequest uses a private ConcordanceExamplesRequest record to cleanly capture parsed parameters before handler logic — consistent with the ValidatedXxxRequest pattern in ExplorationHandlers"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler provides a single, coherent model-to-presentation translation boundary with no scattered ad-hoc maps in handlers",
+        "ValidatedXxxRequest / XxxRequest private records capture the HTTP→domain translation at a well-defined point",
+        "GrammarConfigLoader.fromReader() provides a clean testability seam that avoids file-system coupling in tests",
+        "SemanticFieldExplorer facade insulates the HTTP layer from changes to the three algorithm implementations behind it"
+      ],
+      "issue_character": "Seam design is mostly clean; the primary issues are spread response-assembly (base map built in one place, extended in another, populated in a third) and a data duplication where populateComparisonResponse receives seeds from two sources.",
+      "score_rationale": "The codebase handles most seams well — the ExploreResponseAssembler boundary is clean, handler-to-explorer communication is explicit, and the grammar config seam is well-designed. The score is held in the mid 70s because the explore response is assembled across multiple call sites (buildBaseExploreResponse + caller adds seed fields + populateExploreResponse), and the comparison handler's asymmetric protocol requires inline documentation to explain. These create non-trivial cognitive load when tracing the data flow for a new contributor."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "spread_explore_response_assembly",
+      "summary": "Explore response map is assembled across three sites: buildBaseExploreResponse, caller-added seed fields, and ExploreResponseAssembler.populateExploreResponse",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: Map<String, Object> response = buildBaseExploreResponse(...); response.put(\"seed\", result.seed()); ExploreResponseAssembler.populateExploreResponse(response, result);",
+        "handleSemanticFieldExploreMulti: Map<String, Object> response = buildBaseExploreResponse(...); response.put(\"seeds\", ...); response.put(\"seed_count\", ...); ExploreResponseAssembler.populateExploreResponse(response, result);",
+        "The boundary between 'base', 'seed-specific', and 'exploration-data' fields is spread across ExplorationHandlers and ExploreResponseAssembler with no single assembly point"
+      ],
+      "suggestion": "Consolidate all explore response assembly into ExploreResponseAssembler — add a buildSingleSeedResponse(ExplorationResult, ExploreParams) and buildMultiSeedResponse(ExplorationResult, ExploreParams) factory method in ExploreResponseAssembler, returning the complete response map. Handlers call a single method and get a complete, ready-to-send response.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "comparison_response_dual_seed_source",
+      "summary": "ExploreResponseAssembler.populateComparisonResponse receives seeds from both the Set<String> parameter and result.nouns(), sourcing the same concept from two different paths",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "populateComparisonResponse signature: (Map<String,Object> response, ComparisonResult result, Set<String> seeds, int topCollocates, double minLogDice)",
+        "response.put(\"seeds\", new ArrayList<>(result.nouns())) — uses result.nouns(), not the seeds parameter",
+        "response.put(\"seed_count\", seeds.size()) — uses the seeds parameter, not result.nouns().size()",
+        "These two could diverge if result.nouns() is reordered or filtered vs. the seeds passed by the caller"
+      ],
+      "suggestion": "Remove the Set<String> seeds parameter from populateComparisonResponse and derive seed count from result.nouns().size(). The method already has full information via the ComparisonResult parameter; the extra parameter creates a redundant and potentially inconsistent data path.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Response assembly grew incrementally as new fields were added to explore endpoints without consolidating into ExploreResponseAssembler"],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

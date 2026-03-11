@@ -35,11 +35,6 @@ public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
-        System.out.println("==========================================");
-        System.out.println("   ConceptSketch - BlackLab Edition v1.5.0 ");
-        System.out.println("==========================================");
-        System.out.println();
-
         if (args.length == 0) {
             showUsage();
             return;

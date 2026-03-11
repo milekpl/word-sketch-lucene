@@ -1,0 +1,79 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 14,
+  "assessments": {"logic_clarity": 75.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "ConlluConverter.processLines: calls writerOpt.get() at line 'writerOpt.get().write(\"</s>\\n\")' inside an 'if (inSentence)' block — the invariant 'inSentence==true implies writerOpt.isPresent()' is implicit and requires tracing the control flow to verify",
+        "ConlluConverter: 'Optional<long[]> rotated = rotateChunkIfNeeded(...)' returns a long[] packed inside Optional solely to signal whether rotation occurred — a dedicated record or a boolean+side-effect would be clearer",
+        "GrammarConfigLoader.deriveTokenPosition: counts complete [..] bracket groups before the first 'targetLabel:' substring in a character-by-character loop — correct but dense; the outer label-finding and inner token-counting passes are interleaved in one method",
+        "MultiSeedExplorer: Phase 3 builds aggregate score/frequency maps in-line in computeCollocateIntersection before delegating to phase helpers — phases 3b-3c (buildDiscoveredNouns, buildCoreCollocates) are in separate methods but 3a is inline, creating an inconsistent phase boundary",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: nouns_per preflight check is done before buildExploreRequest but after parseQueryParams — the ordering dependency is not obvious from reading the method",
+        "CollocateProfileComparator.buildAdjectiveProfileList: two-pass algorithm (single-pass for sum/min/max, second pass for variance) is clearly commented with 'Second pass for variance (requires the mean — unavoidable two-pass for numerical stability)'",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution: the else branch throws IAE with 'Unrecognized CQL pattern format' — clean and clear",
+        "SemanticFieldExplorer.exploreByPattern: 'if (seed.isEmpty()) return ExplorationResult.empty(\"\")' early return is clear, but the normalizedSeed variable is created after the empty check — minor ordering issue, not a logic bug",
+        "identifyCommonCollocates: 'int threshold = Math.min(minShared, seedCount)' — correct clamping logic, clearly named",
+        "VisualizationHandlers.handleVisualRadial: 413 check is done with 'if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) { HttpApiUtils.sendError(...); return; }' — does not throw RequestEntityTooLargeException like CorpusQueryHandlers does, inconsistent pattern for body-size enforcement"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Two-pass variance algorithm in CollocateProfileComparator is explicitly justified in a comment",
+        "buildBcqlWithLemmaSubstitution has a clean, provably-correct if/else with no hidden branches",
+        "identifyCommonCollocates applies threshold clamping with clear intent",
+        "Phase structure in MultiSeedExplorer is documented with phase comments and extracted into methods"
+      ],
+      "issue_character": "Logic correctness is generally sound, but several non-obvious invariants (the Optional<writer>/inSentence coupling, inline vs extracted phase steps, inconsistent 413-throwing patterns) require cross-method mental tracking to verify, raising the cost of future changes.",
+      "score_rationale": "The logic is provably correct throughout but relies on implicit invariants rather than explicit ones in a few key places. The Optional-based writer pattern in ConlluConverter and the inline phase in MultiSeedExplorer are the highest-friction areas. The 413 enforcement inconsistency (throw vs sendError) is a minor but real clarity gap."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "optional_writer_implicit_invariant",
+      "summary": "ConlluConverter.processLines relies on implicit 'inSentence implies writerOpt.isPresent()' invariant that is never asserted or documented",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"],
+      "evidence": [
+        "'writerOpt.get().write(\"</s>\\n\")' inside 'if (inSentence)' block — gets value without isPresent check",
+        "The invariant holds because writerOpt is always set before inSentence is set to true, but this requires non-local reasoning to confirm",
+        "If the loop logic is ever refactored, this invariant can silently break with a NoSuchElementException at runtime"
+      ],
+      "suggestion": "Add an assertion or an explicit isPresent check: 'if (inSentence && writerOpt.isPresent())' or assert the invariant with a comment. Alternatively, refactor to use a non-Optional local BufferedWriter field alongside a boolean inSentence flag to make the state machine explicit.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "inconsistent_413_enforcement_pattern",
+      "summary": "VisualizationHandlers enforces body-size with sendError+return while CorpusQueryHandlers throws RequestEntityTooLargeException, creating two divergent 413 patterns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "VisualizationHandlers: 'HttpApiUtils.sendError(exchange, 413, \"Request body too large\"); return;'",
+        "CorpusQueryHandlers: 'throw new RequestEntityTooLargeException(\"Request body too large\");'",
+        "Only CorpusQueryHandlers path goes through wrapWithErrorHandling's 413 branch; VisualizationHandlers bypasses it with a direct sendError call"
+      ],
+      "suggestion": "Standardize on throwing RequestEntityTooLargeException in VisualizationHandlers to match CorpusQueryHandlers: 'if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) { throw new RequestEntityTooLargeException(\"Request body too large\"); }'. This keeps 413 logic in one place (wrapWithErrorHandling) and makes VisualizationHandlers consistent with the established pattern.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "VisualizationHandlers predates the RequestEntityTooLargeException type and was not updated when the new pattern was introduced in CorpusQueryHandlers",
+      "Optional<BufferedWriter> chosen to avoid null state, but introduces implicit invariant that is harder to verify than explicit null-check on a nullable field"
+    ],
+    "likely_symptoms": ["inconsistent_413_enforcement_pattern"],
+    "possible_false_positives": []
+  }
+}

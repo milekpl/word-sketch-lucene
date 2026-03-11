@@ -1,0 +1,75 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {"error_consistency": 72.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "wrapWithErrorHandling in HttpApiUtils centralizes exception-to-status mapping: RequestEntityTooLargeException→413, IllegalArgumentException→400, IOException→500, Exception→500 — consistent for all wrapped handlers",
+        "ExplorationHandlers.parseRelationConfig throws IllegalArgumentException for unknown/misconfigured relations — correctly flows through wrapWithErrorHandling to 400",
+        "CorpusQueryHandlers.parseBcqlRequest throws RequestEntityTooLargeException for body-too-large — correctly flows through wrapWithErrorHandling to 413",
+        "VisualizationHandlers.handleVisualRadial bypasses the exception contract: calls HttpApiUtils.sendError(exchange, 413, ...) directly and returns, instead of throwing RequestEntityTooLargeException — inconsistent with the established protocol",
+        "SketchHandlers.handleSketchRequest calls HttpApiUtils.sendError(exchange, 400, \"Lemma required\") directly — does not throw IllegalArgumentException, bypassing wrapWithErrorHandling",
+        "ConcordanceHandlers: when no matching relation is found, bcqlQuery stays null and falls back to a proximity pattern with a logger.warn — intentional degradation but the caller receives no indication that a fallback occurred in the HTTP response (fallback:true is set in response body)",
+        "BlackLabQueryExecutor constructor converts ErrorOpeningIndex (unchecked) to IOException (checked) with context message — good error contract",
+        "GrammarConfigLoader.createDefaultEnglish() wraps IOException in IllegalStateException with a documented two-tier contract — appropriate for startup wiring code",
+        "FetchExamplesOptions validates maxExamples >= 1 in compact constructor — good validation at data-object boundary"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "wrapWithErrorHandling establishes a clear error-to-status mapping contract at the API boundary",
+        "IllegalArgumentException as the 400-class error signal is used consistently across most handlers",
+        "BlackLabQueryExecutor converts unchecked RuntimeException to checked IOException with preserved context",
+        "GrammarConfigLoader.createDefaultEnglish two-tier exception contract is explicitly documented"
+      ],
+      "issue_character": "Two handler methods bypass the established exception-based error contract by calling HttpApiUtils.sendError directly — VisualizationHandlers for body-too-large and SketchHandlers for missing lemma — creating an inconsistent mixture of throw-based and direct-response error patterns.",
+      "score_rationale": "The codebase has a clear centralized error-handling strategy via wrapWithErrorHandling that most of the code follows. The score is held in the low 70s because two handler methods silently bypass this contract (direct sendError calls), meaning subtle future changes to error handling could affect some handlers but not others. These are concrete consistency failures, not just stylistic preferences."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "sketch_handler_direct_error_response",
+      "summary": "SketchHandlers.handleSketchRequest sends a 400 response directly instead of throwing IllegalArgumentException",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleSketchRequest: if (parts.length == 0 || parts[0].isEmpty()) { HttpApiUtils.sendError(exchange, 400, \"Lemma required\"); return; }",
+        "All other handlers signal 400 by throwing IllegalArgumentException caught by wrapWithErrorHandling",
+        "This means handleSketchRequest's error path is invisible to any future centralised error-handling middleware added to wrapWithErrorHandling"
+      ],
+      "suggestion": "Replace the direct sendError call with throw new IllegalArgumentException(\"Lemma required\") so the error flows through wrapWithErrorHandling consistently with all other handlers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "visualization_body_size_direct_error",
+      "summary": "VisualizationHandlers.handleVisualRadial handles body-too-large by calling sendError directly instead of throwing RequestEntityTooLargeException",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "handleVisualRadial: if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) { HttpApiUtils.sendError(exchange, 413, \"Request body too large\"); return; }",
+        "CorpusQueryHandlers.parseBcqlRequest: throw new RequestEntityTooLargeException(\"Request body too large\") — the established protocol"
+      ],
+      "suggestion": "Replace the direct sendError+return with throw new RequestEntityTooLargeException(\"Request body too large\") to match CorpusQueryHandlers and route through wrapWithErrorHandling.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["RequestEntityTooLargeException was introduced after VisualizationHandlers was written; SketchHandlers uses path-segment parsing that predates the IAE convention"],
+    "likely_symptoms": ["visualization_body_size_protocol_outlier in convention_outlier batch"],
+    "possible_false_positives": []
+  }
+}

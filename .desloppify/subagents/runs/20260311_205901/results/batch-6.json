@@ -1,0 +1,86 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {"abstraction_fitness": 80.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has a single production implementation (BlackLabQueryExecutor) — documented in Javadoc as 'primarily a testability seam rather than an abstraction boundary'; this is honest and appropriate self-labelling",
+        "SemanticFieldExplorer acts as a coordination facade: owns single-seed algorithm directly, delegates multi-seed to MultiSeedExplorer and comparison to CollocateProfileComparator — explicitly documented design rationale",
+        "GrammarConfigSerializer extracted from GrammarConfig/RelationConfig so config objects remain pure data carriers — appropriate extraction that prevents JSON-library coupling from leaking into the model layer",
+        "ExploreResponseAssembler owns all model-to-presentation translation for exploration endpoints — single, coherent responsibility",
+        "HttpApiUtils co-locates response-writing and request-parsing; Javadoc explicitly argues why splitting would add navigational friction without architectural benefit — defensible",
+        "RelationPatternBuilder is a pure static utility extracted from RelationConfig record so the record stays data-only — appropriate",
+        "RelationUtils is a pure static utility for alias resolution — appropriate scope",
+        "SingleSeedExplorationOptions.toBaseOptions() is a pure pass-through: return base; — minimal value, kept as a named projection but adds no behavior or policy",
+        "ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions options-object pattern pays for itself via binary-compatible extension points and named parameters at call sites",
+        "ComparisonResult.fullyShared(), partiallyShared(), specific(), specificTo() are stream-filter views on allAdjectives() — duplicating category logic already in AdjectiveProfile.sharingCategory()"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 82.0,
+        "indirection_cost": 80.0,
+        "interface_honesty": 85.0,
+        "delegation_density": 82.0,
+        "definition_directness": 78.0,
+        "type_discipline": 80.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface is honest about being a testability seam — does not pretend to be a port with multiple implementations",
+        "GrammarConfigSerializer/RelationPatternBuilder/RelationUtils are all correctly extracted as pure static utilities with no artificial object overhead",
+        "SemanticFieldExplorer facade is explicitly documented with its coordination role and stability contract",
+        "ExploreResponseAssembler is a genuine separation of concerns — it owns the model-to-JSON translation and nothing else"
+      ],
+      "issue_character": "Abstractions in this codebase generally earn their keep; the main fitness issue is ComparisonResult accumulating stream-filter views that duplicate logic already in AdjectiveProfile, and SingleSeedExplorationOptions.toBaseOptions() being a pure return pass-through that adds a name without adding behavior.",
+      "score_rationale": "Most abstractions in the codebase are appropriately scoped and earn their indirection through genuine leverage. The score is in the low 80s because a small number of pass-throughs and duplicated filter views add surface without value. No delegation-heavy classes or facade-only re-export modules were found."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "comparison_result_duplicated_filter_views",
+      "summary": "ComparisonResult.fullyShared/partiallyShared/specific duplicate filtering logic already encoded in AdjectiveProfile.sharingCategory()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java"
+      ],
+      "evidence": [
+        "ComparisonResult.fullyShared(): filters adjectives where presentInCount == nouns.size() — same condition as AdjectiveProfile.isFullyShared()",
+        "ComparisonResult.partiallyShared(): filters where presentInCount >= 2 && presentInCount < nouns.size() — same condition as AdjectiveProfile.isPartiallyShared()",
+        "AdjectiveProfile already encodes the sharing category via sharingCategory() which returns a SharingCategory enum",
+        "The filter methods in ComparisonResult are only used externally in tests or assembler code; ExploreResponseAssembler currently uses allAdjectives() and then calls adj.sharingCategory()"
+      ],
+      "suggestion": "Remove fullyShared(), partiallyShared(), specific(), and specificTo() from ComparisonResult. Callers that need filtered subsets should filter allAdjectives() by adj.sharingCategory(). Keep summaryCounts() as it is a genuinely efficient single-pass count.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "single_seed_options_passthrough",
+      "summary": "SingleSeedExplorationOptions.toBaseOptions() is a pure return pass-through with no added behavior or policy",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "public ExplorationOptions toBaseOptions() { return base; } — identical to accessing the base field directly",
+        "The recent change note says '3 pass-through delegation methods removed; callers use opts.base() directly' — toBaseOptions() appears to be a fourth that was retained"
+      ],
+      "suggestion": "Remove toBaseOptions() and update callers to use opts.base() directly, consistent with the refactoring direction already taken for the other three delegation methods.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["ComparisonResult grew filter views incrementally as callers requested convenience; toBaseOptions() survived the recent delegation-method cleanup"],
+    "likely_symptoms": ["comparison_result_filtered_views in high_level_elegance batch"],
+    "possible_false_positives": []
+  }
+}

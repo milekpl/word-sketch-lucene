@@ -1,0 +1,78 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 3,
+  "assessments": {"convention_outlier": 80.0},
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "Java camelCase naming conventions applied uniformly across all 43 source files — no snake_case drift",
+        "All HTTP handler classes follow XxxHandlers naming (ConcordanceHandlers, CorpusQueryHandlers, ExplorationHandlers, SketchHandlers, VisualizationHandlers) — consistent postfix",
+        "Internal request parameter records use XxxRequest naming (BcqlRequest, ConcordanceExamplesRequest, ValidatedExploreRequest, ValidatedSingleSeedRequest) — consistent",
+        "Options records follow XxxOptions (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) — consistent",
+        "parse*, build*, handle* verb prefixes applied consistently across handler classes",
+        "VisualizationHandlers.handleVisualRadial handles body-too-large by calling HttpApiUtils.sendError directly and returning, whereas CorpusQueryHandlers.parseBcqlRequest throws RequestEntityTooLargeException — inconsistent error-handling protocol across sibling handlers",
+        "SharingCategory overrides toString() returning label; RelationEdgeType overrides toString() returning label — consistent enum pattern",
+        "PosGroup.getValue() uses get-prefix; RelationEdgeType.label(), SharingCategory.label() do not — minor get-prefix inconsistency across sibling enums"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Java naming conventions (camelCase, PascalCase for types) applied uniformly with no snake_case islands",
+        "Handler classes and their internal request/options records follow consistent naming patterns",
+        "Enum types consistently implement label() + toString() override for API-safe serialization",
+        "parse*, build*, handle* verb prefixes are codebase-wide conventions, not local patterns"
+      ],
+      "issue_character": "Conventions are broadly consistent; the one clear outlier is VisualizationHandlers breaking the exception-based error signalling protocol that all other handlers follow for body-too-large conditions.",
+      "score_rationale": "The codebase is well-conventioned at the naming and structural levels. The score is held out of the mid-80s by the single handler that deviates from the established RequestEntityTooLargeException protocol, and by PosGroup.getValue() using a get-prefix while sibling enums RelationEdgeType and SharingCategory use the un-prefixed label() convention."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "visualization_body_size_protocol_outlier",
+      "summary": "VisualizationHandlers.handleVisualRadial handles body-too-large by calling sendError directly instead of throwing RequestEntityTooLargeException like sibling handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.parseBcqlRequest: throws new RequestEntityTooLargeException(\"Request body too large\") — flows through wrapWithErrorHandling → 413",
+        "VisualizationHandlers.handleVisualRadial: calls HttpApiUtils.sendError(exchange, 413, \"Request body too large\"); return; — bypasses the exception-based contract",
+        "Both handlers are registered with wrapWithErrorHandling in WordSketchApiServer.registerRoutes()"
+      ],
+      "suggestion": "In VisualizationHandlers.handleVisualRadial, replace the direct sendError call with throw new RequestEntityTooLargeException(\"Request body too large\") to match the protocol established by CorpusQueryHandlers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "posgroup_get_prefix_outlier",
+      "summary": "PosGroup.getValue() uses get-prefix accessor while sibling enums RelationEdgeType and SharingCategory use unprefixed label()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationEdgeType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/SharingCategory.java"
+      ],
+      "evidence": [
+        "PosGroup: public String getValue() { return value; }",
+        "RelationEdgeType: public String label() { return label; }",
+        "SharingCategory: public String label() { return label; }"
+      ],
+      "suggestion": "Rename PosGroup.getValue() to PosGroup.label() (or value()) to match the label() convention used by RelationEdgeType and SharingCategory. Update the single call site in GrammarConfigSerializer or wherever getValue() is used.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["PosGroup predates the label() convention; VisualizationHandlers body check was written before RequestEntityTooLargeException existed"],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

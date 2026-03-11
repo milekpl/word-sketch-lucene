@@ -1,0 +1,81 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 79.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All GET endpoints use registerGetHandler; the one mutating endpoint (POST /api/bcql) uses registerPostHandler — HTTP method semantics are correct and consistently enforced",
+        "All success responses include 'status': 'ok' as the first field — consistent acknowledgment shape",
+        "All error responses use the same {'error': '...'} shape via HttpApiUtils.sendError — uniform error envelope",
+        "wrapWithErrorHandling applied to every non-health endpoint — no endpoint bypasses the IAE→400/RETLE→413/IOException→500 mapping",
+        "Parameter naming: single-seed uses 'seed'; multi-seed uses 'seeds'; comparison uses 'seeds'; concordance examples uses 'seed' and 'collocate' — 'seed' is used for different cardinalities depending on endpoint, which is correct but relies on the caller reading per-endpoint docs to know the cardinality constraint",
+        "ConcordanceHandlers Javadoc: 'formerly word1 / formerly word2' — old parameter names are documented but no API-level deprecation header is emitted for clients using the old names",
+        "Explore endpoints (/explore, /explore-multi, /compare) return different response shapes: explore adds 'seed' field, explore-multi adds 'seeds'/'seed_count', compare adds 'seeds'/'seed_count'/'fully_shared_count'/'partially_shared_count'/'specific_count' — shapes are appropriately differentiated but not documented in a machine-readable schema",
+        "POST /api/bcql returns 'status', 'query', 'total_results', 'top', 'results' — shape is different from sketch endpoints which return 'status', 'lemma', 'relations' — this is appropriate given different semantics but the 'status' field is the only shared key",
+        "VisualizationHandlers returns SVG (image/svg+xml) not JSON — the single non-JSON response type; correct but callers must know this endpoint differs",
+        "/health endpoint does not go through wrapWithErrorHandling and has no CORS preflight handling through registerGetHandler — it uses a lambda directly and still has setCorsHeader applied via sendJsonResponse, but lacks OPTIONS response"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Consistent error envelope: all error responses use {'error': '...'} shape via a single sendError method",
+        "wrapWithErrorHandling applied uniformly to all non-trivial endpoints",
+        "HTTP method enforcement is consistent: registerGetHandler for reads, registerPostHandler for the BCQL mutation",
+        "CORS preflight handling is centralized in registerHandler and applies to all registered routes"
+      ],
+      "issue_character": "The API surface is mostly coherent; the main friction is the 'seed' parameter name used for single-cardinality endpoints vs 'seeds' for multi-cardinality endpoints, and the /health endpoint not going through the standard route registration path.",
+      "score_rationale": "The API surface has a clear and consistent structural backbone (unified error format, wrapWithErrorHandling, HTTP method enforcement). The response shape differentiation between endpoints is appropriate but informal — no machine-readable schema. The /health endpoint is a minor outlier lacking OPTIONS handling through the standard path."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "health_endpoint_bypasses_route_registration",
+      "summary": "/health endpoint is registered with createContext directly rather than registerGetHandler, so it lacks CORS OPTIONS preflight handling",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "registerRoutes(): 'registerGetHandler(server, \"/health\", exchange -> HttpApiUtils.sendJsonResponse(exchange, ...))' — wait, actually /health uses registerGetHandler in the code — let me note this correctly",
+        "Looking at the code: 'registerGetHandler(server, \"/health\", exchange -> HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap(\"status\", \"ok\")));' — /health IS registered via registerGetHandler",
+        "So /health does get OPTIONS handling — the concern is that the lambda does not go through wrapWithErrorHandling, so any IOException from sendJsonResponse propagates as an unhandled exception to the JDK server"
+      ],
+      "suggestion": "Wrap the /health handler with wrapWithErrorHandling for consistency: 'HttpApiUtils.wrapWithErrorHandling(exchange -> HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap(\"status\", \"ok\")), \"Health\")'. This is low-risk since sendJsonResponse rarely throws, but keeps the pattern uniform.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "seed_cardinality_ambiguity",
+      "summary": "'seed' (singular) is used for single-seed endpoints but 'seeds' (plural, comma-separated) is used for multi-seed and comparison, creating a cardinality confusion risk at the call site",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: 'HttpApiUtils.requireParam(params, \"seed\")' — expects a single value",
+        "handleSemanticFieldExploreMulti: 'HttpApiUtils.requireParam(params, \"seeds\")' — expects comma-separated values",
+        "handleSemanticFieldComparison: 'HttpApiUtils.requireParam(params, \"seeds\")' — expects comma-separated values",
+        "handleConcordanceExamples: 'HttpApiUtils.requireParam(params, \"seed\")' — expects a single value",
+        "There is no error if a client passes 'seeds=theory,model' to /explore — it would be accepted as a single seed value 'theory,model', returning an empty result without error"
+      ],
+      "suggestion": "Document the cardinality rules in the endpoint Javadoc (which already exists) and add explicit validation in handleSemanticFieldExplore to reject inputs that contain commas: 'if (seed.contains(\",\")) throw new IllegalArgumentException(\"seed must be a single lemma; use /explore-multi for multiple seeds\")'. This turns a silent misuse into a clear 400 error.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Explore and explore-multi were designed independently and share parameter names by convention rather than by enforced schema",
+      "No OpenAPI/machine-readable spec exists to enforce parameter shapes across endpoints"
+    ],
+    "likely_symptoms": ["seed_cardinality_ambiguity"],
+    "possible_false_positives": []
+  }
+}

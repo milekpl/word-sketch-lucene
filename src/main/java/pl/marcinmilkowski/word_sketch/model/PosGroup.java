@@ -15,7 +15,7 @@ public enum PosGroup {
         this.value = value;
     }
 
-    public String getValue() {
+    public String label() {
         return value;
     }
 

@@ -1,0 +1,58 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {"cross_module_architecture": 83.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Packages form a clear directed acyclic hierarchy: Main → api → exploration/config/query → model/utils/viz; no reverse-direction imports detected",
+        "ConlluConverter (indexer/blacklab) depends only on java.io, java.nio, java.util — no outward dependencies to api or exploration layers",
+        "WordSketchApiServer (api) imports SemanticFieldExplorer (exploration) in its constructor — expected wiring coupling for a server bootstrap class",
+        "ExplorationHandlers (api) imports from config, exploration, and model — all downward-direction imports",
+        "api package contains 9 files (WordSketchApiServer, 4 handler classes, HttpApiUtils, ExploreResponseAssembler, RequestEntityTooLargeException) — sizeable but cohesive around HTTP concerns",
+        "No cycles found: config ← exploration ← api, query ← exploration, model ← everywhere",
+        "com.sun.net.httpserver is internal JDK API used throughout the api package — an architectural dependency on a non-stable JDK internal surface"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Clear directed layer hierarchy with no detected import cycles",
+        "ConlluConverter is fully self-contained within the indexer subpackage with no cross-layer leakage",
+        "model package is a pure DTO sink — nothing in model imports from api or exploration",
+        "Handler classes are package-private, with WordSketchApiServer as the sole public entry point to the api package"
+      ],
+      "issue_character": "The architecture is sound and cycle-free; the primary concern is a dependency on the internal JDK com.sun.net.httpserver API throughout the api package, which is not a cross-layer boundary issue but an external dependency stability concern.",
+      "score_rationale": "The codebase has clearly defined and respected layer boundaries with no cycles. The main architectural weakness is the reliance on com.sun.net.httpserver (internal JDK API) as the HTTP primitive, which is a platform coupling risk but not a cross-module architecture violation. Minor: the api package is moderately large but sub-divided logically. Scores in the low-80s — above a typical mid-level codebase but with the JDK internal dependency preventing a high-90s score."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "sun_httpserver_internal_api",
+      "summary": "api package depends on com.sun.net.httpserver, an internal JDK API not guaranteed stable across Java versions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer uses com.sun.net.httpserver.HttpServer directly in start(), registerHandler(), registerGetHandler(), registerPostHandler()",
+        "HttpApiUtils method signatures accept com.sun.net.httpserver.HttpExchange as parameters",
+        "com.sun.net.httpserver is in the jdk.httpserver module which is not part of the public Java SE API spec"
+      ],
+      "suggestion": "Introduce a thin HttpServer abstraction or switch to a standard embedded HTTP server (e.g. Jetty embedded, or the standard-module com.sun.net.httpserver via explicit --add-exports in module-info if staying on JDK). If staying with com.sun, add --add-exports to build config to make the dependency explicit and testable across Java versions.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Single HTTP server abstraction layer chosen for simplicity; no embedded server library introduced"],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

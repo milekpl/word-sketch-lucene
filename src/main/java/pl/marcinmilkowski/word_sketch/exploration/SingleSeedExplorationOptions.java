@@ -17,9 +17,4 @@ public record SingleSeedExplorationOptions(
          * Specific to single-seed exploration — not used in multi-seed or comparison.
          */
         int nounsPerCollocate) {
-
-    /** Project to a shared {@link ExplorationOptions}, dropping the single-seed-only field. */
-    public ExplorationOptions toBaseOptions() {
-        return base;
-    }
 }

@@ -1,0 +1,78 @@
+{
+  "batch": "type_safety",
+  "batch_index": 15,
+  "assessments": {"type_safety": 77.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "jspecify @NonNull/@Nullable annotations used throughout: ExplorationHandlers, HttpApiUtils, SemanticFieldExplorer, MultiSeedExplorer, QueryExecutor — consistent adoption",
+        "GrammarConfig.getVersion() annotated @NonNull — the loader guarantees a non-blank version string or throws IOException, so the annotation matches runtime behavior",
+        "GrammarConfig.getConfigPath() annotated @Nullable — correct since fromReader() passes null",
+        "RelationConfig.computeDeprel() returns @Nullable String — correct, returns null for non-DEP relations",
+        "QueryExecutor.executeCollocations accepts @Nullable String lemma — annotation matches the 'returns empty list silently if null' documented behavior",
+        "ExplorationResult stores seedCollocates and seedCollocateFrequencies as untyped Map<String, Double>/Map<String, Long> without defensive copying — the runtime type is correct but mutation is possible, so @NonNull return annotations on seedCollocates() and seedCollocateFrequencies() over-promise stability",
+        "HttpApiUtils.parseQueryParams returns @NonNull Map but the map is a plain HashMap that callers can mutate freely — not a safety issue for this use but the annotation implies stability it does not provide",
+        "CollocateQueryHelper constructor accepts @Nullable BlackLabIndex — correctly annotated but multiple methods (executeCollocateSearch, buildAndRankCollocates) call index.method() without null-checking, relying on requireNonNull only in getTotalFrequency; null index causes NPE in other methods",
+        "Map<String, Object> used throughout response assembly — necessary for dynamic JSON but erases type information; no generic wrapper around the map keys used (e.g. enum keys)",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution is package-private (not in interface) — missing @Nullable/@NonNull on the static method parameters, though it is tested",
+        "ExplorationOptions and SingleSeedExplorationOptions are records — all fields are primitive or known non-null, no annotation needed; correctly designed",
+        "FetchExamplesOptions record (maxExamples int) — primitive, fine"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "jspecify annotations consistently adopted in public/package APIs — most null contracts are explicit and correct",
+        "Record types (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions, BcqlRequest, ConcordanceExamplesRequest) provide correct-by-construction type safety for request parameters",
+        "GrammarConfig and RelationConfig are final/immutable value objects with @NonNull/@Nullable annotations matching their loader guarantees"
+      ],
+      "issue_character": "Type safety annotations are generally correct for the values they annotate, but two systematic gaps exist: CollocateQueryHelper accepts @Nullable index yet exposes methods that NPE for null, and ExplorationResult's @NonNull collection accessors over-promise stability because the underlying maps are not defensively copied.",
+      "score_rationale": "The codebase has meaningfully adopted nullability annotations but has two structural weaknesses: an injectable null that causes runtime NPEs beyond the one guarded method, and a mismatch between @NonNull collection annotations and the absence of defensive copies. Together these reduce the practical value of the annotations in those areas."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_index_partial_guard",
+      "summary": "CollocateQueryHelper accepts @Nullable BlackLabIndex but only getTotalFrequency() guards against null; other methods NPE",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "Constructor Javadoc: 'Null is accepted to support test subclasses that override getTotalFrequency and executeCollocateSearch'",
+        "getTotalFrequency: 'Objects.requireNonNull(index, ...)' — correctly guarded",
+        "buildAndRankCollocates, executeBcqlQuery and similar methods call index.* directly — no null guard, NPE if called with null index",
+        "The @Nullable annotation implies null is safe to pass, but it is only safe for test subclasses that override the specific methods being invoked"
+      ],
+      "suggestion": "Either: (1) remove @Nullable from the constructor parameter and document that test subclasses must override all methods that access index — making the null-safety contract explicit; or (2) add a requireNonNull guard in the constructor and create a separate test-only subclass that overrides the index-using methods and never calls super. Option 2 is cleaner as it eliminates the implicit contract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "exploration_result_nonnull_over_promise",
+      "summary": "ExplorationResult @NonNull collection accessors over-promise stability: underlying maps are not defensive copies",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"],
+      "evidence": [
+        "'this.seedCollocates = seedCollocates;' — stores caller reference; seedCollocates() is annotated @NonNull but callers can mutate the map via the original reference",
+        "Contrast: 'this.seeds = List.copyOf(seeds);' — correctly defensive-copied",
+        "The Javadoc says 'All collections are non-null' but does not say 'unmodifiable', so the annotation is not technically false, but the asymmetry between seeds and the other collections is a latent bug"
+      ],
+      "suggestion": "Apply defensive copies for all mutable collection fields: 'this.seedCollocates = Collections.unmodifiableMap(new LinkedHashMap<>(seedCollocates));' and similarly for the other fields. This matches the intent of the @NonNull annotations and the 'immutable result' documentation.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental addition of jspecify annotations without a full audit of null-safety contracts for all code paths",
+      "Partial immutability in ExplorationResult: seeds was recently converted to a proper List with defensive copy but the other fields were not updated"
+    ],
+    "likely_symptoms": ["exploration_result_nonnull_over_promise", "nullable_index_partial_guard"],
+    "possible_false_positives": []
+  }
+}

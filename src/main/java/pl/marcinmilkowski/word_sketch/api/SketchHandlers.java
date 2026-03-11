@@ -44,8 +44,7 @@ class SketchHandlers {
         String[] parts = path.substring("/api/sketch/".length()).split("/");
 
         if (parts.length == 0 || parts[0].isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Lemma required");
-            return;
+            throw new IllegalArgumentException("Lemma required");
         }
 
         String lemma = parts[0];
@@ -124,7 +123,7 @@ class SketchHandlers {
             Map<String, Object> relData = new HashMap<>();
             relData.put("name", rel.name());
             relData.put("cql", rel.pattern());
-            relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+            relData.put("collocate_pos_group", rel.collocatePosGroup().label());
             relData.put("collocations", sketch.collocations());
             return relData;
         });
@@ -207,8 +206,7 @@ class SketchHandlers {
     private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {
         var rel = grammarConfig.getRelation(relationId).orElse(null);
         if (rel == null || rel.relationType().orElse(null) != relationType) {
-            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
-            return;
+            throw new IllegalArgumentException("Unknown relation: " + relationId);
         }
 
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);

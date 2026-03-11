@@ -1,0 +1,59 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 87.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer binds exclusively to InetAddress.getLoopbackAddress() (127.0.0.1) — no external network exposure",
+        "Class Javadoc explicitly documents the security model: 'All endpoints are unauthenticated — access control is provided by the host firewall and the loopback-only bind'",
+        "Javadoc warns: 'Any change to the bind address (e.g., to 0.0.0.0 for container deployment) must be accompanied by an authentication or network-level access-control layer'",
+        "All 12 registered endpoints apply the same access control: none (loopback-only by bind address) — the model is consistently applied across all endpoints",
+        "POST /api/bcql accepts arbitrary BCQL patterns; access control is by loopback bind, not by input validation for auth purposes; input validation is for size/complexity only",
+        "No CSRF protection on POST endpoints — consistent with the loopback-only, single-user tool model",
+        "No per-endpoint authorization checks, roles, or permission decorators — intentional for a local research tool",
+        "No authentication headers, API keys, or session tokens used anywhere — consistent with documented design",
+        "Rate limiting: none; consistent — the tool is designed for controlled local use, not multi-tenant access",
+        "CORS: Access-Control-Allow-Origin defaults to 'http://localhost:3000', configurable via system property — correctly limits cross-origin access to local webapp only"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The security model is explicit and consistently applied but depends entirely on the loopback bind; there is no defense-in-depth if the bind address is changed for container deployment. The documented warning is present but not machine-enforced."
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Authorization model is explicitly documented in class Javadoc with clear rationale and an explicit deployment warning",
+        "Loopback-only bind is consistently enforced for all endpoints via a single constructor — no per-endpoint override possible",
+        "CORS default restricts cross-origin access to the local webapp port (3000), providing a second layer of browser-level access control",
+        "The documented warning about container deployment is actionable: it names the specific risk (0.0.0.0 bind) and the mitigation required (auth or network-level ACL)"
+      ],
+      "issue_character": "The authorization model is intentionally minimal (loopback-only, no auth) and is consistently applied across all endpoints; there is no inconsistency to find. The sole risk is that the loopback bind is a deployment-time constraint with no runtime enforcement.",
+      "score_rationale": "Authorization consistency is high: the choice is explicit, documented, and uniformly applied. The score is not higher because the documented security model is a single-layer defense (network bind) with no fallback, and the CORS allow-origin is a static default that must be overridden via system property for production deployments — a configuration risk rather than a code inconsistency."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_origin_static_default_not_validated",
+      "summary": "CORS Access-Control-Allow-Origin default ('http://localhost:3000') is read from system property without validation, allowing any origin to be injected via -Dcors.allow.origin",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "'String origin = System.getProperty(\"cors.allow.origin\", DEFAULT_CORS_ALLOW_ORIGIN);'",
+        "No validation that origin is a well-formed URL or matches a whitelist",
+        "An operator could inadvertently set '-Dcors.allow.origin=*' which would allow all origins — contradicting the intent of the loopback-only security model"
+      ],
+      "suggestion": "Add a simple whitelist check or warn on non-localhost origins: 'if (!origin.startsWith(\"http://localhost\") && !origin.startsWith(\"https://localhost\")) { logger.warn(\"cors.allow.origin is set to a non-localhost value: {}\", origin); }'. For stricter control, reject wildcard ('*') origins at startup.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Single-user local tool design: authorization is handled by deployment configuration rather than code"],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 16,
+  "assessments": {"design_coherence": 80.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "ExplorationHandlers uses three private helper layers: parameter parsing (buildSingleSeedRequest, buildExploreRequest, parseRelationConfig, parseExplorationParams), response building (buildBaseExploreResponse), and delegation to SemanticFieldExplorer — each layer has a single purpose",
+        "Private records ValidatedSingleSeedRequest and ValidatedExploreRequest encapsulate parsed request state rather than passing multiple parameters through handler methods — correct use of records as typed bundles",
+        "ExplorationParams record correctly carries all four numeric parameters; however, it includes 'nounsPerCollocate' even for the multi-seed path where it is irrelevant — the field is pre-flight rejected in handleSemanticFieldExploreMulti but still parsed",
+        "handleSemanticFieldComparison explicitly documents its asymmetry with handleSemanticFieldExplore and handleSemanticFieldExploreMulti: 'unlike ... this handler intentionally does not call buildExploreRequest because comparison is cross-relational' — the asymmetry is justified and documented",
+        "parseSeedSet is a pure static method with no side effects, correctly placed as private static",
+        "parseRelationConfig throws IAE on unknown relation or missing relationType — this is the correct exception for wrapWithErrorHandling to catch",
+        "buildBaseExploreResponse constructs the shared response skeleton and merges extraParams — avoids duplication between single-seed and multi-seed response assembly",
+        "The guard 'if (params.containsKey(\"nouns_per\")) throw IAE' in handleSemanticFieldExploreMulti is applied before buildExploreRequest — but parseExplorationParams in buildExploreRequest still parses nouns_per with a default value anyway; the guard makes the contract clear but the parse is redundant",
+        "SemanticFieldExplorer injected as a field rather than constructed inside handlers — enables testing via the full-constructor path in WordSketchApiServer",
+        "All handler methods are package-private, correctly limiting visibility to the api package and the server wiring"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Three-layer handler structure (parse → delegate → respond) is consistent across all handlers in ExplorationHandlers",
+        "Private records for request bundles (ValidatedSingleSeedRequest, ValidatedExploreRequest, ExplorationParams) provide typed, self-documenting parameter passing",
+        "Documented asymmetry in handleSemanticFieldComparison with explicit rationale prevents a future refactor from incorrectly 'fixing' the intentional deviation",
+        "SemanticFieldExplorer injected as a dependency, enabling constructor-based testing seam"
+      ],
+      "issue_character": "The design is structurally sound with one recurring minor inconsistency: ExplorationParams carries nounsPerCollocate for all paths including multi-seed where it is explicitly disallowed, and the guard and the parse are both present but not coordinated.",
+      "score_rationale": "ExplorationHandlers demonstrates deliberately structured design: concerns are separated into layers, request state is typed, and asymmetries are documented. The one design smell (nouns_per parsed but rejected, redundant in multi-seed path) is contained and non-breaking. The overall handler is a good example of the request-response handler pattern applied consistently."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "nouns_per_parsed_then_rejected",
+      "summary": "ExplorationParams always parses 'nouns_per' even in multi-seed path where it is pre-flight rejected, creating redundant logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticFieldExploreMulti: 'if (params.containsKey(\"nouns_per\")) { throw new IllegalArgumentException(\"nouns_per is not supported for multi-seed exploration\"); }'",
+        "buildExploreRequest calls parseExplorationParams which contains: 'int nounsPerCollocate = HttpApiUtils.parseIntParam(params, \"nouns_per\", 30);'",
+        "When nouns_per is absent the parse is a no-op (returns default 30), but when present the guard throws before reaching parse — the guard and the parse are logically coordinated only by execution order, not by structure"
+      ],
+      "suggestion": "Introduce a multi-seed-specific request record (ValidatedMultiSeedRequest) that does not include 'nounsPerCollocate', or have parseExplorationParams accept a flag indicating whether to parse nouns_per. Simpler: leave the guard but add a comment explaining why parseExplorationParams still runs after it.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["buildSingleSeedRequest/buildExploreRequest share parseExplorationParams which was designed for single-seed; the multi-seed guard was added afterward without refactoring the param parsing"],
+    "likely_symptoms": ["nouns_per_parsed_then_rejected"],
+    "possible_false_positives": []
+  }
+}

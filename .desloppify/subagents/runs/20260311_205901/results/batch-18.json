@@ -1,0 +1,84 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 72.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "27 test files present covering: config loading/validation, CQL utils, logDice calculator, query executor static helpers, snippet parsing, collocate query helper, exploration algorithms, response assembler, and HTTP handler behavior",
+        "BlackLabQueryExecutorTest splits CI-safe static helper tests (no index required, always run) from live-index tests (@Disabled + Assumptions.assumeTrue) — correct strategy for an index-dependent codebase",
+        "SemanticFieldExplorerInternalTest and MultiSeedExplorerTest use stub executors (inline anonymous classes) that return canned data — tests the domain algorithm in isolation from BlackLab",
+        "CollocateProfileComparatorTest and HandlersTest use stub/mock patterns consistently",
+        "GrammarConfigLoaderTest and RelationsValidationTest cover invalid-config rejection paths (missing version, duplicate id, copulas key) — critical paths for startup correctness",
+        "WrapHandlerTest tests the error-mapping contract of wrapWithErrorHandling independently",
+        "CorpusQueryHandlers has no dedicated test file — the 413 body-size limit, bracket-depth limit, and JSON parse error paths are tested only through HandlersTest (which focuses on 400-class paths)",
+        "VisualizationHandlers has no dedicated test file — the radial SVG generation path is covered only by RadialPlotTest (tests the SVG builder directly, not the HTTP handler)",
+        "ConcordanceHandlers.handleConcordanceExamples fallback logic (when relation not found) is not explicitly tested — HandlersTest only covers missing-parameter 400 responses",
+        "ConlluConverterTest exists — covers the chunk rotation and sentence counting paths; the Optional<BufferedWriter> invariant is exercised implicitly but not explicitly tested",
+        "BlackLabConllUIndexerTest is present but marked @Disabled for CI environments without an index — live integration coverage is good when enabled",
+        "ExploreResponseAssemblerTest covers edge/format serialization — important since assembler is the single point of model-to-JSON translation"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Clear CI/live-index split with @Disabled + Assumptions.assumeTrue prevents flaky CI failures from index-dependent tests",
+        "Stub executor pattern used consistently in exploration tests — enables fast, deterministic algorithm testing without BlackLab",
+        "Config rejection paths (copulas key, missing version, duplicate id) are explicitly tested — startup correctness is well-guarded",
+        "WrapHandlerTest independently verifies the error-mapping contract for all exception types (IAE → 400, RETLE → 413, IOException → 500)"
+      ],
+      "issue_character": "The HTTP handler layer is undertested at the integration level: CorpusQueryHandlers (413 body-size, bracket-depth limit) and VisualizationHandlers (body-size and parse errors) lack dedicated tests for their critical validation paths.",
+      "score_rationale": "Algorithm and config tests are well-structured and cover the key correctness properties. The main gap is in HTTP handler validation paths: CorpusQueryHandlers has no test for its 413/bracket-depth guards, and ConcordanceHandlers fallback logic is not covered. Given that the HTTP handlers are the external API boundary, these omissions matter for regression safety."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "corpus_query_handler_validation_untested",
+      "summary": "CorpusQueryHandlers 413 body-size limit, bracket-depth limit, and JSON parse error paths have no dedicated tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/HandlersTest.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.parseBcqlRequest has three distinct validation branches: body > 65536 bytes (413), pattern.length() > 1024 (400), bracketCount > 20 (400)",
+        "HandlersTest covers SketchHandlers, ConcordanceHandlers, and ExplorationHandlers but has no test methods for CorpusQueryHandlers",
+        "The 413 path uses RequestEntityTooLargeException (a new type from rounds 21-22) — this exception type and its mapping have no handler-level test"
+      ],
+      "suggestion": "Add tests to HandlersTest (or a new CorpusQueryHandlersTest) for: (1) body > 65536 → HTTP 413, (2) pattern.length() > 1024 → HTTP 400, (3) bracketCount > 20 → HTTP 400, (4) invalid JSON → HTTP 400. Use MockExchange with a ByteArrayInputStream for the POST body.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "concordance_fallback_path_untested",
+      "summary": "ConcordanceHandlers relation-not-found fallback (proximity BCQL pattern) is not tested",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/HandlersTest.java"
+      ],
+      "evidence": [
+        "handleConcordanceExamples: 'if (bcqlQuery == null || bcqlQuery.isEmpty()) { bcqlQuery = String.format(...proximity fallback...); fallback = true; }'",
+        "HandlersTest.handleConcordanceExamples tests only the missing-parameter 400 paths — not the fallback=true path",
+        "The fallback log.warn is in production code but never verified in tests; if the relation lookup changes, the fallback could silently produce incorrect results"
+      ],
+      "suggestion": "Add a HandlersTest case that passes an unknown relation ID and verifies the response contains 'fallback: true' and a non-empty 'bcql' field constructed from the proximity pattern.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "CorpusQueryHandlers was recently refactored (rounds 21-22) to throw RequestEntityTooLargeException — the test suite was not extended to cover the new paths",
+      "Handler tests focus on parameter validation (400s) but not on business logic validation (413, fallback paths)"
+    ],
+    "likely_symptoms": ["corpus_query_handler_validation_untested"],
+    "possible_false_positives": []
+  }
+}

@@ -6,8 +6,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Converts CoNLL-U format to tabular WPL with &lt;s&gt; markers, split into chunk files.
@@ -28,6 +28,13 @@ public class ConlluConverter {
 
     private static final Pattern MWT_OR_EMPTY = Pattern.compile("^\\d+-\\d+\t|^\\d+\\.\\d+\t");
 
+    /** Index into the {@code state} long-array for the total sentence count. */
+    private static final int STATE_SENTENCES = 0;
+    /** Index into the {@code state} long-array for the total token count. */
+    private static final int STATE_TOKENS = 1;
+    /** Index into the {@code state} long-array for the total chunk-file count. */
+    private static final int STATE_CHUNKS = 2;
+
     private ConlluConverter() {}
 
     /**
@@ -38,22 +45,22 @@ public class ConlluConverter {
     public static long[] convertConlluToWplChunks(Path input, Path outputDir, int sentencesPerChunk)
             throws IOException {
         long[] state = {0, 0, 0}; // [sentences, tokens, chunks]
-        Optional<BufferedWriter> writerOpt = Optional.empty();
+        @Nullable BufferedWriter writer = null;
 
         try (BufferedReader reader = Files.newBufferedReader(input, StandardCharsets.UTF_8)) {
-            writerOpt = processLines(reader, outputDir, sentencesPerChunk, state);
+            writer = processLines(reader, outputDir, sentencesPerChunk, state);
         } finally {
-            if (writerOpt.isPresent()) {
+            if (writer != null) {
                 // On the error path the in-progress sentence is left open deliberately:
                 // writing a partial </s> tag would produce a malformed chunk that is
                 // harder to detect than an abrupt EOF. The try-with-resources below
                 // ensures the writer is always closed (flushing any buffered bytes) even
                 // if close() itself throws.
-                // NOTE: state[2]++ runs unconditionally after close, so every chunk file
-                // that was opened (including error-path chunks) is counted.
-                try (BufferedWriter toClose = writerOpt.get()) {
+                // NOTE: state[STATE_CHUNKS]++ runs unconditionally after close, so every
+                // chunk file that was opened (including error-path chunks) is counted.
+                try (BufferedWriter toClose = writer) {
                 }
-                state[2]++;
+                state[STATE_CHUNKS]++;
             }
         }
         return state;
@@ -63,13 +70,16 @@ public class ConlluConverter {
      * Reads all lines from {@code reader} and writes sentence-annotated WPL tokens to
      * rotating chunk files. Returns the writer for the last open chunk (if any), so the
      * caller can close it and increment the chunk counter.
+     *
+     * <p>Invariant: {@code inSentence} implies {@code writer != null}. A new chunk writer
+     * is opened at the start of every sentence, so any open sentence always has a writer.
      */
-    private static Optional<BufferedWriter> processLines(
+    private static @Nullable BufferedWriter processLines(
             BufferedReader reader, Path outputDir, int sentencesPerChunk, long[] state)
             throws IOException {
         boolean inSentence = false;
         int sentencesInChunk = 0;
-        Optional<BufferedWriter> writerOpt = Optional.empty();
+        @Nullable BufferedWriter writer = null;
 
         try {
             String line;
@@ -77,14 +87,15 @@ public class ConlluConverter {
                 if (line.startsWith("#")) continue;
                 if (line.isBlank()) {
                     if (inSentence) {
-                        writerOpt.get().write("</s>\n");
-                        state[0]++;
+                        // inSentence implies writer != null (see invariant in Javadoc)
+                        writer.write("</s>\n");
+                        state[STATE_SENTENCES]++;
                         sentencesInChunk++;
                         inSentence = false;
-                        Optional<long[]> rotated = rotateChunkIfNeeded(writerOpt.get(), outputDir, state[2], sentencesInChunk, sentencesPerChunk);
-                        if (rotated.isPresent()) {
-                            writerOpt = Optional.empty();
-                            state[2] = rotated.get()[0];
+                        long[] rotated = rotateChunkIfNeeded(writer, outputDir, state[STATE_CHUNKS], sentencesInChunk, sentencesPerChunk);
+                        if (rotated != null) {
+                            writer = null;
+                            state[STATE_CHUNKS] = rotated[0];
                             sentencesInChunk = 0;
                         }
                     }
@@ -92,43 +103,43 @@ public class ConlluConverter {
                 }
                 if (MWT_OR_EMPTY.matcher(line).find()) continue;
                 if (!inSentence) {
-                    if (writerOpt.isEmpty()) {
-                        writerOpt = Optional.of(openChunk(outputDir, state[2]));
+                    if (writer == null) {
+                        writer = openChunk(outputDir, state[STATE_CHUNKS]);
                     }
-                    writerOpt.get().write("<s>\n");
+                    writer.write("<s>\n");
                     inSentence = true;
                 }
-                writerOpt.get().write(line);
-                writerOpt.get().write('\n');
-                state[1]++;
+                writer.write(line);
+                writer.write('\n');
+                state[STATE_TOKENS]++;
             }
-            if (inSentence && writerOpt.isPresent()) {
-                writerOpt.get().write("</s>\n");
-                state[0]++;
+            if (inSentence && writer != null) {
+                writer.write("</s>\n");
+                state[STATE_SENTENCES]++;
             }
         } catch (IOException e) {
             // Close the writer before re-throwing so resources are not leaked.
-            if (writerOpt.isPresent()) {
-                try { writerOpt.get().close(); } catch (IOException suppressed) { e.addSuppressed(suppressed); }
-                writerOpt = Optional.empty();
+            if (writer != null) {
+                try { writer.close(); } catch (IOException suppressed) { e.addSuppressed(suppressed); }
+                writer = null;
             }
             throw e;
         }
-        return writerOpt;
+        return writer;
     }
 
     /**
      * Closes the current chunk writer and increments the chunk counter when the per-chunk
-     * sentence quota is reached. Returns {@code Optional.of(new long[]{newChunkCount})} when
-     * rotation occurred (caller should reset {@code sentencesInChunk} to 0 and set writer to null),
-     * or {@code Optional.empty()} when no rotation was needed.
+     * sentence quota is reached. Returns {@code new long[]{newChunkCount}} when rotation
+     * occurred (caller should reset {@code sentencesInChunk} to 0 and set writer to null),
+     * or {@code null} when no rotation was needed.
      */
-    private static Optional<long[]> rotateChunkIfNeeded(
+    private static @Nullable long[] rotateChunkIfNeeded(
             BufferedWriter writer, Path outputDir, long chunks,
             int sentencesInChunk, int sentencesPerChunk) throws IOException {
-        if (sentencesInChunk < sentencesPerChunk) return Optional.empty();
+        if (sentencesInChunk < sentencesPerChunk) return null;
         writer.close();
-        return Optional.of(new long[]{chunks + 1});
+        return new long[]{chunks + 1};
     }
 
     private static BufferedWriter openChunk(Path outputDir, long index) throws IOException {

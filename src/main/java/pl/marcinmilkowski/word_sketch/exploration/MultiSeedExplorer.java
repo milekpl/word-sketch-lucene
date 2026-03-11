@@ -50,13 +50,9 @@ class MultiSeedExplorer {
             int topCollocates,
             int minShared) throws IOException {
 
-        // Phase 1: fetch collocates per seed
         SeedCollocateData data = fetchCollocatesPerSeed(seeds, relationConfig, minLogDice, topCollocates);
-
-        // Phase 2: identify common collocates meeting minShared threshold
         Set<String> commonCollocates = identifyCommonCollocates(data.collocateSharedCount(), minShared, seeds.size());
 
-        // Phase 3: build aggregate score / frequency maps, then DiscoveredNoun list
         Map<String, Double> seedCollocScores = new LinkedHashMap<>();
         Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
         for (List<QueryResults.WordSketchResult> collocs : data.seedCollocateMap().values()) {
@@ -66,8 +62,6 @@ class MultiSeedExplorer {
             }
         }
         List<DiscoveredNoun> discoveredNounsList = buildDiscoveredNouns(seeds, data.seedCollocateMap(), commonCollocates);
-
-        // Phase 4: build core collocates
         List<CoreCollocate> coreCollocatesList = buildCoreCollocates(
                 commonCollocates, data.collocateSharedCount(), seedCollocScores, data.seedCollocateMap(), seeds.size());
 
@@ -77,9 +71,6 @@ class MultiSeedExplorer {
             discoveredNounsList, coreCollocatesList);
     }
 
-    // ==================== PHASE HELPERS ====================
-
-    /** Phase 1: execute the collocate query for each seed; returns per-seed results and shared-count map. */
     private SeedCollocateData fetchCollocatesPerSeed(
             Set<String> seeds, RelationConfig relationConfig,
             double minLogDice, int topCollocates) throws IOException {
@@ -97,7 +88,7 @@ class MultiSeedExplorer {
         return new SeedCollocateData(seedCollocateMap, collocateSharedCount);
     }
 
-    /** Phase 2: return collocates that appear in at least {@code minShared} seeds (capped to seeds.size()). */
+    /** Returns collocates that appear in at least {@code minShared} seeds (capped to seeds.size()). */
     private Set<String> identifyCommonCollocates(
             Map<String, Integer> collocateSharedCount, int minShared, int seedCount) {
         int threshold = Math.min(minShared, seedCount);
@@ -110,7 +101,7 @@ class MultiSeedExplorer {
         return commonCollocates;
     }
 
-    /** Phase 3: build a {@link DiscoveredNoun} for each seed, capturing its shared-collocate subset. */
+    /** Builds a {@link DiscoveredNoun} for each seed, capturing its shared-collocate subset. */
     private List<DiscoveredNoun> buildDiscoveredNouns(
             Set<String> seeds,
             Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap,
@@ -133,7 +124,7 @@ class MultiSeedExplorer {
         return discoveredNounsList;
     }
 
-    /** Phase 4: build a {@link CoreCollocate} for each member of the common collocate set. */
+    /** Builds a {@link CoreCollocate} for each member of the common collocate set. */
     private List<CoreCollocate> buildCoreCollocates(
             Set<String> commonCollocates,
             Map<String, Integer> collocateSharedCount,

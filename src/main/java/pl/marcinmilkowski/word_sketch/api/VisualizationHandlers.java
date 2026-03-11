@@ -33,8 +33,7 @@ class VisualizationHandlers {
     void handleVisualRadial(HttpExchange exchange) throws IOException {
         byte[] bodyBytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BODY_BYTES + 1);
         if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) {
-            HttpApiUtils.sendError(exchange, 413, "Request body too large");
-            return;
+            throw new RequestEntityTooLargeException("Request body too large");
         }
         String body = new String(bodyBytes, StandardCharsets.UTF_8);
         logger.debug("Radial: body = {}", body);

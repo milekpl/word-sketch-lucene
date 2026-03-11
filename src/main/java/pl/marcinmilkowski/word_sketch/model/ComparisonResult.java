@@ -87,10 +87,9 @@ public class ComparisonResult {
 
     @Override
     public String toString() {
-        int shared = (int) adjectives.stream().filter(a -> a.presentInCount() >= 2).count();
-        int specific = (int) adjectives.stream().filter(a -> a.presentInCount() == 1).count();
+        SummaryCounts counts = summaryCounts();
         return String.format("ComparisonResult(%d nouns, %d adjectives: %d shared, %d specific)",
-            nouns.size(), adjectives.size(), shared, specific);
+            nouns.size(), adjectives.size(), counts.fullyShared() + counts.partiallyShared(), counts.specific());
     }
 
 }

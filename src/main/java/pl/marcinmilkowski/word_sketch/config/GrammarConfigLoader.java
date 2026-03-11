@@ -76,11 +76,9 @@ public final class GrammarConfigLoader {
      * @throws IOException if the reader fails or the JSON is invalid
      */
     public static GrammarConfig fromReader(Reader reader) throws IOException {
-        char[] buf = new char[65536];
-        StringBuilder sb = new StringBuilder();
-        int n;
-        while ((n = reader.read(buf)) != -1) sb.append(buf, 0, n);
-        return parse(sb.toString(), null);
+        var sw = new java.io.StringWriter();
+        reader.transferTo(sw);
+        return parse(sw.toString(), null);
     }
 
     private static String readConfigFile(Path p) throws IOException {

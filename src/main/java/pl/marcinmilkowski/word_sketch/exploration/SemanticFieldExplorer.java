@@ -163,7 +163,7 @@ public class SemanticFieldExplorer {
         double minLogDice = opts.minLogDice();
         int minShared = opts.minShared();
 
-        if (seed == null || seed.isEmpty()) {
+        if (seed.isEmpty()) {
             return ExplorationResult.empty("");
         }
 

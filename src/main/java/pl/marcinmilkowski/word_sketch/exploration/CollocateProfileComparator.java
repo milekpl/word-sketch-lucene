@@ -57,7 +57,7 @@ class CollocateProfileComparator {
             double minLogDice,
             int maxPerNoun) throws IOException {
 
-        if (seedNouns == null || seedNouns.isEmpty()) {
+        if (seedNouns == null || seedNouns.size() < 2) {
             return ComparisonResult.empty();
         }
 

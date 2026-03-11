@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Converts model-layer result objects into graph {@link Edge} lists and JSON-ready maps for API responses.
@@ -24,7 +25,7 @@ final class ExploreResponseBuilder {
 
     private ExploreResponseBuilder() {}
 
-    /** Build edges for graph visualization from a single-seed exploration result. */
+    /** Builds {@link RelationEdgeType#SEED_ADJ} edges from seed collocates and {@link RelationEdgeType#DISCOVERED_ADJ} edges from each discovered noun's shared collocates. */
     static List<Edge> buildEdges(ExplorationResult result) {
         List<Edge> edges = new ArrayList<>();
         for (Map.Entry<String, Double> colloc : result.getSeedCollocates().entrySet()) {
@@ -38,7 +39,7 @@ final class ExploreResponseBuilder {
         return edges;
     }
 
-    /** Build edges for graph visualization from a comparison result. */
+    /** Builds {@link RelationEdgeType#MODIFIER} edges for adjective-noun pairs with positive logDice scores. */
     static List<Edge> buildEdges(ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
         for (AdjectiveProfile adj : result.getAllAdjectives()) {
@@ -133,10 +134,8 @@ final class ExploreResponseBuilder {
         adjMap.put("category", category);
 
         Map<String, Double> scores = new HashMap<>();
-        if (adj.nounScores() != null) {
-            for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
-                scores.put(entry.getKey(), round2dp(entry.getValue()));
-            }
+        for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
+            scores.put(entry.getKey(), round2dp(entry.getValue()));
         }
         adjMap.put("noun_scores", scores);
 
@@ -144,6 +143,40 @@ final class ExploreResponseBuilder {
             adj.strongestNoun().ifPresent(n -> adjMap.put("specific_to", n));
         }
         return adjMap;
+    }
+
+    /**
+     * Populates {@code response} with all comparison result fields:
+     * {@code seeds}, {@code seed_count}, {@code parameters}, {@code adjectives},
+     * {@code adjectives_count}, {@code fully_shared_count}, {@code partially_shared_count},
+     * {@code specific_count}, {@code edges}, and {@code edges_count}.
+     */
+    static void populateComparisonResponse(Map<String, Object> response, ComparisonResult result,
+            Set<String> seeds, int topCollocates, double minLogDice) {
+        response.put("status", "ok");
+        response.put("seeds", new java.util.ArrayList<>(result.getNouns()));
+        response.put("seed_count", seeds.size());
+
+        Map<String, Object> paramsUsed = new HashMap<>();
+        paramsUsed.put("top", topCollocates);
+        paramsUsed.put("min_logdice", minLogDice);
+        response.put("parameters", paramsUsed);
+
+        java.util.List<Map<String, Object>> adjectives = new java.util.ArrayList<>();
+        for (AdjectiveProfile adj : result.getAllAdjectives()) {
+            adjectives.add(formatAdjectiveProfile(adj));
+        }
+        response.put("adjectives", adjectives);
+        response.put("adjectives_count", result.getAllAdjectives().size());
+
+        ComparisonResult.SummaryCounts counts = result.getSummaryCounts();
+        response.put("fully_shared_count", counts.fullyShared());
+        response.put("partially_shared_count", counts.partiallyShared());
+        response.put("specific_count", counts.specific());
+
+        List<Edge> edges = buildEdges(result);
+        response.put("edges", edges.stream().map(Edge::toMap).toList());
+        response.put("edges_count", edges.size());
     }
 
     static double round2dp(double value) {

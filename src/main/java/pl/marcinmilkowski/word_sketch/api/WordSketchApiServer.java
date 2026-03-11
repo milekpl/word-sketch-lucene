@@ -38,15 +38,25 @@ public class WordSketchApiServer {
     private final GrammarConfig grammarConfig;
     private final SketchHandlers sketchHandlers;
     private final ExplorationHandlers explorationHandlers;
+    private final ConcordanceHandlers concordanceHandlers;
+    private final BcqlHandlers bcqlHandlers;
     private final VisualizationHandlers visualizationHandlers;
     private com.sun.net.httpserver.HttpServer server;
 
+    /** Convenience constructor for production use: constructs {@link SemanticFieldExplorer} internally. */
     public WordSketchApiServer(QueryExecutor executor, int port, GrammarConfig grammarConfig) throws IOException {
+        this(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig);
+    }
+
+    /** Full constructor accepting an injected {@link SemanticFieldExplorer}, useful for testing. */
+    public WordSketchApiServer(QueryExecutor executor, SemanticFieldExplorer semanticFieldExplorer,
+                                int port, GrammarConfig grammarConfig) throws IOException {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
-        SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor, grammarConfig);
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);
         this.explorationHandlers = new ExplorationHandlers(grammarConfig, semanticFieldExplorer);
+        this.concordanceHandlers = new ConcordanceHandlers(executor, grammarConfig);
+        this.bcqlHandlers = new BcqlHandlers(executor);
         this.visualizationHandlers = new VisualizationHandlers();
         // NOTE: Port binding is deferred to start() so that construction and network binding are separated.
         // This lets callers construct the server and attach post-construction configuration before binding.
@@ -82,14 +92,14 @@ public class WordSketchApiServer {
             wrapHandler(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));
 
         registerGetHandler(server, "/api/concordance/examples",
-            wrapHandler(sketchHandlers::handleConcordanceExamples, "Concordance examples"));
+            wrapHandler(concordanceHandlers::handleConcordanceExamples, "Concordance examples"));
 
         registerPostHandler(server, "/api/visual/radial",
             wrapHandler(visualizationHandlers::handleVisualRadial, "Radial plot"));
 
         // POST with JSON body to avoid URL encoding issues
         registerPostHandler(server, "/api/bcql",
-            wrapHandler(sketchHandlers::handleBcqlQueryPost, "BCQL query"));
+            wrapHandler(bcqlHandlers::handleBcqlQueryPost, "BCQL query"));
     }
 
     public void start() {
@@ -129,7 +139,7 @@ public class WordSketchApiServer {
      * Shared endpoint registration: handles CORS preflight and method enforcement.
      */
     private void registerHandler(com.sun.net.httpserver.HttpServer httpServer, String path,
-                                  String method, com.sun.net.httpserver.HttpHandler handler) {
+                                   String method, com.sun.net.httpserver.HttpHandler handler) {
         httpServer.createContext(path, exchange -> {
             if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
                 HttpApiUtils.sendOptionsResponse(exchange, method);

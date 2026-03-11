@@ -70,7 +70,7 @@ class HandlersTest {
 
     @Test
     void handleConcordanceExamples_missingWord1_returns400() throws Exception {
-        SketchHandlers handlers = new SketchHandlers(null, null);
+        ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
         MockExchange ex = new MockExchange("http://localhost/api/concordance?word2=house");
         handlers.handleConcordanceExamples(ex);
         assertEquals(400, ex.statusCode);
@@ -78,7 +78,7 @@ class HandlersTest {
 
     @Test
     void handleConcordanceExamples_missingWord2_returns400() throws Exception {
-        SketchHandlers handlers = new SketchHandlers(null, null);
+        ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
         MockExchange ex = new MockExchange("http://localhost/api/concordance?word1=big");
         handlers.handleConcordanceExamples(ex);
         assertEquals(400, ex.statusCode);
@@ -86,7 +86,7 @@ class HandlersTest {
 
     @Test
     void handleConcordanceExamples_missingBothWords_returns400() throws Exception {
-        SketchHandlers handlers = new SketchHandlers(null, null);
+        ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
         MockExchange ex = new MockExchange("http://localhost/api/concordance");
         handlers.handleConcordanceExamples(ex);
         assertEquals(400, ex.statusCode);

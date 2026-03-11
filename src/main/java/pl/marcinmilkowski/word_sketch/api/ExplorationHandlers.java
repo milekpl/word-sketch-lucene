@@ -6,9 +6,7 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
-import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
-import pl.marcinmilkowski.word_sketch.model.Edge;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.exploration.ExploreOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
@@ -89,20 +87,19 @@ class ExplorationHandlers {
 
         String seed = req.seedsRaw();
         RelationConfig resolvedConfig = req.relationConfig();
-        String relationType = resolvedConfig.relationType().orElseThrow().name();
+        String relationType = resolvedConfig.relationType().get().name();
         int topCollocates = req.exploreParams().topCollocates();
         int minShared = req.exploreParams().minShared();
         double minLogDice = req.exploreParams().minLogDice();
-        int nounsPerSeed = req.exploreParams().nounsPerSeed();
+        int nounsPerCollocate = req.exploreParams().nounsPerCollocate();
 
         ExploreOptions opts = new ExploreOptions(
-            topCollocates, nounsPerSeed, minLogDice, minShared);
+            topCollocates, nounsPerCollocate, minLogDice, minShared);
 
-        ExplorationResult result;
-        result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
+        ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
 
         Map<String, Object> extraParams = new HashMap<>();
-        extraParams.put("nouns_per", nounsPerSeed);
+        extraParams.put("nouns_per", nounsPerCollocate);
         Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice, extraParams);
         response.put("seed", result.getSeed());
         ExploreResponseBuilder.populateExploreResponse(response, result);
@@ -126,7 +123,7 @@ class ExplorationHandlers {
         }
 
         RelationConfig resolvedConfig = req.relationConfig();
-        String relationType = resolvedConfig.relationType().orElseThrow().name();
+        String relationType = resolvedConfig.relationType().get().name();
 
         if (req.params().containsKey("nouns_per")) {
             HttpApiUtils.sendError(exchange, 400, "nouns_per is not supported for multi-seed exploration");
@@ -137,9 +134,8 @@ class ExplorationHandlers {
         int minShared = req.exploreParams().minShared();
         double minLogDice = req.exploreParams().minLogDice();
 
-        ExploreOptions opts = new ExploreOptions(topCollocates, 0, minLogDice, minShared);
-        ExplorationResult result;
-        result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
+        ExploreOptions opts = ExploreOptions.forMultiSeed(topCollocates, minLogDice, minShared);
+        ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
 
         Map<String, Object> response = buildBaseExploreResponse(relationType, topCollocates, minShared, minLogDice, Map.of());
         response.put("seeds", new ArrayList<>(seeds));
@@ -167,35 +163,10 @@ class ExplorationHandlers {
         int topCollocates = exploreParams.topCollocates();
         double minLogDice = exploreParams.minLogDice();
 
-        ComparisonResult result;
-        result = semanticFieldExplorer.compareCollocateProfiles(seeds, minLogDice, topCollocates);
+        ComparisonResult result = semanticFieldExplorer.compareCollocateProfiles(seeds, minLogDice, topCollocates);
 
         Map<String, Object> response = new HashMap<>();
-        response.put("status", "ok");
-        response.put("seeds", new ArrayList<>(result.getNouns()));
-        response.put("seed_count", seeds.size());
-
-        Map<String, Object> paramsUsed = new HashMap<>();
-        paramsUsed.put("top", topCollocates);
-        paramsUsed.put("min_logdice", minLogDice);
-        response.put("parameters", paramsUsed);
-
-        List<Map<String, Object>> adjectives = new ArrayList<>();
-        for (AdjectiveProfile adj : result.getAllAdjectives()) {
-            adjectives.add(ExploreResponseBuilder.formatAdjectiveProfile(adj));
-        }
-        response.put("adjectives", adjectives);
-        response.put("adjectives_count", result.getAllAdjectives().size());
-
-        // Single-pass count of all 3 sharing categories
-        ComparisonResult.SummaryCounts counts = result.getSummaryCounts();
-        response.put("fully_shared_count", counts.fullyShared());
-        response.put("partially_shared_count", counts.partiallyShared());
-        response.put("specific_count", counts.specific());
-
-        List<Edge> edges = ExploreResponseBuilder.buildEdges(result);
-        response.put("edges", edges.stream().map(Edge::toMap).toList());
-        response.put("edges_count", edges.size());
+        ExploreResponseBuilder.populateComparisonResponse(response, result, seeds, topCollocates, minLogDice);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -212,19 +183,13 @@ class ExplorationHandlers {
         String noun = HttpApiUtils.requireParam(exchange, params, "noun");
         if (noun == null) return;
 
-        int maxExamples;
-        try {
-            maxExamples = Integer.parseInt(params.getOrDefault("top", "10"));
-        } catch (NumberFormatException e) {
-            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: top");
-            return;
-        }
+        int maxExamples = parseIntParam(exchange, params, "top", 10);
+        if (maxExamples < 0) return;
 
         RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
         if (resolvedConfig == null) return;
 
-        List<String> examples;
-        examples = semanticFieldExplorer.fetchExamples(adjective, noun, resolvedConfig, maxExamples);
+        List<String> examples = semanticFieldExplorer.fetchExamples(adjective, noun, resolvedConfig, maxExamples);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -270,7 +235,7 @@ class ExplorationHandlers {
         return seeds;
     }
 
-    private record ExploreParams(int topCollocates, int minShared, double minLogDice, int nounsPerSeed) {}
+    private record ExploreParams(int topCollocates, int minShared, double minLogDice, int nounsPerCollocate) {}
 
     /**
      * Resolves and validates the relation parameter from request params.
@@ -295,15 +260,38 @@ class ExplorationHandlers {
     }
 
     private @Nullable ExploreParams resolveExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
+        int top = parseIntParam(exchange, params, "top", 10);
+        if (top < 0) return null;
+        int minShared = parseIntParam(exchange, params, "min_shared", 2);
+        if (minShared < 0) return null;
+        double minLogDice = parseDoubleParam(exchange, params, "min_logdice", 3.0);
+        if (minLogDice < 0) return null;
+        int nounsPerCollocate = parseIntParam(exchange, params, "nouns_per", 30);
+        if (nounsPerCollocate < 0) return null;
+        return new ExploreParams(top, minShared, minLogDice, nounsPerCollocate);
+    }
+
+    /** Parses an int parameter by name; sends 400 and returns -1 on parse failure. */
+    private int parseIntParam(HttpExchange exchange, Map<String, String> params,
+                              String name, int defaultValue) throws IOException {
+        String raw = params.getOrDefault(name, String.valueOf(defaultValue));
         try {
-            int top = Integer.parseInt(params.getOrDefault("top", "10"));
-            int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));
-            double minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
-            int nounsPerSeed = Integer.parseInt(params.getOrDefault("nouns_per", "30"));
-            return new ExploreParams(top, minShared, minLogDice, nounsPerSeed);
+            return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
-            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter — expected an integer or decimal value");
-            return null;
+            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter '" + name + "': expected integer, got: '" + raw + "'");
+            return -1;
+        }
+    }
+
+    /** Parses a double parameter by name; sends 400 and returns -1 on parse failure. */
+    private double parseDoubleParam(HttpExchange exchange, Map<String, String> params,
+                                    String name, double defaultValue) throws IOException {
+        String raw = params.getOrDefault(name, String.valueOf(defaultValue));
+        try {
+            return Double.parseDouble(raw);
+        } catch (NumberFormatException e) {
+            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter '" + name + "': expected decimal, got: '" + raw + "'");
+            return -1;
         }
     }
 }

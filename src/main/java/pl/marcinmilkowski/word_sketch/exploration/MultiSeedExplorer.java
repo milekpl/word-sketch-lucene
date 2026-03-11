@@ -37,14 +37,6 @@ class MultiSeedExplorer {
      * {@link ExplorationResult}. Seeds become the {@code discoveredNouns} (each carrying their
      * common collocates as shared-collocate set); the collocate intersection becomes
      * {@code coreCollocates}; and the aggregate collocate map becomes {@code seedCollocates}.
-     *
-     * @param seeds          ordered seed words (at least 2)
-     * @param relationConfig grammar relation to use for collocate lookup
-     * @param minLogDice     minimum logDice threshold for inclusion
-     * @param topCollocates  maximum collocates to fetch per seed
-     * @param minShared      minimum number of seeds a collocate must appear in to be
-     *                       included in the core set
-     * @return ExplorationResult mapping multi-seed data into the shared exploration model
      */
     ExplorationResult explore(
             Set<String> seeds,
@@ -52,38 +44,72 @@ class MultiSeedExplorer {
             double minLogDice,
             int topCollocates,
             int minShared) throws IOException {
+
+        // Phase 1: fetch collocates per seed
+        SeedCollocateData data = fetchCollocatesPerSeed(seeds, relationConfig, minLogDice, topCollocates);
+
+        // Phase 2: identify common collocates meeting minShared threshold
+        Set<String> commonCollocates = identifyCommonCollocates(data.collocateSharedCount(), minShared, seeds.size());
+
+        // Phase 3: build aggregate score / frequency maps, then DiscoveredNoun list
+        Map<String, Double> seedCollocScores = new LinkedHashMap<>();
+        Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
+        for (List<QueryResults.WordSketchResult> collocs : data.seedCollocateMap().values()) {
+            for (QueryResults.WordSketchResult wsr : collocs) {
+                seedCollocScores.merge(wsr.lemma(), wsr.logDice(), Math::max);
+                seedCollocFreqs.merge(wsr.lemma(), wsr.frequency(), Long::sum);
+            }
+        }
+        List<DiscoveredNoun> discoveredNounsList = buildDiscoveredNouns(seeds, data.seedCollocateMap(), commonCollocates);
+
+        // Phase 4: build core collocates
+        List<CoreCollocate> coreCollocatesList = buildCoreCollocates(
+                commonCollocates, data.collocateSharedCount(), seedCollocScores, data.seedCollocateMap(), seeds.size());
+
+        return new ExplorationResult(
+            String.join(",", seeds),
+            seedCollocScores, seedCollocFreqs,
+            discoveredNounsList, coreCollocatesList);
+    }
+
+    // ==================== PHASE HELPERS ====================
+
+    /** Phase 1: execute the collocate query for each seed; returns per-seed results and shared-count map. */
+    private SeedCollocateData fetchCollocatesPerSeed(
+            Set<String> seeds, RelationConfig relationConfig,
+            double minLogDice, int topCollocates) throws IOException {
         Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap = new LinkedHashMap<>();
         Map<String, Integer> collocateSharedCount = new HashMap<>();
-
         for (String seed : seeds) {
             String bcqlPattern = relationConfig.buildFullPattern(seed);
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
                 seed, bcqlPattern, minLogDice, topCollocates);
             seedCollocateMap.put(seed, collocates);
-
             for (QueryResults.WordSketchResult wsr : collocates) {
                 collocateSharedCount.merge(wsr.lemma(), 1, Integer::sum);
             }
         }
+        return new SeedCollocateData(seedCollocateMap, collocateSharedCount);
+    }
 
-        int threshold = Math.min(minShared, seeds.size());
+    /** Phase 2: return collocates that appear in at least {@code minShared} seeds (capped to seeds.size()). */
+    private Set<String> identifyCommonCollocates(
+            Map<String, Integer> collocateSharedCount, int minShared, int seedCount) {
+        int threshold = Math.min(minShared, seedCount);
         Set<String> commonCollocates = new HashSet<>();
         for (Map.Entry<String, Integer> entry : collocateSharedCount.entrySet()) {
             if (entry.getValue() >= threshold) {
                 commonCollocates.add(entry.getKey());
             }
         }
+        return commonCollocates;
+    }
 
-        Map<String, Double> seedCollocScores = new LinkedHashMap<>();
-        Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
-        for (List<QueryResults.WordSketchResult> collocs : seedCollocateMap.values()) {
-            for (QueryResults.WordSketchResult wsr : collocs) {
-                seedCollocScores.merge(wsr.lemma(), wsr.logDice(), Math::max);
-                seedCollocFreqs.merge(wsr.lemma(), wsr.frequency(), Long::sum);
-            }
-        }
-
-        int numSeeds = seeds.size();
+    /** Phase 3: build a {@link DiscoveredNoun} for each seed, capturing its shared-collocate subset. */
+    private List<DiscoveredNoun> buildDiscoveredNouns(
+            Set<String> seeds,
+            Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap,
+            Set<String> commonCollocates) {
         List<DiscoveredNoun> discoveredNounsList = new ArrayList<>();
         for (String seed : seeds) {
             List<QueryResults.WordSketchResult> collocs = seedCollocateMap.getOrDefault(seed, List.of());
@@ -99,7 +125,16 @@ class MultiSeedExplorer {
             double sum = sharedCollocs.values().stream().mapToDouble(Double::doubleValue).sum();
             discoveredNounsList.add(new DiscoveredNoun(seed, sharedCollocs, count, sum, avg));
         }
+        return discoveredNounsList;
+    }
 
+    /** Phase 4: build a {@link CoreCollocate} for each member of the common collocate set. */
+    private List<CoreCollocate> buildCoreCollocates(
+            Set<String> commonCollocates,
+            Map<String, Integer> collocateSharedCount,
+            Map<String, Double> seedCollocScores,
+            Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap,
+            int numSeeds) {
         List<CoreCollocate> coreCollocatesList = new ArrayList<>();
         for (String c : commonCollocates) {
             int sharedBy = collocateSharedCount.getOrDefault(c, 0);
@@ -111,10 +146,10 @@ class MultiSeedExplorer {
             double seedLd = seedCollocScores.getOrDefault(c, 0.0);
             coreCollocatesList.add(new CoreCollocate(c, sharedBy, numSeeds, seedLd, avgLd));
         }
-
-        return new ExplorationResult(
-            String.join(",", seeds),
-            seedCollocScores, seedCollocFreqs,
-            discoveredNounsList, coreCollocatesList);
+        return coreCollocatesList;
     }
+
+    private record SeedCollocateData(
+            Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap,
+            Map<String, Integer> collocateSharedCount) {}
 }

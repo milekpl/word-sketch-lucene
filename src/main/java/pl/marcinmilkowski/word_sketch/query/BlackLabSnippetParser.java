@@ -221,11 +221,11 @@ class BlackLabSnippetParser {
     // ==================== Consolidated clean API ====================
 
     /**
-     * Extract the collocate (labeled {@code 2:}) lemma from a BCQL match snippet.
-     * Finds the last lemma attribute, which corresponds to the collocate in most patterns.
+     * Finds the last {@code lemma="..."} attribute in the match XML fragment.
+     * In typical patterns the collocate appears last, so this returns the collocate lemma.
      *
-     * @param matchXml The match XML (parts[1] from a concordance)
-     * @return The collocate lemma (original case), or {@code null}
+     * @param matchXml The match XML fragment (e.g., parts[1] from a concordance)
+     * @return The last lemma attribute value (original case), or {@code null} if none found
      */
     @Nullable
     static String extractCollocateLemma(String matchXml) {

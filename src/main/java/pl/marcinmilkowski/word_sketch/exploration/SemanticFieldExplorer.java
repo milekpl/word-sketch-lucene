@@ -155,7 +155,7 @@ public class SemanticFieldExplorer {
      * @param opts          tuning parameters (topCollocates, nounsPerSeed, minLogDice, minShared)
      * @return ExplorationResult with discovered semantic class
      */
-    public ExplorationResult exploreByPattern(
+    ExplorationResult exploreByPattern(
             String seed,
             String relationName,
             String bcqlPattern,
@@ -163,7 +163,7 @@ public class SemanticFieldExplorer {
             ExploreOptions opts) throws IOException {
 
         int topPredicates = opts.topCollocates();
-        int nounsPerPredicate = opts.nounsPerSeed();
+        int nounsPerPredicate = opts.nounsPerCollocate();
         double minLogDice = opts.minLogDice();
         int minShared = opts.minShared();
 

@@ -7,8 +7,13 @@ import java.util.List;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 
 /**
- * Interface for word sketch query executors.
- * Allows different implementations to be used interchangeably.
+ * Unified query interface for corpus lookups.
+ *
+ * <p>This interface intentionally combines surface-pattern, collocate, and dependency query
+ * methods in one type. The single production implementation ({@link BlackLabQueryExecutor})
+ * means the interface acts primarily as a testability seam rather than an abstraction boundary.
+ * A future split into narrower ports (e.g. CollocateQueryPort / DependencyQueryPort) is feasible
+ * but deferred until a second implementation or clearer isolation need arises.</p>
  *
  * <h2>Method responsibilities</h2>
  * <ul>

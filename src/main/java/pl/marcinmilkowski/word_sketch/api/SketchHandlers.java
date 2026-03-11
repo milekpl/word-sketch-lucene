@@ -1,8 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,12 +8,8 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
-
-import com.alibaba.fastjson2.JSONException;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -24,12 +18,11 @@ import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
 /**
- * HTTP handlers for word sketch, concordance, BCQL, and radial-plot endpoints.
+ * HTTP handlers for word sketch endpoints.
  */
 class SketchHandlers {
 
     private static final Logger logger = LoggerFactory.getLogger(SketchHandlers.class);
-    private static final int MAX_REQUEST_BODY_BYTES = 65536;
 
     private final QueryExecutor executor;
     private final GrammarConfig grammarConfig;
@@ -213,17 +206,10 @@ class SketchHandlers {
             return;
         }
 
-        List<QueryResults.WordSketchResult> results;
-        try {
-            String fullPattern = rel.buildFullPattern(lemma);
-            results = executor.executeSurfacePattern(
-                lemma, fullPattern,
-                0.0, 50);
-        } catch (IOException e) {
-            logger.error("Query failed", e);
-            HttpApiUtils.sendError(exchange, 500, "Query failed: " + e.getMessage());
-            return;
-        }
+        String fullPattern = rel.buildFullPattern(lemma);
+        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(
+            lemma, fullPattern,
+            0.0, 50);
 
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
@@ -292,148 +278,5 @@ class SketchHandlers {
         word.put("log_dice", result.logDice());
         word.put("pos", result.pos());
         return word;
-    }
-
-    /**
-     * Handle concordance examples.
-     * GET /api/concordance/examples?word1=theory&word2=good&relation=noun_adj_predicates&top=10
-     * Uses BCQL pattern from relations.json for the specified relation.
-     */
-    void handleConcordanceExamples(HttpExchange exchange) throws IOException {
-        String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
-
-        String noun = HttpApiUtils.requireParam(exchange, params, "word1");
-        if (noun == null) return;
-        String adjective = HttpApiUtils.requireParam(exchange, params, "word2");
-        if (adjective == null) return;
-        String relation = params.getOrDefault("relation", "noun_adj_predicates");
-
-        int top;
-        try {
-            top = Integer.parseInt(params.getOrDefault("top", "10"));
-        } catch (NumberFormatException e) {
-            HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: top");
-            return;
-        }
-
-        String bcqlQuery = null;
-        var rel = grammarConfig.getRelation(relation);
-        if (rel.isPresent()) {
-            String patternWithHead = rel.get().buildFullPattern(noun);
-            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, adjective, rel.get().collocatePosition());
-        }
-
-        boolean fallback = false;
-        if (bcqlQuery == null || bcqlQuery.isEmpty()) {
-            bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
-                noun.toLowerCase(), adjective.toLowerCase());
-            fallback = true;
-            logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", relation, bcqlQuery);
-        }
-
-        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, top);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "ok");
-        response.put("word1", noun);
-        response.put("word2", adjective);
-        response.put("relation", relation);
-        response.put("bcql", bcqlQuery);
-        response.put("fallback", fallback);
-        response.put("top_requested", top);
-        response.put("total_results", results.size());
-
-        List<Map<String, Object>> examplesList = new ArrayList<>();
-        for (QueryResults.CollocateResult r : results) {
-            Map<String, Object> exMap = new HashMap<>();
-            exMap.put("sentence", r.getSentence());
-            exMap.put("raw", r.rawXml() != null ? r.rawXml() : "");
-            examplesList.add(exMap);
-        }
-        response.put("examples", examplesList);
-
-        HttpApiUtils.sendJsonResponse(exchange, response);
-    }
-
-    /** Maximum length (chars) accepted for a BCQL pattern. */
-    private static final int MAX_BCQL_PATTERN_LENGTH = 1024;
-
-    /** Maximum number of {@code [} bracket tokens accepted in a BCQL pattern (complexity limit). */
-    private static final int MAX_BCQL_BRACKET_DEPTH = 20;
-
-    /**
-     * Handle arbitrary BCQL query (POST with JSON body to avoid URL encoding issues).
-     * POST /api/bcql with body: {"query": "[lemma=\"test\"]", "limit": 20}
-     */
-    void handleBcqlQueryPost(HttpExchange exchange) throws IOException {
-        BcqlRequest req = parseBcqlRequest(exchange);
-        if (req == null) return;  // error already sent
-
-        logger.debug("BCQL query: {}", req.query());
-
-        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(req.query(), req.limit());
-        HttpApiUtils.sendJsonResponse(exchange, buildBcqlResponse(req, results));
-    }
-
-    private record BcqlRequest(String query, int limit) {}
-
-    /** Parse and validate the BCQL POST body; returns null and sends an error if invalid. */
-    private BcqlRequest parseBcqlRequest(HttpExchange exchange) throws IOException {
-        byte[] bodyBytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BODY_BYTES + 1);
-        if (bodyBytes.length > MAX_REQUEST_BODY_BYTES) {
-            HttpApiUtils.sendError(exchange, 413, "Request body too large");
-            return null;
-        }
-        String body = new String(bodyBytes, StandardCharsets.UTF_8);
-        JSONObject obj;
-        try {
-            obj = JSON.parseObject(body);
-        } catch (JSONException e) {
-            throw new IllegalArgumentException("Invalid JSON in request body: " + e.getMessage(), e);
-        }
-        String bcqlQuery = obj.getString("query");
-        if (bcqlQuery == null || bcqlQuery.isBlank()) {
-            HttpApiUtils.sendError(exchange, 400, "Missing required parameter: query");
-            return null;
-        }
-        if (bcqlQuery.length() > MAX_BCQL_PATTERN_LENGTH) {
-            HttpApiUtils.sendError(exchange, 400,
-                    "Pattern too long: " + bcqlQuery.length() + " chars (max " + MAX_BCQL_PATTERN_LENGTH + ")");
-            return null;
-        }
-        long bracketCount = bcqlQuery.chars().filter(c -> c == '[').count();
-        if (bracketCount > MAX_BCQL_BRACKET_DEPTH) {
-            HttpApiUtils.sendError(exchange, 400,
-                    "Pattern too complex: " + bracketCount + " token constraints (max " + MAX_BCQL_BRACKET_DEPTH + ")");
-            return null;
-        }
-        int limit = obj.getIntValue("limit");
-        if (limit <= 0) limit = 10;
-        return new BcqlRequest(bcqlQuery, limit);
-    }
-
-    /** Build the BCQL query JSON response map from the parsed request and results. */
-    private static Map<String, Object> buildBcqlResponse(BcqlRequest req, List<QueryResults.CollocateResult> results) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "ok");
-        response.put("query", req.query());
-        response.put("total_results", results.size());
-        response.put("limit", req.limit());
-
-        List<Map<String, Object>> resultsList = new ArrayList<>();
-        for (QueryResults.CollocateResult r : results) {
-            Map<String, Object> resultMap = new HashMap<>();
-            resultMap.put("sentence", r.getSentence());
-            resultMap.put("raw", r.rawXml() != null ? r.rawXml() : "");
-            resultMap.put("match_start", r.getStartOffset());
-            resultMap.put("match_end", r.getEndOffset());
-            resultMap.put("collocate_lemma", r.collocateLemma() != null ? r.collocateLemma() : "");
-            resultMap.put("frequency", r.frequency());
-            resultMap.put("log_dice", r.logDice());
-            resultsList.add(resultMap);
-        }
-        response.put("results", resultsList);
-        return response;
     }
 }

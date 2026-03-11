@@ -57,14 +57,14 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     }
 
     @Override
-    public List<QueryResults.WordSketchResult> findCollocations(
+    public List<QueryResults.WordSketchResult> executeCollocations(
             String lemma,
             String cqlPattern,
             double minLogDice,
             int maxResults) throws IOException {
 
         if (lemma == null || lemma.isEmpty()) {
-            logger.debug("findCollocations: skipping query — lemma is null or empty");
+            logger.debug("executeCollocations: skipping query — lemma is null or empty");
             return Collections.emptyList();
         }
 

@@ -1,0 +1,105 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {"abstraction_fitness": 65.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has a single production implementation (BlackLabQueryExecutor) with 6 methods. The Javadoc explicitly documents this: 'The single production implementation (BlackLabQueryExecutor) means the interface acts primarily as a testability seam rather than an abstraction boundary.' Honest and useful for testing.",
+        "SemanticFieldExplorer is now a thin facade: compareCollocateProfiles() delegates entirely to comparator, exploreMultiSeed() delegates entirely to multiSeedExplorer, fetchExamples() is a 4-line pass-through. The class adds no transformation or policy. It serves as a stable public API, which has value, but the value-add is only naming stability.",
+        "ExploreResponseAssembler contains 8 static methods all in one class — some format ExplorationResult, others format ComparisonResult. These are two distinct model types but both serialize to JSON for exploration endpoints. The coupling is justified by single presentation concern.",
+        "HttpApiUtils combines response writing and request parameter parsing in one class. The Javadoc argues both serve the 'HTTP layer of the REST API' and the class is package-private. The argument is reasonable but the combination creates a wide utility class.",
+        "SingleSeedExplorationOptions and ExplorationOptions have three overlapping field definitions. SingleSeedExplorationOptions.toBaseOptions() is the only projection path. Since Java records cannot extend records, composition is the only option, but the current design chose duplication over composition.",
+        "CqlUtils is a genuine shared utility called from both GrammarConfigLoader (token counting) and RelationPatternBuilder (substituteAtPosition, mergeLemmaConstraint) and BlackLabQueryExecutor — the abstraction pays for itself.",
+        "RelationPatternBuilder is a pure static utility extracting pattern-building from RelationConfig — appropriate extraction with multiple callers (SemanticFieldExplorer, MultiSeedExplorer, SketchHandlers, ConcordanceHandlers).",
+        "LongIntHashMap in utils appears to have no visible callers in the reviewed production source files — potential dead code or unexploited abstraction.",
+        "CollocateQueryHelper is package-private and genuinely reduces duplication across 3 methods in BlackLabQueryExecutor — good extraction with real leverage."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 68.0,
+        "indirection_cost": 62.0,
+        "interface_honesty": 75.0,
+        "delegation_density": 55.0,
+        "definition_directness": 70.0,
+        "type_discipline": 65.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface is honest about its testability-seam role in Javadoc — not pretending to be an architectural boundary.",
+        "CqlUtils and RelationPatternBuilder are genuine shared utilities with multiple callers each.",
+        "CollocateQueryHelper is a well-justified package-private extraction reducing duplication in BlackLabQueryExecutor.",
+        "HttpApiUtils justifies its combined concern scope explicitly in Javadoc."
+      ],
+      "issue_character": "The primary abstraction issues are SemanticFieldExplorer acting as a zero-value-add facade (all delegation, no policy) and the field duplication between ExplorationOptions and SingleSeedExplorationOptions, where the Java record limitation is worked around by duplication rather than composition.",
+      "score_rationale": "Abstractions generally pay for themselves — CqlUtils, RelationPatternBuilder, CollocateQueryHelper, and the QueryExecutor interface all add clear value. Score is held at 65 because SemanticFieldExplorer is a pure pass-through facade with no added policy or transformation, and the options duplication indicates a missing composition step. The LongIntHashMap with no visible callers is a potential dead abstraction adding minor overhead."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "af-explorer-zero-value-facade",
+      "summary": "SemanticFieldExplorer adds no behavior, policy, or translation — it is a zero-value delegation facade",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "compareCollocateProfiles: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates())' — pure delegation.",
+        "exploreMultiSeed: 'return multiSeedExplorer.computeCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared())' — pure delegation.",
+        "fetchExamples: builds bcqlQuery from RelationPatternBuilder then calls executor.executeBcqlQuery() — 4-line pass-through with no abstraction benefit."
+      ],
+      "suggestion": "Either (a) collapse SemanticFieldExplorer into the api layer as a coordinator that directly calls CollocateProfileComparator and MultiSeedExplorer, or (b) have SemanticFieldExplorer add real policy (e.g. parameter validation, logging, caching) to justify its existence as a facade. Document the facade role explicitly if it is retained for API-stability reasons.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "af-options-field-duplication",
+      "summary": "SingleSeedExplorationOptions duplicates three fields from ExplorationOptions instead of composing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "ExplorationOptions: record ExplorationOptions(int topCollocates, double minLogDice, int minShared).",
+        "SingleSeedExplorationOptions: record SingleSeedExplorationOptions(int topCollocates, int nounsPerCollocate, double minLogDice, int minShared) — topCollocates, minLogDice, minShared duplicated verbatim.",
+        "toBaseOptions() constructs a new ExplorationOptions from the duplicated fields — bridging duplication rather than eliminating it."
+      ],
+      "suggestion": "Use composition: record SingleSeedExplorationOptions(ExplorationOptions base, int nounsPerCollocate). Delegate to base.topCollocates(), base.minLogDice(), base.minShared() or keep the projection method. This eliminates the field duplication and makes the relationship explicit.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "af-longinthashmap-no-callers",
+      "summary": "LongIntHashMap utility class has no visible callers in production source — potential dead abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LongIntHashMap.java"
+      ],
+      "evidence": [
+        "LongIntHashMap is a non-trivial custom data structure (open-addressing hash map with linear probing, ~100 lines).",
+        "No import or usage of LongIntHashMap found in any other reviewed production Java source file.",
+        "It may be used in precomputed-collocation loading code not visible in the current source tree, or may be dead code."
+      ],
+      "suggestion": "Verify whether LongIntHashMap has any active callers. If it is dead code, remove it. If it is used in a precomputed-collocation loader not yet in src/main, document that dependency in the class Javadoc.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "SemanticFieldExplorer started as a domain algorithm owner; as its internals were extracted to CollocateProfileComparator and MultiSeedExplorer, it became a facade without being renamed or collapsed.",
+      "Java records cannot extend other records, making field composition verbose — the duplication in SingleSeedExplorationOptions was the path of least resistance."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

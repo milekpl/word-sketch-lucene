@@ -1,0 +1,71 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 14,
+  "assessments": {"logic_clarity": 79.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles: 'if (seedNouns == null) { throw new IllegalArgumentException(...); }' immediately precedes a @NonNull annotation — the annotation already documents non-null intent, making the explicit check redundant (though harmless).",
+        "SemanticFieldExplorer.exploreByPattern (package-private overload): 'if (seed == null || seed.isEmpty()) { return ExplorationResult.empty(\"\"); }' — the empty-string sentinel is used as the seed in empty result, which is slightly odd but not a dead branch.",
+        "BlackLabQueryExecutor.executeDependencyPattern and executeDependencyPatternWithPos both have identical early-exit guards: 'if (lemma == null || lemma.isEmpty() || deprel == null)' followed by logging and empty list return — same guard pattern repeated in two adjacent methods.",
+        "CorpusQueryHandlers.parseBcqlRequest: returns null for the 413 case and throws IAE for all other failures — the null return path requires callers to check for null return, which is a clear but slightly unusual control flow (documented in the Javadoc).",
+        "BlackLabSnippetParser.extractCollocateFromXmlByPosition: 'if (position < 1) return null' with comment 'The position < 1 guard is defensive: all current callers pass values from findLabelTokenIndex() which returns >= 1' — explicitly documented defensive guard, not unintentional dead code.",
+        "No identical if/else branches, no always-true/false conditions, no async-without-await patterns (Java, not async), and no boolean simplification candidates found in core logic paths.",
+        "GrammarConfigLoader.deriveTokenPosition: 'if (labelIdx < 0) return defaultPos' followed immediately by token counting loop — clean early-return logic, no dead path."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Consistent use of early-return guard clauses in all query methods reduces nesting and makes intent clear.",
+        "Explicitly documented defensive guards (e.g., extractCollocateFromXmlByPosition comment) distinguish intentional defensive checks from accidental dead code.",
+        "No dead code after unconditional returns, no always-true/false conditions found in any reviewed file.",
+        "Boolean simplification candidates are absent — the codebase avoids verbose if/return True/else/return False patterns."
+      ],
+      "issue_character": "The clarity issues are limited to a handful of redundant null checks that duplicate annotations and a repeated guard pattern across two adjacent methods; no true dead code paths or logic contradictions were found.",
+      "score_rationale": "Logic is generally clear and provable. The redundant null check in compareCollocateProfiles and the duplicated guard in dependency methods are the main detractors — they don't introduce bugs but add noise. The unusual null-return contract in parseBcqlRequest is documented but adds a non-standard control flow pattern that a reader must notice. Overall, the codebase scores well for logic clarity with no serious defects found."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_redundant_null_check",
+      "summary": "Redundant null check immediately before @NonNull annotation in compareCollocateProfiles",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles(Set<String> seedNouns, ...) is annotated @NonNull on the parameter, then immediately checks 'if (seedNouns == null) throw new IllegalArgumentException(...)' — the check can never be false for a correctly-annotated caller."
+      ],
+      "suggestion": "Remove the explicit null check; rely on the @NonNull annotation for documentation and static analysis enforcement. If runtime protection is desired for untyped callers, replace with Objects.requireNonNull(seedNouns, \"seedNouns must not be null\") which is a more idiomatic pattern and consistent with how other methods in this class use requireNonNull.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "lc_duplicated_guard",
+      "summary": "Identical null/empty guard pattern duplicated across two adjacent dependency query methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "executeDependencyPattern and executeDependencyPatternWithPos both contain: 'if (lemma == null || lemma.isEmpty() || deprel == null) { logger.debug(...); return Collections.emptyList(); }' — identical guard logic with identical log messages.",
+        "The only difference is executeDependencyPatternWithPos adds a requireNonNull check for headPosConstraint after the guard."
+      ],
+      "suggestion": "Extract the shared guard into a private helper: 'private boolean isInvalidDependencyInput(String lemma, String deprel)' that centralises the check and log message. This avoids logic drift if the guard condition is updated in one method but not the other.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Defensive programming culture leads to redundant null checks that duplicate what annotations already express."],
+    "likely_symptoms": ["lc_redundant_null_check"],
+    "possible_false_positives": ["extractCollocateFromXmlByPosition position < 1 guard is explicitly documented as intentional, not dead code"]
+  }
+}

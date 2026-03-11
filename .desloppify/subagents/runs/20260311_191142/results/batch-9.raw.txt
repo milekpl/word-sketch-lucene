@@ -1,0 +1,99 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {"mid_level_elegance": 63.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "GrammarConfig/GrammarConfigLoader separation is a clean seam: callers receive GrammarConfig (a value object), not GrammarConfigLoader (I/O machinery). The boundary is explicit and one-directional.",
+        "QueryExecutor interface defines a clear boundary between query execution and consumers; all methods return QueryResults.* types confined to the query package, avoiding leakage of BlackLab types into higher layers.",
+        "Constructor injection of GrammarConfig, QueryExecutor, and SemanticFieldExplorer into api handler classes makes dependencies explicit and the seam testable.",
+        "ExploreResponseAssembler owns model-to-JSON translation: all presentation concern for ExplorationResult and ComparisonResult is centralized in one place, with handlers only handling HTTP layer.",
+        "ExplorationResult.seed field overloaded for two modes creates a leaky seam: in multi-seed mode, ExploreResponseAssembler.buildEdges(ExplorationResult) passes result.getSeed() as the source node in an Edge — this produces a comma-joined string ('theory,model') as a graph node identifier rather than individual seed nodes.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: early-return path for 'nouns_per' check (line 121-123) sends 400 via sendError directly, while the subsequent seeds.size() < 2 check (line 129-132) also uses sendError directly — both bypass the wrapWithErrorHandling error pipeline that all other validation in the class uses.",
+        "ComparisonResult provides both filter methods (getFullyShared, getPartiallyShared, getSpecific) AND a getSummaryCounts single-pass method. Callers needing both summaries and filtered lists must call both, re-traversing the list.",
+        "RelationConfig.computeDeprel() is called multiple times per request in SketchHandlers (once in executeRelationQueries filter, once in buildRelationResponse) — a computed method re-executed on the same object without caching.",
+        "GrammarConfigLoader.fromReader manually reads a char buffer in a loop rather than using a standard Reader-to-String idiom — the boundary contract (Reader → String → JSON parse) is correct but the intermediate step is verbose.",
+        "ConcordanceHandlers.handleConcordanceExamples: when relation is not found, falls back to a proximity pattern with a logger.warn — the fallback behavior is not communicated to the caller (response includes 'fallback: true' which is good, but the warn level implies something unexpected in a documented fallback path)."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "GrammarConfig/GrammarConfigLoader separation provides a clean I/O vs value-object boundary.",
+        "Constructor injection throughout api layer makes integration seams testable and explicit.",
+        "ExploreResponseAssembler centralizes model-to-JSON translation, keeping handlers free of presentation logic.",
+        "QueryExecutor interface confines BlackLab-specific types behind a clean abstraction layer."
+      ],
+      "issue_character": "The main seam design issues are a dual-use ExplorationResult.seed field that causes incorrect edge source nodes in multi-seed serialization, and inconsistent error propagation patterns at validation boundaries in the multi-seed handler that bypass the uniform error pipeline.",
+      "score_rationale": "The top-level boundary design (GrammarConfig/Loader separation, QueryExecutor isolation, ExploreResponseAssembler translation) is well-considered. The score is held at 63 because the ExplorationResult seam issue is a functional defect in multi-seed edge graph generation, and two validation paths in the multi-seed handler bypass the established error pipeline, creating unpredictability at the HTTP boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "mle-multiseed-edge-source",
+      "summary": "ExploreResponseAssembler.buildEdges uses result.getSeed() as edge source, producing comma-joined string in multi-seed mode",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.buildEdges(ExplorationResult): 'edges.add(new Edge(result.getSeed(), colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_ADJ))'",
+        "In multi-seed mode, result.getSeed() returns 'theory,model,hypothesis' (MultiSeedExplorer line 75: String.join(',', seeds)).",
+        "The graph edge source node becomes 'theory,model,hypothesis' — a comma-joined string rather than individual seed nodes, which is semantically incorrect for a graph visualization."
+      ],
+      "suggestion": "In multi-seed mode, iterate result.seeds() and add one SEED_ADJ edge per individual seed node. Either fix in ExploreResponseAssembler.buildEdges by checking for multi-seed mode, or fix the ExplorationResult.seed field to store seeds as a List<String> (see also arch-dual-seed-field).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "mle-multiseed-error-bypass",
+      "summary": "Two validation checks in handleSemanticFieldExploreMulti call sendError() directly, bypassing the uniform error pipeline",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Line ~121: 'throw new IllegalArgumentException(\"nouns_per is not supported...\")' — uses IAE, consistent with pattern.",
+        "Line ~129-132: 'HttpApiUtils.sendError(exchange, 400, \"Multi-seed exploration requires at least 2 seeds\")' — direct sendError, bypasses wrapWithErrorHandling.",
+        "handleSemanticFieldComparison performs an equivalent seeds.size() < 2 check via 'throw new IllegalArgumentException(...)' on line ~178 — the parallel handler uses the uniform pattern."
+      ],
+      "suggestion": "Replace 'HttpApiUtils.sendError(exchange, 400, ...)' with 'throw new IllegalArgumentException(...)' in handleSemanticFieldExploreMulti to use the same pipeline as handleSemanticFieldComparison and all other validation in the api layer.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "mle-comparison-result-double-traversal",
+      "summary": "ComparisonResult requires separate traversals for summary counts and filtered lists, forcing callers to traverse the adjectives list multiple times",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ComparisonResult has getFullyShared(), getPartiallyShared(), getSpecific() (each streaming adjectives independently) AND getSummaryCounts() (single-pass).",
+        "ExploreResponseAssembler.populateComparisonResponse calls result.getSummaryCounts() for counts AND result.getAllAdjectives() for serialization — two traversals for the same data.",
+        "A caller needing all three filtered lists (fully/partially/specific) runs three separate streams over the same collection."
+      ],
+      "suggestion": "Consider having getFullyShared/getPartiallyShared/getSpecific delegate to a single partition call (Collectors.partitioningBy equivalent for 3 categories) and cache the result lazily in ComparisonResult. Alternatively, expose a single partitioned view: record Partitions(List<AdjectiveProfile> fullyShared, List<AdjectiveProfile> partiallyShared, List<AdjectiveProfile> specific).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult.seed dual-use was introduced when multi-seed mode was added without revisiting the seam between model and presentation layers.",
+      "The direct sendError path in handleSemanticFieldExploreMulti was likely a copy from earlier code before the uniform error pipeline was established."
+    ],
+    "likely_symptoms": ["mle-multiseed-edge-source likely manifests as broken graph visualization in multi-seed exploration mode"],
+    "possible_false_positives": []
+  }
+}

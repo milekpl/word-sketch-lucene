@@ -3,6 +3,8 @@ package pl.marcinmilkowski.word_sketch.exploration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
+import pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions;
+import pl.marcinmilkowski.word_sketch.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
@@ -34,7 +36,7 @@ class SemanticFieldExplorerInternalTest {
         }
 
         @Override
-        public List<QueryResults.WordSketchResult> findCollocations(
+        public List<QueryResults.WordSketchResult> executeCollocations(
                 String lemma, String cqlPattern, double minLogDice, int maxResults) {
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }
@@ -87,10 +89,10 @@ class SemanticFieldExplorerInternalTest {
         }
 
         @Override
-        public List<QueryResults.WordSketchResult> findCollocations(
+        public List<QueryResults.WordSketchResult> executeCollocations(
                 String lemma, String cqlPattern, double minLogDice, int maxResults) {
             capturedCqlPatterns.add(cqlPattern);
-            return super.findCollocations(lemma, cqlPattern, minLogDice, maxResults);
+            return super.executeCollocations(lemma, cqlPattern, minLogDice, maxResults);
         }
     }
 
@@ -105,14 +107,14 @@ class SemanticFieldExplorerInternalTest {
             "theory", List.of(wsr("empirical", 8.0), wsr("scientific", 7.0))
         ));
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
-        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(10, 5, 0.0, 1);
+        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 1), 5);
         ExplorationResult result = explorer.exploreByPattern(
             "theory", "test-relation",
             "[lemma=\"theory\"] [xpos=\"JJ.*\"]",
             "[xpos=\"JJ.*\"]",
             opts);
         assertNotNull(result, "Result should not be null");
-        assertEquals("theory", result.getSeed(), "Result seed should match input");
+        assertEquals("theory", result.seed(), "Result seed should match input");
     }
 
     @Test
@@ -122,14 +124,14 @@ class SemanticFieldExplorerInternalTest {
             "theory", List.of(wsr("empirical", 8.0), wsr("scientific", 7.0))
         ));
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
-        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(10, 5, 0.0, 1);
+        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 1), 5);
         ExplorationResult result = explorer.exploreByPattern(
             "theory", "test-relation",
             "[lemma=\"theory\"] [xpos=\"JJ.*\"]",
             "[xpos=\"JJ.*\"]",
             opts);
-        assertNotNull(result.getSeedCollocates(), "Seed collocates map should not be null");
-        assertTrue(result.getSeedCollocates().containsKey("empirical"), "Seed collocates should contain 'empirical'");
+        assertNotNull(result.seedCollocates(), "Seed collocates map should not be null");
+        assertTrue(result.seedCollocates().containsKey("empirical"), "Seed collocates should contain 'empirical'");
     }
 
     @Test
@@ -140,7 +142,7 @@ class SemanticFieldExplorerInternalTest {
         ));
         // null GrammarConfig → fallback noun constraint
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
-        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(10, 1, 0.0, 5);
+        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 5), 1);
 
         explorer.exploreByPattern(
             "theory", "test-relation",
@@ -148,7 +150,7 @@ class SemanticFieldExplorerInternalTest {
             "[xpos=\"JJ.*\"]",
             opts);
 
-        // The noun-constraint call is the second findCollocations call (first is for seed collocates)
+        // The noun-constraint call is the second executeCollocations call (first is for seed collocates)
         assertTrue(executor.capturedCqlPatterns.stream()
             .anyMatch(p -> p.contains("NN")),
             "Fallback noun constraint should contain 'NN'; got: " + executor.capturedCqlPatterns);
@@ -179,7 +181,7 @@ class SemanticFieldExplorerInternalTest {
             "theory", List.of(wsr("important", 8.0))
         ));
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, config);
-        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(10, 1, 0.0, 5);
+        SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 5), 1);
 
         explorer.exploreByPattern(
             "theory", "test-relation",

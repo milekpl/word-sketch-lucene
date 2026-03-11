@@ -89,7 +89,7 @@ class CollocateProfileComparator {
         Map<String, Map<String, Double>> adjectiveProfiles = new LinkedHashMap<>();
         for (String noun : nounList) {
             logger.debug("\nProfiling: {}", noun);
-            List<QueryResults.WordSketchResult> adjectives = executor.findCollocations(
+            List<QueryResults.WordSketchResult> adjectives = executor.executeCollocations(
                 noun, adjectivePattern, minLogDice, maxPerNoun);
             logger.debug("  Found {} adjectives", adjectives.size());
             if (!adjectives.isEmpty() && logger.isDebugEnabled()) {

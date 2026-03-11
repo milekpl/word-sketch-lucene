@@ -26,6 +26,11 @@ class SketchHandlers {
 
     private static final Logger logger = LoggerFactory.getLogger(SketchHandlers.class);
 
+    /** Default result limit for full-sketch queries where results are aggregated across many relations. */
+    private static final int DEFAULT_SKETCH_RESULTS = 20;
+    /** Higher limit for single-relation queries where the caller has already narrowed to one relation. */
+    private static final int SINGLE_RELATION_RESULTS = 50;
+
     private final QueryExecutor executor;
     private final GrammarConfig grammarConfig;
 
@@ -209,7 +214,7 @@ class SketchHandlers {
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
         List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(
             lemma, fullPattern,
-            0.0, 50);
+            0.0, SINGLE_RELATION_RESULTS);
 
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
@@ -240,7 +245,7 @@ class SketchHandlers {
     private Optional<ExecutedSketch> executeAndFormatCollocations(String lemma,
             pl.marcinmilkowski.word_sketch.config.RelationConfig rel) throws IOException {
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
-        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
+        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, DEFAULT_SKETCH_RESULTS);
         if (results.isEmpty()) return Optional.empty();
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {

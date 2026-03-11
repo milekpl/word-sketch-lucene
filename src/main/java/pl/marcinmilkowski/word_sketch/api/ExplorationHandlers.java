@@ -87,8 +87,8 @@ class ExplorationHandlers {
             .name();
 
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(
-            exploreParams.topCollocates(), exploreParams.nounsPerCollocate(),
-            exploreParams.minLogDice(), exploreParams.minShared());
+            new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared()),
+            exploreParams.nounsPerCollocate());
 
         ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
 
@@ -97,7 +97,7 @@ class ExplorationHandlers {
         Map<String, Object> response = buildBaseExploreResponse(
             relationType, exploreParams.topCollocates(), exploreParams.minShared(),
             exploreParams.minLogDice(), extraParams);
-        response.put("seed", result.getSeed());
+        response.put("seed", result.seed());
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
@@ -127,9 +127,8 @@ class ExplorationHandlers {
         Set<String> seeds = parseSeedSet(req.seedsRaw());
 
         if (seeds.size() < 2) {
-            HttpApiUtils.sendError(exchange, 400,
+            throw new IllegalArgumentException(
                 "Multi-seed exploration requires at least 2 seeds; received " + seeds.size());
-            return;
         }
 
         String relationType = req.relationConfig().relationType()
@@ -165,6 +164,13 @@ class ExplorationHandlers {
      * This endpoint does not accept a {@code relation} parameter because
      * {@link pl.marcinmilkowski.word_sketch.exploration.CollocateProfileComparator} aggregates
      * collocates across all loaded relations rather than filtering to one relation type.</p>
+     *
+     * <p><strong>Handler asymmetry note:</strong> unlike {@link #handleSemanticFieldExplore} and
+     * {@link #handleSemanticFieldExploreMulti}, this handler intentionally does <em>not</em> call
+     * {@link #buildExploreRequest} because comparison is cross-relational — it aggregates
+     * collocates across all relations rather than routing to a specific one.
+     * The shared base-parameter extraction ({@code top}, {@code min_shared}, {@code min_logdice})
+     * is still performed via {@link #resolveExplorationParams}.</p>
      *
      * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing or has
      *                 fewer than 2 values

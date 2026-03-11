@@ -78,17 +78,17 @@ class BlackLabQueryExecutorTest {
         }
 
         @Test
-        void findCollocations_invalidPattern_throwsIllegalArgumentException() throws Exception {
+        void executeCollocations_invalidPattern_throwsIllegalArgumentException() throws Exception {
             try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
                 assertThrows(IllegalArgumentException.class, () ->
-                    executor.findCollocations("house", "INVALID_PATTERN_FORMAT", 0.0, 10));
+                    executor.executeCollocations("house", "INVALID_PATTERN_FORMAT", 0.0, 10));
             }
         }
 
         @Test
-        void findCollocations_validLemmaAndPattern_returnsNonNullList() throws Exception {
+        void executeCollocations_validLemmaAndPattern_returnsNonNullList() throws Exception {
             try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
-                var results = executor.findCollocations("house", "[xpos=\"JJ.*\"]", 0.0, 10);
+                var results = executor.executeCollocations("house", "[xpos=\"JJ.*\"]", 0.0, 10);
                 assertNotNull(results, "Result list must not be null");
             }
         }

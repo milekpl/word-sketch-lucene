@@ -114,7 +114,7 @@ class HandlersTest {
     void handleSemanticFieldExploreMulti_oneSeed_returns400() throws Exception {
         ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
         MockExchange ex = new MockExchange("http://localhost/api/semantic-field/explore-multi?seeds=theory");
-        handlers.handleSemanticFieldExploreMulti(ex);
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExploreMulti, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
 
@@ -124,7 +124,7 @@ class HandlersTest {
     private static QueryExecutor emptyExecutor() {
         return new QueryExecutor() {
             @Override
-            public List<QueryResults.WordSketchResult> findCollocations(
+            public List<QueryResults.WordSketchResult> executeCollocations(
                     String lemma, String cqlPattern, double minLogDice, int maxResults) {
                 return List.of();
             }
@@ -296,7 +296,7 @@ class HandlersTest {
     /** Stub executor returning fixed collocations by noun key. */
     private static QueryExecutor collocatingExecutor(java.util.Map<String, List<QueryResults.WordSketchResult>> map) {
         return new QueryExecutor() {
-            @Override public List<QueryResults.WordSketchResult> findCollocations(
+            @Override public List<QueryResults.WordSketchResult> executeCollocations(
                     String lemma, String cqlPattern, double minLogDice, int maxResults) {
                 return map.getOrDefault(lemma.toLowerCase(), List.of());
             }

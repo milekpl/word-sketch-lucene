@@ -1,0 +1,80 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {"cross_module_architecture": 72.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Packages map to clear domain concerns: api, config, exploration, indexer/blacklab, model, query, utils, viz — no historical accidents visible.",
+        "Dependency direction is consistently outward from api/exploration toward model/config/query/utils; model is a pure leaf with no upward dependencies.",
+        "LongIntHashMap in utils has no visible callers in the reviewed source files — may be dead code or used in a precomputed-collocation loader not included in src/main.",
+        "ExplorationResult.seed field encodes both single-seed (lemma string) and multi-seed (comma-joined string) modes in one field — a boundary contract hidden in runtime convention rather than type.",
+        "SingleSeedExplorationOptions and ExplorationOptions are separate records with three duplicated field definitions (topCollocates, minLogDice, minShared); toBaseOptions() projection bridges them but the duplication suggests a missing shared boundary.",
+        "SemanticFieldExplorer is a public facade delegating entirely to CollocateProfileComparator and MultiSeedExplorer — it owns no algorithm; its primary role is as the API boundary for the exploration subsystem, which is legitimate but means touching SemanticFieldExplorer has a wide blast radius.",
+        "No import-time side effects or shared mutable state observed across module boundaries; all coordination is through constructor-injected collaborators."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Packages align to domain capabilities with clear layering (model → config/query → exploration → api).",
+        "No circular dependencies; dependency direction is consistently top-down.",
+        "Constructor injection used consistently across the api layer — no shared mutable state between modules.",
+        "config package cleanly separates loader I/O (GrammarConfigLoader) from value object (GrammarConfig)."
+      ],
+      "issue_character": "Issues are concentrated in two places: a dual-use String field in ExplorationResult that encodes mode via a runtime convention, and duplicated option fields between SingleSeedExplorationOptions and ExplorationOptions that indicate a missing shared boundary.",
+      "score_rationale": "The layering and dependency direction are sound — a developer can reason about the architecture without tracing runtime behavior. Two structural rough edges (the overloaded seed field and the duplicated options types) reduce the score from the high 70s: they are not architectural violations but do blur boundaries and create maintenance surface. Score placed at 72 reflecting a well-structured codebase with visible but fixable seam design issues."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "arch-dual-seed-field",
+      "summary": "ExplorationResult.seed encodes single-seed vs multi-seed mode via a runtime string convention",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ExplorationResult.seed is used as a single lemma in single-seed mode and as a comma-joined string ('theory,model,hypothesis') in multi-seed mode (MultiSeedExplorer line 75: String.join(',', seeds)).",
+        "ExploreResponseAssembler.buildEdges(ExplorationResult) uses result.getSeed() as the edge source node — in multi-seed mode this emits a comma-joined string as a graph node identifier.",
+        "ExplorationResult.seeds() parses the field via seed.split(',') — the caller must know which mode produced the result to interpret the field correctly."
+      ],
+      "suggestion": "Introduce an explicit mode distinction: either add a boolean multiSeed flag and a List<String> seeds field to ExplorationResult, or create separate SingleSeedExplorationResult and MultiSeedExplorationResult types. Update ExploreResponseAssembler.buildEdges to iterate individual seeds rather than using the raw seed string.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "arch-options-duplication",
+      "summary": "SingleSeedExplorationOptions duplicates three fields from ExplorationOptions instead of composing or extending",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "ExplorationOptions has: int topCollocates, double minLogDice, int minShared.",
+        "SingleSeedExplorationOptions repeats all three fields plus adds int nounsPerCollocate — field Javadocs are copy-pasted.",
+        "SingleSeedExplorationOptions.toBaseOptions() bridges via projection, but callers must be aware of the two types."
+      ],
+      "suggestion": "Change SingleSeedExplorationOptions to hold an ExplorationOptions base field and add only the nounsPerCollocate field, replacing the duplicated accessors with delegation. Since records cannot extend records in Java, use composition: record SingleSeedExplorationOptions(ExplorationOptions base, int nounsPerCollocate).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Iterative feature addition (multi-seed mode added after single-seed) without revisiting the shared model boundary led to the dual-use seed field.",
+      "Java records cannot extend other records, making shared-field reuse via inheritance impossible without composition discipline."
+    ],
+    "likely_symptoms": ["arch-dual-seed-field may manifest as incorrect edge graph rendering for multi-seed exploration"],
+    "possible_false_positives": []
+  }
+}

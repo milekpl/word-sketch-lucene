@@ -1,0 +1,98 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {"error_consistency": 62.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling provides a consistent top-level error boundary: IAE → 400, IOException → 500, Exception → 500. All handler methods are wrapped through this.",
+        "GrammarConfigLoader throws IOException with descriptive messages for every config error path; wraps in IllegalStateException with actionable startup messages in createDefaultEnglish().",
+        "BlackLabQueryExecutor constructor catches bare Exception (not IOException or specific BlackLab exceptions) and wraps in IOException — overly broad catch loses the specific exception type.",
+        "CollocateQueryHelper accepts @Nullable BlackLabIndex at construction time (documented as test-only allowance) but defers null detection to individual method calls via Objects.requireNonNull — this means production misuse surfaces as a runtime NPE wrapped in IOException rather than at object construction.",
+        "SemanticFieldExplorer.compareCollocateProfiles has explicit null check 'if (seedNouns == null) throw new IllegalArgumentException' on a @NonNull annotated parameter — redundant defensive check inconsistent with the rest of the codebase which relies on @NonNull annotations.",
+        "SketchHandlers.executeRelationQueries catches IOException per relation and adds to a relationErrors list, allowing the sketch to return partial results. This is an intentional 'continue on error' pattern that is not documented at the method level.",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti calls HttpApiUtils.sendError(exchange, 400, ...) directly for the seeds.size() < 2 check, bypassing the wrapWithErrorHandling pipeline used for all other 400-class validation in sibling methods.",
+        "BlackLabConllUIndexer constructor catches bare Exception and wraps to IOException — same broad catch pattern as BlackLabQueryExecutor.",
+        "LogDiceCalculator.compute throws IllegalArgumentException for non-positive inputs, which is appropriate for a pure computation utility.",
+        "CollocateQueryHelper.getTotalFrequency catches RuntimeException and wraps to IOException with a descriptive message — acceptable boundary translation."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "HttpApiUtils.wrapWithErrorHandling provides a clean, testable top-level error boundary shared by all handlers.",
+        "GrammarConfigLoader error messages are specific and actionable throughout all failure paths.",
+        "LogDiceCalculator has explicit precondition checks with clear exception messages.",
+        "Partial-result behavior in SketchHandlers (continue on relation error) is a reasonable design choice."
+      ],
+      "issue_character": "Error handling strategy is inconsistent at integration points: broad Exception catches at constructor boundaries lose specificity, one validation path bypasses the uniform error pipeline, and a redundant null check on a @NonNull parameter signals mixed strategy between annotation-based and runtime-defensive approaches.",
+      "score_rationale": "The codebase has a well-designed top-level error boundary and consistent IOException-wrapping at I/O boundaries. The score is held at 62 because of three compounding inconsistencies: the broad catch patterns at construction time, the direct sendError bypass of the error pipeline in multi-seed validation, and the redundant null check on @NonNull that signals unresolved strategy. Each issue is individually minor but together they reduce predictability of failure modes."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec-broad-catch-constructors",
+      "summary": "BlackLabQueryExecutor and BlackLabConllUIndexer catch bare Exception at construction, losing specific failure context",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor constructor: 'catch (Exception e) { throw new IOException(\"Failed to open index: \" + e.getMessage(), e); }' — catches Exception broadly.",
+        "BlackLabConllUIndexer constructor: 'catch (Exception e) { throw new IOException(\"Failed to create index: \" + e.getMessage(), e); }' — same pattern.",
+        "Callers cannot distinguish a permission error from a corrupt index from a configuration error based on the IOException type alone."
+      ],
+      "suggestion": "Catch the specific BlackLab exception types (e.g. InvalidQuery, or the checked exception from BlackLab.open()) and translate each to a descriptive IOException. Add an 'index open error type' note in the exception message (e.g. 'corrupt index', 'permission denied') to preserve failure context.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec-multi-seed-validation-bypass",
+      "summary": "handleSemanticFieldExploreMulti calls sendError() directly for seeds.size() < 2, bypassing the uniform IAE → 400 pipeline",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti line ~130: 'HttpApiUtils.sendError(exchange, 400, \"Multi-seed exploration requires at least 2 seeds...\")' — direct error send.",
+        "All other 400-class validation in the same class uses 'throw new IllegalArgumentException(...)' which wrapWithErrorHandling intercepts.",
+        "handleSemanticFieldComparison line ~178: 'throw new IllegalArgumentException(\"Comparison requires at least 2 seed nouns...\")' — uses the uniform pattern for an equivalent check."
+      ],
+      "suggestion": "Replace the direct sendError call with 'throw new IllegalArgumentException(\"Multi-seed exploration requires at least 2 seeds; received \" + seeds.size())' to match the pattern used everywhere else in the class and in handleSemanticFieldComparison.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "ec-redundant-nonnull-check",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles performs an explicit null check on a @NonNull annotated parameter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "compareCollocateProfiles signature: 'public @NonNull ComparisonResult compareCollocateProfiles(@NonNull Set<String> seedNouns, @NonNull ExplorationOptions opts)'",
+        "Method body line ~313: 'if (seedNouns == null) { throw new IllegalArgumentException(\"seedNouns must not be null\"); }' — redundant check.",
+        "No other public method in the codebase performs explicit null checks on @NonNull parameters — this is a localized inconsistency."
+      ],
+      "suggestion": "Remove the explicit null check on seedNouns — the @NonNull annotation is the declared contract. If runtime enforcement is desired, use Objects.requireNonNull() consistently across all @NonNull parameters (or rely on annotation-processing null analysis tools).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Construction of BlackLab objects can throw a variety of undocumented runtime exceptions; the broad catch was a pragmatic workaround rather than typed exception handling.",
+      "The multi-seed validation was added as a quick guard without aligning to the existing error pipeline pattern."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

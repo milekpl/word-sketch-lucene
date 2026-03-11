@@ -1,0 +1,59 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 16,
+  "assessments": {"design_coherence": 75.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Flagged duplication between ExplorationHandlers.java:4 and CollocateProfileComparator.java:8 is import block boilerplate — this is not design duplication; both files have distinct responsibilities and no meaningful structural overlap in logic.",
+        "SketchHandlers.executeRelationQueries uses a callback (BiFunction) to share loop logic between surface and dependency sketches — effective extraction of a repeated structural pattern into a data-driven loop.",
+        "ExplorationHandlers.buildExploreRequest is a shared preamble that collapses three repeated parameter-extraction steps (seeds, relation, params) for multi-seed handlers — good extraction; reduces 3-way repetition.",
+        "ExplorationHandlers.handleSemanticFieldComparison has a slightly different parameter surface (no 'relation' param, different preconditions) compared to handleSemanticFieldExploreMulti, leading to two similar but not identical handler bodies — not deep nesting, but structural similarity without full extraction.",
+        "CorpusQueryHandlers.parseBcqlRequest is cleanly extracted from handleCorpusQuery — appropriate single-responsibility split.",
+        "SemanticFieldExplorer acts as a thin facade over MultiSeedExplorer and CollocateProfileComparator — each class has a focused single responsibility, no god-class patterns.",
+        "GrammarConfigLoader has two private parse phases (parseAndValidateVersion, validateNoLegacyKeys, parseRelations, parseRelation) each doing one thing — well-decomposed.",
+        "BlackLabQueryExecutor.collectFrequenciesFromGroups takes a Function<String, String> lemmaExtractor parameter to share iteration logic across three different grouping strategies — data-driven design that avoids copy-paste."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "SketchHandlers.executeRelationQueries callback pattern eliminates repetitive surface/dep sketch loops and makes the variation point explicit.",
+        "SemanticFieldExplorer is a proper facade with no logic of its own, delegating to focused collaborators.",
+        "GrammarConfigLoader is cleanly decomposed into small, single-purpose private methods with no over-long methods.",
+        "BlackLabQueryExecutor.collectFrequenciesFromGroups centralises grouping iteration with an injected extractor function, avoiding three near-identical loops.",
+        "ExploreResponseAssembler is a pure data-transformation class with no HTTP or business logic — clean single responsibility."
+      ],
+      "issue_character": "The boilerplate duplication flagged by the mechanical detector is limited to import blocks and is a false positive; the genuine design concern is that ExplorationHandlers contains three similar explore-response-building methods that share structure but are not fully unified due to parameter set differences.",
+      "score_rationale": "The codebase shows mature design instincts: callback-based loops, facade delegation, and single-method classes all appear in the right places. The score is held in the mid-70s because the exploration handlers have a family of three similar handler methods (explore, explore-multi, compare) that partially share structure via buildExploreRequest and buildBaseExploreResponse but the comparison handler does not participate in the shared preamble — this asymmetry creates a maintenance surface where a parameter change to the shared params must be applied in some but not all handlers."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "dc_handler_asymmetry",
+      "summary": "Comparison handler does not use the shared buildExploreRequest preamble, creating inconsistent parameter extraction paths",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti both call resolveRelationConfig and resolveExplorationParams via buildExploreRequest (or inline equivalent).",
+        "handleSemanticFieldComparison independently calls HttpApiUtils.requireParam for 'seeds', then resolveExplorationParams — it does not call resolveRelationConfig (intentionally, since comparison aggregates across all relations), creating a structural asymmetry in how parameters are extracted across the three handlers.",
+        "If resolveExplorationParams gains a new parameter, the comparison handler must be updated separately from the shared preamble."
+      ],
+      "suggestion": "Document the intentional split in a comment on handleSemanticFieldComparison: the handler intentionally skips relation resolution because comparison is cross-relational. Extract the shared top/min_shared/min_logdice parameter extraction into a standalone resolveBaseParams method that all three handlers call, separating it from the relation-specific resolveRelationConfig. This makes the commonality explicit and the intentional difference (no relation for comparison) visible.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The comparison endpoint was added after the explore endpoints, inheriting the same parameter names but skipping the relation parameter; the shared preamble buildExploreRequest was not retrofitted to accommodate the no-relation case."],
+    "likely_symptoms": ["dc_handler_asymmetry"],
+    "possible_false_positives": ["Boilerplate import block duplication flagged between ExplorationHandlers.java and CollocateProfileComparator.java is not design duplication — these are Java import statements"]
+  }
+}

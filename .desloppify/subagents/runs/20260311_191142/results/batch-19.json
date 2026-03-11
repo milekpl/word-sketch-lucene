@@ -1,0 +1,82 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 62.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor interface mixes two verb conventions: findCollocations (find*) vs executeCqlQuery, executeBcqlQuery, executeSurfacePattern, executeDependencyPattern, executeDependencyPatternWithPos (execute*). These methods return comparable types (WordSketchResult or ConcordanceResult) but use inconsistent verbs.",
+        "findCollocations(lemma, cqlPattern, minLogDice, maxResults) and executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) have the same signature shape but different parameter semantics: cqlPattern vs bcqlPattern, and findCollocations uses a collocate-constraint-only pattern while executeSurfacePattern expects a full labeled BCQL pattern.",
+        "HTTP API parameter naming: single-seed endpoint uses 'seed' (singular), multi-seed endpoint uses 'seeds' (plural), comparison endpoint uses 'seeds' — this inconsistency is visible to API consumers.",
+        "ExplorationHandlers.handleSemanticFieldComparison does not accept a 'relation' parameter (intentionally aggregates across all relations), but handleSemanticFieldExplore and handleSemanticFieldExploreMulti both accept 'relation' — callers may not understand why 'relation' is ignored on the comparison endpoint.",
+        "handleSemanticFieldExploreMulti rejects 'nouns_per' parameter with a 400 error, while handleSemanticFieldExplore accepts it — an API consumer would need to read documentation to know which parameters apply to which endpoint.",
+        "Both explore and explore-multi accept: top, min_shared, min_logdice, relation. Both could be unified into a single endpoint with a 'seeds' parameter that accepts either one or many values.",
+        "ConcordanceHandlers uses parameter names 'seed' and 'collocate', while ExplorationHandlers uses 'seed' and 'adjective' for the /examples endpoint — 'adjective' is domain-specific while 'collocate' is more general; these are sibling endpoints with parallel purpose but different naming.",
+        "QueryExecutor.executeBcqlQuery and executeCqlQuery are both 'execute a pattern, get concordances back' but differ in parser used — this distinction is correct but the names don't communicate the parser difference clearly to callers."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "HTTP endpoints are RESTful GET/POST with clear path naming (/api/sketch, /api/semantic-field/explore, /api/relations).",
+        "Error responses consistently use JSON { 'error': message } format via HttpApiUtils.",
+        "CORS handling is uniform across all endpoints via the registerHandler wrapper.",
+        "Parameter defaults are consistent: 'top' defaults to 10, 'min_logdice' to 3.0 across all exploration endpoints."
+      ],
+      "issue_character": "The API surface has two coherence problems: the QueryExecutor interface mixes find*/execute* naming conventions for comparable operations, and the HTTP API has parameter name inconsistencies (seed vs seeds, adjective vs collocate) that would confuse API consumers building clients.",
+      "score_rationale": "The HTTP API's path naming and response shapes are generally well-designed, but parameter naming inconsistencies across sibling endpoints reduce the predictability of the API surface. The QueryExecutor interface is the more impactful issue for developers — the find/execute inconsistency means readers must parse documentation to understand that findCollocations and executeSurfacePattern return the same type but work very differently. A developer adding a new method to the interface has no clear naming convention to follow."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "asc_find_execute_mixed",
+      "summary": "QueryExecutor interface mixes find* and execute* verb conventions for comparable operations",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations(lemma, cqlPattern, minLogDice, maxResults) → List<WordSketchResult>",
+        "executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) → List<WordSketchResult>",
+        "Both return List<WordSketchResult>, both take a lemma + pattern + minLogDice + maxResults signature shape, but use different verb prefixes with no naming convention to distinguish them."
+      ],
+      "suggestion": "Standardise on 'query*' or 'execute*' prefix for all interface methods. Rename findCollocations to executeCollocations (or queryCollocations) to signal it is a query operation with the same lifecycle as executeSurfacePattern. Update all callers (SemanticFieldExplorer.fetchSeedCollocates, CollocateProfileComparator, etc.).",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "asc_param_naming_inconsistency",
+      "summary": "HTTP API uses 'seed' (singular) vs 'seeds' (plural) vs 'adjective' vs 'collocate' inconsistently across sibling endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "/api/semantic-field/explore: parameter 'seed' (singular noun)",
+        "/api/semantic-field/explore-multi: parameter 'seeds' (plural)",
+        "/api/semantic-field/compare: parameter 'seeds' (plural)",
+        "/api/semantic-field/examples: parameters 'adjective' and 'noun' (domain-specific names)",
+        "/api/concordance/examples: parameters 'seed' and 'collocate' (different naming for analogous concepts)"
+      ],
+      "suggestion": "Standardise parameter names across all exploration endpoints: use 'seeds' (plural) consistently and accept comma-separated values (with a single value being the single-seed case), making the explore and explore-multi endpoints unifiable. For the examples endpoints, align 'adjective' and 'collocate' — prefer 'collocate' as the more general term. Document the parameter contract in a shared API reference.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "QueryExecutor interface grew incrementally as new query methods were added without revisiting the naming convention.",
+      "HTTP parameter names were set per-endpoint based on immediate semantic clarity rather than a cross-endpoint consistency policy."
+    ],
+    "likely_symptoms": ["asc_find_execute_mixed", "asc_param_naming_inconsistency"],
+    "possible_false_positives": []
+  }
+}

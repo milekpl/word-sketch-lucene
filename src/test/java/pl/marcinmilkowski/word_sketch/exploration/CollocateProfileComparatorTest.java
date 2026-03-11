@@ -19,7 +19,7 @@ class CollocateProfileComparatorTest {
     private static QueryExecutor stubExecutor(java.util.Map<String, List<QueryResults.WordSketchResult>> data) {
         return new QueryExecutor() {
             @Override
-            public List<QueryResults.WordSketchResult> findCollocations(
+            public List<QueryResults.WordSketchResult> executeCollocations(
                     String lemma, String cqlPattern, double minLogDice, int maxResults) {
                 return data.getOrDefault(lemma, List.of());
             }
@@ -47,8 +47,8 @@ class CollocateProfileComparatorTest {
         ComparisonResult result = comparator.compareCollocateProfiles(Collections.emptySet(), 0.0, 10);
 
         assertNotNull(result);
-        assertTrue(result.getNouns().isEmpty());
-        assertTrue(result.getAllAdjectives().isEmpty());
+        assertTrue(result.nouns().isEmpty());
+        assertTrue(result.allAdjectives().isEmpty());
     }
 
     @Test
@@ -57,8 +57,8 @@ class CollocateProfileComparatorTest {
         ComparisonResult result = comparator.compareCollocateProfiles(null, 0.0, 10);
 
         assertNotNull(result);
-        assertTrue(result.getNouns().isEmpty());
-        assertTrue(result.getAllAdjectives().isEmpty());
+        assertTrue(result.nouns().isEmpty());
+        assertTrue(result.allAdjectives().isEmpty());
     }
 
     @Test
@@ -74,7 +74,7 @@ class CollocateProfileComparatorTest {
         CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(data), null);
         ComparisonResult result = comparator.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 10);
 
-        List<AdjectiveProfile> adjectives = result.getAllAdjectives();
+        List<AdjectiveProfile> adjectives = result.allAdjectives();
         assertFalse(adjectives.isEmpty());
 
         // First profile must have the highest commonality score
@@ -99,17 +99,17 @@ class CollocateProfileComparatorTest {
                 Set.of("theory", "model", "hypothesis"), 0.0, 10);
 
         // "important" must be identified as fully shared (present in 3/3 nouns)
-        List<AdjectiveProfile> fullyShared = result.getFullyShared();
+        List<AdjectiveProfile> fullyShared = result.fullyShared();
         assertTrue(fullyShared.stream().anyMatch(p -> "important".equals(p.adjective())),
                 "\"important\" should be fully shared across all three seeds");
 
         // "recent" must be partially shared (present in 2/3 nouns)
-        List<AdjectiveProfile> partiallyShared = result.getPartiallyShared();
+        List<AdjectiveProfile> partiallyShared = result.partiallyShared();
         assertTrue(partiallyShared.stream().anyMatch(p -> "recent".equals(p.adjective())),
                 "\"recent\" should be partially shared across two seeds");
 
         // "large" must be specific to one noun
-        List<AdjectiveProfile> specific = result.getSpecific();
+        List<AdjectiveProfile> specific = result.specific();
         assertTrue(specific.stream().anyMatch(p -> "large".equals(p.adjective())),
                 "\"large\" should be specific to a single seed");
     }

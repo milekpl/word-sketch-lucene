@@ -1,0 +1,75 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 13,
+  "assessments": {"contract_coherence": 72.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExploreMulti calls HttpApiUtils.sendError(exchange, 400, ...) directly for the seeds.size() < 2 validation, while all other validation in the same and sibling handlers throws IllegalArgumentException which is caught by wrapWithErrorHandling — inconsistent error contract within the same module.",
+        "SemanticFieldExplorer.compareCollocateProfiles (public) throws IllegalArgumentException for seedNouns.size() < 2, but CollocateProfileComparator.compareCollocateProfiles (package-private) returns ComparisonResult.empty() when seedNouns is null or empty — the two methods have divergent contracts for the same precondition.",
+        "SemanticFieldExplorer.compareCollocateProfiles has an explicit 'if (seedNouns == null) throw IllegalArgumentException' guard immediately followed by a @NonNull annotation — the annotation already documents non-null intent, the check is redundant but not harmful.",
+        "QueryExecutor interface: findCollocations uses 'Find' naming while executeSurfacePattern, executeCqlQuery, executeBcqlQuery, executeDependencyPattern use 'execute' — inconsistent verb convention in interface methods that return similar types.",
+        "HttpApiUtils.requireParam documents that it throws IllegalArgumentException — wrapWithErrorHandling is documented to catch this — the contract chain is coherent and consistently applied in SketchHandlers, ConcordanceHandlers, and most of ExplorationHandlers.",
+        "GrammarConfigLoader.createDefaultEnglish() wraps checked IOException in unchecked IllegalStateException — documented in Javadoc; callers expecting IOException must use load(Path) directly. This is an intentional contract split, documented.",
+        "RelationConfig.computeDeprel() returns null when relation type is not DEP or no deprel can be derived — @Nullable annotation is present and the callers (SketchHandlers) guard against null. Contract is correct."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "The wrapWithErrorHandling / throw IllegalArgumentException contract is clearly established and consistently applied across SketchHandlers, ConcordanceHandlers, and most of ExplorationHandlers.",
+        "@Nullable annotations are present on all methods that can return null (computeDeprel, extractLemmaFromMatch, extractCollocateFromXmlByPosition), accurately reflecting the implementation.",
+        "GrammarConfigLoader deliberately exposes two factory methods with different exception contracts (load throws checked IOException; createDefaultEnglish wraps in unchecked) and documents both in Javadoc.",
+        "QueryExecutor interface documents every method's contract, null-return conditions, and exception types."
+      ],
+      "issue_character": "The main contract defect is a bifurcated error-handling approach in ExplorationHandlers where one validation path sends a 400 directly while all sibling validations throw IllegalArgumentException, breaking the module-level error contract; a secondary issue is divergent handling of the same precondition (seeds < 2) across two layers.",
+      "score_rationale": "Most of the codebase honors stated contracts well — annotations match implementations, exception types are consistent in most places. The score is reduced because two concrete defects exist: the sendError/throw inconsistency in ExplorationHandlers (which would surprise a maintainer adding a new validation) and the public/private contract divergence in the exploration layer for the same seeds < 2 precondition. These are not catastrophic but represent real contract surface that callers must understand separately."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc_mixed_error_path",
+      "summary": "handleSemanticFieldExploreMulti sends 400 directly instead of throwing IllegalArgumentException like all sibling handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Line ~99 in ExplorationHandlers: 'if (seeds.size() < 2) { HttpApiUtils.sendError(exchange, 400, ...); return; }' — bypasses wrapWithErrorHandling.",
+        "All other validation in ExplorationHandlers and sibling handler classes throws IllegalArgumentException which wrapWithErrorHandling catches and maps to 400.",
+        "The module-level contract documented in HttpApiUtils.wrapWithErrorHandling is: 'Catches IllegalArgumentException and sends a 400 response' — direct sendError calls break this contract."
+      ],
+      "suggestion": "Replace the direct sendError call with 'throw new IllegalArgumentException(\"Multi-seed exploration requires at least 2 seeds; received \" + seeds.size())' to be consistent with all other 400-class validation in this module. The wrapWithErrorHandling wrapper will catch it and send the 400 response.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "cc_divergent_precondition",
+      "summary": "Public and package-private comparison methods have divergent contracts for seeds < 2 precondition",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles throws IllegalArgumentException when seedNouns.size() < 2.",
+        "CollocateProfileComparator.compareCollocateProfiles returns ComparisonResult.empty() when seedNouns is null or empty — a different contract for the same precondition.",
+        "A caller of the package-private method (were one added) would get empty results rather than an exception for the 1-seed case, while the public facade throws."
+      ],
+      "suggestion": "Align CollocateProfileComparator.compareCollocateProfiles to throw IllegalArgumentException for size < 2 (or delegate precondition checking entirely to the public facade and document that the package-private method trusts its caller). The current split means the inner method silently returns empty for a case the outer method explicitly rejects.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The wrapWithErrorHandling contract was added after some handler methods were already written, leading to one validation path being missed during the refactor."],
+    "likely_symptoms": ["cc_mixed_error_path"],
+    "possible_false_positives": ["Redundant null check before @NonNull annotation in compareCollocateProfiles — defensive but not a contract violation"]
+  }
+}

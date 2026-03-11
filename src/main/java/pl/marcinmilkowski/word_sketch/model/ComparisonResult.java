@@ -26,10 +26,10 @@ public class ComparisonResult {
     }
 
     /** @return the seed nouns this comparison was built from; never null, may be empty */
-    public List<String> getNouns() { return nouns; }
+    public List<String> nouns() { return nouns; }
 
     /** @return all adjective profiles regardless of sharing category; never null, may be empty */
-    public List<AdjectiveProfile> getAllAdjectives() { return adjectives; }
+    public List<AdjectiveProfile> allAdjectives() { return adjectives; }
 
     /**
      * Single-pass counts of all three sharing categories to avoid 3 separate stream iterations.
@@ -39,7 +39,7 @@ public class ComparisonResult {
     /**
      * Returns counts for fully-shared, partially-shared, and specific adjectives in a single pass.
      */
-    public SummaryCounts getSummaryCounts() {
+    public SummaryCounts summaryCounts() {
         int total = nouns.size();
         int fullyShared = 0, partiallyShared = 0, specific = 0;
         for (AdjectiveProfile a : adjectives) {
@@ -52,21 +52,21 @@ public class ComparisonResult {
     }
 
     /** @return adjectives present in every seed noun's collocate profile */
-    public List<AdjectiveProfile> getFullyShared() {
+    public List<AdjectiveProfile> fullyShared() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == nouns.size())
             .collect(Collectors.toList());
     }
 
     /** @return adjectives shared by at least 2 nouns but not all */
-    public List<AdjectiveProfile> getPartiallyShared() {
+    public List<AdjectiveProfile> partiallyShared() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() >= 2 && a.presentInCount() < nouns.size())
             .collect(Collectors.toList());
     }
 
     /** @return adjectives that occur in the collocate profile of exactly one seed noun */
-    public List<AdjectiveProfile> getSpecific() {
+    public List<AdjectiveProfile> specific() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == 1)
             .collect(Collectors.toList());
@@ -76,9 +76,9 @@ public class ComparisonResult {
      * Returns adjectives that occur only in the collocate profile of {@code noun},
      * sorted by descending logDice score.
      *
-     * @param noun one of the seed nouns from {@link #getNouns()}; returns an empty list for unknown nouns
+     * @param noun one of the seed nouns from {@link #nouns()}; returns an empty list for unknown nouns
      */
-    public List<AdjectiveProfile> getSpecificTo(String noun) {
+    public List<AdjectiveProfile> specificTo(String noun) {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == 1 && a.nounScores().getOrDefault(noun, 0.0) > 0)
             .sorted((x, y) -> Double.compare(y.maxLogDice(), x.maxLogDice()))

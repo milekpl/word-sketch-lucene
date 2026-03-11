@@ -73,41 +73,43 @@ public class Main {
     }
 
     private static void showUsage() {
-        System.out.println("Usage: java -jar concept-sketch.jar <command> [options]");
-        System.out.println();
-        System.out.println("Commands:");
-        System.out.println("  blacklab-index --input <file.conllu> --output <index-dir>");
-        System.out.println("      Index a CoNLL-U file with BlackLab");
-        System.out.println();
-        System.out.println("  blacklab-query --index <dir> --lemma <word> [--deprel <rel>]");
-        System.out.println("      Query the index for collocations");
-        System.out.println("      Options:");
-        System.out.println("        --deprel <rel>   Dependency relation (e.g., amod, nsubj, obj)");
-        System.out.println("        --min-logdice <n>  Minimum logDice score (default: 0)");
-        System.out.println("        --limit <n>      Max results (default: 20)");
-        System.out.println();
-        System.out.println("  server --index <dir> [--port <port>]");
-        System.out.println("      Start REST API server");
-        System.out.println();
-        System.out.println("Examples:");
-        System.out.println("  # Tag corpus with Stanza (Python required)");
-        System.out.println("  python tag_with_stanza.py -i corpus.txt -o corpus.conllu");
-        System.out.println();
-        System.out.println("  # Index CoNLL-U file");
-        System.out.println("  java -jar concept-sketch.jar blacklab-index \\");
-        System.out.println("    --input corpus.conllu --output data/index/");
-        System.out.println();
-        System.out.println("  # Query for adjectival modifiers of 'theory'");
-        System.out.println("  java -jar concept-sketch.jar blacklab-query \\");
-        System.out.println("    --index data/index/ --lemma theory --deprel amod");
-        System.out.println();
-        System.out.println("  # Start API server");
-        System.out.println("  java -jar concept-sketch.jar server \\");
-        System.out.println("    --index data/index/ --port 8080");
-        System.out.println();
-        System.out.println("  # Query API");
-        System.out.println("  curl 'http://localhost:8080/api/sketch/theory?deprel=amod'");
-        System.out.println();
+        System.out.print("""
+            Usage: java -jar concept-sketch.jar <command> [options]
+
+            Commands:
+              blacklab-index --input <file.conllu> --output <index-dir>
+                  Index a CoNLL-U file with BlackLab
+
+              blacklab-query --index <dir> --lemma <word> [--deprel <rel>]
+                  Query the index for collocations
+                  Options:
+                    --deprel <rel>   Dependency relation (e.g., amod, nsubj, obj)
+                    --min-logdice <n>  Minimum logDice score (default: 0)
+                    --limit <n>      Max results (default: 20)
+
+              server --index <dir> [--port <port>]
+                  Start REST API server
+
+            Examples:
+              # Tag corpus with Stanza (Python required)
+              python tag_with_stanza.py -i corpus.txt -o corpus.conllu
+
+              # Index CoNLL-U file
+              java -jar concept-sketch.jar blacklab-index \\
+                --input corpus.conllu --output data/index/
+
+              # Query for adjectival modifiers of 'theory'
+              java -jar concept-sketch.jar blacklab-query \\
+                --index data/index/ --lemma theory --deprel amod
+
+              # Start API server
+              java -jar concept-sketch.jar server \\
+                --index data/index/ --port 8080
+
+              # Query API
+              curl 'http://localhost:8080/api/sketch/theory?deprel=amod'
+
+            """);
     }
 
     private static void handleBlackLabIndexCommand(String[] args) throws IOException {
@@ -206,7 +208,7 @@ public class Main {
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(indexPath)) {
             var results = deprel != null
                 ? executor.executeDependencyPattern(lemma, deprel, minLogDice, limit)
-                : executor.findCollocations(lemma, "[]", minLogDice, limit);
+                : executor.executeCollocations(lemma, "[]", minLogDice, limit);
 
             if (results.isEmpty()) {
                 System.out.println("No results found.");

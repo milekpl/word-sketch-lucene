@@ -1,0 +1,79 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 2,
+  "assessments": {"high_level_elegance": 70.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages (api, config, exploration, indexer, model, query, utils, viz) each map to a distinct domain capability — a new engineer can explain why each exists.",
+        "model package is a pure leaf: AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult, RelationEdgeType — no upward dependencies, documented in package-info.java.",
+        "config package cleanly separates the loader (GrammarConfigLoader with I/O) from the value object (GrammarConfig) and delegates pattern-building to RelationPatternBuilder — single-responsibility at the package level.",
+        "api package has one handler class per endpoint group (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) with ExploreResponseAssembler owning model-to-JSON translation.",
+        "ExplorationResult is a traditional class (with getX() accessors) while most model types are records (AdjectiveProfile, CoreCollocate, DiscoveredNoun) — the package-info.java documents this mixed convention but it reduces predict navigability.",
+        "ExplorationResult.seed field is dual-use: single-seed mode stores a lemma string; multi-seed mode stores a comma-joined seed list. This blurs the ownership boundary of the model type.",
+        "ExploreResponseAssembler is public final in the api package — its presentation concern is correctly placed, but its public visibility means it could be depended on from outside the api package if the codebase grows.",
+        "SemanticFieldExplorer class name suggests domain logic ownership but it is now primarily a facade delegating to CollocateProfileComparator and MultiSeedExplorer."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package structure maps cleanly to domain capabilities with no historical-accident directories.",
+        "config package achieves clean separation between I/O loading, value objects, and pattern-building across three focused classes.",
+        "api package handler decomposition is consistent and predictable — one class per concern.",
+        "package-info.java documents the mixed record/class convention in the model package explicitly."
+      ],
+      "issue_character": "The main issue is that two model layer abstractions — ExplorationResult and SemanticFieldExplorer — have accumulated dual responsibilities that blur their stated roles; ExplorationResult encodes mode as a string field rather than as a type, and SemanticFieldExplorer is now a thin facade rather than a domain algorithm owner.",
+      "score_rationale": "The project's decomposition is good at the package level, and a developer new to the codebase can orient quickly. The score is held back by ExplorationResult's overloaded seed field (which violates the principle that a model type's meaning should be clear from its structure) and the semantic mismatch between SemanticFieldExplorer's name and its current function as a facade. These are real navigational obstacles, not style nits. Score placed at 70."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "hle-exploration-result-mode",
+      "summary": "ExplorationResult.seed field overloaded to represent both single-seed lemma and multi-seed comma-joined string",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.getSeed() Javadoc: 'Single-seed mode: contains the lemma string. Multi-seed mode: contains the seeds joined with a comma.' — dual meaning on one field.",
+        "ExplorationResult.seeds() parses the field via seed.split(',') to recover individual seeds, requiring callers to know which mode produced the result.",
+        "ExploreResponseAssembler.buildEdges(ExplorationResult) uses result.getSeed() as edge source — produces a comma-joined string as graph node in multi-seed mode."
+      ],
+      "suggestion": "Add explicit mode distinction: a List<String> seeds field for the seed list and a boolean multiSeed accessor, or create typed subclasses SingleSeedExplorationResult and MultiSeedExplorationResult. Remove the seeds() split-on-comma workaround.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "hle-explorer-facade",
+      "summary": "SemanticFieldExplorer name implies domain algorithm ownership but the class is now entirely a delegation facade",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles delegates entirely to comparator.compareCollocateProfiles().",
+        "SemanticFieldExplorer.exploreMultiSeed delegates entirely to multiSeedExplorer.computeCollocateIntersection().",
+        "SemanticFieldExplorer.fetchExamples is a 4-line pass-through to executor.executeBcqlQuery() with a stream transform.",
+        "Only exploreByPattern contains non-trivial internal logic; even that defers to private helpers."
+      ],
+      "suggestion": "Rename to SemanticFieldService or SemanticFieldFacade to signal its role as a coordination entry point rather than an algorithm owner, or document it explicitly as the public API facade for the exploration subsystem in its class Javadoc.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult was designed for single-seed mode and extended to cover multi-seed by reusing the seed field with a different encoding convention, rather than revisiting the type boundary.",
+      "SemanticFieldExplorer grew through extraction (MultiSeedExplorer, CollocateProfileComparator extracted out) without renaming to reflect its current function."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

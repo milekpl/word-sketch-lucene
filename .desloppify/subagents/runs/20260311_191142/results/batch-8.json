@@ -1,0 +1,97 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 8,
+  "assessments": {"low_level_elegance": 67.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "CollocateQueryHelper.executeBcqlQuery is well-decomposed into named phases: collectHits() and scoreHits() are private methods with clear single responsibilities; the top-level method reads as a pipeline.",
+        "BlackLabSnippetParser is a focused static utility — all methods are pure functions of their inputs with no shared state, clearly scoped to XML/text parsing.",
+        "SemanticFieldExplorer.exploreByPattern is decomposed into four named private helpers (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates) that map to algorithmic phases — intention-revealing and testable in isolation.",
+        "ConlluConverter.convertConlluToWplChunks uses 'writer = null' as a state sentinel after chunk rotation — the Optional<long[]> return from rotateChunkIfNeeded signals rotation and carries a new counter, an unusual return type that creates read friction.",
+        "SketchHandlers.handleRelationQueryForPattern hardcodes a limit of 50: 'executor.executeSurfacePattern(lemma, fullPattern, 0.0, 50)'. The sibling method executeAndFormatCollocations uses 20. Neither limit is explained or configurable.",
+        "Main.showUsage() contains 35+ sequential System.out.println calls — a literal text dump that could be a single multi-line string constant, creating maintenance surface for trivial output.",
+        "BlackLabQueryExecutor.executeSurfacePattern: the extractCollocateLemma lambda passed to collectFrequenciesFromGroups has a two-step fallback (try extractCollocateFromXmlByPosition, fall back to extractPlainTextTokenAt) — the fallback cascade is correct but inlined within a lambda, making it less visible.",
+        "GrammarConfigLoader.fromReader manually reads a char[] buffer into StringBuilder — idiom is correct but verbose when new BufferedReader(reader).lines().collect(joining()) or reader.transferTo() would be cleaner.",
+        "CollocateProfileComparator.buildAdjectiveProfileList: the two-pass variance computation is explicitly commented ('Second pass for variance — requires the mean — unavoidable two-pass for numerical stability') — appropriate documentation of non-obvious algorithmic choice.",
+        "SketchHandlers.executeRelationQueries uses a BiFunction<RelationConfig, ExecutedSketch, Map<String,Object>> builder parameter for customizing response construction — this is a flexible, low-coupling pattern but the BiFunction type makes the signature harder to read at a glance."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "Algorithm phases are consistently extracted to named private methods across exploration, query, and config packages.",
+        "BlackLabSnippetParser is a focused, stateless utility with no defensive sprawl.",
+        "Two-pass variance computation is documented with the algorithmic rationale.",
+        "CollocateQueryHelper's private record types (CollocateSearch, HitRecord, SeedCollocateData) keep local data grouped without polluting the wider codebase."
+      ],
+      "issue_character": "Control flow issues are localized: inconsistent hardcoded limits between sibling methods, a writer=null sentinel pattern in the converter, and verbose showUsage() — these are craft-level issues that add maintenance friction without being correctness problems.",
+      "score_rationale": "The implementation internals are generally well-structured with good phase extraction and appropriate helper isolation. The score is held at 67 due to three recurring craft-level issues: inconsistent hardcoded limits that differ between sibling methods, the ConlluConverter sentinel pattern, and the verbose showUsage. These are individually minor but collectively indicate that the implementation layer was not reviewed with the same care as the design layer."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "lle-inconsistent-result-limits",
+      "summary": "Hardcoded result limits differ between sibling methods in SketchHandlers with no explanation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleRelationQueryForPattern: 'executor.executeSurfacePattern(lemma, fullPattern, 0.0, 50)' — limit 50.",
+        "executeAndFormatCollocations: 'executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20)' — limit 20.",
+        "Both methods execute the same underlying query type for the same handler class — the 2.5x difference in limit is unexplained by comments or configuration."
+      ],
+      "suggestion": "Extract the limit to a named constant (e.g. DEFAULT_SKETCH_RESULTS = 20 and SINGLE_RELATION_RESULTS = 50, with comments explaining the distinction) or unify to a single configurable limit. At minimum add a comment explaining why the specific-relation query needs a higher limit than the full-sketch query.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "lle-conllu-writer-null-sentinel",
+      "summary": "ConlluConverter uses writer=null as a state sentinel for chunk rotation, creating fragile control flow",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "convertConlluToWplChunks: after rotateChunkIfNeeded, 'writer = null' is set as a signal that the next line should open a new chunk.",
+        "rotateChunkIfNeeded returns Optional<long[]> as a 'did rotate?' signal carrying the new chunk counter — a non-standard use of Optional.",
+        "The null sentinel pattern requires the outer loop to check 'if (writer == null)' before writing — state spread across the calling loop rather than encapsulated."
+      ],
+      "suggestion": "Extract the chunk-rotation logic into a small ChunkWriter wrapper class that internally tracks the current writer and handles rotation. The wrapper's write() method would handle chunk creation transparently, eliminating the null sentinel and the Optional<long[]> signaling return.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "lle-show-usage-println-sprawl",
+      "summary": "Main.showUsage() has 35+ sequential System.out.println calls that could be a single text block",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "showUsage() method contains approximately 35 individual System.out.println() calls for a static usage text block.",
+        "Java text blocks (triple-quoted strings, available since Java 15) would allow the same output as a single string constant with no runtime overhead.",
+        "Multiple adjacent println calls create a maintenance burden — adding a new option requires finding the right position in the sequence."
+      ],
+      "suggestion": "Replace the sequential println calls with a single System.out.println(\"\"\" ... \"\"\") text block (Java 15+ syntax, supported in Java 21). This consolidates the static text into a single maintainable unit.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Hardcoded limits were added at different times for single-relation vs full-sketch paths without a shared constant.",
+      "ConlluConverter was written with imperative control flow that made the null sentinel the natural choice; a wrapper class was not extracted."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

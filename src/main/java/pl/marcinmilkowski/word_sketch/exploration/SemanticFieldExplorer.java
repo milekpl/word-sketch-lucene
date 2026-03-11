@@ -68,6 +68,14 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  * {@code CoreCollocate}, {@code ComparisonResult}, {@code AdjectiveProfile}, {@code Edge})
  * live in the {@code pl.marcinmilkowski.word_sketch.model} package.</p>
  *
+ * <h2>Design: coordination facade for {@link ExplorationHandlers}</h2>
+ * <p>This class serves as the stable API surface for {@link pl.marcinmilkowski.word_sketch.api.ExplorationHandlers}:
+ * it owns the single-seed exploration algorithm directly (see {@link #exploreByPattern}), and acts
+ * as a coordination facade for the remaining operations — delegating multi-seed exploration to
+ * {@link MultiSeedExplorer} and profile comparison to {@link CollocateProfileComparator}.
+ * Keeping this boundary stable insulates the HTTP layer from changes to the individual algorithm
+ * classes and from the wiring logic that connects them.</p>
+ *
  * <h2>Computational Limits</h2>
  * <p>Uses logDice thresholds at each step to prevent combinatorial explosion:</p>
  * <ul>
@@ -210,7 +218,7 @@ public class SemanticFieldExplorer {
             seed, bcqlPattern, minLogDice, topPredicates);
         if (results.isEmpty()) {
             logger.debug("  No results found for seed word. Trying fallback to simple pattern...");
-            results = executor.findCollocations(seed, simplePattern, minLogDice, topPredicates);
+            results = executor.executeCollocations(seed, simplePattern, minLogDice, topPredicates);
         }
         return results;
     }
@@ -224,7 +232,7 @@ public class SemanticFieldExplorer {
             double minLogDice, int nounsPerPredicate, String nounConstraint) throws IOException {
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
         for (String collocate : seedCollocScores.keySet()) {
-            List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
+            List<QueryResults.WordSketchResult> nouns = executor.executeCollocations(
                 collocate, nounConstraint, minLogDice, nounsPerPredicate);
             for (QueryResults.WordSketchResult r : nouns) {
                 String noun = r.lemma().toLowerCase();
@@ -309,9 +317,6 @@ public class SemanticFieldExplorer {
      */
     public @NonNull ComparisonResult compareCollocateProfiles(
             @NonNull Set<String> seedNouns, @NonNull ExplorationOptions opts) throws IOException {
-        if (seedNouns == null) {
-            throw new IllegalArgumentException("seedNouns must not be null");
-        }
         if (seedNouns.size() < 2) {
             throw new IllegalArgumentException(
                 "Comparison requires at least 2 seed nouns for a meaningful result");

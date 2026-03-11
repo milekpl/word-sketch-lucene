@@ -20,7 +20,7 @@ class MultiSeedExplorerTest {
     /** Stub executor returning canned results per lemma via executeSurfacePattern. */
     private static QueryExecutor stubExecutor(Map<String, List<QueryResults.WordSketchResult>> data) {
         return new QueryExecutor() {
-            @Override public List<QueryResults.WordSketchResult> findCollocations(
+            @Override public List<QueryResults.WordSketchResult> executeCollocations(
                     String lemma, String p, double m, int max) { return List.of(); }
             @Override public List<QueryResults.ConcordanceResult> executeCqlQuery(String p, int m) { return List.of(); }
             @Override public List<QueryResults.CollocateResult> executeBcqlQuery(String p, int m) { return List.of(); }
@@ -57,10 +57,10 @@ class MultiSeedExplorerTest {
         ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 2);
 
-        assertTrue(result.getCoreCollocates().stream()
+        assertTrue(result.coreCollocates().stream()
                 .anyMatch(c -> "important".equals(c.collocate())),
                 "\"important\" shared by both seeds should appear in core collocates");
-        assertTrue(result.getCoreCollocates().stream()
+        assertTrue(result.coreCollocates().stream()
                 .noneMatch(c -> "novel".equals(c.collocate())),
                 "\"novel\" present only in \"theory\" should not be a core collocate");
     }
@@ -75,7 +75,7 @@ class MultiSeedExplorerTest {
         ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 2);
 
-        List<String> nounNames = result.getDiscoveredNouns().stream()
+        List<String> nounNames = result.discoveredNouns().stream()
                 .map(pl.marcinmilkowski.word_sketch.model.DiscoveredNoun::noun).toList();
         assertTrue(nounNames.contains("theory"), "\"theory\" should be a discovered noun");
         assertTrue(nounNames.contains("model"),  "\"model\" should be a discovered noun");
@@ -91,7 +91,7 @@ class MultiSeedExplorerTest {
         ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 2);
 
-        assertTrue(result.getCoreCollocates().isEmpty(),
+        assertTrue(result.coreCollocates().isEmpty(),
                 "No shared collocates → core collocates must be empty");
     }
 
@@ -101,8 +101,8 @@ class MultiSeedExplorerTest {
         ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 1);
 
-        assertTrue(result.getCoreCollocates().isEmpty());
-        assertTrue(result.getSeedCollocates().isEmpty());
+        assertTrue(result.coreCollocates().isEmpty());
+        assertTrue(result.seedCollocates().isEmpty());
     }
 
     @Test
@@ -116,7 +116,7 @@ class MultiSeedExplorerTest {
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 1);
 
         // With minShared=1 every collocate qualifies regardless of overlap
-        assertFalse(result.getCoreCollocates().isEmpty(),
+        assertFalse(result.coreCollocates().isEmpty(),
                 "With minShared=1 all collocates should appear in core collocates");
     }
 
@@ -130,9 +130,9 @@ class MultiSeedExplorerTest {
         ExplorationResult result = explorer.computeCollocateIntersection(
                 Set.of("theory", "model"), anyRelation(), 0.0, 50, 1);
 
-        assertTrue(result.getSeedCollocates().containsKey("important"),
+        assertTrue(result.seedCollocates().containsKey("important"),
                 "Aggregate collocate map should contain \"important\"");
-        assertTrue(result.getSeedCollocates().containsKey("recent"),
+        assertTrue(result.seedCollocates().containsKey("recent"),
                 "Aggregate collocate map should contain \"recent\"");
     }
 }

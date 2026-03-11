@@ -27,7 +27,7 @@ class SemanticFieldExplorerTest {
 
     /**
      * Minimal stub that returns pre-defined adjective lists per noun.
-     * The compare() method calls executor.findCollocations(noun, ADJECTIVE_PATTERN, ...).
+     * The compare() method calls executor.executeCollocations(noun, ADJECTIVE_PATTERN, ...).
      */
     private static class StubExecutor implements QueryExecutor {
 
@@ -38,7 +38,7 @@ class SemanticFieldExplorerTest {
         }
 
         @Override
-        public List<QueryResults.WordSketchResult> findCollocations(
+        public List<QueryResults.WordSketchResult> executeCollocations(
                 String lemma, String cqlPattern, double minLogDice, int maxResults) {
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }
@@ -102,7 +102,7 @@ class SemanticFieldExplorerTest {
         ComparisonResult result =
             explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(50, 0.0, 1));
 
-        List<AdjectiveProfile> fullyShared = result.getFullyShared();
+        List<AdjectiveProfile> fullyShared = result.fullyShared();
         List<String> sharedNames = fullyShared.stream()
             .map(p -> p.adjective()).toList();
 
@@ -124,7 +124,7 @@ class SemanticFieldExplorerTest {
         ComparisonResult result =
             explorer.compareCollocateProfiles(Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(50, 0.0, 1));
 
-        List<AdjectiveProfile> specific = result.getSpecific();
+        List<AdjectiveProfile> specific = result.specific();
         List<String> specificNames = specific.stream().map(p -> p.adjective()).toList();
 
         assertTrue(specificNames.contains("abstract"),
@@ -170,21 +170,21 @@ class SemanticFieldExplorerTest {
             explorer.compareCollocateProfiles(Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(50, 0.0, 1));
 
         // empirical is specific to theory (model has no adjectives)
-        List<String> specificNames = result.getSpecific().stream()
+        List<String> specificNames = result.specific().stream()
             .map(p -> p.adjective()).toList();
         assertTrue(specificNames.contains("empirical"),
             "empirical should be specific when model has no adjectives; got: " + specificNames);
     }
 
     @Test
-    @DisplayName("compare: null seed set throws IllegalArgumentException")
+    @DisplayName("compare: null seed set throws NullPointerException (violates @NonNull contract)")
     void compare_nullSeedSet() {
         StubExecutor executor = new StubExecutor(Map.of());
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(NullPointerException.class,
             () -> explorer.compareCollocateProfiles(null, new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(50, 0.0, 1)),
-            "Null seed set should throw IllegalArgumentException");
+            "Null seed set (violates @NonNull) should propagate as NullPointerException");
     }
 
     // ── ComparisonResult edge cases ───────────────────────────────────────────
@@ -203,7 +203,7 @@ class SemanticFieldExplorerTest {
         ComparisonResult result =
             explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(50, 0.0, 1));
 
-        List<String> partialNames = result.getPartiallyShared().stream()
+        List<String> partialNames = result.partiallyShared().stream()
             .map(p -> p.adjective()).toList();
 
         assertTrue(partialNames.contains("theoretical"),
@@ -255,8 +255,8 @@ class SemanticFieldExplorerTest {
                 true, pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
             new pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions(10, 0.0, 2));
 
-        assertNotNull(result.getSeedCollocates(), "Seed collocates should not be null");
-        assertTrue(result.getSeedCollocates().containsKey("empirical"),
+        assertNotNull(result.seedCollocates(), "Seed collocates should not be null");
+        assertTrue(result.seedCollocates().containsKey("empirical"),
             "Shared collocate 'empirical' should appear in seed collocates map");
     }
 

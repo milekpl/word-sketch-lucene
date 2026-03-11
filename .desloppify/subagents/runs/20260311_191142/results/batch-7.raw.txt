@@ -1,0 +1,84 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 7,
+  "assessments": {"dependency_health": 63.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares: blacklab-engine 4.0.0, blacklab-query-parser 4.0.0, fastjson2 2.0.57, slf4j-api 2.0.7, logback-classic 1.5.18, JUnit 5.9.0 (test), jspecify 1.0.0.",
+        "BlackLab 4.0.0 is resolved from a raw GitHub raw-content URL ('https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/'). The pom.xml comment explicitly warns: 'This URL has no SLA and can become unavailable (rate-limited, branch deleted, or repo renamed).' This is a real CI/CD reliability risk.",
+        "Two BlackLab artifacts (engine + query-parser) are expected — they are distinct modules of the same framework, not duplicate libraries for the same purpose.",
+        "fastjson2 2.0.57 is used throughout the api package for JSON serialization/deserialization. fastjson (v1) had critical security vulnerabilities; fastjson2 is a rewrite claimed to address them. Version 2.0.57 is relatively recent but the library is not universally recommended for new projects.",
+        "com.sun.net.httpserver is used as the HTTP server throughout the api package. This is a JDK internal API (com.sun.*) — technically available in Java 21 but not part of the official public API surface. Java 21 does not restrict access to it, but it can change between JDK versions without notice.",
+        "SLF4J + Logback is a standard and well-maintained logging stack — no concern.",
+        "jspecify 1.0.0 for null annotations is a lightweight, appropriate choice.",
+        "No obvious unused dependencies — all declared artifacts have visible imports in the source.",
+        "No version conflicts detectable — version properties are centralized in pom.xml properties block.",
+        "No multiple libraries for the same purpose detected (no moment+dayjs style duplication)."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Dependency set is minimal and purposeful — no obvious redundancy or bloat.",
+        "Logging stack (SLF4J + Logback) is the standard Java choice.",
+        "Version properties are centralized in pom.xml for maintainability.",
+        "Test dependencies are correctly scoped (test) and don't bleed into production."
+      ],
+      "issue_character": "The primary risk is supply-chain fragility from the GitHub-hosted BlackLab repository combined with the internal JDK API usage (com.sun.net.httpserver) — neither is a correctness issue today but both represent brittleness that could block builds or require emergency refactoring.",
+      "score_rationale": "The dependency set is lean and well-chosen for its domain. The score is held at 63 because two risks are present that could materially disrupt the project: the GitHub raw-URL Maven repository for BlackLab (single point of failure for builds with no SLA) and the reliance on com.sun.net.httpserver (an internal JDK API). The pom.xml comment acknowledges the BlackLab risk but provides no mitigation path in the repo itself."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "dh-blacklab-github-repo",
+      "summary": "BlackLab dependency resolves from a GitHub raw-content URL with no SLA — build will fail if URL becomes unavailable",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml repository entry: 'https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/'",
+        "pom.xml comment explicitly acknowledges: 'This URL has no SLA and can become unavailable (rate-limited, branch deleted, or repo renamed).'",
+        "No local install script is set as the primary mitigation — install-blacklab.sh is mentioned as an option but not enforced."
+      ],
+      "suggestion": "Mirror the BlackLab JARs to a private Maven registry (GitHub Packages, Artifactory, Nexus) and update the repository URL to the mirror. Alternatively, commit the JARs to the repository and resolve via a local file repository. At minimum, document the install-blacklab.sh step as a required first-time setup in README.md.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "dh-com-sun-httpserver",
+      "summary": "API layer uses com.sun.net.httpserver — a JDK internal API not part of the public API surface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer imports: 'com.sun.net.httpserver.HttpServer', 'com.sun.net.httpserver.HttpHandler' — com.sun.* prefix indicates JDK internal API.",
+        "HttpApiUtils imports 'com.sun.net.httpserver.HttpExchange', 'com.sun.net.httpserver.HttpHandler'.",
+        "All 5 handler classes use com.sun.net.httpserver types in method signatures.",
+        "While functional on Java 21, this API is not guaranteed stable between JDK versions."
+      ],
+      "suggestion": "Replace com.sun.net.httpserver with a stable embedded HTTP server such as Javalin, Undertow, or Jetty. These are available as Maven Central dependencies, provide a public API, and reduce future JDK migration risk. If keeping the current approach, add a note to the README about the Java version requirement and its implications.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab 4.x is not published to Maven Central, requiring a non-standard repository that introduces supply-chain fragility.",
+      "com.sun.net.httpserver was likely chosen to minimize external dependencies for a research/prototype tool — a reasonable trade-off that now carries long-term risk."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

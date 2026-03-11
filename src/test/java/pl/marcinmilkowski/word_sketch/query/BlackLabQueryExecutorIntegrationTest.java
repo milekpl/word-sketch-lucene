@@ -12,7 +12,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryResults;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
-public class BlackLabDummyTest {
+public class BlackLabQueryExecutorIntegrationTest {
     @Test
     public void testSubjectOf() throws Exception {
         String indexPath = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

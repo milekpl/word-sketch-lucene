@@ -87,7 +87,7 @@ class CollocateQueryHelper {
     }
 
     // -------------------------------------------------------------------------
-    // Grouped collocate search (shared by findCollocations, executeSurfacePattern,
+    // Grouped collocate search (shared by executeCollocations, executeSurfacePattern,
     // executeDependencyPattern)
     // -------------------------------------------------------------------------
 
@@ -124,7 +124,7 @@ class CollocateQueryHelper {
     }
 
     // -------------------------------------------------------------------------
-    // Collocate ranking (shared by findCollocations, executeSurfacePattern,
+    // Collocate ranking (shared by executeCollocations, executeSurfacePattern,
     // executeDependencyPattern)
     // -------------------------------------------------------------------------
 
@@ -192,14 +192,9 @@ class CollocateQueryHelper {
             int collocatePos = BlackLabSnippetParser.findLabelTokenIndex(bcqlPattern, 2);
             int sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR); // safe: min ensures result ≤ maxResults * OVER_FETCH_FACTOR
 
-            // Phase 1: collect per-hit data and accumulate collocate frequencies
             Map<String, Long> collocateFreqMap = new HashMap<>();
             List<HitRecord> hitRecords = collectHits(hits, sampleSize, collocatePos, collocateFreqMap);
-
-            // Phase 2: score hits with logDice
             List<QueryResults.CollocateResult> scored = scoreHits(hitRecords, collocateFreqMap, headwordFreq, maxResults);
-
-            // Phase 3: rank and limit
             return scored.stream()
                     .sorted(Comparator.comparingDouble(QueryResults.CollocateResult::logDice).reversed())
                     .limit(maxResults)

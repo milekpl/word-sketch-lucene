@@ -1,0 +1,80 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 65.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "Core business logic is well unit-tested: LogDiceCalculator, LongIntHashMap, CqlUtils, BlackLabSnippetParser, CollocateQueryHelper, SemanticFieldExplorer, MultiSeedExplorer, CollocateProfileComparator all have dedicated test files.",
+        "Handler layer is tested in HandlersTest.java (412 lines) using a MockExchange stub — this tests HTTP routing and parameter parsing but exercises stub executors, not the real index query path.",
+        "CorpusQueryHandlers and VisualizationHandlers are covered in HandlersTest.java (grep confirms 16 references to these classes), indicating handlers are integration-tested at the HTTP layer with stubs.",
+        "No integration tests that exercise the full stack: HTTP handler → SemanticFieldExplorer → BlackLabQueryExecutor → real BlackLab index. The BlackLabQueryExecutorTest exists but requires an actual index to be present.",
+        "BlackLabDummyTest.java (46 lines) appears to be a placeholder test that does not test meaningful functionality.",
+        "Main.java (CLI entry point) has no unit tests, which is acceptable for a thin CLI dispatcher.",
+        "Test files use stub QueryExecutor implementations consistently rather than mocking frameworks — this avoids test-implementation coupling and is a good pattern.",
+        "SemanticFieldExplorerInternalTest provides package-private access to test the 5-param overload — appropriate use of package-level test visibility.",
+        "Tests appear to be pure unit tests with stub collaborators; no cross-module verification that the full exploration pipeline produces correct results given a realistic index.",
+        "RelationsValidationTest.java tests grammar config validation — good coverage of a critical configuration parsing path."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "All major utility classes (LogDiceCalculator, CqlUtils, LongIntHashMap, BlackLabSnippetParser) have dedicated, comprehensive unit tests.",
+        "Exploration logic (SemanticFieldExplorer, MultiSeedExplorer, CollocateProfileComparator) is tested with realistic stub data that exercises the scoring algorithms.",
+        "Handler tests use a lightweight MockExchange rather than spinning up a full HTTP server, making them fast and deterministic.",
+        "Grammar config loading is validated by dedicated tests (GrammarConfigLoaderTest, RelationsValidationTest) covering error cases."
+      ],
+      "issue_character": "Unit test coverage of pure logic is strong, but there is a gap in end-to-end integration tests: no test exercises the HTTP handler → query engine → real index pipeline, and one placeholder test file adds noise without coverage.",
+      "score_rationale": "The test suite demonstrates good unit test discipline for business logic, which is the most valuable coverage area. The score is held in the mid-60s because: (1) BlackLabDummyTest appears to be a non-test placeholder; (2) there are no integration tests that would catch regressions in the serialization of real BlackLab query results through the API layer; (3) the full exploration pipeline is only tested against stub data, meaning subtle scoring bugs that depend on real frequency distributions would not be caught."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "ts_placeholder_test",
+      "summary": "BlackLabDummyTest.java is a placeholder test file providing no meaningful coverage",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabDummyTest.java"
+      ],
+      "evidence": [
+        "BlackLabDummyTest.java is 46 lines — likely a placeholder from early development with no substantive assertions about real BlackLab behaviour.",
+        "A placeholder test file adds confusion about test intent and may hide that a critical path is untested."
+      ],
+      "suggestion": "Either delete BlackLabDummyTest.java if it adds no value, or expand it to test a specific BlackLab API contract (e.g., index-open behaviour, error handling for a missing index path). If it is kept as a learning scaffold, annotate it clearly with @Disabled and a comment explaining its purpose.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "ts_missing_integration_coverage",
+      "summary": "No integration test exercises the full HTTP → exploration → real-index pipeline",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java"
+      ],
+      "evidence": [
+        "All handler tests use stub QueryExecutor implementations; WordSketchApiServerTest.java binds a real server but still uses a stub executor.",
+        "BlackLabQueryExecutorTest likely requires a real index and may be skipped in CI if no index is available.",
+        "The collocate scoring pipeline (executeSurfacePattern → collocate frequency grouping → logDice ranking) has no end-to-end test validating that a known corpus produces expected top collocates."
+      ],
+      "suggestion": "Add a small integration test corpus (e.g., 100-sentence CoNLL-U snippet) to src/test/resources/. Create an integration test that: (1) indexes the snippet using ConlluConverter + BlackLabConllUIndexer, (2) runs a known query via BlackLabQueryExecutor, (3) asserts that expected collocates appear in the top results. This would catch regressions in the full pipeline without requiring the production 74M-sentence index.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Integration test gap is common when the real index is large and not available in CI — a small test corpus was never added as a substitute.",
+      "BlackLabDummyTest likely originated as a smoke test during initial setup and was never removed or expanded."
+    ],
+    "likely_symptoms": ["ts_placeholder_test"],
+    "possible_false_positives": []
+  }
+}

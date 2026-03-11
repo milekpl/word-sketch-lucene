@@ -10,7 +10,7 @@ import pl.marcinmilkowski.word_sketch.model.RelationType;
 /**
  * Shared utilities for relation identifier handling.
  */
-public class RelationUtils {
+public final class RelationUtils {
 
     private RelationUtils() {}
 

@@ -40,7 +40,7 @@ public class ConlluConverter {
         long sentences = 0, tokens = 0, chunks = 0;
         boolean inSentence = false;
         int sentencesInChunk = 0;
-        BufferedWriter writer = null;
+        Optional<BufferedWriter> writerOpt = Optional.empty();
 
         try (BufferedReader reader = Files.newBufferedReader(input, StandardCharsets.UTF_8)) {
             String line;
@@ -49,13 +49,13 @@ public class ConlluConverter {
                     if (line.startsWith("#")) continue;
                     if (line.isBlank()) {
                         if (inSentence) {
-                            writer.write("</s>\n");
+                            writerOpt.get().write("</s>\n");
                             sentences++;
                             sentencesInChunk++;
                             inSentence = false;
-                            Optional<long[]> rotated = rotateChunkIfNeeded(writer, outputDir, chunks, sentencesInChunk, sentencesPerChunk);
+                            Optional<long[]> rotated = rotateChunkIfNeeded(writerOpt.get(), outputDir, chunks, sentencesInChunk, sentencesPerChunk);
                             if (rotated.isPresent()) {
-                                writer = null;
+                                writerOpt = Optional.empty();
                                 chunks = rotated.get()[0];
                                 sentencesInChunk = 0;
                             }
@@ -64,22 +64,22 @@ public class ConlluConverter {
                     }
                     if (MWT_OR_EMPTY.matcher(line).find()) continue;
                     if (!inSentence) {
-                        if (writer == null) {
-                            writer = openChunk(outputDir, chunks);
+                        if (writerOpt.isEmpty()) {
+                            writerOpt = Optional.of(openChunk(outputDir, chunks));
                         }
-                        writer.write("<s>\n");
+                        writerOpt.get().write("<s>\n");
                         inSentence = true;
                     }
-                    writer.write(line);
-                    writer.write('\n');
+                    writerOpt.get().write(line);
+                    writerOpt.get().write('\n');
                     tokens++;
                 }
-                if (inSentence && writer != null) {
-                    writer.write("</s>\n");
+                if (inSentence && writerOpt.isPresent()) {
+                    writerOpt.get().write("</s>\n");
                     sentences++;
                 }
             } finally {
-                if (writer != null) {
+                if (writerOpt.isPresent()) {
                     // On the error path the in-progress sentence is left open deliberately:
                     // writing a partial </s> tag would produce a malformed chunk that is
                     // harder to detect than an abrupt EOF. The try-with-resources below
@@ -87,7 +87,7 @@ public class ConlluConverter {
                     // if close() itself throws.
                     // NOTE: chunks++ runs unconditionally after close, so every chunk file
                     // that was opened (including error-path chunks) is counted.
-                    try (BufferedWriter toClose = writer) {
+                    try (BufferedWriter toClose = writerOpt.get()) {
                     }
                     chunks++;
                 }

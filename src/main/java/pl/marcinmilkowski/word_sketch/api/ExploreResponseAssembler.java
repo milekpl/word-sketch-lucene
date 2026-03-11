@@ -27,13 +27,23 @@ public final class ExploreResponseAssembler {
 
     private ExploreResponseAssembler() {}
 
-    /** Builds {@link RelationEdgeType#SEED_ADJ} edges from seed collocates and {@link RelationEdgeType#DISCOVERED_ADJ} edges from each discovered noun's shared collocates. */
+    /**
+     * Builds {@link RelationEdgeType#SEED_ADJ} edges from seed collocates and
+     * {@link RelationEdgeType#DISCOVERED_ADJ} edges from each discovered noun's shared collocates.
+     *
+     * <p>In multi-seed mode {@code result.seeds()} returns the individual seed lemmas, so each
+     * {@code SEED_ADJ} edge correctly names its source (e.g. "theory" or "model") rather than
+     * the comma-joined aggregate string that {@link ExplorationResult#seed()} would return.</p>
+     */
     public static @NonNull List<Edge> buildEdges(@NonNull ExplorationResult result) {
         List<Edge> edges = new ArrayList<>();
-        for (Map.Entry<String, Double> colloc : result.getSeedCollocates().entrySet()) {
-            edges.add(new Edge(result.getSeed(), colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_ADJ));
+        List<String> seedList = result.seeds();
+        for (Map.Entry<String, Double> colloc : result.seedCollocates().entrySet()) {
+            for (String seed : seedList) {
+                edges.add(new Edge(seed, colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_ADJ));
+            }
         }
-        for (DiscoveredNoun noun : result.getDiscoveredNouns()) {
+        for (DiscoveredNoun noun : result.discoveredNouns()) {
             for (Map.Entry<String, Double> colloc : noun.sharedCollocates().entrySet()) {
                 edges.add(new Edge(noun.noun(), colloc.getKey(), colloc.getValue(), RelationEdgeType.DISCOVERED_ADJ));
             }
@@ -44,7 +54,7 @@ public final class ExploreResponseAssembler {
     /** Builds {@link RelationEdgeType#MODIFIER} edges for adjective-noun pairs with positive logDice scores. */
     public static @NonNull List<Edge> buildEdges(@NonNull ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
-        for (AdjectiveProfile adj : result.getAllAdjectives()) {
+        for (AdjectiveProfile adj : result.allAdjectives()) {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
                 if (entry.getValue() > 0) {
                     edges.add(new Edge(adj.adjective(), entry.getKey(), entry.getValue(), RelationEdgeType.MODIFIER));
@@ -78,11 +88,11 @@ public final class ExploreResponseAssembler {
 
     public static @NonNull List<Map<String, Object>> formatSeedCollocates(@NonNull ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
-        for (Map.Entry<String, Double> e : result.getSeedCollocates().entrySet()) {
+        for (Map.Entry<String, Double> e : result.seedCollocates().entrySet()) {
             Map<String, Object> c = new HashMap<>();
             c.put("word", e.getKey());
             c.put("log_dice", roundTo2DecimalPlaces(e.getValue()));
-            c.put("frequency", result.getSeedCollocateFrequencies().getOrDefault(e.getKey(), 0L));
+            c.put("frequency", result.seedCollocateFrequencies().getOrDefault(e.getKey(), 0L));
             seedCollocs.add(c);
         }
         return seedCollocs;
@@ -90,7 +100,7 @@ public final class ExploreResponseAssembler {
 
     public static @NonNull List<Map<String, Object>> formatDiscoveredNouns(@NonNull ExplorationResult result) {
         List<Map<String, Object>> nouns = new ArrayList<>();
-        for (DiscoveredNoun n : result.getDiscoveredNouns()) {
+        for (DiscoveredNoun n : result.discoveredNouns()) {
             Map<String, Object> nm = new HashMap<>();
             nm.put("word", n.noun());
             nm.put("shared_count", n.sharedCount());
@@ -104,7 +114,7 @@ public final class ExploreResponseAssembler {
 
     public static @NonNull List<Map<String, Object>> formatCoreCollocates(@NonNull ExplorationResult result) {
         List<Map<String, Object>> coreCollocs = new ArrayList<>();
-        for (CoreCollocate c : result.getCoreCollocates()) {
+        for (CoreCollocate c : result.coreCollocates()) {
             Map<String, Object> cm = new HashMap<>();
             cm.put("word", c.collocate());
             cm.put("shared_by_count", c.sharedByCount());
@@ -154,7 +164,7 @@ public final class ExploreResponseAssembler {
     public static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result,
             @NonNull Set<String> seeds, int topCollocates, double minLogDice) {
         response.put("status", "ok");
-        response.put("seeds", new java.util.ArrayList<>(result.getNouns()));
+        response.put("seeds", new java.util.ArrayList<>(result.nouns()));
         response.put("seed_count", seeds.size());
 
         Map<String, Object> paramsUsed = new HashMap<>();
@@ -163,13 +173,13 @@ public final class ExploreResponseAssembler {
         response.put("parameters", paramsUsed);
 
         java.util.List<Map<String, Object>> adjectives = new java.util.ArrayList<>();
-        for (AdjectiveProfile adj : result.getAllAdjectives()) {
+        for (AdjectiveProfile adj : result.allAdjectives()) {
             adjectives.add(formatAdjectiveProfile(adj));
         }
         response.put("adjectives", adjectives);
-        response.put("adjectives_count", result.getAllAdjectives().size());
+        response.put("adjectives_count", result.allAdjectives().size());
 
-        ComparisonResult.SummaryCounts counts = result.getSummaryCounts();
+        ComparisonResult.SummaryCounts counts = result.summaryCounts();
         response.put("fully_shared_count", counts.fullyShared());
         response.put("partially_shared_count", counts.partiallyShared());
         response.put("specific_count", counts.specific());

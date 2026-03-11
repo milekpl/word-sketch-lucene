@@ -1,0 +1,60 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 78.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer Javadoc explicitly documents the security model: 'the server binds exclusively to the loopback address (127.0.0.1) so it is never exposed on any external network interface. All endpoints are unauthenticated — access control is provided by the host firewall and the loopback-only bind.'",
+        "All endpoints are intentionally unauthenticated — this is a single-user local NLP research tool, not a multi-tenant service. The skip criterion 'Public routes explicitly documented as unauthenticated' applies to the entire server.",
+        "No auth decorators, middleware, or permission strings exist; there is nothing inconsistent to compare because the security model is uniformly 'no auth'.",
+        "CorpusQueryHandlers.handleCorpusQuery accepts arbitrary BCQL patterns via POST — there is no rate limiting or query complexity budget beyond pattern length (1024 chars) and bracket count (20) checks.",
+        "The BCQL endpoint has a 65536-byte body size limit and pattern validation (MAX_BCQL_PATTERN_LENGTH, MAX_BCQL_BRACKET_DEPTH) — input validation exists for the highest-risk endpoint.",
+        "CORS header is set to 'http://localhost:3000' by default — this is a per-response header, not a middleware, and is configurable via system property. It limits browser-based cross-origin access, which is a relevant control for a local server.",
+        "No route registers with different trust levels: all routes are behind the same CORS and loopback binding. No route bypasses the input validation or error-wrapping infrastructure.",
+        "The documentation note warns that changing the bind address 'must be accompanied by an authentication or network-level access-control layer' — good documentation of the security assumption boundary."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Security model is explicitly and prominently documented in WordSketchApiServer Javadoc, including the condition under which it would need to be changed.",
+        "Loopback-only binding is enforced in code (InetAddress.getLoopbackAddress()), not just documentation.",
+        "All endpoints share the same uniform (no-auth) trust model — there are no inconsistencies between route siblings.",
+        "BCQL endpoint has input validation guards (pattern length, bracket depth, body size) — the highest-risk user-controlled input point is the best protected.",
+        "CORS origin is configurable at runtime via system property, allowing controlled expansion without code changes."
+      ],
+      "issue_character": "Authorization consistency is not applicable as a defect category because the entire application deliberately and documentedly has no authentication; the only meaningful finding is an absence of rate limiting on the BCQL query endpoint.",
+      "score_rationale": "The score is intentionally not 100 because while the uniform no-auth model is coherent and documented, the BCQL endpoint accepts arbitrary corpus queries with only length and complexity bounds — no rate limiting or query budget prevents a local process from saturating the index with repeated expensive queries. This is a minor concern for a single-user research tool but would become a real issue in any shared deployment scenario. The documentation of the security boundary assumption prevents a false sense of security."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "ac_no_rate_limiting",
+      "summary": "BCQL query endpoint has no rate limiting; expensive queries could saturate the local index under repeated calls",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers validates pattern length (<= 1024 chars) and bracket count (<= 20) but has no per-client request rate limiting or concurrent-query cap.",
+        "BlackLabQueryExecutor executes queries synchronously on the server thread executor; the HttpServer uses null executor (default single-threaded virtual threads or platform thread pool depending on JVM).",
+        "A web UI or automated script could submit hundreds of BCQL queries per second, potentially causing index contention."
+      ],
+      "suggestion": "For a local single-user tool this is low priority. If shared deployment is ever planned: add a simple in-memory rate limiter (e.g., a token bucket per source IP) in the registerHandler wrapper in WordSketchApiServer, and document the per-minute query limit. Since the server already binds to loopback, this is a hardening measure rather than a security requirement.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [],
+    "likely_symptoms": [],
+    "possible_false_positives": ["The entire API being unauthenticated may appear as an authorization inconsistency, but it is a deliberate and documented design decision for a local research tool — it is not a defect"]
+  }
+}

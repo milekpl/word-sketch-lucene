@@ -1,0 +1,59 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {"initialization_coupling": 88.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "Main.handleBlackLabServerCommand: constructs BlackLabQueryExecutor, then GrammarConfigLoader.load, then WordSketchApiServer — explicit linear initialization with no hidden ordering constraints; startup failure at any step is handled with early return and cleanup.",
+        "WordSketchApiServer constructor defers port binding to start() — construction and network binding are intentionally separated, which avoids the common anti-pattern of I/O in constructors.",
+        "HttpApiUtils.setCorsHeader reads System.getProperty(\"cors.allow.origin\", ...) at call time, not at class-load time — correct pattern that allows test overrides via System.setProperty.",
+        "GrammarConfigLoader.createDefaultEnglish reads System.getProperty(\"grammar.config\", ...) at call time — same correct pattern.",
+        "No static initializers, class-level DB connections, or module-level network calls found anywhere in the codebase.",
+        "SemanticFieldExplorer receives both executor and grammarConfig via constructor injection — no global singletons, no service locator pattern.",
+        "BlackLabQueryExecutor opens the file index in its constructor (I/O at construction time) — this is I/O at object creation, not at class loading, which is the more benign form; it is contained within a try/catch and wrapped in IOException.",
+        "AtomicReference<WordSketchApiServer> in Main.handleBlackLabServerCommand is used to safely share the server reference between the main thread and shutdown hook — appropriate use for the specific concurrency requirement.",
+        "No circular initialization dependencies detected: the dependency graph is Main → WordSketchApiServer → (SketchHandlers, ExplorationHandlers, ...) → QueryExecutor, GrammarConfig — strictly acyclic."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "All dependencies are passed via constructor injection; no global singletons or service locators.",
+        "System property reads are deferred to call time, not class-load time, enabling test overrides without JVM restart.",
+        "WordSketchApiServer separates construction from network binding (start() method), following the principle of deferring side effects.",
+        "Shutdown hook uses AtomicReference to safely coordinate between threads without requiring synchronization.",
+        "Main.java shows explicit linear initialization order with early-exit error handling at each step."
+      ],
+      "issue_character": "No significant initialization coupling issues found; the codebase consistently applies constructor injection and defers side effects to explicit lifecycle methods.",
+      "score_rationale": "This is a well-structured Java application with clean initialization discipline. The only deduction is that BlackLabQueryExecutor performs file I/O in its constructor (opening the index), which is not a boot-order coupling issue but does mean that any test creating this class must have a real index file. This is a minor testability concern rather than a coupling defect. The overall initialization path is linear, fully explicit, and easy to reason about."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "ic_constructor_io",
+      "summary": "BlackLabQueryExecutor performs file I/O in its constructor, coupling object creation to filesystem availability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor constructor calls BlackLab.open(new File(indexPath)) — this performs actual filesystem access at object creation time.",
+        "Any test that needs a BlackLabQueryExecutor must either provide a real index or mock the BlackLab.open call — the QueryExecutor interface exists as a seam for this, but the concrete class is not independently testable without the filesystem."
+      ],
+      "suggestion": "This is an accepted and well-documented pattern for resource-backed classes in Java; the I/O is in a constructor, not at class load time, and is contained within try/catch. Document in the Javadoc that construction requires a valid index path and may throw IOException — the existing signature already declares this. No structural change is needed unless a factory method (BlackLabQueryExecutor.forTesting(...)) is desired for unit tests.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [],
+    "likely_symptoms": [],
+    "possible_false_positives": ["BlackLabQueryExecutor constructor I/O is intentional and documented; it is not a boot-order coupling defect"]
+  }
+}

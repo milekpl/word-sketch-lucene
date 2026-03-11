@@ -46,7 +46,7 @@ public class ExplorationResult {
 
     /** @return the seed word(s); in single-seed mode this is the lemma, in multi-seed mode it is a
      *          comma-joined string — see field Javadoc for details */
-    public String getSeed() { return seed; }
+    public String seed() { return seed; }
 
     /**
      * Returns individual seed lemmas.
@@ -59,16 +59,16 @@ public class ExplorationResult {
     }
 
     /** @return collocate lemma → logDice score for the seed; never null, may be empty */
-    public Map<String, Double> getSeedCollocates() { return seedCollocates; }
+    public Map<String, Double> seedCollocates() { return seedCollocates; }
 
     /** @return collocate lemma → raw corpus frequency for the seed; never null, may be empty */
-    public Map<String, Long> getSeedCollocateFrequencies() { return seedCollocateFrequencies; }
+    public Map<String, Long> seedCollocateFrequencies() { return seedCollocateFrequencies; }
 
     /** @return discovered nouns sorted by relevance score descending; never null, may be empty */
-    public List<DiscoveredNoun> getDiscoveredNouns() { return discoveredNouns; }
+    public List<DiscoveredNoun> discoveredNouns() { return discoveredNouns; }
 
     /** @return core collocates shared by most discovered nouns; never null, may be empty */
-    public List<CoreCollocate> getCoreCollocates() { return coreCollocates; }
+    public List<CoreCollocate> coreCollocates() { return coreCollocates; }
 
     /**
      * Returns an empty result representing a seed word for which no exploration data was found.
@@ -92,7 +92,7 @@ public class ExplorationResult {
      * @param n maximum number of nouns to return; non-positive returns an empty list
      * @return sublist of discovered nouns, never null
      */
-    public List<DiscoveredNoun> getTopNouns(int n) {
+    public List<DiscoveredNoun> topNouns(int n) {
         return discoveredNouns.stream().limit(n).collect(Collectors.toList());
     }
 
@@ -102,7 +102,7 @@ public class ExplorationResult {
      * @param minShared minimum shared-collocate count (inclusive); use 0 to return all
      * @return filtered list, never null
      */
-    public List<DiscoveredNoun> getNounsWithMinShared(int minShared) {
+    public List<DiscoveredNoun> nounsWithMinShared(int minShared) {
         return discoveredNouns.stream()
             .filter(n -> n.sharedCount() >= minShared)
             .collect(Collectors.toList());

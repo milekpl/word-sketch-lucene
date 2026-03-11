@@ -122,6 +122,21 @@ class ExploreResponseAssemblerTest {
     }
 
     @Test
+    void buildEdges_multiSeed_seedAdjEdgesUseIndividualSeedSources() {
+        // In multi-seed mode the seed field is comma-joined; edges must use individual lemmas
+        Map<String, Double> aggregateCollocates = Map.of("abstract", 7.0);
+        ExplorationResult result = resultWith("theory,model", aggregateCollocates, Map.of(), List.of(), List.of());
+
+        List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
+
+        assertEquals(2, edges.size(), "one SEED_ADJ edge per individual seed");
+        List<String> sources = edges.stream().map(Edge::source).toList();
+        assertTrue(sources.contains("theory"), "edge from 'theory' must exist");
+        assertTrue(sources.contains("model"), "edge from 'model' must exist");
+        assertFalse(sources.contains("theory,model"), "comma-joined string must not be used as source");
+    }
+
+    @Test
     void round2dp_roundsCorrectly() {
         assertEquals(3.14, ExploreResponseAssembler.roundTo2DecimalPlaces(3.14159), 0.001);
         assertEquals(0.0, ExploreResponseAssembler.roundTo2DecimalPlaces(0.0), 0.001);

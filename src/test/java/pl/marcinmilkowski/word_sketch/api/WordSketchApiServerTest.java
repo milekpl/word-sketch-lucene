@@ -39,7 +39,7 @@ class WordSketchApiServerTest {
     /** Minimal stub executor that returns empty results for every query. */
     private static final QueryExecutor STUB_EXECUTOR = new QueryExecutor() {
         @Override
-        public List<QueryResults.WordSketchResult> findCollocations(
+        public List<QueryResults.WordSketchResult> executeCollocations(
                 String lemma, String cqlPattern, double minLogDice, int maxResults) {
             return Collections.emptyList();
         }

@@ -19,7 +19,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryResults;
  *
  * <h2>Method responsibilities</h2>
  * <ul>
- *   <li>{@link #findCollocations} — corpus-frequency collocate lookup for a headword
+ *   <li>{@link #executeCollocations} — corpus-frequency collocate lookup for a headword
  *       via a plain CQL pattern (no labeled positions). Returns collocates ranked by logDice.</li>
  *   <li>{@link #executeCqlQuery} — general concordance retrieval using CQL syntax
  *       (ContextualQueryLanguageParser). Returns raw KWIC results without ranking.</li>
@@ -29,7 +29,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryResults;
  *   <li>{@link #executeSurfacePattern} — word-sketch collocate extraction using a labeled
  *       BCQL pattern ({@code 1:} for head, {@code 2:} for collocate). Uses explicit
  *       position hints to identify the head and collocate tokens; returns results ranked
- *       by logDice. Distinct from {@link #findCollocations} which ignores position hints.</li>
+ *       by logDice. Distinct from {@link #executeCollocations} which ignores position hints.</li>
  * </ul>
  */
 public interface QueryExecutor extends Closeable {
@@ -50,7 +50,7 @@ public interface QueryExecutor extends Closeable {
      * @throws IOException if index access fails
      * @throws IllegalArgumentException if {@code cqlPattern} is not in a recognized format
      */
-    List<QueryResults.WordSketchResult> findCollocations(@Nullable String lemma, String cqlPattern,
+    List<QueryResults.WordSketchResult> executeCollocations(@Nullable String lemma, String cqlPattern,
                                              double minLogDice, int maxResults) throws IOException;
 
     /**

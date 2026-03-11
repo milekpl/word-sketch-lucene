@@ -1,0 +1,86 @@
+{
+  "batch": "type_safety",
+  "batch_index": 15,
+  "assessments": {"type_safety": 68.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "HTTP response objects throughout the api/ package use raw Map<String, Object> for JSON building (ExploreResponseAssembler, SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers) — no typed response DTOs exist; the type system provides no compile-time verification that required fields are present.",
+        "ExploreResponseAssembler.populateExploreResponse and populateComparisonResponse accept Map<String, Object> output maps and mutate them — callers must know which keys will be populated without any type-level contract.",
+        "QueryResults.CollocateResult record has @Nullable String collocateLemma — correctly annotated, appropriately nullable.",
+        "RelationType enum values include SURFACE, DEP, ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF — but in SketchHandlers, RelationType.SURFACE and RelationType.DEP are used as dispatch keys, while ADJ_PREDICATE etc. appear in the exploration layer. The same enum carries two distinct conceptual groupings (query-dispatch vs. exploration-relation semantics), which weakens its discriminator role.",
+        "GrammarConfig.getVersion() is annotated @Nullable — callers in Main.java use it without null guard in System.out.println context, which could produce 'null' in output for legacy configs.",
+        "jspecify @NonNull and @Nullable annotations are used consistently on public API boundaries in QueryExecutor, HttpApiUtils, ExplorationHandlers, and SemanticFieldExplorer — good annotation discipline for key interfaces.",
+        "PosGroup.fromString returns OTHER as fallback for unknown strings — type-safe handling of unrecognised values.",
+        "No raw generic types (raw List, raw Map without type parameters) found in production code."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "jspecify @NonNull/@Nullable annotations are consistently applied on all public QueryExecutor, HttpApiUtils, and exploration method signatures.",
+        "Sealed interface QueryResults.ConcordanceResult with permitted subtypes (SnippetResult, CollocateResult) provides compile-time exhaustive pattern matching capability.",
+        "Record types throughout model/ and exploration/ packages provide immutable, strongly-typed data carriers with auto-generated accessors.",
+        "No raw generic types found; all collections are parameterized.",
+        "PosGroup enum with fromString fallback provides type-safe handling of string-to-enum conversions."
+      ],
+      "issue_character": "The main type safety weakness is the pervasive use of Map<String, Object> for all HTTP response assembly, which means the type system cannot verify that mandatory response fields are populated; a secondary issue is the dual-purpose RelationType enum that conflates two orthogonal concerns.",
+      "score_rationale": "Java's compile-time type system gives this codebase a structural advantage over dynamically-typed languages. The annotation discipline on public API boundaries is good. However, the complete absence of typed response DTOs for API output means the JSON shape of every endpoint is a runtime convention rather than a compile-time contract — a maintainer adding a new field cannot rely on the compiler to find all the places that need updating. This pulls the score into the upper-60s rather than the 80s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_untyped_response_maps",
+      "summary": "All HTTP response objects use Map<String, Object> rather than typed response DTOs",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.populateExploreResponse takes Map<String, Object> and puts 'seed_collocates', 'discovered_nouns', 'core_collocates', 'edges', etc. — any field name typo is a silent runtime bug.",
+        "SketchHandlers builds response maps with manual string keys: response.put(\"status\", \"ok\"); response.put(\"lemma\", lemma); etc.",
+        "ExplorationHandlers.buildBaseExploreResponse builds a Map with 'status', 'relation_type', 'parameters' — no compile-time verification that required fields are present."
+      ],
+      "suggestion": "Introduce typed response record classes for each endpoint's response shape (e.g., ExploreResponse, SketchResponse, ComparisonResponse). These can be serialised to JSON by fastjson2 without manual map building. This allows compile-time verification of field presence and eliminates string-key typo risks. Prioritise ExploreResponseAssembler first as it has the most complex response shape.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "ts_dual_purpose_relation_type",
+      "summary": "RelationType enum conflates query-dispatch semantics (SURFACE, DEP) with exploration-relation semantics (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "RelationType.java declares: SURFACE, DEP, ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF — all in one flat enum.",
+        "SketchHandlers uses RelationType.SURFACE and RelationType.DEP as query-dispatch keys.",
+        "SemanticFieldExplorer and CollocateProfileComparator use RelationType.ADJ_MODIFIER, ADJ_PREDICATE, SUBJECT_OF, OBJECT_OF for exploration-relation selection.",
+        "A switch statement on RelationType that handles SURFACE/DEP would silently miss ADJ_PREDICATE etc., and vice versa — the type provides no compile-time grouping."
+      ],
+      "suggestion": "Split into two enums: QueryMode (SURFACE, DEP) for the query-dispatch layer, and RelationCategory (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) for the exploration layer. Each context can then switch exhaustively on its own type. Existing code in SketchHandlers, RelationUtils, and the exploration classes would each be updated to use the appropriate enum.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Response maps were chosen early for flexibility and JSON serialization ease; typed DTOs were not backfilled as the API stabilised.",
+      "RelationType grew incrementally as new relation categories were added without a design review of the enum's discriminator responsibility."
+    ],
+    "likely_symptoms": ["ts_untyped_response_maps"],
+    "possible_false_positives": ["GrammarConfig.getVersion() nullable usage in Main.java println is benign in practice"]
+  }
+}

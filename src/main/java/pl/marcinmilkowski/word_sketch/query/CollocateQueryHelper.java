@@ -172,7 +172,7 @@ class CollocateQueryHelper {
             String headword = BlackLabSnippetParser.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
             int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
-            int sampleSize = (int) Math.min(hits.size(), (long) maxResults * 10); // safe: min ensures result ≤ maxResults*10
+            int sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR); // safe: min ensures result ≤ maxResults * OVER_FETCH_FACTOR
 
             // Phase 1: collect per-hit data and accumulate collocate frequencies
             Map<String, Long> collocateFreqMap = new HashMap<>();

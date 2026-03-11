@@ -10,6 +10,7 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 import pl.marcinmilkowski.word_sketch.config.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 import java.io.IOException;
@@ -301,12 +302,7 @@ class SketchHandlers {
         var rel = grammarConfig.getRelation(relation);
         if (rel.isPresent()) {
             String patternWithHead = rel.get().getFullPattern(word1);
-            logger.debug("After getFullPattern: {}", patternWithHead);
-            logger.debug("collocatePosition = {}", rel.get().collocatePosition());
-            bcqlQuery = PatternSubstitution.substituteCollocate(patternWithHead, word2, rel.get().collocatePosition());
-            logger.debug("After substituteCollocate: {}", bcqlQuery);
-        } else {
-            logger.debug("Relation '{}' not found in grammar config", relation);
+            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, word2, rel.get().collocatePosition());
         }
 
         boolean fallback = false;

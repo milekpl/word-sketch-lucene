@@ -14,11 +14,11 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
  * <ul>
  *   <li>{@link #findCollocations} — corpus-frequency collocate lookup for a headword
  *       via a plain CQL pattern (no labeled positions). Returns collocates ranked by logDice.</li>
- *   <li>{@link #executeQuery} — general concordance retrieval using CQL syntax
+ *   <li>{@link #executeCqlQuery} — general concordance retrieval using CQL syntax
  *       (ContextualQueryLanguageParser). Returns raw KWIC results without ranking.</li>
  *   <li>{@link #executeBcqlQuery} — concordance retrieval using BCQL syntax
  *       (CorpusQueryLanguageParser). Handles labeled capture groups and computes
- *       per-hit logDice scores. Distinct from {@link #executeQuery}.</li>
+ *       per-hit logDice scores. Distinct from {@link #executeCqlQuery}.</li>
  *   <li>{@link #executeSurfacePattern} — word-sketch collocate extraction using a labeled
  *       BCQL pattern ({@code 1:} for head, {@code 2:} for collocate). Uses explicit
  *       position hints to identify the head and collocate tokens; returns results ranked
@@ -55,12 +55,12 @@ public interface QueryExecutor extends Closeable {
      * @return Concordance results in hit order
      * @throws IOException if index access fails
      */
-    List<QueryResults.ConcordanceResult> executeQuery(String cqlPattern, int maxResults) throws IOException;
+    List<QueryResults.ConcordanceResult> executeCqlQuery(String cqlPattern, int maxResults) throws IOException;
 
     /**
      * Execute a BCQL (CorpusQueryLanguageParser) pattern for concordance results.
      * Supports labeled capture groups ({@code 1:}, {@code 2:}) and computes per-hit logDice scores.
-     * Unlike {@link #executeQuery}, this uses the BCQL parser and ranks results by logDice.
+     * Unlike {@link #executeCqlQuery}, this uses the BCQL parser and ranks results by logDice.
      *
      * @param bcqlPattern  BCQL pattern, optionally with labeled positions
      * @param maxResults   Maximum number of results after ranking
@@ -111,15 +111,15 @@ public interface QueryExecutor extends Closeable {
      *
      * @param lemma              The head lemma to search for
      * @param deprel             The dependency relation label (e.g., "nsubj", "obj")
-     * @param headPosConstraint  POS regex for the head token (e.g., "VB.*"); must not be null
      * @param minLogDice         Minimum logDice score threshold (0 for no minimum)
      * @param maxResults         Maximum number of results to return
+     * @param headPosConstraint  POS regex for the head token (e.g., "VB.*"); must not be null
      * @return Collocate results ranked by logDice descending
      * @throws IOException if index access fails
      */
     List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
-            String lemma, String deprel, String headPosConstraint,
-            double minLogDice, int maxResults) throws IOException;
+            String lemma, String deprel,
+            double minLogDice, int maxResults, String headPosConstraint) throws IOException;
 
     /**
      * Get the type of this executor for logging/debugging.

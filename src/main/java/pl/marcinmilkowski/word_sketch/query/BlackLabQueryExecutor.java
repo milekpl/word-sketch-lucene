@@ -78,7 +78,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     }
 
     @Override
-    public List<QueryResults.ConcordanceResult> executeQuery(String cqlPattern, int maxResults) throws IOException {
+    public List<QueryResults.ConcordanceResult> executeCqlQuery(String cqlPattern, int maxResults) throws IOException {
         try {
             CompleteQuery cq = ContextualQueryLanguageParser.parse(blackLabIndex, cqlPattern);
             TextPattern tp = cq.pattern();
@@ -146,9 +146,9 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
             String lemma,
             String deprel,
-            String headPosConstraint,
             double minLogDice,
-            int maxResults) throws IOException {
+            int maxResults,
+            String headPosConstraint) throws IOException {
 
         if (lemma == null || lemma.isEmpty() || deprel == null) {
             return Collections.emptyList();

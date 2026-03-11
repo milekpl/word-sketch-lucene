@@ -11,7 +11,7 @@ class PatternSubstitutionTest {
     @Test
     void testSubstituteCollocateAtPosition1() {
         String pattern = "[xpos=\"NN.*\"] [xpos=\"VBZ\"]";
-        String result = PatternSubstitution.substituteCollocate(pattern, "dog", 1);
+        String result = CqlUtils.substituteAtPosition(pattern, "dog", 1);
         assertTrue(result.contains("lemma=\"dog\""), "Should contain lemma=dog");
         assertTrue(result.contains("xpos=\"NN.*\""), "Should preserve xpos constraint");
     }
@@ -19,7 +19,7 @@ class PatternSubstitutionTest {
     @Test
     void testSubstituteCollocateAtPosition2() {
         String pattern = "[xpos=\"NN.*\"] [xpos=\"VBZ\"]";
-        String result = PatternSubstitution.substituteCollocate(pattern, "run", 2);
+        String result = CqlUtils.substituteAtPosition(pattern, "run", 2);
         assertTrue(result.contains("lemma=\"run\""), "Should contain lemma=run");
         assertTrue(result.contains("xpos=\"VBZ\""), "Should preserve xpos constraint at position 2");
     }
@@ -27,35 +27,35 @@ class PatternSubstitutionTest {
     @Test
     void testSubstituteCollocateWithSpecialChars() {
         String pattern = "[xpos=\"NN.*\"] [xpos=\"JJ\"]";
-        String result = PatternSubstitution.substituteCollocate(pattern, "well-known", 2);
+        String result = CqlUtils.substituteAtPosition(pattern, "well-known", 2);
         assertNotNull(result);
         assertTrue(result.contains("lemma=\"well-known\""), "Should contain the collocate with special chars");
     }
 
     @Test
     void testSubstituteCollocateNullPattern() {
-        String result = PatternSubstitution.substituteCollocate(null, "dog", 1);
+        String result = CqlUtils.substituteAtPosition(null, "dog", 1);
         assertNull(result, "Null pattern should return null");
     }
 
     @Test
     void testSubstituteCollocateNullCollocate() {
         String pattern = "[xpos=\"NN.*\"]";
-        String result = PatternSubstitution.substituteCollocate(pattern, null, 1);
+        String result = CqlUtils.substituteAtPosition(pattern, null, 1);
         assertEquals(pattern, result, "Null collocate should return original pattern");
     }
 
     @Test
     void testSubstituteCollocateZeroPosition() {
         String pattern = "[xpos=\"NN.*\"]";
-        String result = PatternSubstitution.substituteCollocate(pattern, "dog", 0);
+        String result = CqlUtils.substituteAtPosition(pattern, "dog", 0);
         assertEquals(pattern, result, "Position < 1 should return original pattern");
     }
 
     @Test
     void testSubstituteCollocatePositionBeyondPattern() {
         String pattern = "[xpos=\"NN.*\"]";
-        String result = PatternSubstitution.substituteCollocate(pattern, "dog", 5);
+        String result = CqlUtils.substituteAtPosition(pattern, "dog", 5);
         assertEquals(pattern, result, "Position beyond pattern length should return original pattern");
     }
 

@@ -27,7 +27,7 @@ public class QueryResults {
      * Use pattern-matching ({@code instanceof}) or the concrete subtype to access type-specific fields.
      */
     public sealed interface ConcordanceResult
-            permits QueryResults.SnippetResult, QueryResults.KwicResult, QueryResults.CollocateResult {
+            permits QueryResults.SnippetResult, QueryResults.CollocateResult {
         String getSentence();
         int getStartOffset();
         int getEndOffset();
@@ -37,25 +37,6 @@ public class QueryResults {
     /** Plain concordance result carrying only sentence text and match position. */
     public record SnippetResult(String sentence, int startOffset, int endOffset, String docId)
             implements ConcordanceResult {
-        @Override public String getSentence() { return sentence; }
-        @Override public int getStartOffset() { return startOffset; }
-        @Override public int getEndOffset() { return endOffset; }
-        @Override public String getDocId() { return docId; }
-    }
-
-    /**
-     * KWIC (keyword-in-context) concordance result with separate left/right context strings.
-     * The full sentence is assembled as {@code leftContext + word + rightContext}.
-     */
-    public record KwicResult(String word, String leftContext, String rightContext,
-                             String sentence, int startOffset, int endOffset, String docId)
-            implements ConcordanceResult {
-        /** Convenience constructor that assembles the sentence from the three context parts. */
-        public KwicResult(String word, String leftContext, String rightContext,
-                          int startOffset, int endOffset, String docId) {
-            this(word, leftContext, rightContext,
-                 leftContext + word + rightContext, startOffset, endOffset, docId);
-        }
         @Override public String getSentence() { return sentence; }
         @Override public int getStartOffset() { return startOffset; }
         @Override public int getEndOffset() { return endOffset; }

@@ -126,7 +126,7 @@ class HandlersTest {
                     String lemma, String cqlPattern, double minLogDice, int maxResults) {
                 return List.of();
             }
-            @Override public List<QueryResults.ConcordanceResult> executeQuery(String p, int m) { return List.of(); }
+            @Override public List<QueryResults.ConcordanceResult> executeCqlQuery(String p, int m) { return List.of(); }
             @Override public List<QueryResults.CollocateResult> executeBcqlQuery(String p, int m) { return List.of(); }
             @Override public long getTotalFrequency(String lemma) { return 0; }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
@@ -134,8 +134,8 @@ class HandlersTest {
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
                     String lemma, String deprel, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
-                    String lemma, String deprel, String headPosConstraint,
-                    double minLogDice, int maxResults) { return List.of(); }
+                    String lemma, String deprel,
+                    double minLogDice, int maxResults, String headPosConstraint) { return List.of(); }
             @Override public void close() {}
         };
     }

@@ -71,7 +71,7 @@ public class DependencySketchTest {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
             List<QueryResults.WordSketchResult> results = executor.executeDependencyPatternWithPos(
-                "theory", "nsubj", "NN.*", 0.0, 20
+                "theory", "nsubj", 0.0, 20, "NN.*"
             );
 
             assertNotNull(results);

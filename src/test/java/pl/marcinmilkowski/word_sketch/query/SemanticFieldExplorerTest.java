@@ -49,7 +49,7 @@ class SemanticFieldExplorerTest {
         }
 
         @Override
-        public List<QueryResults.ConcordanceResult> executeQuery(String cqlPattern, int maxResults) {
+        public List<QueryResults.ConcordanceResult> executeCqlQuery(String cqlPattern, int maxResults) {
             return Collections.emptyList();
         }
 
@@ -81,8 +81,8 @@ class SemanticFieldExplorerTest {
 
         @Override
         public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
-                String lemma, String deprel, String headPosConstraint,
-                double minLogDice, int maxResults) {
+                String lemma, String deprel,
+                double minLogDice, int maxResults, String headPosConstraint) {
             return Collections.emptyList();
         }
     }

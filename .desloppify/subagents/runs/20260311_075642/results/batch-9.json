@@ -1,0 +1,80 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {
+    "mid_level_elegance": 77.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "handleFullSketchForType and handleDepSketchForType in SketchHandlers duplicate the outer iteration loop (grammarConfig.getRelations(), relationType check, executeAndFormatCollocations call, catch block, response envelope construction) \u2014 a change to error propagation or response shape must be made in both methods",
+        "ExplorationHandlers.handleSemanticFieldExplore and handleSemanticFieldExploreMulti share the resolveRelationConfig/resolveExploreParams/buildBaseExploreResponse pattern but diverge in seed parsing \u2014 the shared boundary logic is extracted (good) but the two methods are structurally coupled by comments ('nouns_per intentionally not supported in multi-seed mode')",
+        "RelationUtils.resolveRelationAlias provides a clean, single-place alias \u2192 canonical-ID translation \u2014 a good boundary seam",
+        "GrammarConfigLoader.getRelation returns Optional<RelationConfig> cleanly, forcing callers to handle absence explicitly",
+        "BlackLabQueryExecutor.collectFrequenciesFromGroups successfully extracts the HitGroups iteration pattern, but executeSurfacePattern bypasses it and inlines its own loop \u2014 a mid-level seam inconsistency"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "RelationUtils.resolveRelationAlias is a clean, single-point boundary translation that prevents alias resolution from spreading into handler logic",
+        "GrammarConfigLoader.getRelation returning Optional<RelationConfig> forces explicit absence handling at every boundary",
+        "ExplorationHandlers.resolveRelationConfig and resolveExploreParams are extracted helpers that keep the handler methods focused on orchestration",
+        "wrapHandler in WordSketchApiServer provides a uniform error propagation boundary for all handlers"
+      ],
+      "issue_character": "The primary mid-level issue is the handleFullSketchForType/handleDepSketchForType duplication in SketchHandlers, where the iteration and response-envelope logic should be shared but currently forces parallel maintenance of two near-identical orchestration loops.",
+      "score_rationale": "The codebase handles most integration seams cleanly \u2014 boundary translation is localised, Optional is used correctly for absent values, and handler helpers are extracted. The score sits in the high-70s because the SketchHandlers dual-path duplication is a real mid-level elegance failure that forces parallel maintenance, and executeSurfacePattern bypasses the shared HitGroups iteration helper used by other executor methods."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "sketch_handler_dual_loop",
+      "summary": "handleFullSketchForType and handleDepSketchForType in SketchHandlers duplicate the relation-iteration and response-envelope orchestration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Both methods iterate grammarConfig.getRelations(), check relationType, call executeAndFormatCollocations, catch IOException|RuntimeException with the same warning log, accumulate to byRelation and relationErrors maps, then build a Map response with 'status', 'lemma', 'relations', 'errors' keys",
+        "The difference is: surface adds collocations list, dep calls buildRelationResponse and adds 'type':'dependency'",
+        "A new relation-level error-handling strategy would require changes in both methods"
+      ],
+      "suggestion": "Introduce a private iterateRelations method that accepts a RelationType and a BiFunction<RelationConfig, ExecutedSketch, Map<String,Object>> response-builder. The two public paths supply different builders but share the loop, error handling, and response envelope construction.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "surface_pattern_bypasses_shared_iteration",
+      "summary": "executeSurfacePattern inlines its own HitGroups iteration instead of using the shared collectFrequenciesFromGroups helper",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "collectFrequenciesFromGroups is called in findCollocations and collectDependencyFrequencies via a Function<String,String> lemma extractor",
+        "executeSurfacePattern contains its own for (HitGroup group : groups) loop with inline extractCollocateFromXmlByPosition logic rather than delegating to the shared helper",
+        "The two iteration loops are near-identical in structure, meaning any HitGroups iteration fix (e.g. empty-identity guard) must be made in both"
+      ],
+      "suggestion": "Pass a lemma-extractor lambda to collectFrequenciesFromGroups that uses extractCollocateFromXmlByPosition(identity, collocatePos) for the surface path. This unifies all three HitGroups iteration paths through a single shared method.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Sketch handler dual loop evolved as DEP relations were added with a different response format without refactoring the shared outer loop",
+      "executeSurfacePattern inlined its iteration because the position-based collocate extraction needed different logic from the dependency path, and the shared helper was not designed for a Function-based extractor at that time"
+    ],
+    "likely_symptoms": [
+      "sketch_handler_dual_loop",
+      "surface_pattern_bypasses_shared_iteration"
+    ],
+    "possible_false_positives": []
+  }
+}

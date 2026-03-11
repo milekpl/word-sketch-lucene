@@ -1,0 +1,85 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 16,
+  "assessments": {"design_coherence": 68.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "BlackLabQueryExecutor.executeSurfacePattern() contains a custom for-loop over HitGroups that duplicates the logic of collectFrequenciesFromGroups() — the collectFrequenciesFromGroups utility exists precisely for this, but executeSurfacePattern() bypasses it with slightly different extraction logic",
+        "Both BlackLabQueryExecutor and CollocateQueryHelper have similar import blocks and share the CorpusQueryLanguageParser / ContextualQueryLanguageParser pattern; the boilerplate flagged by the mechanical detector is at the import/bootstrap level (both files set up a query parse chain with the same structure)",
+        "ExplorationHandlers methods (handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison, handleSemanticFieldExamples) each repeat the same parameter-parsing preamble: parseQueryParams, requireParam, resolveRelationConfig, resolveExploreParams",
+        "SketchHandlers.handleFullSketchForType() and handleDepSketchForType() have identical structure: iterate relations, try executeAndFormatCollocations, collect errors, build response map — unified only at the collocate-execution level, not at the response-building level",
+        "SemanticFieldExplorer mixes two distinct algorithms: single-seed exploration (multi-phase, finds discovered nouns) and multi-seed comparison (fetches per-seed collocates, intersects) — these have different data flows but share a class",
+        "RadialPlot.toSVG() is ~100 lines of SVG string building but has single coherent responsibility — acceptable"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "SemanticFieldExplorer phase-decomposition into private helper methods (fetchSeedCollocates, buildCollocateToNounsMap, filterCandidates, identifyCoreCollocates) is clean and well-named",
+        "CollocateQueryHelper correctly encapsulates the shared collocate-search and ranking logic as a package-private helper",
+        "ExplorationHandlers and SketchHandlers are properly split by domain concern",
+        "BlackLabQueryExecutor correctly delegates all heavy lifting to CollocateQueryHelper, keeping itself thin"
+      ],
+      "issue_character": "The key design issue is that a shared utility (collectFrequenciesFromGroups) exists for exactly the pattern executeSurfacePattern() needs, but that method re-implements the pattern inline — an inconsistency that will likely diverge over time.",
+      "score_rationale": "The overall design is coherent: clear handler/service/query layering, good phase decomposition, appropriate delegation. The main defects are a bypass of the shared frequency-collection utility in executeSurfacePattern() and repeated parameter-parsing boilerplate across all four exploration handler methods. These are real design coherence gaps — one creates code that must be maintained in two places, the other makes handlers hard to read at a glance. Score 68 reflects good structural bones with two concrete repetition problems."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "execute_surface_pattern_bypasses_shared_utility",
+      "summary": "executeSurfacePattern() reimplements frequency collection inline instead of using collectFrequenciesFromGroups()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "collectFrequenciesFromGroups() exists at line ~170 with a Function<String, String> lemmaExtractor parameter",
+        "executeSurfacePattern() contains a custom for loop over groups with its own collocate-extraction logic (extractCollocateFromXmlByPosition with plain-text fallback)",
+        "The two paths differ only in extraction strategy — exactly the kind of variation collectFrequenciesFromGroups() was designed to handle via its extractor parameter"
+      ],
+      "suggestion": "Refactor executeSurfacePattern() to use collectFrequenciesFromGroups() by passing an appropriate lemma extractor lambda: 'identity -> BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos)' with a fallback chained in. This unifies the frequency-collection path.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "exploration_handler_preamble_repetition",
+      "summary": "All four ExplorationHandlers methods repeat the same parameter-parsing preamble without shared extraction",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison each call parseQueryParams, then requireParam, then resolveRelationConfig, then resolveExploreParams in the same order",
+        "resolveRelationConfig() and resolveExploreParams() are already extracted — but the outer pattern is repeated 3-4 times"
+      ],
+      "suggestion": "Extract a 'parseBaseExploreRequest(exchange)' record or a command object that bundles the common params and short-circuits with null on validation failure, reducing the four preambles to a single call each.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "semantic_field_explorer_mixed_algorithms",
+      "summary": "SemanticFieldExplorer mixes two algorithmically distinct flows (single-seed vs multi-seed) in one class",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "exploreByPattern() (single-seed): multi-phase, builds DiscoveredNoun list by reverse-lookup through collocates — ~120 lines with 4 private helper methods",
+        "exploreMultiSeed() (multi-seed): fetches per-seed collocates directly, intersects, maps seeds into DiscoveredNoun without reverse lookup — ~60 lines with a completely different algorithm",
+        "The two methods share only the QueryExecutor dependency and the ExplorationResult return type"
+      ],
+      "suggestion": "Consider extracting MultiSeedExplorer as a separate class (parallel to CollocateProfileComparator) so each algorithm has a focused class. SemanticFieldExplorer would then only contain the single-seed exploration path. This mirrors how CollocateProfileComparator was already separated.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The shared utility collectFrequenciesFromGroups was added after executeSurfacePattern was written and the old code was never refactored to use it"],
+    "likely_symptoms": ["execute_surface_pattern_bypasses_shared_utility is the root; exploration_handler_preamble_repetition is a parallel symptom of the same handler-growth pattern"],
+    "possible_false_positives": ["The boilerplate duplication flagged in the mechanical scan (import blocks at lines 12/20) is at the import level — real but not logic-level design incoherence"]
+  }
+}

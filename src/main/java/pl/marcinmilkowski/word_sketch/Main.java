@@ -291,9 +291,6 @@ public class Main {
     }
 
     /**
-     * Returns {@code args[i]}, exiting with a helpful message if {@code i} is out of bounds.
-     */
-    /**
      * Returns the next argument from {@code args} at index {@code i}, or terminates the JVM
      * with exit code 1 if the index is out of bounds.
      *

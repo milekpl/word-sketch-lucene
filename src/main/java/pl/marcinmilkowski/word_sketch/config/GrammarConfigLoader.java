@@ -73,13 +73,11 @@ public class GrammarConfigLoader {
      * @throws IOException if the reader fails or the JSON is invalid
      */
     public static GrammarConfigLoader fromReader(Reader reader) throws IOException {
-        try (reader) {
-            char[] buf = new char[65536];
-            StringBuilder sb = new StringBuilder();
-            int n;
-            while ((n = reader.read(buf)) != -1) sb.append(buf, 0, n);
-            return new GrammarConfigLoader(sb.toString(), null);
-        }
+        char[] buf = new char[65536];
+        StringBuilder sb = new StringBuilder();
+        int n;
+        while ((n = reader.read(buf)) != -1) sb.append(buf, 0, n);
+        return new GrammarConfigLoader(sb.toString(), null);
     }
 
     /** Reads config file content, throwing {@link java.io.FileNotFoundException} if the file does not exist. */

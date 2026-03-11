@@ -1,0 +1,87 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 63.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "Tests present for: CqlUtilsTest, LogDiceCalculatorTest, LongIntHashMapTest, HttpApiUtilsTest, RelationUtilsTest, PatternSubstitutionTest, GrammarConfigLoaderTest, RelationsValidationTest, BCQLParserTest, BlackLabSnippetParserTest, CollocateQueryHelperTest, BlackLabQueryExecutorTest, BlackLabBcqlConcordanceTest, DependencySketchTest, SemanticFieldExplorerTest, CollocateProfileComparatorTest, HandlersTest",
+        "No test found for BlackLabConllUIndexer — the indexer contains complex error-handling logic (IndexListener with error continuation, close ordering, document/token counting) that is untested",
+        "No test found for ConlluConverter — the converter has non-trivial logic: MWT token skipping (regex), nested try/finally with counter side-effect in close, sentence boundary detection; correctness matters for data quality",
+        "No test found for WordSketchApiServer route registration — the server constructor wires routes using context paths; a misconfigured prefix could silently misdirect requests",
+        "No test found for RadialPlot SVG generation — the toSVG() method has coordinate math and conditional rendering logic",
+        "No test found for Main CLI argument parsing — the CLI dispatch logic (handleBlackLabIndexCommand, handleBlackLabQueryCommand, handleBlackLabServerCommand) with edge cases like missing --input, invalid port, etc.",
+        "SemanticFieldExplorerTest and CollocateProfileComparatorTest exist — the most complex exploration logic is covered",
+        "BlackLabQueryExecutorTest and BlackLabBcqlConcordanceTest exist — integration-level query execution is covered",
+        "GrammarConfigLoaderTest and RelationsValidationTest provide good coverage of config parsing and validation"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Core utilities (CqlUtils, LogDice, LongIntHashMap) have dedicated unit tests",
+        "Grammar config loading and relation validation are well tested via GrammarConfigLoaderTest and RelationsValidationTest",
+        "The complex snippet parsing and BCQL query logic (BlackLabSnippetParserTest, BCQLParserTest) are covered",
+        "SemanticFieldExplorer and CollocateProfileComparator — the most algorithmically complex classes — have tests"
+      ],
+      "issue_character": "The gap is in the data pipeline (indexer, converter) and the infrastructure layer (server routing, CLI), where untested code has complex logic and high consequence of failure.",
+      "score_rationale": "The test suite is better than average for a project of this size: most business logic and query-execution paths are covered. The significant gap is in the indexer and converter (ConlluConverter, BlackLabConllUIndexer), which are the entry point for all corpus data and contain non-trivial logic (MWT token handling, close-with-counter side effect, error continuation). A bug in these files corrupts the entire index silently. The absence of RadialPlot and Main CLI tests is a lower priority but adds to the gap. Score 63 reflects strong coverage of the query/exploration domain with a notable absence at the data-ingestion boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "conllu_converter_untested",
+      "summary": "ConlluConverter has no tests despite complex MWT-skipping and sentence-boundary logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"],
+      "evidence": [
+        "No ConlluConverterTest found in src/test/",
+        "The method convertConlluToWplChunks handles: multi-word tokens (MWT_OR_EMPTY regex), sentence boundaries (<s>/<s>), chunk file rotation, and a close-with-counter side effect in finally",
+        "The return value long[] { sentences, tokens, chunks } is used by Main.java for progress reporting — incorrect counts would go undetected"
+      ],
+      "suggestion": "Write unit tests for: (1) basic sentence conversion, (2) MWT token skipping, (3) sentence count across chunk boundaries, (4) empty corpus input, (5) corpus with only MWT tokens. Use a small in-memory test CoNLL-U string written to a temp file.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "blacklab_indexer_untested",
+      "summary": "BlackLabConllUIndexer has no tests for its error-continuation and close-ordering logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"],
+      "evidence": [
+        "No BlackLabConllUIndexerTest found in src/test/",
+        "The IndexListener.errorOccurred() continues after errors — this means a corrupt file silently produces a partial index",
+        "The close() method has a complex try/catch that throws IOException on finalisation failure — untested failure path"
+      ],
+      "suggestion": "Add integration tests using a small test corpus file. Test: (1) successful indexing with accurate document/token counts, (2) error counting when a malformed file is present. A BlackLabDummyTest already exists — check if it can be extended with a real small-corpus test.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "radial_plot_untested",
+      "summary": "RadialPlot.toSVG() has coordinate math and conditional rendering with no tests",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"],
+      "evidence": [
+        "No RadialPlotTest found in src/test/",
+        "toSVG() computes spiral coordinates, scales by canvas size, conditionally renders a legend for 'signed' mode, and has XML escaping logic",
+        "The escapeXml() method handles & < > \" ' — any regression would produce invalid SVG served to clients"
+      ],
+      "suggestion": "Add tests for: (1) XML escaping of special characters in word labels, (2) signed-mode legend presence, (3) correct item-count cap at 30, (4) empty item list produces valid SVG. Tests can assert substring presence in the rendered string.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Data-pipeline classes (indexer, converter) are harder to unit-test without a real corpus, so they were deferred and never added"],
+    "likely_symptoms": ["conllu_converter_untested and blacklab_indexer_untested represent the same untested-pipeline root cause"],
+    "possible_false_positives": ["Main CLI argument parsing — not testing System.exit() paths is a common pragmatic decision, not necessarily a gap worth prioritizing"]
+  }
+}

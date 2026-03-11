@@ -1,0 +1,89 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {"initialization_coupling": 83.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "BlackLabSnippetParser compiles 8 static Pattern constants at class-load time — no I/O, no side effects, appropriate",
+        "RelationUtils.RELATION_ALIASES is a static final Map.of() — immutable, no side effects at class load",
+        "HttpApiUtils.CORS_ALLOW_ORIGIN = 'http://localhost:3000' is a static final String — hardcoded, comment says 'Restrict to specific origins in production' but there is no mechanism to override it without recompilation; not a boot-order issue but a configurability defect",
+        "SemanticFieldExplorer.NOUN_CQL_CONSTRAINT = '[xpos=\"NN.*\"]' is a static constant that hardcodes English Penn Treebank grammar tag at class level — CollocateProfileComparator.ADJECTIVE_PATTERN = '[xpos=\"JJ.*\"]' similarly hardcoded; these are implicit grammar assumptions baked into static state",
+        "Main.handleBlackLabServerCommand(): uses 'WordSketchApiServer[] serverHolder = new WordSketchApiServer[1]' array as mutable holder in shutdown hook — pattern works but is less clear than AtomicReference<WordSketchApiServer>",
+        "WordSketchApiServer constructor calls HttpServer.create() (binds port) AND registers routes — if route registration throws after port bind, the port is held until GC; the shutdown hook is registered before server construction so it won't clean up an incomplete construction",
+        "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty at call time, not at class load — acceptable for a CLI factory method",
+        "No circular init dependencies visible across any module",
+        "No DB connections, network calls, or file I/O at class-load time (class-level fields are all literals or Pattern.compile() calls)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "No module-level side effects — no I/O, no DB connections, no network at class load",
+        "Dependency injection throughout: BlackLabQueryExecutor, GrammarConfigLoader, and SemanticFieldExplorer are all constructed and passed through constructors",
+        "GrammarConfigLoader reads system property at call time (not import time), making it testable",
+        "Proper AutoCloseable and try-with-resources patterns for resource management"
+      ],
+      "issue_character": "The initialization concerns are mild: two hardcoded static constants embed grammar and CORS assumptions that should be configurable, and a mutable reference in a shutdown hook uses an array idiom where a cleaner alternative exists.",
+      "score_rationale": "The codebase has clean Java initialization: no circular dependencies, no boot-order surprises, and all stateful resources are constructed explicitly via DI. The main issues are the CORS constant and the grammar-tag constants baked into static fields — these are configuration values that cannot be changed without recompilation. The shutdown-hook array hack is a minor idiom concern. Score 83 reflects solid initialization hygiene with a few hardcoded static values that limit testability and configurability."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "cors_origin_hardcoded_static",
+      "summary": "HttpApiUtils.CORS_ALLOW_ORIGIN is a hardcoded static constant with no runtime override mechanism",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "CORS_ALLOW_ORIGIN = 'http://localhost:3000' — hardcoded at compile time",
+        "Comment: 'Restrict to specific origins in production. Change this value (or make it configurable) when deploying'",
+        "No system property, environment variable, or constructor parameter allows changing this value"
+      ],
+      "suggestion": "Read the value from a system property with a default: 'static final String CORS_ALLOW_ORIGIN = System.getProperty(\"cors.allow.origin\", \"http://localhost:3000\")'. Or make it an instance field passed into HttpApiUtils methods. The system-property approach requires minimal refactoring.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "hardcoded_grammar_tag_constants",
+      "summary": "NOUN_CQL_CONSTRAINT and ADJECTIVE_PATTERN are static constants hardcoding English Penn Treebank xpos tags",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer: 'private static final String NOUN_CQL_CONSTRAINT = \"[xpos=\\\"NN.*\\\"]\"' — English-only",
+        "CollocateProfileComparator: 'private static final String ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\"' — English-only",
+        "These are used as reverse-lookup patterns in exploration; different corpora or languages would require different tags"
+      ],
+      "suggestion": "Consider deriving these patterns from the loaded grammar config (which already encodes collocate POS groups per relation) rather than hardcoding them. The RelationConfig.collocateReversePattern() method already provides this abstraction — use it consistently instead of the static constants.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "server_holder_array_idiom",
+      "summary": "Shutdown hook captures server reference via WordSketchApiServer[] array instead of AtomicReference",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "'WordSketchApiServer[] serverHolder = new WordSketchApiServer[1];' used to allow mutation in a lambda/inner class",
+        "The array is written exactly once: 'serverHolder[0] = server' — an AtomicReference<WordSketchApiServer> or a simple final wrapper class would make the intent clearer"
+      ],
+      "suggestion": "Replace with: 'AtomicReference<WordSketchApiServer> serverRef = new AtomicReference<>(); ... serverRef.set(server); ... if (serverRef.get() != null) serverRef.get().stop();'. Alternatively, move shutdown logic into WordSketchApiServer.start() itself.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Static constants for language-specific grammar patterns reflect English-first development without considering configurability"],
+    "likely_symptoms": ["cors_origin_hardcoded_static and hardcoded_grammar_tag_constants share the same root: static initialization with values that should be runtime-configurable"],
+    "possible_false_positives": []
+  }
+}

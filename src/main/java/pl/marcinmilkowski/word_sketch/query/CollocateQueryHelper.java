@@ -29,6 +29,8 @@ import nl.inl.blacklab.searches.SearchHits;
 
 import pl.marcinmilkowski.word_sketch.utils.LogDiceCalculator;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -123,7 +125,7 @@ class CollocateQueryHelper {
      */
     List<QueryResults.WordSketchResult> buildAndRankCollocates(
             Map<String, Long> freqMap,
-            Map<String, String> posMap,
+            @Nullable Map<String, String> posMap,
             long headwordFreq,
             double minLogDice,
             int maxResults) throws IOException {
@@ -171,7 +173,7 @@ class CollocateQueryHelper {
             Hits hits = index.find(query);
             String headword = BlackLabSnippetParser.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
-            int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
+            int collocatePos = BlackLabSnippetParser.findLabelTokenIndex(bcqlPattern, 2);
             int sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR); // safe: min ensures result ≤ maxResults * OVER_FETCH_FACTOR
 
             // Phase 1: collect per-hit data and accumulate collocate frequencies

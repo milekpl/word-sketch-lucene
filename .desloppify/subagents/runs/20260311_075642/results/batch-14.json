@@ -1,0 +1,98 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 14,
+  "assessments": {"logic_clarity": 74.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "ConlluConverter.convertConlluToWplChunks(): inner finally block contains 'try (BufferedWriter toClose = writer) { chunks++; }' — incrementing the chunks counter inside a resource-close expression mixes side effect with cleanup",
+        "CollocateQueryHelper.scoreHits(): 'int limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size())' — no (long) cast before multiplication; if maxResults is large, maxResults * 3 overflows int before comparison. Compare with executeBcqlQuery() which correctly uses '(long) maxResults * OVER_FETCH_FACTOR' for the sampleSize calculation",
+        "Main.handleBlackLabIndexCommand() calls indexer.indexFile(wplTempDir.toString()) where wplTempDir is a directory path — the method is named indexFile but is passed a directory; it works because BlackLab Indexer.index() handles both, but the naming creates a false impression",
+        "SemanticFieldExplorer.exploreByPattern(): 'if (seed == null || seed.isEmpty()) return ExplorationResult.empty(seed)' — passing null to empty(seed) when seed is null; the empty() factory stores the seed field as the key, so a null seed produces a result with null seed field, propagating the null downstream",
+        "BlackLabSnippetParser.findLabelPosition(): when the label is found but the following character is not '[', the function silently returns -1 without logging — callers receive -1 without knowing why the label was ignored",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution(): throws IllegalArgumentException for non-'[' patterns with message 'Unrecognized CQL pattern format' but there is only one valid format — the else branch is effectively dead except as a defensive guard"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses consistently return early for null/empty inputs across most methods",
+        "LogDiceCalculator has clean, explicit special-case handling (dice <= 0, headwordFreq <= 0) with no ambiguity",
+        "SemanticFieldExplorer phase-decomposition (fetchSeedCollocates, buildCollocateToNounsMap, filterCandidates, identifyCoreCollocates) makes each step's intent clear",
+        "LongIntHashMap uses documented EMPTY_KEY sentinel with explicit prohibition on storing that value"
+      ],
+      "issue_character": "The clearest logic issues are a potential integer overflow in a limit calculation and a side-effect embedded inside a resource-close expression — both are subtle correctness bugs masquerading as clarity issues.",
+      "score_rationale": "Most control flow in the codebase is clean and readable. Two concrete issues stand out: an int overflow risk in scoreHits() that is inconsistent with the correct (long) cast in the nearby executeBcqlQuery(), and a side-effect inside a finally close expression in ConlluConverter. The null propagation via empty(null) and the misleading indexFile-given-directory are lower-severity clarity concerns. Score 74 reflects good overall clarity with a few concrete defects that a code reader would need to reason carefully through."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "score_hits_int_overflow_risk",
+      "summary": "scoreHits() computes maxResults * OVER_FETCH_FACTOR without (long) cast, risking integer overflow",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "scoreHits(): 'int limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size())' — both operands are int, so multiplication overflows if maxResults > Integer.MAX_VALUE / 3 (~715M)",
+        "executeBcqlQuery() nearby correctly casts: 'Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR)' — the inconsistency shows the risk was known at the call site but not applied consistently"
+      ],
+      "suggestion": "Change to: 'int limit = (int) Math.min((long) maxResults * OVER_FETCH_FACTOR, records.size());' — mirrors the correct pattern already used in executeBcqlQuery().",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "counter_increment_in_close_block",
+      "summary": "ConlluConverter increments the chunks counter inside a resource-close expression in a finally block",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"],
+      "evidence": [
+        "finally block: 'if (writer != null) { try (BufferedWriter toClose = writer) { chunks++; } }' — the chunks++ side effect is buried inside the try-with-resources close expression",
+        "If the writer.close() throws, chunks is still incremented, producing an off-by-one in the return value"
+      ],
+      "suggestion": "Separate the increment from the close: 'if (writer != null) { writer.close(); chunks++; }' — or use try-finally without combining close and increment.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "index_file_receives_directory",
+      "summary": "BlackLabConllUIndexer.indexFile() is named for files but called with a directory path in Main.java",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "Main.java: 'indexer.indexFile(wplTempDir.toString())' — wplTempDir is created with Files.createTempDirectory()",
+        "indexFile() has a Files.exists() check that would pass for directories, and delegates to indexer.index(path.toFile()) which BlackLab handles for directories — so it works, but the name misleads"
+      ],
+      "suggestion": "Rename indexFile() to indexPath() or indexFileOrDirectory() to reflect actual usage, or add a parameter check and delegate to indexDirectory() internally.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "null_seed_propagation",
+      "summary": "exploreByPattern() passes null to ExplorationResult.empty(seed) when seed is null",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "'if (seed == null || seed.isEmpty()) return ExplorationResult.empty(seed)' — when seed is null, ExplorationResult.empty(null) stores null as the seed field",
+        "Callers of exploreByPattern() would receive a result with null seed, which could cause NPE if they call result.getSeed() on the returned object"
+      ],
+      "suggestion": "Change the guard to: 'if (seed == null || seed.isEmpty()) return ExplorationResult.empty(\"\");' — or add a @NonNull precondition and let callers guarantee non-null input.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Integer overflow inconsistency suggests the (long) cast fix was applied in one call path but not backported to its sibling method scoreHits()"],
+    "likely_symptoms": ["score_hits_int_overflow_risk and counter_increment_in_close_block are concrete correctness defects, not just clarity concerns"],
+    "possible_false_positives": ["buildBcqlWithLemmaSubstitution() else branch — dead code by design, acceptable defensive guard"]
+  }
+}

@@ -224,27 +224,25 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             return Collections.emptyList();
         }
 
-        int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
+        int collocatePos = BlackLabSnippetParser.findLabelTokenIndex(bcqlPattern, 2);
         CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearch(bcqlPattern, lemma, false);
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
         Map<String, Long> freqMap = new HashMap<>();
+        Map<String, String> lemmaPosMap = new HashMap<>();
 
-        for (HitGroup group : groups) {
-            String identity = group.identity().toString();
-            if (!identity.isEmpty()) {
-                String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos);
-                if (collocate == null || collocate.isEmpty()) {
-                    collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocatePos);
-                }
-                if (collocate != null && !collocate.isEmpty()) {
-                    freqMap.merge(collocate.toLowerCase(), group.size(), Long::sum);
-                }
-            }
-        }
+        collectFrequenciesFromGroups(groups,
+                identity -> {
+                    String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos);
+                    if (collocate == null || collocate.isEmpty()) {
+                        collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocatePos);
+                    }
+                    return collocate;
+                },
+                freqMap, lemmaPosMap);
 
-        return collocateQueryHelper.buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
+        return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap.isEmpty() ? null : lemmaPosMap, headwordFreq, minLogDice, maxResults);
     }
 
     @Override

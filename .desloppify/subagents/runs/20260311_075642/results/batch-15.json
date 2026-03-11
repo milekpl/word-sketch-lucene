@@ -1,0 +1,87 @@
+{
+  "batch": "type_safety",
+  "batch_index": 15,
+  "assessments": {"type_safety": 75.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "Java provides compile-time type safety; most type safety concerns are Java-specific: missing @Nullable annotations and inconsistent nullability contracts",
+        "BlackLabSnippetParser correctly uses @org.jspecify.annotations.Nullable on extractLemmaFromMatch, extractPosFromMatch, extractCollocateFromXmlByPosition, extractHeadword, extractPlainTextTokenAt",
+        "RelationConfig.getDeprel() correctly annotated @org.jspecify.annotations.Nullable",
+        "HttpApiUtils.requireParam() returns 'String' (implicitly non-null) but can return null — missing @Nullable annotation at a public API boundary",
+        "ExplorationHandlers.resolveRelationConfig() returns 'RelationConfig' but can return null — missing @Nullable",
+        "ExplorationHandlers.resolveExploreParams() returns 'ExploreParams' (a record) but can return null — missing @Nullable",
+        "CollocateQueryHelper.buildAndRankCollocates() accepts Map<String, String> posMap which is passed as null by executeSurfacePattern() — parameter lacks @Nullable annotation",
+        "Main.handleBlackLabServerCommand() creates 'QueryExecutor executor = new BlackLabQueryExecutor(indexPath)' assigned to interface type — this is correct and typical Java widening",
+        "ExplorationResult stores seed as String without nullability constraint — can hold null from exploreByPattern guard",
+        "Consistent use of Optional<RelationType> for nullable relationType throughout RelationConfig — good design"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "BlackLabSnippetParser consistently uses @Nullable from jspecify on all methods that can return null",
+        "RelationConfig uses Optional<RelationType> correctly to model absence rather than nullable returns",
+        "Java's static type system catches the vast majority of type mismatches at compile time",
+        "LogDiceCalculator uses a UNCOMPUTABLE constant (Double.NaN) rather than nullable Double, providing a type-safe sentinel"
+      ],
+      "issue_character": "The codebase has adopted @Nullable annotations for the query/snippet layer but has not consistently applied them to the API handler layer, where several package-private methods return null without annotation.",
+      "score_rationale": "Java's static typing provides a strong baseline. The codebase demonstrates awareness of nullability annotations (jspecify is already imported and used correctly in BlackLabSnippetParser and RelationConfig). The gap is in the HTTP handler layer where three methods that can return null lack @Nullable annotations, creating a systematic violation at the request-parsing boundary. Score 75 reflects strong compile-time guarantees with an inconsistent application of nullability annotations at one layer."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "http_utils_require_param_missing_nullable",
+      "summary": "HttpApiUtils.requireParam() return type lacks @Nullable despite documented null return",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "Return type declared as 'String' but method contains 'return null' when parameter is missing",
+        "All callers guard against null: 'if (seed == null) return;' — proving callers know the contract but type system cannot enforce it"
+      ],
+      "suggestion": "Add @Nullable to return type: 'public static @Nullable String requireParam(...)'. org.jspecify.annotations.Nullable is already imported in nearby files (e.g., BlackLabSnippetParser).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "handler_resolve_methods_missing_nullable",
+      "summary": "ExplorationHandlers.resolveRelationConfig() and resolveExploreParams() return non-annotated types but return null",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "resolveRelationConfig() declared as 'private RelationConfig ...' but contains 'return null'",
+        "resolveExploreParams() declared as 'private ExploreParams ...' but contains 'return null'",
+        "Both callers check for null before use"
+      ],
+      "suggestion": "Annotate both methods with @Nullable return type. Alternatively, consider throwing an exception and unifying error handling at the call site.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "pos_map_nullable_parameter",
+      "summary": "CollocateQueryHelper.buildAndRankCollocates() accepts a nullable posMap without @Nullable annotation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "Method signature: 'List<...> buildAndRankCollocates(Map<String, Long> freqMap, Map<String, String> posMap, ...)' — posMap can be null",
+        "Body: 'String pos = posMap != null ? posMap.getOrDefault(...) : ...' — null check is present but the parameter is not annotated @Nullable",
+        "BlackLabQueryExecutor.executeSurfacePattern() passes null explicitly: 'buildAndRankCollocates(freqMap, null, headwordFreq, ...)'  "
+      ],
+      "suggestion": "Add @Nullable to the posMap parameter: 'buildAndRankCollocates(Map<String, Long> freqMap, @Nullable Map<String, String> posMap, ...)'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["@Nullable adoption was applied carefully to the query/snippet layer but not extended to the HTTP handler layer"],
+    "likely_symptoms": ["All three findings are manifestations of the same root: incomplete @Nullable annotation propagation"],
+    "possible_false_positives": []
+  }
+}

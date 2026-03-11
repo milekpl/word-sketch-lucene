@@ -11,7 +11,7 @@ class BlackLabSnippetParser {
     private static final Logger logger = LoggerFactory.getLogger(BlackLabSnippetParser.class);
 
     private static final java.util.regex.Pattern LEMMA_ATTR      = java.util.regex.Pattern.compile("lemma=\"([^\"]+)\"");
-    private static final java.util.regex.Pattern LEMMA_ATTR_ANY  = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern LEMMA_ATTR_RELAXED  = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE);
     private static final java.util.regex.Pattern XPOS_ATTR       = java.util.regex.Pattern.compile("xpos=\"([^\"]+)\"");
     private static final java.util.regex.Pattern UPOS_ATTR       = java.util.regex.Pattern.compile("upos=\"([^\"]+)\"");
     private static final java.util.regex.Pattern SENT_BOUND_LEFT  = java.util.regex.Pattern.compile("[.!?]\\s+(?=[A-Z]|$)");
@@ -140,7 +140,7 @@ class BlackLabSnippetParser {
     /**
      * Extract collocate lemma from XML by labeled position.
      * @param xmlSnippet The XML snippet containing the full sentence
-     * @param position The 1-based position of the token to extract (from findLabelPosition)
+     * @param position The 1-based position of the token to extract (from findLabelTokenIndex)
      * @return the lemma at the given position, or {@code null} if not found
      */
     @Nullable
@@ -161,7 +161,7 @@ class BlackLabSnippetParser {
 
     @Nullable
     static String extractHeadword(String bcqlPattern) {
-        java.util.regex.Matcher m = LEMMA_ATTR_ANY.matcher(bcqlPattern);
+        java.util.regex.Matcher m = LEMMA_ATTR_RELAXED.matcher(bcqlPattern);
         if (m.find()) {
             return m.group(1);
         }
@@ -192,7 +192,7 @@ class BlackLabSnippetParser {
      * - "[lemma=...]" (unlabeled) is at position 2
      * - "2:" is at position 3
      */
-    static int findLabelPosition(String pattern, int label) {
+    static int findLabelTokenIndex(String pattern, int label) {
         if (pattern == null) {
             return -1;
         }

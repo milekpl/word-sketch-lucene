@@ -1,0 +1,83 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 2,
+  "assessments": {
+    "high_level_elegance": 78.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package structure (api, query, config, exploration, model, indexer, utils, viz) maps sensibly to domain capabilities",
+        "model package uses Java records consistently for AdjectiveProfile, ComparisonResult, CoreCollocate, ExploreOptions, ExplorationResult, Edge, etc.",
+        "Some classes use regular class syntax (ExplorationResult, DiscoveredNoun) while peers use records, creating minor convention inconsistency",
+        "RelationType and PosGroup enums sit in config package but are domain vocabulary consumed across api, query, and exploration \u2014 ownership is ambiguous",
+        "GrammarConfigLoader is a loader that also holds runtime query state (relationsById map, getRelation accessor) \u2014 loader vs repository boundary is blurred",
+        "ExploreOptions Javadoc acknowledges 'Explore vs Exploration naming asymmetry is historical' \u2014 documented technical debt"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Top-level package decomposition clearly maps api, query, config, exploration, model, indexer, and utils to distinct domain roles",
+        "Consistent use of Java records for value types in the model package (WordSketchResult, ExploreOptions, CollocateResult, RelationConfig, Edge, CoreCollocate)",
+        "QueryExecutor interface provides a clean public surface with well-documented method distinctions",
+        "README and CLAUDE.md documentation accurately describe the deployed architecture and command structure"
+      ],
+      "issue_character": "The primary pattern of issues is ownership ambiguity at package boundaries: config leaks domain enums, some model types use class instead of record for no clear reason, and GrammarConfigLoader mixes loading with runtime querying responsibility.",
+      "score_rationale": "The codebase achieves solid high-level decomposition that a new engineer can navigate quickly, placing it clearly above the median. The score falls short of the 85+ tier because two packages (config, model) have mixed conventions and blurred ownership: config hosts domain vocabulary that belongs in model, and GrammarConfigLoader conflates loading with runtime state access. These are not severe but they are real friction points for change locality."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "config_owns_domain_vocabulary",
+      "summary": "config package owns RelationType and PosGroup domain enums that are consumed across api, query, and exploration subsystems",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "PosGroup.fromString and getValue are called from RelationConfig.collocatePosGroup(), SketchHandlers, and SemanticFieldExplorer",
+        "RelationType.SURFACE and RelationType.DEP are used in SketchHandlers.handleRelationsForType and handleFullSketchForType \u2014 not only config loading",
+        "model package already holds domain vocabulary (QueryResults, ExploreOptions, Edge); domain enums are split inconsistently"
+      ],
+      "suggestion": "Move RelationType and PosGroup to the model package. Keep config package focused on loading and parsing logic only (GrammarConfigLoader, RelationConfig).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "grammar_config_loader_mixed_role",
+      "summary": "GrammarConfigLoader mixes file-loading responsibility with runtime query service (holds index, exposes getRelation accessor)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader constructor reads JSON from disk and builds relationsById HashMap used at query time",
+        "getRelation(String id) and getRelations() serve as a runtime service registry, not just post-load access",
+        "getVersion() suggests the loader is also serving as a configuration manifest at runtime"
+      ],
+      "suggestion": "Extract the loaded state into a GrammarConfig value object (immutable, no I/O). Let GrammarConfigLoader be a pure factory that returns GrammarConfig. Consumers receive GrammarConfig, not the loader.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Config package evolved organically to contain domain vocabulary alongside loading logic as grammar complexity grew",
+      "GrammarConfigLoader was never split into loader vs configuration-value, leaving a single class responsible for both I/O and runtime state"
+    ],
+    "likely_symptoms": [
+      "config_owns_domain_vocabulary",
+      "grammar_config_loader_mixed_role"
+    ],
+    "possible_false_positives": []
+  }
+}

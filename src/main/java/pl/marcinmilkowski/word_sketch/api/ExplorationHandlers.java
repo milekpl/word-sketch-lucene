@@ -14,6 +14,8 @@ import pl.marcinmilkowski.word_sketch.model.Edge;
 import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -358,7 +360,7 @@ class ExplorationHandlers {
      * Sends a 400 error response and returns null if the relation is unknown or misconfigured.
      * Both exploration handlers share this preamble.
      */
-    private RelationConfig resolveRelationConfig(HttpExchange exchange, Map<String, String> params) throws IOException {
+    private @Nullable RelationConfig resolveRelationConfig(HttpExchange exchange, Map<String, String> params) throws IOException {
         String relationId = RelationUtils.resolveRelationAlias(
             params.getOrDefault("relation", "noun_adj_predicates"));
         var relationConfig = grammarConfig.getRelation(relationId);
@@ -375,7 +377,7 @@ class ExplorationHandlers {
         return relationConfig.get();
     }
 
-    private ExploreParams resolveExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
+    private @Nullable ExploreParams resolveExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
         try {
             int top = Integer.parseInt(params.getOrDefault("top", "10"));
             int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));

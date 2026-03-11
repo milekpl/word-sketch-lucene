@@ -1,0 +1,86 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 83.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "All four api-layer classes import com.sun.net.httpserver.HttpExchange directly; HttpApiUtils static helpers accept HttpExchange, binding the utility layer to a JDK-internal type",
+        "WordSketchApiServer.registerHandler receives com.sun.net.httpserver.HttpServer as a parameter, leaking the internal type into the registration API",
+        "RelationType and PosGroup are in the config package but are consumed by query, api, and exploration packages \u2014 acting as a shared vocabulary that blurs config vs domain boundaries",
+        "Packages (api, query, config, exploration, model, indexer, utils, viz) map cleanly to functional roles with no obvious cycles detected",
+        "LongIntHashMap in utils is a standalone data-structure utility with no upward dependencies"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Package decomposition maps directly to functional areas (api, query, config, exploration, model, indexer, utils, viz) with no detected import cycles",
+        "QueryExecutor interface provides a clean seam between the api layer and the BlackLab implementation",
+        "Model types (QueryResults, ExploreOptions, ExplorationResult) are isolated in their own package with no back-dependencies",
+        "Main.java orchestrates subsystem wiring at the entry point without letting subsystems reach across each other"
+      ],
+      "issue_character": "The main architectural weakness is pervasive coupling to com.sun.net.httpserver throughout the api package, combined with config-layer enums (RelationType, PosGroup) acting as cross-cutting vocabulary rather than true config-only concerns.",
+      "score_rationale": "The codebase scores well because layering is clean and cycles are absent \u2014 a developer navigating the codebase can reason about ownership without surprises. The score does not reach the 85+ tier because the JDK-internal HTTP coupling makes the api layer effectively untestable without a live HTTP server, and config enums carrying domain semantics create a mild boundary ambiguity. These are real but bounded issues consistent with a high-70s to low-80s placement on the global anchor scale."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_jdk_internal_coupling",
+      "summary": "api layer couples all handlers to com.sun.net.httpserver (JDK-internal API), increasing replacement cost",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "All four api-layer classes import com.sun.net.httpserver.HttpExchange directly",
+        "HttpApiUtils.sendJsonResponse, sendError, sendBinaryResponse, sendOptionsResponse, requireMethod, requireParam all accept HttpExchange",
+        "WordSketchApiServer.registerHandler signature includes com.sun.net.httpserver.HttpServer and HttpHandler as parameters"
+      ],
+      "suggestion": "Introduce a thin HttpContext abstraction (e.g. a record wrapping URI, method, body InputStream, and a response writer callback) in the api package. Have HttpApiUtils operate on that abstraction. This isolates com.sun.net.httpserver to WordSketchApiServer alone and makes handlers unit-testable.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "config_enums_cross_cutting",
+      "summary": "RelationType and PosGroup live in config but carry domain semantics consumed by query, api, and exploration packages",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "RelationType.SURFACE and RelationType.DEP are used in SketchHandlers, RelationConfig, and SemanticFieldExplorer \u2014 not just in config loading",
+        "PosGroup.fromString and PosGroup.getValue are called from RelationConfig.collocatePosGroup() which is called throughout the query and api layers",
+        "A pure config enum would only be used by the loader; domain enums like these belong in a model or domain package"
+      ],
+      "suggestion": "Move RelationType and PosGroup to the model package where other domain vocabulary lives (QueryResults, ExploreOptions). The config package should contain only loading/parsing logic.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "JDK-internal HTTP server chosen for zero-dependency simplicity, but its tight coupling to HttpExchange was never abstracted",
+      "Config package grew to contain domain vocabulary (PosGroup, RelationType) alongside pure loading logic as the grammar model evolved"
+    ],
+    "likely_symptoms": [
+      "api_jdk_internal_coupling",
+      "config_enums_cross_cutting"
+    ],
+    "possible_false_positives": []
+  }
+}

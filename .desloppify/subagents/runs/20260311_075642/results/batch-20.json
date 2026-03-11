@@ -1,0 +1,80 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 80.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer binds to InetAddress.getLoopbackAddress() — only accepts connections from 127.0.0.1, providing network-level access control",
+        "CORS_ALLOW_ORIGIN = 'http://localhost:3000' — restricts browser-origin access to a single local origin",
+        "No authentication, no rate limiting, and no access control on any endpoint — the pattern is consistent: all endpoints are equally open",
+        "/api/bcql accepts arbitrary BCQL pattern strings via POST — this is the most powerful endpoint (arbitrary corpus queries) and has no input validation beyond BCQL parse errors",
+        "HttpApiUtils.requireParam() checks for empty/missing but not for injection or length limits — lemma values are passed directly into BCQL pattern strings via string formatting",
+        "CqlUtils.escapeForRegex() escapes backslash and double-quote in lemma values before embedding in BCQL strings — lemma injection is partially mitigated",
+        "No audit logging on any endpoint — access to the /api/bcql arbitrary-query endpoint is unlogged",
+        "Health endpoint /health is unauthenticated — appropriate and intentional for a status check",
+        "All endpoints treated identically — no escalation of privilege or mixed trust boundaries"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Loopback-only binding provides strong network-level isolation — the tool is not reachable from other machines by default",
+        "CORS restriction limits browser-origin access to a single known frontend",
+        "No mixed auth state: there are no endpoints with auth guards that protect some resources but not others",
+        "CqlUtils.escapeForRegex() provides partial lemma injection mitigation"
+      ],
+      "issue_character": "The authorization model is 'trust the local user completely' — consistent for a single-user local tool, but the /api/bcql arbitrary-query endpoint has no rate limiting or input-size controls, which would matter if the tool were ever deployed non-locally.",
+      "score_rationale": "For a local corpus analysis tool bound to loopback, consistent no-auth is the appropriate design: there is only one user (the person who started the server), and the loopback binding provides OS-level isolation. The consistency is complete — no endpoints have auth that their siblings lack. The deduction comes from two concerns: (1) the /api/bcql endpoint with its arbitrary-query power has no length limit or rate limiting, and (2) there is no mechanism to enable auth when deploying non-locally, so the tool cannot be safely deployed in a shared environment without code changes. Score 80 reflects appropriate consistency for the stated use case with limited defensive depth."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "bcql_endpoint_no_input_size_limit",
+      "summary": "/api/bcql accepts arbitrary-length BCQL patterns with no size limit or rate control",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "SketchHandlers.handleBcqlQueryPost() reads request body: 'MAX_REQUEST_BODY_BYTES = 65536' constant is defined but — checking the code — body reading is size-limited to 65536 bytes, which is a reasonable cap",
+        "No rate limiting on the endpoint — a client can send many large BCQL queries in rapid succession",
+        "The endpoint executes arbitrary corpus-range queries against the BlackLab index, which can be expensive for certain pattern shapes"
+      ],
+      "suggestion": "Add a simple per-IP or global rate limiter for /api/bcql. For a local single-user tool this is low priority, but if ever exposed beyond loopback, an exponential backoff or token-bucket limiter on the query executor would prevent accidental or intentional resource exhaustion.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "no_auth_local_tool_assumption"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "no_configurable_auth_mode",
+      "summary": "No mechanism to enable authentication when deploying beyond loopback — auth cannot be added without code changes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Server binds to loopback by default but the binding address is hardcoded via InetAddress.getLoopbackAddress()",
+        "No -Dauth.token or -Dallow.remote system property to change trust model",
+        "A future --host 0.0.0.0 flag (if added) would expose all endpoints without any auth layer"
+      ],
+      "suggestion": "Document in the README that this server is for local use only and must not be exposed publicly. Optionally add a --allow-remote flag that requires also providing a --api-token; reject it without a token to make the security contract explicit.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "root_cause_cluster": "no_auth_local_tool_assumption"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The tool was designed for single-user local use; 'trust the local user' is the explicit security model — this is consistent but would need a security layer before any multi-user deployment"],
+    "likely_symptoms": ["bcql_endpoint_no_input_size_limit and no_configurable_auth_mode are both symptoms of the local-tool-only security model"],
+    "possible_false_positives": ["/health endpoint being unauthenticated — explicitly appropriate, not a finding"]
+  }
+}

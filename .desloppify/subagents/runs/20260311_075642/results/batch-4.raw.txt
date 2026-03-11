@@ -1,0 +1,80 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {
+    "error_consistency": 79.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "handleBcqlQueryPost has two catch blocks: IOException sends 500 with 'BCQL query failed', but Exception sends 400 with 'BCQL query error' \u2014 conflating client error (400) with any unclassified runtime exception is inconsistent",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution throws IllegalArgumentException for bad pattern format; the caller (findCollocations) wraps it in IOException \u2014 IllegalArgumentException is a programming error, not an I/O failure",
+        "handleSemanticFieldExplore catches IOException and sends 500 but also catches IllegalArgumentException for 400; this is a correct distinction and is consistent across exploration handlers",
+        "CollocateQueryHelper.getTotalFrequency wraps RuntimeException in IOException with a descriptive message \u2014 this is consistent with the pattern used elsewhere in the executor",
+        "ConlluConverter.convertConlluToWplChunks uses a null-flag pattern for the writer (writer==null signals 'not open') instead of an Optional or state object, which slightly obscures the lifecycle logic",
+        "wrapHandler in WordSketchApiServer catches both IOException (500) and Exception (500) uniformly, providing a safe backstop"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "wrapHandler in WordSketchApiServer provides a uniform 500-backstop for all handler exceptions, preventing unhandled exceptions from escaping to the JDK HTTP server",
+        "Exploration handlers correctly distinguish IOException (500) from IllegalArgumentException (400), signalling intentional error typing at boundaries",
+        "CollocateQueryHelper wraps RuntimeException in IOException with explanatory messages, preserving context at the subsystem boundary",
+        "requireNextArg terminates the JVM with a descriptive message on missing CLI args \u2014 acceptable pattern for a CLI main path and consistent across all option handlers"
+      ],
+      "issue_character": "The main issue is a status-code assignment error in handleBcqlQueryPost where unclassified runtime exceptions are sent as 400 (client error) rather than 500 (server error), and IllegalArgumentException being wrapped in IOException in findCollocations rather than being treated as a programming error.",
+      "score_rationale": "Error handling is largely consistent with correct context preservation across the codebase. The score sits in the high-70s because the BCQL handler's 400-for-all-exceptions pattern is a real correctness issue (it misleads API clients), and the IllegalArgumentException-wrapped-in-IOException in the executor conflates programming errors with I/O failures. Neither issue is systemic but both are real."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "bcql_handler_400_for_exceptions",
+      "summary": "handleBcqlQueryPost sends HTTP 400 for all non-IOException exceptions, misclassifying server errors as client errors",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "catch (Exception e) block sends status 400 with 'BCQL query error: ' + e.getMessage()",
+        "BlackLab InvalidQuery and JSON parse exceptions are plausible causes \u2014 InvalidQuery is client error, but NullPointerException or index corruption exceptions should be 500",
+        "The parallel handler handleVisualRadial sends 500 for Exception, making this an inconsistency across sibling handlers"
+      ],
+      "suggestion": "Narrow the catch to specific expected client-error exceptions (e.g. InvalidQuery from BlackLab, fastjson2 JSONException). Let unexpected RuntimeExceptions propagate to the wrapHandler backstop which correctly sends 500.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "illegal_argument_wrapped_in_ioexception",
+      "summary": "findCollocations wraps IllegalArgumentException in IOException, conflating programming errors with I/O failures",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "catch (IllegalArgumentException e) { throw new IOException('Invalid CQL pattern...', e); } in findCollocations",
+        "buildBcqlWithLemmaSubstitution throws IllegalArgumentException for patterns not starting with '[' \u2014 this is a programming contract violation, not an I/O failure",
+        "Callers that catch IOException will silently swallow what is actually an argument validation bug"
+      ],
+      "suggestion": "Let IllegalArgumentException propagate unwrapped from findCollocations. Callers can catch it explicitly if they need to produce user-facing messages. Alternatively, validate the pattern before calling buildBcqlWithLemmaSubstitution and throw IllegalArgumentException directly from the public method signature.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BCQL handler 400-for-exceptions is a copy-paste or guess-and-check pattern from initial API wiring without a deliberate status-code assignment policy",
+      "IllegalArgumentException wrapped in IOException reflects a desire to keep the interface signature clean (throws IOException only) at the cost of semantic accuracy"
+    ],
+    "likely_symptoms": [
+      "bcql_handler_400_for_exceptions"
+    ],
+    "possible_false_positives": []
+  }
+}

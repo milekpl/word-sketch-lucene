@@ -231,26 +231,26 @@ class BlackLabSnippetParserTest {
         assertNull(BlackLabSnippetParser.extractHeadword("[xpos=\"NN.*\"]"));
     }
 
-    // ── findLabelPosition ─────────────────────────────────────────────────────
+    // ── findLabelTokenIndex ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("findLabelPosition: finds 1-based position of labeled token")
-    void findLabelPosition_correctPosition() {
+    @DisplayName("findLabelTokenIndex: finds 1-based position of labeled token")
+    void findLabelTokenIndex_correctPosition() {
         String pattern = "1:[xpos=\"NN.*\"] [lemma=\"be\"] 2:[xpos=\"JJ.*\"]";
-        assertEquals(1, BlackLabSnippetParser.findLabelPosition(pattern, 1));
-        assertEquals(3, BlackLabSnippetParser.findLabelPosition(pattern, 2));
+        assertEquals(1, BlackLabSnippetParser.findLabelTokenIndex(pattern, 1));
+        assertEquals(3, BlackLabSnippetParser.findLabelTokenIndex(pattern, 2));
     }
 
     @Test
-    @DisplayName("findLabelPosition: missing label returns -1")
-    void findLabelPosition_missingLabelReturnsNegOne() {
-        assertEquals(-1, BlackLabSnippetParser.findLabelPosition("[xpos=\"NN.*\"]", 2));
+    @DisplayName("findLabelTokenIndex: missing label returns -1")
+    void findLabelTokenIndex_missingLabelReturnsNegOne() {
+        assertEquals(-1, BlackLabSnippetParser.findLabelTokenIndex("[xpos=\"NN.*\"]", 2));
     }
 
     @Test
-    @DisplayName("findLabelPosition: null pattern returns -1")
-    void findLabelPosition_nullPatternReturnsNegOne() {
-        assertEquals(-1, BlackLabSnippetParser.findLabelPosition(null, 1));
+    @DisplayName("findLabelTokenIndex: null pattern returns -1")
+    void findLabelTokenIndex_nullPatternReturnsNegOne() {
+        assertEquals(-1, BlackLabSnippetParser.findLabelTokenIndex(null, 1));
     }
 
     // ── extractCollocateFromXmlByPosition (positional) ───────────────────────

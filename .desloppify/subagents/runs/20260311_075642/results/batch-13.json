@@ -1,0 +1,85 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 13,
+  "assessments": {"contract_coherence": 72.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "HttpApiUtils.requireParam() has return type String but can return null when the parameter is missing; Javadoc says 'Caller must check for null return' but no @Nullable annotation — the signature lies",
+        "ExplorationHandlers.resolveRelationConfig() returns RelationConfig but returns null on failure — no @Nullable in signature",
+        "ExplorationHandlers.resolveExploreParams() returns ExploreParams (a record) but returns null on validation failure — no @Nullable in signature",
+        "Main.requireNextArg() has two Javadoc comments block (a legacy one and a replacement) — the first block states 'exiting with a helpful message' and the second repeats and elaborates the contract; duplicate javadoc is an incomplete migration artefact",
+        "GrammarConfigLoader.fromReader(Reader) closes the Reader it receives inside try(reader) — the Javadoc example shows the caller using try-with-resources on the reader, suggesting the caller also expects to close it, creating a potential double-close if the reader is a resource the caller needs to keep open",
+        "SemanticFieldExplorer.exploreByPattern() guard: 'if (seed == null || seed.isEmpty()) return ExplorationResult.empty(seed)' — passes null to ExplorationResult.empty() when seed is null; the method is not documented as nullable-seed-tolerant",
+        "RelationConfig.collocateReversePattern() throws IllegalStateException when relationType() is empty, matching callers that check first — contract is sound but undocumented in method signature",
+        "ExplorationHandlers.handleSemanticFieldExplore() calls resolvedConfig.relationType().orElseThrow() after resolveRelationConfig() already verifies presence — double-checking a guaranteed invariant without documentation"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface has clear, thorough Javadoc on all methods including error contracts",
+        "LogDiceCalculator.UNCOMPUTABLE sentinel is clearly documented, and callers use Double.isNaN() consistently",
+        "GrammarConfigLoader throws typed IOExceptions with actionable messages on all contract violations",
+        "RelationConfig.getDeprel() correctly annotated @Nullable and behaves accordingly"
+      ],
+      "issue_character": "The dominant pattern is nullable-returning methods with non-nullable return type annotations — callers rely on runtime null checks rather than compile-time guarantees, introducing subtle contract lies that the type system cannot enforce.",
+      "score_rationale": "The codebase has well-designed contracts in several places (QueryExecutor, LogDiceCalculator, GrammarConfigLoader validation). However, at least three public/package-private methods (requireParam, resolveRelationConfig, resolveExploreParams) return null without annotating the signature, and one method (fromReader) closes a resource the caller may still own. These lie at key API boundaries — HTTP parameter parsing and request handling — where a developer reading the signature would not expect null. Score 72 reflects solid intent with a recurring signature-lie pattern at the HTTP layer."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "require_param_nullable_lie",
+      "summary": "HttpApiUtils.requireParam() returns String but can return null — signature lies",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": ["Method body: 'if (v.isEmpty()) { sendError(...); return null; }' but return type is 'String' not '@Nullable String'", "Callers in ExplorationHandlers and SketchHandlers guard against null, proving they know it can be null"],
+      "suggestion": "Add @Nullable annotation to the return type: 'public static @Nullable String requireParam(...)'. Import org.jspecify.annotations.Nullable (already used elsewhere in the codebase).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "resolve_relation_config_nullable_lie",
+      "summary": "ExplorationHandlers.resolveRelationConfig() returns RelationConfig but returns null on failure",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": ["Method body returns null when relation is unknown or misconfigured", "All three callers check 'if (resolvedConfig == null) return' before using the result"],
+      "suggestion": "Add @Nullable annotation: 'private @Nullable RelationConfig resolveRelationConfig(...)'. Same fix for resolveExploreParams().",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "from_reader_closes_caller_resource",
+      "summary": "GrammarConfigLoader.fromReader() closes the Reader passed by the caller, violating resource-ownership convention",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": ["Method body: 'try (reader) { ... }' — explicitly closes the reader", "Javadoc example shows 'try (Reader r = new StringReader(...)) { GrammarConfigLoader.fromReader(r); }' — caller is also managing the resource, risking double-close"],
+      "suggestion": "Either document clearly that fromReader() always closes the reader and callers must not close it again, or stop closing it inside the method and let the caller manage lifecycle. The simplest fix is to remove the try-with-resources around reader and instead read it with a plain while loop.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "duplicate_javadoc_require_next_arg",
+      "summary": "Main.requireNextArg() has two successive Javadoc comment blocks — incomplete documentation migration",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": ["Two /** ... */ comment blocks appear before requireNextArg() — the first is a brief one-liner stub, the second is the detailed replacement", "Only the second block is read by javadoc tools; the first is invisible but creates confusion in the source"],
+      "suggestion": "Remove the first, shorter Javadoc block; retain the detailed second block.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["HTTP handler layer grew organically without adopting @Nullable annotations from jspecify, which are used correctly in other layers (query, config)"],
+    "likely_symptoms": ["require_param_nullable_lie and resolve_relation_config_nullable_lie are symptom-level of the same root cause"],
+    "possible_false_positives": ["resolvedConfig.relationType().orElseThrow() after null-check is redundant but not a lie — not worth filing as a finding"]
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {
+    "abstraction_fitness": 78.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has two implementations: BlackLabQueryExecutor (production) and presumably a test stub \u2014 single-implementation risk is low given the interface has real contract value for testing",
+        "CollocateQueryHelper is a package-private class used only by BlackLabQueryExecutor \u2014 it adds a level of indirection that is justified by the extracted complexity of collocate ranking and frequency lookup",
+        "handleFullSketchForType and handleDepSketchForType in SketchHandlers are structurally near-identical (both iterate grammarConfig.getRelations(), catch errors, build response) but cannot be cleanly unified because the response shape differs (surface returns collocations list, dep returns full buildRelationResponse) \u2014 the abstraction gap is real",
+        "ExploreOptions bundles nullable/conditional parameters (nounsPerSeed is unused in multi-seed mode) \u2014 a wide options bag for a single method with implicit conditionality",
+        "SemanticFieldExplorer.exploreByPattern takes RelationConfig as a parameter, passing a config object into an exploration domain class \u2014 the abstraction boundary leaks config into exploration logic",
+        "HttpApiUtils is a static utility class with no state \u2014 appropriate for the domain; no pass-through wrapper smell"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "sub_axes": {
+        "abstraction_leverage": 76.0,
+        "indirection_cost": 82.0,
+        "interface_honesty": 80.0,
+        "delegation_density": 78.0,
+        "definition_directness": 77.0,
+        "type_discipline": 74.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "QueryExecutor interface provides genuine leverage: it decouples the api layer from BlackLab and enables test doubles",
+        "CollocateQueryHelper extraction is justified \u2014 it encapsulates ~150 lines of ranking and scoring logic that would otherwise bloat BlackLabQueryExecutor",
+        "RecordConfig record with rich accessors (getFullPattern, collocatePosGroup, getDeprel) gives callers a clean interface to the grammar model without raw JSON access"
+      ],
+      "issue_character": "The main abstraction issues are a wide nullable-parameter options bag (ExploreOptions.nounsPerSeed unused in multi-seed mode) and near-duplicate dispatch paths in SketchHandlers for surface vs dependency sketches that share structure but cannot be cleanly unified due to response shape differences.",
+      "score_rationale": "Abstractions in this codebase mostly pay for themselves: the QueryExecutor interface, CollocateQueryHelper, and RelationConfig record all provide real leverage. The score falls into the high-70s because ExploreOptions carries a conditional parameter that should be Optional or moved to a subtype, and the handleFullSketchForType/handleDepSketchForType duplication signals that the response-shape difference has not been captured in the type system."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explore_options_nullable_param",
+      "summary": "ExploreOptions.nounsPerSeed is unused and semantically inapplicable in multi-seed mode, making the options bag carry a conditional nullable field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExploreOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExploreOptions record: int topCollocates, int nounsPerSeed, double minLogDice, int minShared, boolean includeExamples",
+        "handleSemanticFieldExploreMulti comment: 'nouns_per intentionally not supported in multi-seed mode \u2014 seeds parameter is required instead'",
+        "Multi-seed call path creates ExploreOptions with nounsPerSeed but the value is never used by SemanticFieldExplorer in that path"
+      ],
+      "suggestion": "Either use Optional<Integer> for nounsPerSeed in ExploreOptions to make the conditionality explicit, or introduce two separate options records: SingleSeedOptions (with nounsPerSeed) and MultiSeedOptions (without). This makes invalid states unrepresentable.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "sketch_handler_dispatch_duplication",
+      "summary": "handleFullSketchForType and handleDepSketchForType in SketchHandlers share identical outer loop structure but differ only in response building, suggesting a missing abstraction for the shared iteration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Both methods iterate grammarConfig.getRelations(), check relationType, call executeAndFormatCollocations, catch IOException|RuntimeException identically, build a response Map with identical keys (status, lemma, relations, errors)",
+        "The only difference is: surface path uses collocations list directly, dep path calls buildRelationResponse and adds 'type':'dependency'",
+        "This duplication means any change to error handling or response envelope must be made in both methods"
+      ],
+      "suggestion": "Extract a functional interface or a BiFunction<RelationConfig, ExecutedSketch, Map<String,Object>> responseBuilder parameter. A shared private method can own the iteration loop, with the response-builder lambda supplied by each call site.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExploreOptions was designed for single-seed exploration and later reused for multi-seed without refactoring the parameter set",
+      "handleFullSketchForType/handleDepSketchForType diverged from a common ancestor as the dep path evolved a richer response format"
+    ],
+    "likely_symptoms": [
+      "explore_options_nullable_param",
+      "sketch_handler_dispatch_duplication"
+    ],
+    "possible_false_positives": []
+  }
+}

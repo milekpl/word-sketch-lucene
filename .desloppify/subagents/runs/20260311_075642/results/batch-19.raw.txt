@@ -1,0 +1,105 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 60.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "GET /api/semantic-field/explore uses 'seed' (singular) while GET /api/semantic-field/explore-multi uses 'seeds' (plural comma-list) and GET /api/semantic-field uses 'seeds' — three endpoints for related operations use two different parameter names",
+        "'nouns_per' is available in single-seed explore but explicitly excluded from multi-seed explore with a code comment — asymmetric API surface for similar endpoints",
+        "CORS_ALLOW_ORIGIN = 'http://localhost:3000' is hardcoded — not configurable, breaks for any deployment with a different frontend origin",
+        "CLI parameter is '--limit' but API parameter is 'top'; CLI uses '--min-logdice' while API uses 'min_logdice' — consistent snake_case in API but divergent naming with CLI",
+        "/api/sketch/{lemma} response has 'relations' as a map keyed by relation ID; /api/semantic-field/explore response has 'seed_collocates' as a list — different shapes for similarly structured collocation data",
+        "/api/bcql is POST-only while all other query endpoints are GET — appropriate for BCQL body size, but not documented in the class-level Javadoc endpoint listing's format notes",
+        "WordSketchApiServer Javadoc endpoint listing does not document query parameters, required vs optional params, or error response shapes for any endpoint",
+        "QueryExecutor interface has excellent per-method Javadoc; REST endpoint Javadoc in handler methods (e.g., handleSemanticFieldExplore) documents params inline but only at source level, not discoverable by API consumers",
+        "HttpApiUtils.requireParam sends 400 for missing params; NumberFormatException in param parsing also sends 400 via resolveExploreParams — error handling is consistent within endpoints but the error messages vary in specificity"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "HTTP method discipline: GET for all read endpoints, POST for state-affecting or large-body endpoints (/api/bcql, /api/visual/radial)",
+        "Consistent JSON error envelope: all errors use {\"error\": \"message\"} shape via HttpApiUtils.sendError()",
+        "Consistent 'status: ok' field in all success responses",
+        "CORS handling is uniform across all endpoints via registerGetHandler/registerPostHandler"
+      ],
+      "issue_character": "The dominant coherence issue is parameter naming asymmetry across the semantic-field endpoint family — 'seed' vs 'seeds', 'nouns_per' available in one but not the other — which creates inconsistent caller experience for endpoints that are conceptually related.",
+      "score_rationale": "The REST API has several positive consistency traits (error envelope, status field, HTTP method discipline). However, the semantic-field endpoint family is visibly incoherent: similar operations have different parameter names ('seed' vs 'seeds'), one endpoint exposes a parameter ('nouns_per') that its sibling intentionally omits with a code comment rather than returning a 400 for it. The CORS constant prevents any deployment customisation. The absence of machine-readable API documentation means callers discover contracts by trial and error. Score 60 reflects decent baseline consistency undermined by a notably incoherent endpoint family and hardcoded infrastructure."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "seed_vs_seeds_param_inconsistency",
+      "summary": "Semantic-field endpoints use 'seed' (singular) and 'seeds' (plural) inconsistently for related operations",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: 'HttpApiUtils.requireParam(exchange, params, \"seed\")' — single seed parameter",
+        "handleSemanticFieldExploreMulti: 'HttpApiUtils.requireParam(exchange, params, \"seeds\")' — plural seeds parameter",
+        "handleSemanticFieldComparison: 'HttpApiUtils.requireParam(exchange, params, \"seeds\")' — plural seeds parameter",
+        "A client developing against these three related endpoints would encounter two different parameter names for the same conceptual input"
+      ],
+      "suggestion": "Standardize on 'seeds' (plural, comma-separated) for all three endpoints. For /api/semantic-field/explore, accept 'seeds' and use the first (or only) value as the single seed. Update Javadoc comments accordingly. This is a breaking API change — version or deprecate the old 'seed' parameter if clients depend on it.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "nouns_per_asymmetry",
+      "summary": "'nouns_per' parameter is available in single-seed explore but silently unavailable in multi-seed explore",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "handleSemanticFieldExplore: resolveExploreParams() parses 'nouns_per' with default 30",
+        "handleSemanticFieldExploreMulti: comment 'nouns_per intentionally not supported in multi-seed mode' — if a client sends nouns_per=50, it is silently ignored",
+        "Silent parameter ignore is worse than a documented 400 error: callers cannot tell their parameter was dropped"
+      ],
+      "suggestion": "Either support 'nouns_per' in multi-seed explore (as topCollocates for each seed), or explicitly reject it with a 400 error: 'if (params.containsKey(\"nouns_per\")) { sendError(exchange, 400, \"nouns_per is not supported in multi-seed mode\"); return; }'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "cors_not_configurable",
+      "summary": "CORS_ALLOW_ORIGIN is a hardcoded static constant with no runtime override",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "CORS_ALLOW_ORIGIN = 'http://localhost:3000' — used in all response headers",
+        "Comment: 'Restrict to specific origins in production. Change this value ... when deploying'",
+        "No -D property, constructor parameter, or environment variable allows changing this"
+      ],
+      "suggestion": "Read from system property: 'System.getProperty(\"cors.allow.origin\", \"http://localhost:3000\")'. Pass to WordSketchApiServer constructor and down to HttpApiUtils methods, or use a static initializer for the property-based approach.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "missing_api_parameter_contracts",
+      "summary": "REST endpoints lack machine-readable or discoverable documentation for required parameters, types, and error contracts",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "WordSketchApiServer Javadoc lists endpoints but not their parameters or error responses",
+        "Handler method Javadoc documents some parameters in inline comments but not in a discoverable format",
+        "No /api/schema, OpenAPI, or /api/help endpoint"
+      ],
+      "suggestion": "Add a GET /api/schema or /api/help endpoint that returns a JSON listing of all endpoints with their required/optional parameters and response shapes. At minimum, extend the WordSketchApiServer Javadoc with a parameter table for each endpoint.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The semantic-field endpoint family was developed incrementally (single-seed first, then multi-seed, then comparison) without revisiting parameter naming conventions"],
+    "likely_symptoms": ["seed_vs_seeds_param_inconsistency and nouns_per_asymmetry are symptoms of the same incremental-growth root cause"],
+    "possible_false_positives": ["/api/bcql POST vs other GET endpoints — this is intentional, not an incoherence"]
+  }
+}

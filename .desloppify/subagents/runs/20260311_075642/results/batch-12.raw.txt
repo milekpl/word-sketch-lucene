@@ -1,0 +1,79 @@
+{
+  "batch": "package_organization",
+  "batch_index": 12,
+  "assessments": {"package_organization": 76.0},
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "api/ contains WordSketchApiServer, SketchHandlers, ExplorationHandlers, HttpApiUtils, RelationUtils — all HTTP-layer concerns, well scoped",
+        "config/ contains GrammarConfigLoader, RelationConfig, PosGroup, RelationType — configuration domain, well scoped",
+        "exploration/ contains SemanticFieldExplorer, CollocateProfileComparator — exploration logic, well scoped",
+        "query/ contains BlackLabQueryExecutor, CollocateQueryHelper, BlackLabSnippetParser, QueryExecutor interface, QueryResults — query execution domain",
+        "model/ is a catch-all mixing result DTOs (QueryResults, ExplorationResult, ComparisonResult), visualization graph model (Edge, RelationEdgeType), and tuning config (ExploreOptions), and collocate profiles (AdjectiveProfile, CoreCollocate, DiscoveredNoun)",
+        "utils/ mixes corpus-specific logic (CqlUtils, LogDiceCalculator) with a generic data structure (LongIntHashMap)",
+        "QueryResults is in model/ but imported in query/ classes — it straddles two packages conceptually",
+        "RelationConfig record in config/ has substantial query-generation logic (getFullPattern, collocateReversePattern, collocatePosGroup, getDeprel) that goes beyond pure configuration"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "api/, config/, exploration/, and query/ packages each have a clear, consistent ownership boundary",
+        "Indexer logic is cleanly isolated under indexer/blacklab/",
+        "viz/ package correctly separates visualization concerns"
+      ],
+      "issue_character": "The model/ and utils/ packages act as catch-alls that accumulate heterogeneous concerns, blurring ownership boundaries for result DTOs, visualization types, and generic data structures.",
+      "score_rationale": "The top-level package structure is sound and navigable for a project of this size. The model/ package mixes query result DTOs, visualization graph types, and numeric tuning records that could be split across result/, graph/, or the packages that own them. utils/ is a grab-bag with CQL-specific logic (CqlUtils) alongside a generic low-level data structure (LongIntHashMap). These are real but non-critical navigation friction points that a developer would encounter when searching for Edge or ExploreOptions. Score 76 reflects solid structure with two packages that benefit from scoping refinement."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "model_package_overload",
+      "summary": "model/ mixes result DTOs, visualization graph types, and tuning config records",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/CoreCollocate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExploreOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationEdgeType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExploreOptions (tuning knobs for SemanticFieldExplorer) and RelationEdgeType (graph edge classification) have no cohesive relationship to query DTOs like QueryResults",
+        "Edge and RelationEdgeType are visualization graph types that would more naturally live in viz/ or exploration/model/"
+      ],
+      "suggestion": "Staged reorg: (1) Move ExploreOptions to exploration/ alongside SemanticFieldExplorer; (2) Move Edge and RelationEdgeType to viz/ or exploration/ (they are only used by ExplorationResult.buildEdges and ComparisonResult.buildEdges); (3) Validate with: grep -r 'import.*model\\.Edge\\|import.*model\\.RelationEdge\\|import.*model\\.ExploreOptions' src/main/java/ to find and update all import statements.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "utils_package_heterogeneity",
+      "summary": "utils/ mixes corpus-specific CQL/scoring utilities with a general-purpose data structure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LongIntHashMap.java"
+      ],
+      "evidence": [
+        "LongIntHashMap is a general-purpose open-addressing hash map with no dependency on corpus or CQL concerns",
+        "CqlUtils is CQL-language specific and tightly coupled to the grammar/query layer"
+      ],
+      "suggestion": "Move LongIntHashMap to a new collections/ package or to the package that most heavily uses it. Alternatively, keep utils/ but document its scope explicitly. Run: grep -r 'import.*utils\\.LongIntHashMap' src/main/java/ to identify the primary consumer and consider co-locating it there.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Incremental growth caused model/ to accumulate types from multiple domains without a splitting trigger"],
+    "likely_symptoms": ["Developer unfamiliar with the codebase may struggle to locate ExploreOptions or Edge"],
+    "possible_false_positives": ["RelationConfig in config/ doing query-generation — intentional record design, not a placement issue"]
+  }
+}

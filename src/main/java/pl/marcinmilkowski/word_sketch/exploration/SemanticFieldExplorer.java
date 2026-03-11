@@ -93,17 +93,6 @@ public class SemanticFieldExplorer {
     // ==================== EXPLORATION MODE ====================
 
     /**
-     * Explore semantic field using a BCQL pattern from grammar config.
-     * This is the preferred method as it uses the actual patterns from relations.json.
-     *
-     * @param seed          The seed noun to explore from
-     * @param relationName  Human-readable relation name for logging
-     * @param bcqlPattern   BCQL pattern with headword placeholder
-     * @param simplePattern Simple pattern for reverse lookup (e.g., "[xpos=\"JJ.*\"]")
-     * @param opts          Tuning parameters and positional hints
-     * @return ExplorationResult with discovered semantic class
-     */
-    /**
      * Convenience overload that extracts pattern strings from a {@link RelationConfig},
      * mirroring the delegation style used by the multi-seed path.
      */
@@ -128,6 +117,16 @@ public class SemanticFieldExplorer {
             opts);
     }
 
+    /**
+     * Explore semantic field using a BCQL pattern from grammar config.
+     *
+     * @param seed          the seed noun to explore from
+     * @param relationName  human-readable relation name for logging
+     * @param bcqlPattern   BCQL pattern with headword already substituted
+     * @param simplePattern simple reverse-lookup pattern (e.g., {@code [xpos="JJ.*"]})
+     * @param opts          tuning parameters (topCollocates, nounsPerSeed, minLogDice, minShared)
+     * @return ExplorationResult with discovered semantic class
+     */
     public ExplorationResult exploreByPattern(
             String seed,
             String relationName,
@@ -177,7 +176,7 @@ public class SemanticFieldExplorer {
 
         // Step 2: For each collocate, find nouns it collocates with
         logger.debug("\nStep 2: Finding nouns for each collocate...");
-        Map<String, Map<String, Double>> nounProfiles = buildNounCollocateMap(
+        Map<String, Map<String, Double>> nounProfiles = buildCollocateToNounsMap(
             seedCollocScores, seed, minLogDice, nounsPerPredicate);
         logger.debug("  Total candidate nouns: {}", nounProfiles.size());
 
@@ -228,7 +227,7 @@ public class SemanticFieldExplorer {
      * Phase 2: For each collocate, find nouns it collocates with (reverse lookup).
      * Returns a map of noun → {collocate → logDice}.
      */
-    private Map<String, Map<String, Double>> buildNounCollocateMap(
+    private Map<String, Map<String, Double>> buildCollocateToNounsMap(
             Map<String, Double> seedCollocScores, String seed,
             double minLogDice, int nounsPerPredicate) throws IOException {
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
@@ -301,6 +300,10 @@ public class SemanticFieldExplorer {
 
     /**
      * Compare collocate profiles of the given seed words using logDice scores.
+     *
+     * <p>This method is an intentional facade over {@link AdjectiveCollocateRanker#compareCollocateProfiles}
+     * so that callers need only depend on {@code SemanticFieldExplorer} rather than reaching into
+     * the internal {@code AdjectiveCollocateRanker}.</p>
      *
      * @param seeds          seed words to compare
      * @param minLogDice     minimum logDice threshold

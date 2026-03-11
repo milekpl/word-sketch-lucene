@@ -1,7 +1,5 @@
 package pl.marcinmilkowski.word_sketch.viz;
 
-import java.text.DecimalFormat;
-import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -18,11 +16,6 @@ import java.util.Locale;
  * - Labels with proper positioning
  */
 public class RadialPlot {
-
-    // Use locale-independent formatting (explicit decimal separator)
-    private static final DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance(Locale.US);
-    private static final DecimalFormat df = new DecimalFormat("0.00", dfs);
-    private static final DecimalFormat dfInt = new DecimalFormat("0", dfs);
 
     // Baseline canvas size (px) used to derive all spiral/layout constants.
     // All pixel values are multiplied by scale = min(width, height) / BASELINE_CANVAS_SIZE.
@@ -53,7 +46,7 @@ public class RadialPlot {
     private static final double LEGEND_CIRCLE_Y_OFFSET = -4.0; // vertical offset of legend circles from baseline
 
     private static String fmt(double value) {
-        return df.format(value);
+        return String.format(Locale.US, "%.2f", value);
     }
 
     /**
@@ -73,6 +66,9 @@ public class RadialPlot {
     private final int width;
     private final int height;
     private final String mode;
+    private final double centerX;
+    private final double centerY;
+    private final double scale;
 
     private static class Collocate {
         String word;
@@ -98,11 +94,10 @@ public class RadialPlot {
         this.height = height;
         this.mode = mode;
 
-        double centerX = width / 2.0;
-        double centerY = height / 2.0;
-
+        this.centerX = width / 2.0;
+        this.centerY = height / 2.0;
         // Scale factor: normalize all pixel values relative to an 800px baseline
-        double scale = Math.min(width, height) / BASELINE_CANVAS_SIZE;
+        this.scale = Math.min(width, height) / BASELINE_CANVAS_SIZE;
 
         // Extract and sort collocates by absolute score (descending)
         collocates = new ArrayList<>();
@@ -154,10 +149,6 @@ public class RadialPlot {
 
     public String toSVG() {
         StringBuilder svg = new StringBuilder();
-
-        double centerX = width / 2.0;
-        double centerY = height / 2.0;
-        double scale = Math.min(width, height) / BASELINE_CANVAS_SIZE;
 
         svg.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.append(String.format("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n", width, height, width, height));

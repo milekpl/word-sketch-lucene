@@ -245,21 +245,21 @@ class CollocateQueryHelper {
     private List<QueryResults.CollocateResult> scoreHits(List<HitRecord> records,
             Map<String, Long> collocateFreqMap, long headwordFreq, int maxResults) throws IOException {
         List<QueryResults.CollocateResult> results = new ArrayList<>();
-        int limit = Math.min(records.size(), maxResults * OVER_FETCH_FACTOR);
+        int limit = (int) Math.min((long) maxResults * OVER_FETCH_FACTOR, (long) records.size());
 
         for (int i = 0; i < limit; i++) {
             HitRecord rec = records.get(i);
             String collocateLemma = rec.collocateLemma();
+            boolean validCollocate = collocateLemma != null && !collocateLemma.isEmpty();
 
             long jointFreq = 0L;
-            if (collocateLemma != null && !collocateLemma.isEmpty()) {
+            if (validCollocate) {
                 jointFreq = collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 0L);
                 if (jointFreq == 0L) {
                     logger.warn("Collocate '{}' not found in frequency map — logDice will be 0", collocateLemma);
                 }
             }
-            long collocateFreq = (collocateLemma != null && !collocateLemma.isEmpty())
-                    ? getTotalFrequency(collocateLemma) : 0L;
+            long collocateFreq = validCollocate ? getTotalFrequency(collocateLemma) : 0L;
 
             double logDice = (headwordFreq > 0 && collocateFreq > 0)
                     ? LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;

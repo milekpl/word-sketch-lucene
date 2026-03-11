@@ -1,6 +1,8 @@
 package pl.marcinmilkowski.word_sketch.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -59,8 +61,8 @@ public class ExplorationResult {
             .collect(Collectors.toList());
     }
 
-    /** Build edges for visualization */
-    public List<Edge> getEdges() {
+    /** Build edges for visualization — performs list construction on every call. */
+    public List<Edge> buildEdges() {
         List<Edge> edges = new ArrayList<>();
 
         // Edges from seed to its collocates
@@ -78,9 +80,70 @@ public class ExplorationResult {
         return edges;
     }
 
+    /** @deprecated Use {@link #buildEdges()} — name reflects that list construction happens on every call. */
+    @Deprecated
+    public List<Edge> getEdges() {
+        return buildEdges();
+    }
+
     @Override
     public String toString() {
         return String.format("ExplorationResult(seed='%s', collocates=%d, discovered=%d, core=%d)",
             seed, seedCollocates.size(), discoveredNouns.size(), coreCollocates.size());
+    }
+
+    /**
+     * Serialize this result to a plain map suitable for JSON serialization.
+     * Keeps serialization logic co-located with the data it describes.
+     */
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("seed", seed);
+
+        List<Map<String, Object>> collocList = new ArrayList<>();
+        for (Map.Entry<String, Double> e : seedCollocates.entrySet()) {
+            Map<String, Object> c = new HashMap<>();
+            c.put("word", e.getKey());
+            c.put("log_dice", Math.round(e.getValue() * 100.0) / 100.0);
+            c.put("frequency", seedCollocateFrequencies.getOrDefault(e.getKey(), 0L));
+            collocList.add(c);
+        }
+        map.put("seed_collocates", collocList);
+
+        List<Map<String, Object>> nounList = new ArrayList<>();
+        for (DiscoveredNoun n : discoveredNouns) {
+            Map<String, Object> nm = new HashMap<>();
+            nm.put("word", n.noun());
+            nm.put("shared_count", n.sharedCount());
+            nm.put("similarity_score", Math.round(n.sharedCollocateScore() * 100.0) / 100.0);
+            nm.put("avg_logdice", Math.round(n.avgLogDice() * 100.0) / 100.0);
+            nm.put("shared_collocates", n.sharedCollocateList());
+            nounList.add(nm);
+        }
+        map.put("discovered_nouns", nounList);
+
+        List<Map<String, Object>> coreList = new ArrayList<>();
+        for (CoreCollocate c : coreCollocates) {
+            Map<String, Object> cm = new HashMap<>();
+            cm.put("word", c.collocate());
+            cm.put("shared_by_count", c.sharedByCount());
+            cm.put("total_nouns", c.totalNouns());
+            cm.put("coverage", Math.round(c.coverage() * 100.0) / 100.0);
+            cm.put("seed_logdice", Math.round(c.seedLogDice() * 100.0) / 100.0);
+            coreList.add(cm);
+        }
+        map.put("core_collocates", coreList);
+
+        List<Map<String, Object>> edgeList = new ArrayList<>();
+        for (Edge edge : buildEdges()) {
+            Map<String, Object> em = new HashMap<>();
+            em.put("source", edge.source());
+            em.put("target", edge.target());
+            em.put("log_dice", Math.round(edge.weight() * 100.0) / 100.0);
+            em.put("type", edge.type().label());
+            edgeList.add(em);
+        }
+        map.put("edges", edgeList);
+        return map;
     }
 }

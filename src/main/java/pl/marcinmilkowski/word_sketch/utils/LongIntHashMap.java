@@ -6,6 +6,10 @@ package pl.marcinmilkowski.word_sketch.utils;
  */
 public class LongIntHashMap {
 
+    /**
+     * Sentinel value used to mark empty slots. {@code Long.MIN_VALUE} cannot be stored as a key;
+     * callers must not insert this value.
+     */
     private static final long EMPTY_KEY = Long.MIN_VALUE;
     private static final int DEFAULT_CAPACITY = 16;
     private static final float LOAD_FACTOR = 0.75f;

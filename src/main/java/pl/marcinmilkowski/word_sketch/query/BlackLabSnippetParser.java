@@ -57,12 +57,10 @@ class BlackLabSnippetParser {
         if (matchText == null || matchText.isEmpty()) {
             return null;
         }
-        // Try xpos first
         java.util.regex.Matcher m = XPOS_ATTR.matcher(matchText);
         if (m.find()) {
             return m.group(1);
         }
-        // Fallback to upos
         m = UPOS_ATTR.matcher(matchText);
         if (m.find()) {
             return m.group(1);
@@ -212,7 +210,6 @@ class BlackLabSnippetParser {
     /**
      * Extract the collocate (labeled {@code 2:}) lemma from a BCQL match snippet.
      * Finds the last lemma attribute, which corresponds to the collocate in most patterns.
-     * For precise positional extraction, use {@link #extractLemmaAt(String, int)}.
      *
      * @param matchXml The match XML (parts[1] from a concordance)
      * @return The collocate lemma (original case), or {@code null}

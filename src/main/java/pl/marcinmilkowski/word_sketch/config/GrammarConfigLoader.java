@@ -84,13 +84,13 @@ public class GrammarConfigLoader {
 
     /** Reads config file content, throwing {@link java.io.FileNotFoundException} if the file does not exist. */
     private static String readConfigFile(Path p) throws IOException {
-        if (!Files.exists(p)) throwForMissingConfig(p);
+        if (!Files.exists(p)) throw missingConfigException(p);
         return Files.readString(p);
     }
 
-    /** Always throws {@link java.io.FileNotFoundException} for a missing config file. */
-    private static void throwForMissingConfig(Path p) throws java.io.FileNotFoundException {
-        throw new java.io.FileNotFoundException("Grammar config file not found: " + p);
+    /** Returns a {@link java.io.FileNotFoundException} for a missing config file; always call with {@code throw}. */
+    private static java.io.FileNotFoundException missingConfigException(Path p) {
+        return new java.io.FileNotFoundException("Grammar config file not found: " + p);
     }
 
     /** Primary constructor: parses JSON content directly. */
@@ -253,78 +253,45 @@ public class GrammarConfigLoader {
 
     /**
      * Shared logic for deriving a token position from a numbered label in a CQL pattern.
-     * Scans the pattern counting [token] blocks; returns the count when the target label is found.
-     * Extends the bracket-walking in {@link CqlUtils#splitCqlTokens} to also detect
-     * numbered label prefixes ({@code 1:[...] 2:[...]}).
+     * Delegates bracket-walking to {@link CqlUtils#splitCqlTokens} and only performs
+     * a simple label-prefix check ({@code 1:[...]} or {@code 2:[...]}) without
+     * duplicating the bracket-counting logic.
      */
     private static int deriveTokenPosition(String pattern, char targetLabel, int defaultPos) {
-        if (pattern == null || pattern.isBlank()) {
-            return defaultPos;
-        }
+        if (pattern == null || pattern.isBlank()) return defaultPos;
+        List<String> tokens = CqlUtils.splitCqlTokens(pattern);
+        if (tokens.isEmpty()) return defaultPos;
         int pos = 1;
         int i = 0;
-        while (i < pattern.length()) {
-            if (Character.isWhitespace(pattern.charAt(i))) {
-                i++;
-                continue;
-            }
+        while (i < pattern.length() && pos <= tokens.size()) {
+            if (Character.isWhitespace(pattern.charAt(i))) { i++; continue; }
+            // Label prefix detected: the next token (pos) carries this label
             if (i + 1 < pattern.length() && pattern.charAt(i) == targetLabel && pattern.charAt(i + 1) == ':') {
                 return pos;
             }
             if (pattern.charAt(i) == '[') {
-                // Depth-count to find the matching close bracket, handling nested brackets
-                int depth = 0;
-                while (i < pattern.length()) {
-                    char ch = pattern.charAt(i);
-                    if (ch == '"') {
-                        i++;
-                        while (i < pattern.length() && pattern.charAt(i) != '"') {
-                            if (pattern.charAt(i) == '\\') i++;
-                            i++;
-                        }
-                    } else if (ch == '[') {
-                        depth++;
-                    } else if (ch == ']') {
-                        depth--;
-                        if (depth == 0) {
-                            i++;
-                            break;
-                        }
-                    }
-                    i++;
-                }
+                // Skip past this token using the pre-split token string
+                i += tokens.get(pos - 1).length();
                 pos++;
             } else {
-                i++;
+                i++; // skip label digits, colons, or other non-bracket chars
             }
         }
         return defaultPos;
     }
 
-    /**
-     * Get all configured relations.
-     */
     public List<RelationConfig> getRelations() {
         return relations;
     }
 
-    /**
-     * Get a relation by ID.
-     */
     public Optional<RelationConfig> getRelation(String id) {
         return Optional.ofNullable(relationsById.get(id));
     }
 
-    /**
-     * Get the configuration version.
-     */
     public String getVersion() {
         return version;
     }
 
-    /**
-     * Get the config file path.
-     */
     public Path getConfigPath() {
         return configPath;
     }

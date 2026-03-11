@@ -35,7 +35,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
     private final BlackLabIndex blackLabIndex;
     private final String indexPath;
-    private final CollocateQueryHelper helper;
+    private final CollocateQueryHelper collocateQueryHelper;
 
     public BlackLabQueryExecutor(String indexPath) throws IOException {
         this.indexPath = indexPath;
@@ -44,7 +44,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         } catch (Exception e) {
             throw new IOException("Failed to open index: " + e.getMessage(), e);
         }
-        this.helper = new CollocateQueryHelper(blackLabIndex);
+        this.collocateQueryHelper = new CollocateQueryHelper(blackLabIndex);
     }
 
     @Override
@@ -60,7 +60,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         String bcql = buildBcqlWithLemmaSubstitution(cqlPattern, lemma);
 
-        CollocateQueryHelper.CollocateSearch cs = helper.executeCollocateSearch(bcql, lemma, true);
+        CollocateQueryHelper.CollocateSearch cs = collocateQueryHelper.executeCollocateSearch(bcql, lemma, true);
         long headwordFreq = cs.headwordFreq();
         HitGroups groups = cs.groups();
 
@@ -69,7 +69,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         for (HitGroup group : groups) {
             String identity = group.identity().toString();
-            if (identity == null || identity.isEmpty()) {
+            if (identity.isEmpty()) {
                 continue;
             }
 
@@ -84,7 +84,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             if (pos != null) lemmaPosMap.put(key, pos);
         }
 
-        return helper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
+        return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
     }
 
     @Override
@@ -120,13 +120,13 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
     @Override
     public List<QueryResults.CollocateResult> executeBcqlQuery(String bcqlPattern, int maxResults) throws IOException {
-        return helper.executeBcqlQuery(bcqlPattern, maxResults);
+        return collocateQueryHelper.executeBcqlQuery(bcqlPattern, maxResults);
     }
 
 
     @Override
     public long getTotalFrequency(String lemma) throws IOException {
-        return helper.getTotalFrequency(lemma);
+        return collocateQueryHelper.getTotalFrequency(lemma);
     }
 
     /**
@@ -160,7 +160,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             bcql = String.format("\"%s\" -%s-> _", lemma.toLowerCase(), deprel);
         }
 
-        CollocateQueryHelper.CollocateSearch cs = helper.executeCollocateSearch(bcql, lemma, true);
+        CollocateQueryHelper.CollocateSearch cs = collocateQueryHelper.executeCollocateSearch(bcql, lemma, true);
         long headwordFreq = cs.headwordFreq();
         HitGroups groups = cs.groups();
 
@@ -181,7 +181,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             }
         }
 
-        return helper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
+        return collocateQueryHelper.buildAndRankCollocates(freqMap, lemmaPosMap, headwordFreq, minLogDice, maxResults);
     }
 
     /**
@@ -198,7 +198,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
 
         int collocateLabelPos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
-        CollocateQueryHelper.CollocateSearch cs = helper.executeCollocateSearch(bcqlPattern, lemma, false);
+        CollocateQueryHelper.CollocateSearch cs = collocateQueryHelper.executeCollocateSearch(bcqlPattern, lemma, false);
         long headwordFreq = cs.headwordFreq();
         HitGroups groups = cs.groups();
 
@@ -217,7 +217,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             }
         }
 
-        return helper.buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
+        return collocateQueryHelper.buildAndRankCollocates(freqMap, null, headwordFreq, minLogDice, maxResults);
     }
 
     @Override

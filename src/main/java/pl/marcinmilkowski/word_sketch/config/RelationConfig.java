@@ -1,8 +1,6 @@
 package pl.marcinmilkowski.word_sketch.config;
 
 import com.alibaba.fastjson2.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 import java.util.List;
@@ -27,8 +25,6 @@ public record RelationConfig(
     Optional<RelationType> relationType,
     boolean explorationEnabled
 ) {
-    private static final Logger logger = LoggerFactory.getLogger(RelationConfig.class);
-
     public JSONObject toJson() {
         JSONObject obj = new JSONObject();
         obj.put("id", id);

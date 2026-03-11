@@ -232,7 +232,7 @@ class SemanticFieldExplorerTest {
         ComparisonResult result =
             explorer.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 50);
 
-        List<Edge> edges = result.getEdges();
+        List<Edge> edges = result.buildEdges();
         assertFalse(edges.isEmpty(), "Should have edges");
 
         // Edge from abstract → theory should have weight ~9.0

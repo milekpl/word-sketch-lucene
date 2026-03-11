@@ -229,4 +229,33 @@ class HandlersTest {
         assertEquals("important", body.getString("adjective"));
         assertEquals("theory", body.getString("noun"));
     }
+
+    @Test
+    void handleVisualRadial_withValidJsonBody_returnsSvg() throws Exception {
+        SketchHandlers handlers = new SketchHandlers(null, GrammarConfigHelper.requireTestConfig());
+        String body = "{\"center\":\"theory\",\"width\":400,\"height\":300," +
+                "\"items\":[{\"label\":\"elegant\",\"score\":7.5},{\"label\":\"modern\",\"score\":5.0}]}";
+        MockPostBodyExchange ex = new MockPostBodyExchange("/api/visual/radial", body);
+        handlers.handleVisualRadial(ex);
+        assertEquals(200, ex.statusCode);
+        String response = ex.getResponseBodyAsString();
+        assertTrue(response.contains("<svg"), "Response must contain SVG element");
+        assertTrue(response.contains("theory"), "Response must contain the center word");
+    }
+
+    static class MockPostBodyExchange extends MockExchange {
+        private final byte[] requestBodyBytes;
+
+        MockPostBodyExchange(String uriString, String body) {
+            super(uriString);
+            this.requestBodyBytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        }
+
+        @Override public InputStream getRequestBody() {
+            return new java.io.ByteArrayInputStream(requestBodyBytes);
+        }
+
+        @Override public String getRequestMethod() { return "POST"; }
+    }
 }
+

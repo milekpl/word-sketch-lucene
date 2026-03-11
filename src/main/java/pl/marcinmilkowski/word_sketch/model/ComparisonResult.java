@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -59,8 +60,8 @@ public class ComparisonResult {
             .collect(Collectors.toList());
     }
 
-    /** Build edges for visualization */
-    public List<Edge> getEdges() {
+    /** Build edges for visualization — performs list construction on every call. */
+    public List<Edge> buildEdges() {
         List<Edge> edges = new ArrayList<>();
         for (AdjectiveProfile adj : adjectives) {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
@@ -73,11 +74,49 @@ public class ComparisonResult {
         return edges;
     }
 
+    /** @deprecated Use {@link #buildEdges()} — name reflects that list construction happens on every call. */
+    @Deprecated
+    public List<Edge> getEdges() {
+        return buildEdges();
+    }
+
     @Override
     public String toString() {
         int shared = (int) adjectives.stream().filter(a -> a.presentInCount() >= 2).count();
         int specific = (int) adjectives.stream().filter(a -> a.presentInCount() == 1).count();
         return String.format("ComparisonResult(%d nouns, %d adjectives: %d shared, %d specific)",
             nouns.size(), adjectives.size(), shared, specific);
+    }
+
+    /**
+     * Serialize this result to a plain map suitable for JSON serialization.
+     * Keeps serialization logic co-located with the data it describes.
+     */
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("nouns", new ArrayList<>(nouns));
+
+        List<Map<String, Object>> adjList = new ArrayList<>();
+        for (AdjectiveProfile adj : adjectives) {
+            Map<String, Object> am = new HashMap<>();
+            am.put("adjective", adj.adjective());
+            am.put("present_in_count", adj.presentInCount());
+            am.put("max_log_dice", Math.round(adj.maxLogDice() * 100.0) / 100.0);
+            am.put("noun_scores", adj.nounScores());
+            adjList.add(am);
+        }
+        map.put("adjectives", adjList);
+
+        List<Map<String, Object>> edgeList = new ArrayList<>();
+        for (Edge edge : buildEdges()) {
+            Map<String, Object> em = new HashMap<>();
+            em.put("source", edge.source());
+            em.put("target", edge.target());
+            em.put("log_dice", Math.round(edge.weight() * 100.0) / 100.0);
+            em.put("type", edge.type().label());
+            edgeList.add(em);
+        }
+        map.put("edges", edgeList);
+        return map;
     }
 }

@@ -157,10 +157,8 @@ class SketchHandlers {
         response.put("lemma", lemma);
         if (isDep) {
             response.put("type", "dependency");
-            response.put("relations", byRelation);
-        } else {
-            response.put("relations", byRelation);
         }
+        response.put("relations", byRelation);
         if (!relationErrors.isEmpty()) {
             response.put("errors", relationErrors);
         }

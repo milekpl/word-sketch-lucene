@@ -38,17 +38,17 @@ public class WordSketchApiServer {
     private final GrammarConfigLoader grammarConfig;
     private final SketchHandlers sketchHandlers;
     private final ExplorationHandlers explorationHandlers;
-    private com.sun.net.httpserver.HttpServer server;
+    private final com.sun.net.httpserver.HttpServer server;
 
-    public WordSketchApiServer(QueryExecutor executor, int port, GrammarConfigLoader grammarConfig) {
+    public WordSketchApiServer(QueryExecutor executor, int port, GrammarConfigLoader grammarConfig) throws IOException {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
         SemanticFieldExplorer semanticFieldExplorer = new SemanticFieldExplorer(executor);
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);
         this.explorationHandlers = new ExplorationHandlers(grammarConfig, semanticFieldExplorer);
-        // Two-phase init is intentional: the constructor wires dependencies without touching the
-        // network, so subclasses and tests can instantiate without opening a port. start() is
-        // the only method that performs I/O and can throw.
+        this.server = com.sun.net.httpserver.HttpServer.create(
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
+        registerRoutes();
     }
 
     private void registerRoutes() {
@@ -90,34 +90,23 @@ public class WordSketchApiServer {
     }
 
     public void start() {
-        try {
-            server = com.sun.net.httpserver.HttpServer.create(
-                    new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
-
-            registerRoutes();
-
-            server.setExecutor(null);
-            server.start();
-            logger.info("API server started on port {}", port);
-            logger.info("Server started on http://localhost:{}", port);
-            logger.info("Endpoints:");
-            logger.info("  GET  /health - Health check");
-            logger.info("  GET  /api/sketch/{lemma} - Get full word sketch (surface patterns)");
-            logger.info("  GET  /api/sketch/{lemma}/{relation} - Get specific surface relation");
-            logger.info("  GET  /api/sketch/{lemma}/dep - Get full dependency sketch");
-            logger.info("  GET  /api/sketch/{lemma}/dep/{relationId} - Get specific dependency relation");
-            logger.info("  GET  /api/relations - List available surface relations");
-            logger.info("  GET  /api/relations/dep - List available dependency relations");
-            logger.info("  GET  /api/concordance/examples - Get concordance examples for word pair");
-            logger.info("  GET  /api/visual/radial - Get radial plot SVG");
-            logger.info("  POST /api/bcql - Execute BCQL query");
-            logger.info("");
-            logger.info("Press Ctrl+C to stop.");
-
-        } catch (IOException e) {
-            logger.error("Failed to start server", e);
-            throw new RuntimeException("Failed to start server", e);
-        }
+        server.setExecutor(null);
+        server.start();
+        logger.info("API server started on port {}", port);
+        logger.info("Server started on http://localhost:{}", port);
+        logger.info("Endpoints:");
+        logger.info("  GET  /health - Health check");
+        logger.info("  GET  /api/sketch/{lemma} - Get full word sketch (surface patterns)");
+        logger.info("  GET  /api/sketch/{lemma}/{relation} - Get specific surface relation");
+        logger.info("  GET  /api/sketch/{lemma}/dep - Get full dependency sketch");
+        logger.info("  GET  /api/sketch/{lemma}/dep/{relationId} - Get specific dependency relation");
+        logger.info("  GET  /api/relations - List available surface relations");
+        logger.info("  GET  /api/relations/dep - List available dependency relations");
+        logger.info("  GET  /api/concordance/examples - Get concordance examples for word pair");
+        logger.info("  GET  /api/visual/radial - Get radial plot SVG");
+        logger.info("  POST /api/bcql - Execute BCQL query");
+        logger.info("");
+        logger.info("Press Ctrl+C to stop.");
     }
 
     /**

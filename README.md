@@ -499,6 +499,12 @@ python -m http.server 3000 --directory webapp
 # Open browser to http://localhost:3000
 ```
 
+To configure a non-default CORS origin (e.g., for production), use the `cors.allow.origin` JVM property:
+```bash
+java -Dcors.allow.origin=https://myapp.example.com \
+     -jar target/concept-sketch-1.5.0-shaded.jar server --index <corpus_path> --port 8080
+```
+
 ---
 
 ## CQL Pattern Syntax

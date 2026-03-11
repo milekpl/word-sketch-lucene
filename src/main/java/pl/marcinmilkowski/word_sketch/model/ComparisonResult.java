@@ -8,15 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Complete comparison result with graded adjective profiles.
- * <p>
- * This is a traditional class (not a record), so accessor methods intentionally
- * use the {@code get} prefix following standard JavaBeans conventions.
- * Record types in this package (e.g. {@link AdjectiveProfile}, {@link CoreCollocate},
- * {@link DiscoveredNoun}) omit the {@code get} prefix per Java record conventions.
- * </p>
- */
+/** Complete comparison result with graded adjective profiles. */
 public class ComparisonResult {
     private final List<String> nouns;
     private final List<AdjectiveProfile> adjectives;

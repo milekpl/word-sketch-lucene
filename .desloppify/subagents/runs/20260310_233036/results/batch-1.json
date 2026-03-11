@@ -1,0 +1,85 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 74.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency graph is a clean DAG: utils/model are leaves; config/query depend only on utils; exploration depends on config/query/model; api depends on exploration/config/query/model/viz; Main depends on api/config/indexer/query. No import cycles detected.",
+        "QueryExecutor is a proper interface in the query layer; BlackLabQueryExecutor is its sole implementation but the boundary is respected — api and exploration only see the interface.",
+        "PatternSubstitution lives in api package (pl.marcinmilkowski.word_sketch.api) but performs pure CQL string manipulation with no HTTP duties. Its test class is placed under src/test/.../utils/PatternSubstitutionTest.java, revealing the developer's own mental model that it belongs in utils.",
+        "CqlUtils (utils layer) javadoc explicitly names api.PatternSubstitution as a sibling: 'Both pl.marcinmilkowski.word_sketch.api.PatternSubstitution and pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader need to walk these bracket boundaries'. This documents the intended relationship but gets the placement wrong — the lower-layer class comments upward to the higher layer.",
+        "RelationUtils (api package) contains the domain mapping from user-facing alias strings (adj_predicate, adj_modifier, subject_of, object_of) to internal grammar config IDs (noun_adj_predicates, noun_modifiers, noun_verbs, verb_nouns). This is domain/config logic, not HTTP handling. It is package-private, so no other layer can reuse it without importing api.",
+        "No hub modules found: the api package (1190 LOC) is the largest subsystem but it delegates into exploration and query; it does not aggregate mutable shared state.",
+        "No cross-module coordination through shared mutable state or import-time side effects detected.",
+        "Package size distribution is reasonable: api 1190 LOC, query 943 LOC, exploration 590 LOC, config 595 LOC, model 271 LOC, utils ~150 LOC, viz/indexer <250 LOC each."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Dependency graph is a strict DAG with no cycles: leaves (utils, model) are never imported by lower-layer packages, and no package has a transitive path back to itself.",
+        "QueryExecutor interface cleanly isolates BlackLab specifics: exploration and api depend on the interface, not on the BlackLab-specific implementation.",
+        "model package is a pure data layer with no internal project imports, making it safe to share across all other layers.",
+        "Package size distribution is balanced; no single package dominates the codebase or accumulates unrelated concerns."
+      ],
+      "issue_character": "The issues are localized misplacements of two utility/domain classes into the api package, motivated by convenience — they are used by api handlers but perform no HTTP duties and logically belong at lower layers. This creates a one-way boundary leak where tests and docs already reflect the correct placement but the source files have not been moved.",
+      "score_rationale": "The codebase scores well on the most critical cross-module concerns: no cycles, clear DAG, no shared mutable state, and a proper interface boundary around the query layer. What pulls the score down are two concrete misplacements — PatternSubstitution (CQL string manipulation) and RelationUtils (relation alias domain logic) living in the api package — compounded by CqlUtils javadoc commenting upward to api.PatternSubstitution, which inverts the expected knowledge direction. These are not architectural disasters but they are real friction points: any future non-HTTP consumer of CQL manipulation or relation aliasing will be forced to take an unwanted api dependency. A codebase with no such misplacements would score in the mid-80s; the presence of two localized but clear boundary violations places this in the mid-70s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "pattern_substitution_in_api",
+      "summary": "PatternSubstitution (CQL string manipulation) misplaced in api package; belongs in utils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitutionTest.java"
+      ],
+      "evidence": [
+        "PatternSubstitution.java is in pl.marcinmilkowski.word_sketch.api but has no HTTP or handler dependencies — it only imports java.util.List and pl.marcinmilkowski.word_sketch.utils.CqlUtils.",
+        "Its test class is placed at src/test/.../utils/PatternSubstitutionTest.java, not under api/, confirming the developer's own intent that this is a utils-layer class.",
+        "CqlUtils.java (utils layer) references api.PatternSubstitution in its class-level javadoc as a sibling consumer of splitCqlTokens, inverting the expected knowledge direction: 'Both pl.marcinmilkowski.word_sketch.api.PatternSubstitution and pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader need to walk these bracket boundaries'.",
+        "Any future non-HTTP consumer of CQL pattern manipulation (e.g. a batch CLI tool) must import the api package to access this utility."
+      ],
+      "suggestion": "Move PatternSubstitution.java to src/main/java/pl/marcinmilkowski/word_sketch/utils/ and update its package declaration to pl.marcinmilkowski.word_sketch.utils. Update the import in SketchHandlers.java (the only caller) and remove the api reference from CqlUtils javadoc. The test file is already in the correct location and only needs the import line updated.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_package_utility_leakage"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "relation_alias_mapping_in_api",
+      "summary": "RelationUtils relation-alias domain logic lives in api package, preventing reuse from other layers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationType.java"
+      ],
+      "evidence": [
+        "RelationUtils.resolveRelationAlias() maps user-facing strings ('adj_predicate', 'adj_modifier', 'subject_of', 'object_of') to internal grammar config IDs ('noun_adj_predicates', 'noun_modifiers', 'noun_verbs', 'verb_nouns'). This is a domain/config concern, not HTTP handling.",
+        "The class is package-private (no public modifier on the class declaration), so no other package can use this mapping without adding a dependency on the api package.",
+        "RelationType.java in the config package already models the same four relation concepts; having the alias table isolated in api creates a second place where relation identity is managed."
+      ],
+      "suggestion": "Move the RELATION_ALIASES map and resolveRelationAlias method into a static helper on RelationType.java (config package) or into a new config/RelationAlias.java. Update ExplorationHandlers and SketchHandlers to import from config. This makes the mapping available to any future CLI command or batch tool without pulling in the api layer.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_package_utility_leakage"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "api_package_utility_leakage: Two utility/domain classes (PatternSubstitution, RelationUtils) were placed in the api package for co-location convenience during incremental development, rather than at their natural layer (utils and config respectively). The test placement and javadoc comments both point to the correct layer, but the source files were never moved."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

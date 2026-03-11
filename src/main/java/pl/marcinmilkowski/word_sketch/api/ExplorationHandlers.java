@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
@@ -15,7 +16,6 @@ import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -51,16 +51,10 @@ class ExplorationHandlers {
         String seed = HttpApiUtils.requireParam(exchange, params, "seed");
         if (seed == null) return;
 
-        String relationId = RelationUtils.resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
+        if (resolvedConfig == null) return;
 
-        var relationConfig = grammarConfig.getRelation(relationId);
-        if (relationConfig.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
-            return;
-        }
-
-        String relationType = relationConfig.get().relationType().name();
-        String relationName = relationConfig.get().name();
+        String relationType = resolvedConfig.relationType().name();
 
         ExploreParams ep = parseExploreParams(exchange, params);
         if (ep == null) return;
@@ -74,7 +68,7 @@ class ExplorationHandlers {
 
         ExplorationResult result;
         try {
-            result = semanticFieldExplorer.exploreByPattern(seed, relationConfig.get(), opts);
+            result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
         } catch (IOException e) {
             HttpApiUtils.sendError(exchange, 500, "Exploration failed: " + e.getMessage());
             return;
@@ -117,15 +111,10 @@ class ExplorationHandlers {
             return;
         }
 
-        String relationId = RelationUtils.resolveRelationAlias(params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
+        if (resolvedConfig == null) return;
 
-        var relationConfig = grammarConfig.getRelation(relationId);
-        if (relationConfig.isEmpty()) {
-            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
-            return;
-        }
-
-        String relationType = relationConfig.get().relationType().name();
+        String relationType = resolvedConfig.relationType().name();
 
         ExploreParams ep = parseExploreParams(exchange, params);
         if (ep == null) return;
@@ -137,7 +126,7 @@ class ExplorationHandlers {
         ExplorationResult result;
         try {
             result = semanticFieldExplorer.exploreMultiSeed(
-                seeds, relationConfig.get(), minLogDice, topCollocates, minShared);
+                seeds, resolvedConfig, minLogDice, topCollocates, minShared);
         } catch (IOException e) {
             HttpApiUtils.sendError(exchange, 500, "Multi-seed exploration failed: " + e.getMessage());
             return;
@@ -166,7 +155,11 @@ class ExplorationHandlers {
         String nounsParam = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (nounsParam == null) return;
 
-        Set<String> nouns = new LinkedHashSet<>(Arrays.asList(nounsParam.split(",")));
+        Set<String> nouns = new LinkedHashSet<>();
+        for (String s : nounsParam.split(",")) {
+            String cleaned = s.trim().toLowerCase();
+            if (!cleaned.isEmpty()) nouns.add(cleaned);
+        }
 
         double minLogDice;
         int maxPerNoun;
@@ -253,7 +246,7 @@ class ExplorationHandlers {
         response.put("adjective", adjective);
         response.put("noun", noun);
         response.put("examples", examples);
-        response.put("count", examples.size());
+        response.put("total_results", examples.size());
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -386,6 +379,28 @@ class ExplorationHandlers {
     }
 
     private record ExploreParams(int topCollocates, int minShared, double minLogDice, int nounsPerSeed) {}
+
+    /**
+     * Resolves and validates the relation parameter from request params.
+     * Sends a 400 error response and returns null if the relation is unknown or misconfigured.
+     * Both exploration handlers share this preamble.
+     */
+    private RelationConfig resolveRelationConfig(HttpExchange exchange, Map<String, String> params) throws IOException {
+        String relationId = RelationUtils.resolveRelationAlias(
+            params.getOrDefault("relation", "noun_adj_predicates").toLowerCase());
+        var relationConfig = grammarConfig.getRelation(relationId);
+        if (relationConfig.isEmpty()) {
+            HttpApiUtils.sendError(exchange, 400, "Unknown relation: " + relationId);
+            return null;
+        }
+        var relType = relationConfig.get().relationType();
+        if (relType == null) {
+            HttpApiUtils.sendError(exchange, 400,
+                "Invalid relation config: missing or unrecognised relation_type for '" + relationId + "'");
+            return null;
+        }
+        return relationConfig.get();
+    }
 
     private ExploreParams parseExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
         try {

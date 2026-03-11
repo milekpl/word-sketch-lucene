@@ -15,7 +15,6 @@ import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,7 +92,10 @@ class SketchHandlers {
             HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
             return;
         }
-        HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("relations", relationsArray));
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
+        response.put("relations", relationsArray);
+        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     private void handleFullSketch(HttpExchange exchange, String lemma) throws IOException {
@@ -101,7 +103,7 @@ class SketchHandlers {
     }
 
     private void handleRelationSketch(HttpExchange exchange, String lemma, String relation) throws IOException {
-        handleRelationQueryInternal(exchange, lemma, relation, RelationType.SURFACE);
+        handleRelationQueryForPattern(exchange, lemma, relation, RelationType.SURFACE);
     }
 
     /**
@@ -135,19 +137,16 @@ class SketchHandlers {
                                 collocations.add(formatWordSketchResult(result));
                             }
 
-                            Map<String, Object> relData = new HashMap<>();
+                            Map<String, Object> relData;
                             if (isDep) {
-                                relData.put("id", rel.id());
-                                relData.put("name", rel.name());
-                                relData.put("description", rel.description());
-                                relData.put("deprel", rel.getDeprel());
-                                relData.put("total_matches", results.stream().mapToInt(r -> (int) r.getFrequency()).sum());
+                                relData = buildRelationResponse(rel, results, collocations);
                             } else {
+                                relData = new HashMap<>();
                                 relData.put("name", rel.name());
                                 relData.put("cql", rel.pattern());
                                 relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+                                relData.put("collocations", collocations);
                             }
-                            relData.put("collocations", collocations);
                             byRelation.put(rel.id(), relData);
                         }
                     } catch (Exception e) {
@@ -158,6 +157,7 @@ class SketchHandlers {
         }
 
         Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
         response.put("lemma", lemma);
         if (isDep) {
             response.put("type", "dependency");
@@ -174,10 +174,10 @@ class SketchHandlers {
      * DEP relations use surface patterns with [deprel="..."] constraints.
      */
     private void handleDependencyRelationQuery(HttpExchange exchange, String lemma, String relationId) throws IOException {
-        handleRelationQueryInternal(exchange, lemma, relationId, RelationType.DEP);
+        handleRelationQueryForPattern(exchange, lemma, relationId, RelationType.DEP);
     }
 
-    private void handleRelationQueryInternal(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {
+    private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {
         if (grammarConfig == null) {
             HttpApiUtils.sendError(exchange, 500, "Grammar configuration not loaded");
             return;
@@ -209,24 +209,43 @@ class SketchHandlers {
         relData.put("id", rel.id());
         relData.put("name", rel.name());
         relData.put("collocations", collocations);
-        relData.put("total_matches", results.stream().mapToInt(r -> (int) r.getFrequency()).sum());
+        relData.put("total_matches", results.stream().mapToInt(r -> (int) r.frequency()).sum());
 
         Map<String, Object> relationsMap = new HashMap<>();
         relationsMap.put(rel.id(), relData);
 
         Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
         response.put("lemma", lemma);
         response.put("relations", relationsMap);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
+    /**
+     * Builds the response map for a single dependency relation entry.
+     * Extracted from the {@code isDep} branch of {@code handleFullSketchForType}.
+     */
+    private static Map<String, Object> buildRelationResponse(
+            pl.marcinmilkowski.word_sketch.config.RelationConfig rel,
+            List<QueryResults.WordSketchResult> results,
+            List<Map<String, Object>> collocations) {
+        Map<String, Object> relData = new HashMap<>();
+        relData.put("id", rel.id());
+        relData.put("name", rel.name());
+        relData.put("description", rel.description());
+        relData.put("deprel", rel.getDeprel());
+        relData.put("total_matches", results.stream().mapToInt(r -> (int) r.frequency()).sum());
+        relData.put("collocations", collocations);
+        return relData;
+    }
+
     private static Map<String, Object> formatWordSketchResult(QueryResults.WordSketchResult result) {
         Map<String, Object> word = new HashMap<>();
-        word.put("lemma", result.getLemma());
-        word.put("frequency", result.getFrequency());
-        word.put("log_dice", result.getLogDice());
-        word.put("pos", result.getPos());
+        word.put("lemma", result.lemma());
+        word.put("frequency", result.frequency());
+        word.put("log_dice", result.logDice());
+        word.put("pos", result.pos());
         return word;
     }
 
@@ -284,7 +303,7 @@ class SketchHandlers {
         response.put("relation", relation);
         response.put("bcql", bcqlQuery);
         response.put("limit_requested", limit);
-        response.put("total", results.size());
+        response.put("total_results", results.size());
 
         List<Map<String, Object>> examplesList = new ArrayList<>();
         for (QueryResults.CollocateResult r : results) {
@@ -359,7 +378,7 @@ class SketchHandlers {
 
             Map<String, Object> response = new HashMap<>();
             response.put("query", bcqlQuery);
-            response.put("total", results.size());
+            response.put("total_results", results.size());
             response.put("limit", limit);
 
             List<Map<String, Object>> resultsList = new ArrayList<>();

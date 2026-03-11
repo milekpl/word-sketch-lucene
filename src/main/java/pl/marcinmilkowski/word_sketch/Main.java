@@ -225,10 +225,10 @@ public class Main {
             System.out.println("--------");
             for (var result : results) {
                 System.out.printf("  %s: freq=%d, logDice=%.2f, relFreq=%.4f%n",
-                    result.getLemma(),
-                    result.getFrequency(),
-                    result.getLogDice(),
-                    result.getRelativeFrequency()
+                    result.lemma(),
+                    result.frequency(),
+                    result.logDice(),
+                    result.relativeFrequency()
                 );
             }
         }

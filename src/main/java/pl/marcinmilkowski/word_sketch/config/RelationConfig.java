@@ -114,13 +114,25 @@ public record RelationConfig(
 
     /**
      * Returns the CQL pattern used for reverse collocate lookup, derived from the collocate POS group.
-     * Adjective relations reverse-look up {@code [xpos="JJ.*"]}; noun/verb relations use
-     * {@code [xpos="NN.*|VB.*"]}.
+     * Each POS group maps to a single, specific pattern so that reverse lookups target exactly the
+     * right tokens and never produce an incoherent union (e.g. {@code NN.*|VB.*}).
+     *
+     * @throws IllegalStateException if {@code relationType()} is {@code null} or the collocate POS
+     *         group cannot be mapped to a unique pattern.
      */
     public String collocateReversePattern() {
+        if (relationType() == null) {
+            throw new IllegalStateException(
+                "Cannot determine collocate reverse pattern: relationType is null for relation '" + id + "'");
+        }
         return switch (collocatePosGroup()) {
-            case ADJ -> "[xpos=\"JJ.*\"]";
-            default  -> "[xpos=\"NN.*|VB.*\"]";
+            case ADJ  -> "[xpos=\"JJ.*\"]";
+            case VERB -> "[xpos=\"VB.*\"]";
+            case NOUN -> "[xpos=\"NN.*\"]";
+            case ADV  -> "[xpos=\"RB.*\"]";
+            default   -> throw new IllegalStateException(
+                "No reverse pattern defined for collocate POS group: " + collocatePosGroup()
+                    + " (relation: '" + id + "')");
         };
     }
 

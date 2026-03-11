@@ -263,25 +263,25 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             String collocateLemma = rec.collocateLemma();
             // null/empty is valid "no collocate" — do not fall back to "unknown"
 
-            long f_xy = 0L;
+            long jointFreq = 0L;
             if (collocateLemma != null && !collocateLemma.isEmpty()) {
-                f_xy = collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 0L);
-                if (f_xy == 0L) {
+                jointFreq = collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 0L);
+                if (jointFreq == 0L) {
                     logger.warn("Collocate '{}' not found in frequency map — logDice will be 0", collocateLemma);
                 }
             }
-            long f_y = (collocateLemma != null && !collocateLemma.isEmpty())
+            long collocateFreq = (collocateLemma != null && !collocateLemma.isEmpty())
                 ? getTotalFrequency(collocateLemma) : 0L;
 
-            double logDice = (headwordFreq > 0 && f_y > 0)
-                ? LogDiceCalculator.compute(f_xy, headwordFreq, f_y) : 0.0;
+            double logDice = (headwordFreq > 0 && collocateFreq > 0)
+                ? LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
 
             String plainText = BlackLabSnippetParser.trimToSentence(rec.leftText(), rec.matchText(), rec.rightText());
 
             results.add(new QueryResults.CollocateResult(
                 plainText, rec.xmlSnippet(),
                 rec.start(), rec.end(), String.valueOf(rec.docId()),
-                collocateLemma, f_xy, logDice));
+                collocateLemma, jointFreq, logDice));
         }
         return results;
     }
@@ -464,20 +464,20 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         List<QueryResults.WordSketchResult> results = new ArrayList<>();
         for (Map.Entry<String, Long> entry : freqMap.entrySet()) {
             String collocateLemma = entry.getKey();
-            long f_xy = entry.getValue();
-            long f_y = getTotalFrequency(collocateLemma);
+            long jointFreq = entry.getValue();
+            long collocateFreq = getTotalFrequency(collocateLemma);
 
-            double logDice = LogDiceCalculator.compute(f_xy, headwordFreq, f_y);
+            double logDice = LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq);
 
             if (logDice >= minLogDice) {
-                double relFreq = LogDiceCalculator.relativeFrequency(f_xy, headwordFreq);
+                double relFreq = LogDiceCalculator.relativeFrequency(jointFreq, headwordFreq);
                 String pos = posMap != null ? posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS) : QueryResults.WordSketchResult.UNKNOWN_POS;
                 results.add(new QueryResults.WordSketchResult(
-                    collocateLemma, pos, f_xy, logDice, relFreq, Collections.emptyList()));
+                    collocateLemma, pos, jointFreq, logDice, relFreq, Collections.emptyList()));
             }
         }
         return results.stream()
-            .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::getLogDice).reversed())
+            .sorted(Comparator.comparingDouble(QueryResults.WordSketchResult::logDice).reversed())
             .limit(maxResults)
             .toList();
     }

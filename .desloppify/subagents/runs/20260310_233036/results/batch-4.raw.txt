@@ -1,0 +1,108 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 4,
+  "assessments": {"design_coherence": 68.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "WordSketchApiServer.start() both creates the HttpServer, registers all 10+ route contexts (~60 lines of registration), and then calls server.start() — route registration is construction-time work, not startup work. A TODO comment in the constructor explicitly acknowledges this: 'Move HttpServer creation and route registration here so start() only calls server.start()'",
+        "ExplorationHandlers.handleSemanticFieldExplore and handleSemanticFieldExploreMulti share a verbatim 8-step preamble: parseQueryParams → requireParam (different param name) → resolveRelationAlias → grammarConfig.getRelation() → isEmpty check → relationType extraction → parseExploreParams → null check. The only variance is the required param name ('seed' vs 'seeds'). No shared helper exists for this repeated structure.",
+        "SketchHandlers.handleFullSketchForType (50+ lines) iterates all relations, calls executor.executeSurfacePattern per relation, then branches on isDep to build two structurally different JSON maps (dep adds id/name/description/deprel/total_matches; surface adds name/cql/collocate_pos_group). The response shape diverges inside a shared loop that also swallows query exceptions with logger.warn — three concerns (iteration, query, response formatting) coexist in one method body.",
+        "BlackLabQueryExecutor has three methods that share an identical tail: build freqMap via HitGroups grouping, call buildAndRankCollocates(freqMap, posMap, headwordFreq, ...). This pattern appears in findCollocations, executeDependencyPattern, and executeSurfacePattern. The shared tail is already extracted into buildAndRankCollocates, but the preceding group-iteration block (for HitGroup group : groups) is copy-pasted with minor variations across all three methods.",
+        "SemanticFieldExplorer implements AutoCloseable but close() is a no-op ('executor lifecycle is managed by the caller'). The interface commitment implies resource ownership that does not exist; this misleads callers about object lifecycle.",
+        "RelationConfig.collocateReversePattern() uses a switch expression whose non-ADJ arm returns a pattern covering both nouns and verbs: '[xpos=\"NN.*|VB.*\"]'. This is an incoherent union type (noun or verb are distinct relation categories) and means all non-adjective relations share one reverse-lookup pattern regardless of whether the relation is a noun or verb relation.",
+        "CqlUtils.splitCqlTokens strips labeled prefixes (e.g. '1:' or '2:') transparently by design, but PatternSubstitution.substituteCollocate and RelationConfig.substituteHeadword both independently re-implement the 'find token at position N and replace' logic on top of the same utility. The two callers duplicate the replace-at-position pattern because splitCqlTokens only provides splitting, not positional mutation."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Handler decomposition is deliberate and well-executed: WordSketchApiServer delegates entirely to SketchHandlers and ExplorationHandlers, each confined to their subdomain with no cross-bleeding of concerns.",
+        "RelationConfig record concentrates all pattern manipulation logic (headword substitution, collocate POS group derivation, deprel extraction) in one place — behavior follows data, avoiding scattered pattern-string logic.",
+        "BlackLabQueryExecutor.executeBcqlQuery is cleanly decomposed into three named phases: collectHits, scoreHits, and a sort/limit stream — each phase has a single stated responsibility and a separating comment.",
+        "CqlUtils extracted as a shared bracket-walking primitive to prevent duplication between PatternSubstitution and GrammarConfigLoader, showing awareness of cross-cutting structural patterns.",
+        "Model package (ExplorationResult, ComparisonResult, DiscoveredNoun, AdjectiveProfile) contains focused DTOs with no business logic leakage — data and computation are cleanly separated."
+      ],
+      "issue_character": "Issues are localized to specific method bodies rather than systemic across the codebase: a few methods accumulate 2-3 responsibilities each (lifecycle + routing in start(), iteration + query + response formatting in handleFullSketchForType, preamble duplication across two parallel handler methods), rather than pervasive god-class or cross-cutting decomposition failures.",
+      "score_rationale": "The overall architecture shows genuine design work — handler splitting, extractor utilities, phased query pipelines — that a developer would experience as coherent and navigable. However, three or four specific methods contain responsibility mixing that is consequential enough to require extra care when extending: start() conflates construction and startup (acknowledged by a TODO), handleFullSketchForType mixes query fanout with per-type response building, and the exploration handler pair duplicates a structural preamble. These are real friction points, not just style. At 80 the codebase would need only minor unevenness; at 60 there would be significant systemic drag. The score of 68 reflects a codebase that is architecturally sound but has a cluster of method-level coherence failures in its most active code paths."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "start_method_dual_responsibility",
+      "summary": "WordSketchApiServer.start() conflates server construction/route registration with server startup",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "start() creates the HttpServer, registers 10+ route contexts (60+ lines of HttpServer.createContext calls), then calls server.start() — all three phases live in one method named 'start'",
+        "The constructor already contains a TODO acknowledging this: 'Move HttpServer creation and route registration here so start() only calls server.start()'. Construction of the server object and registration of its routes is initialization logic, not startup logic.",
+        "Calling start() twice (e.g., after stop()) would attempt to re-create the HttpServer and re-register all routes rather than simply restarting the already-configured server."
+      ],
+      "suggestion": "Move HttpServer.create() and all createContext() calls into the constructor (or a private buildServer() method called from the constructor), accepting the IOException on the constructor. The start() method then becomes a single server.start() call. This matches the pattern established by SketchHandlers and ExplorationHandlers which are fully initialized in their constructors.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "method_responsibility_mixing"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "exploration_handler_preamble_duplication",
+      "summary": "handleSemanticFieldExplore and handleSemanticFieldExploreMulti duplicate an 8-step relation-resolution preamble",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Both handlers independently execute: parseQueryParams, requireParam (param name differs), resolveRelationAlias, grammarConfig.getRelation(), isEmpty check, relationType extraction, parseExploreParams, null guard — 8 structurally identical steps before any handler-specific logic begins",
+        "The duplicated block spans lines 48-70 in handleSemanticFieldExplore and lines 99-135 in handleSemanticFieldExploreMulti. A future change to relation resolution (e.g., error message wording, alias strategy) must be made in two places.",
+        "parseExploreParams is already extracted as a private helper, showing the pattern is understood but not applied consistently to the relation-resolution preamble."
+      ],
+      "suggestion": "Extract a private record ResolvedRelation(RelationConfig config, String relationType, ExploreParams params) and a helper method resolveRelationOrError(HttpExchange, Map<String,String>, String requiredParamName) that performs the shared preamble and returns Optional<ResolvedRelation>. Both handlers call this helper, then branch only on their specific seed-parsing and result-mapping logic.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "method_responsibility_mixing"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "full_sketch_mixed_concerns",
+      "summary": "handleFullSketchForType mixes relation fanout, query execution, and two divergent response-shape branches in one method",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "The method iterates all relations, calls executor.executeSurfacePattern per relation, then branches on isDep inside the loop to build either a surface-relation map (name/cql/collocate_pos_group) or a dep-relation map (id/name/description/deprel/total_matches) — two distinct response shapes within one method body",
+        "A logger.warn exception swallow for each per-relation query failure is embedded inline, making it invisible at the call site and coupling error policy to iteration logic",
+        "handleFullSketch and handleFullDependencySketch both delegate to this method with the isDep flag, meaning adding a third relation type would require modifying the branching logic inside an already mixed method rather than providing a new implementation"
+      ],
+      "suggestion": "Extract a private Map<String,Object> buildRelationData(RelationConfig rel, List<WordSketchResult> results, RelationType type) method that produces the correct JSON shape for each type. handleFullSketchForType then becomes a clean iteration-only method: loop over relations, call executor, call buildRelationData, accumulate. This separates the 'what to query' from 'how to serialize the result'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "method_responsibility_mixing"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "collocate_reverse_pattern_incoherent_union",
+      "summary": "RelationConfig.collocateReversePattern() returns a noun-or-verb union pattern for all non-ADJ relations, conflating distinct relation types",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"],
+      "evidence": [
+        "collocateReversePattern() returns '[xpos=\"NN.*|VB.*\"]' for all non-ADJ PosGroup values (VERB, NOUN, OTHER, ADV) via the default switch arm — a verb relation and a noun relation receive the same reverse lookup pattern",
+        "The method is called in SemanticFieldExplorer.exploreByPattern via RelationConfig.collocateReversePattern(), meaning that for a subject_of (verb) relation the reverse lookup incorrectly includes nouns as candidates alongside verbs",
+        "PosGroup already has separate VERB and NOUN enum constants; the switch expression could easily return '[xpos=\"VB.*\"]' for VERB and '[xpos=\"NN.*\"]' for NOUN, matching the domain semantics"
+      ],
+      "suggestion": "Extend the switch in collocateReversePattern() to handle VERB and NOUN separately: case VERB -> \"[xpos=\\\"VB.*\\\"]\", case NOUN -> \"[xpos=\\\"NN.*\\\"]\", keeping the existing ADJ arm, and using the union pattern only as a true fallback for OTHER/ADV where ambiguity is genuinely intended.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "abstraction_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "method_responsibility_mixing: Several methods grew to absorb adjacent responsibilities (construction + startup, iteration + formatting + error handling, preamble + handler logic) without extraction — likely incremental accretion rather than upfront design.",
+      "abstraction_gap: The PosGroup enum exists but is not fully leveraged where pattern dispatch decisions should follow it (collocateReversePattern), suggesting the enum was added later without updating all consumers."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

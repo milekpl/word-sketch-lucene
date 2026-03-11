@@ -153,25 +153,25 @@ public class SemanticFieldExplorer implements AutoCloseable {
         }
 
         logger.debug("  Found {} collocates:", seedRelations.size());
-        seedRelations.forEach(a -> logger.debug("    {} (logDice={})", a.getLemma(), String.format("%.2f", a.getLogDice())));
+        seedRelations.forEach(a -> logger.debug("    {} (logDice={})", a.lemma(), String.format("%.2f", a.logDice())));
 
         // Build map: collocate -> logDice with seed
         Map<String, Double> seedCollocScores = new LinkedHashMap<>();
         Map<String, Long> seedCollocFrequencies = new LinkedHashMap<>();
         for (QueryResults.WordSketchResult r : seedRelations) {
-            seedCollocScores.put(r.getLemma().toLowerCase(), r.getLogDice());
-            seedCollocFrequencies.put(r.getLemma().toLowerCase(), r.getFrequency());
+            seedCollocScores.put(r.lemma().toLowerCase(), r.logDice());
+            seedCollocFrequencies.put(r.lemma().toLowerCase(), r.frequency());
         }
 
         // Step 2: For each collocate, find nouns it collocates with
         logger.debug("\nStep 2: Finding nouns for each collocate...");
-        Map<String, Map<String, Double>> nounProfiles = buildNounProfiles(
+        Map<String, Map<String, Double>> nounProfiles = buildCollocateIndex(
             seedCollocScores, seed, minLogDice, nounsPerPredicate);
         logger.debug("  Total candidate nouns: {}", nounProfiles.size());
 
         // Step 3: Score nouns by shared collocate count
         logger.debug("\nStep 3: Scoring nouns by shared {}...", relationName);
-        List<DiscoveredNoun> discoveredNouns = scoreNouns(nounProfiles, minShared);
+        List<DiscoveredNoun> discoveredNouns = rankByLogDice(nounProfiles, minShared);
         discoveredNouns.sort((a, b) -> Double.compare(b.similarityScore(), a.similarityScore()));
         logger.debug("  Nouns with {}+ shared: {}", minShared, discoveredNouns.size());
 
@@ -216,7 +216,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
      * Phase 2: For each collocate, find nouns it collocates with (reverse lookup).
      * Returns a map of noun → {collocate → logDice}.
      */
-    private Map<String, Map<String, Double>> buildNounProfiles(
+    private Map<String, Map<String, Double>> buildCollocateIndex(
             Map<String, Double> seedCollocScores, String seed,
             double minLogDice, int nounsPerPredicate) throws IOException {
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
@@ -225,10 +225,10 @@ public class SemanticFieldExplorer implements AutoCloseable {
                 colloc, NOUN_PATTERN, minLogDice, nounsPerPredicate);
             logger.debug("  {}: {} nouns", colloc, nouns.size());
             for (QueryResults.WordSketchResult r : nouns) {
-                String noun = r.getLemma().toLowerCase();
+                String noun = r.lemma().toLowerCase();
                 if (noun.equals(seed)) continue;
                 nounProfiles.computeIfAbsent(noun, k -> new LinkedHashMap<>())
-                    .put(colloc, r.getLogDice());
+                    .put(colloc, r.logDice());
             }
         }
         return nounProfiles;
@@ -238,7 +238,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
      * Phase 3: Score candidate nouns by how many shared collocates they have.
      * Nouns below {@code minShared} are filtered out.
      */
-    private List<DiscoveredNoun> scoreNouns(
+    private List<DiscoveredNoun> rankByLogDice(
             Map<String, Map<String, Double>> nounProfiles, int minShared) {
         List<DiscoveredNoun> discoveredNouns = new ArrayList<>();
         for (Map.Entry<String, Map<String, Double>> entry : nounProfiles.entrySet()) {
@@ -360,7 +360,7 @@ public class SemanticFieldExplorer implements AutoCloseable {
             seedCollocateMap.put(seed, collocates);
 
             for (QueryResults.WordSketchResult wsr : collocates) {
-                collocateSharedCount.merge(wsr.getLemma(), 1, Integer::sum);
+                collocateSharedCount.merge(wsr.lemma(), 1, Integer::sum);
             }
         }
 
@@ -376,8 +376,8 @@ public class SemanticFieldExplorer implements AutoCloseable {
         Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
         for (List<QueryResults.WordSketchResult> collocs : seedCollocateMap.values()) {
             for (QueryResults.WordSketchResult wsr : collocs) {
-                seedCollocScores.merge(wsr.getLemma(), wsr.getLogDice(), Math::max);
-                seedCollocFreqs.merge(wsr.getLemma(), wsr.getFrequency(), Long::sum);
+                seedCollocScores.merge(wsr.lemma(), wsr.logDice(), Math::max);
+                seedCollocFreqs.merge(wsr.lemma(), wsr.frequency(), Long::sum);
             }
         }
 
@@ -387,8 +387,8 @@ public class SemanticFieldExplorer implements AutoCloseable {
             List<QueryResults.WordSketchResult> collocs = seedCollocateMap.getOrDefault(seed, List.of());
             Map<String, Double> sharedCollocs = new LinkedHashMap<>();
             for (QueryResults.WordSketchResult wsr : collocs) {
-                if (commonCollocates.contains(wsr.getLemma())) {
-                    sharedCollocs.put(wsr.getLemma(), wsr.getLogDice());
+                if (commonCollocates.contains(wsr.lemma())) {
+                    sharedCollocs.put(wsr.lemma(), wsr.logDice());
                 }
             }
             int count = sharedCollocs.size();
@@ -403,8 +403,8 @@ public class SemanticFieldExplorer implements AutoCloseable {
             int sharedBy = collocateSharedCount.getOrDefault(c, 0);
             double avgLd = seedCollocateMap.values().stream()
                 .flatMap(List::stream)
-                .filter(wsr -> c.equals(wsr.getLemma()))
-                .mapToDouble(QueryResults.WordSketchResult::getLogDice)
+                .filter(wsr -> c.equals(wsr.lemma()))
+                .mapToDouble(QueryResults.WordSketchResult::logDice)
                 .average().orElse(0.0);
             double seedLd = seedCollocScores.getOrDefault(c, 0.0);
             coreCollocatesList.add(new CoreCollocate(c, sharedBy, numSeeds, seedLd, avgLd));

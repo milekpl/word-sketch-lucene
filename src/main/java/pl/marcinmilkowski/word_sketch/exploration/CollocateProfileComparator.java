@@ -88,8 +88,8 @@ public class CollocateProfileComparator {
             }
             for (QueryResults.WordSketchResult r : adjectives) {
                 adjectiveProfiles
-                    .computeIfAbsent(r.getLemma().toLowerCase(), k -> new LinkedHashMap<>())
-                    .put(noun, r.getLogDice());
+                    .computeIfAbsent(r.lemma().toLowerCase(), k -> new LinkedHashMap<>())
+                    .put(noun, r.logDice());
             }
         }
         return adjectiveProfiles;

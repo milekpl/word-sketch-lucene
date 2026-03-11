@@ -1,0 +1,81 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 3,
+  "assessments": {
+    "logic_clarity": 74.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExplore (line ~60): calls `relationConfig.get().relationType().name()` without null-guarding relationType; GrammarConfigLoader.parseRelationType() is documented to return null for unrecognised/missing relation_type fields, and RelationConfig Javadoc explicitly states 'May be null when the grammar JSON omits the relation_type field'. If triggered, NullPointerException propagates past the IOException/IllegalArgumentException catches to wrapHandler, silently returning a 500 with no helpful error message.",
+        "Same unguarded `.name()` call in ExplorationHandlers.handleSemanticFieldExploreMulti (~line 130): `String relationType = relationConfig.get().relationType().name();`",
+        "handleSemanticFieldComparison splits seeds with `nounsParam.split(\",\")` but does not trim whitespace (e.g. 'theory, model' becomes ['theory', ' model']). In contrast, handleSemanticFieldExploreMulti explicitly trims: `String cleaned = s.trim().toLowerCase()`. The divergence means the comparison endpoint silently mismatches seeds with accidental spaces.",
+        "ConlluConverter.convertConlluToWplChunks: the finally-block increments `chunks` when closing the last partial writer, but the mid-loop close-and-reset path also increments `chunks` inline. The dual-role of `chunks` as both a file-index and a closed-chunk counter is correct in outcome but requires careful reasoning; the return-value semantics are not apparent from the code alone.",
+        "BlackLabQueryExecutor.scoreHits: `int limit = Math.min(records.size(), maxResults * OVER_FETCH_FACTOR)` — with OVER_FETCH_FACTOR=3, a large maxResults could overflow to a negative int, making Math.min return a negative value and the for-loop body never execute. In practice maxResults is always small, but there is no defensive cap or comment.",
+        "Control flow in most handlers is clean: guard-clause style, early returns on missing params, and three-tier error boundaries (IOException / IllegalArgumentException / Exception) in wrapHandler. The pattern is applied uniformly across SketchHandlers and ExplorationHandlers."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Consistent guard-clause pattern throughout all HTTP handlers: early null/empty checks with immediate error returns prevent any deferred-failure confusion.",
+        "Three-tier exception handling in wrapHandler (IOException, Exception supertype) prevents unhandled exceptions from crashing the server even when logic bugs surface.",
+        "BlackLabQueryExecutor phases (collectHits → scoreHits → sort/limit) are cleanly separated with single-responsibility, making each phase's logic independently traceable.",
+        "Boolean expressions throughout (isFullyShared, isPartiallyShared, isSpecific in AdjectiveProfile; requireMethod in HttpApiUtils) directly return the condition rather than wrapping in redundant if/return-true/return-false.",
+        "ConlluConverter's sentence-boundary tracking (inSentence flag + blank-line detection) handles edge cases (file ending mid-sentence, exact chunk boundaries) correctly, if not with maximum readability."
+      ],
+      "issue_character": "Issues are isolated to two cross-cutting patterns: one nullable-enum value that escapes its originating method without guards and surfaces as NPE in callers, and one parameter-normalisation gap (missing trim) that exists in exactly one handler while its sibling handlers do trim.",
+      "score_rationale": "The codebase earns a solid mid-70s for logic_clarity. The vast majority of control flow is straightforward, conditions are meaningful, and there are no identical-branch duplications or dead-code-after-return issues. What pulls the score below 80 is the documented-but-unguarded nullable relationType value that can cause a NullPointerException in both exploration endpoint handlers—the Javadoc openly flags the deferred fix but the latent bug remains—and the inconsistent whitespace trimming between sibling handlers which can silently corrupt seed-lookup results. These are not pervasive structural problems but they represent real correctness gaps that a developer could stumble on in production, placing the codebase below the 'solid but uneven' 80-band."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "nullable_relation_type_npe",
+      "summary": "Unguarded `.name()` call on nullable RelationConfig.relationType() throws NPE in both exploration handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExplore: `String relationType = relationConfig.get().relationType().name();` — no null check before .name()",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: identical pattern `String relationType = relationConfig.get().relationType().name();`",
+        "GrammarConfigLoader.parseRelationType(): `catch (IllegalArgumentException e) { return null; }` — returns null for unrecognised enum values",
+        "RelationConfig Javadoc: '/** May be null when the grammar JSON omits the relation_type field. */'"
+      ],
+      "suggestion": "Add a null guard before dereferencing: `RelationType rt = relationConfig.get().relationType(); if (rt == null) { HttpApiUtils.sendError(exchange, 500, \"Relation '\" + relationId + \"' has no valid relation_type in grammar config\"); return; } String relationType = rt.name();`. Apply the same fix to both handlers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "seeds_trim_inconsistency",
+      "summary": "handleSemanticFieldComparison does not trim whitespace from comma-split seeds, unlike its sibling multi-seed handler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldComparison: `Set<String> nouns = new LinkedHashSet<>(Arrays.asList(nounsParam.split(\",\")));` — no trim or toLowerCase",
+        "handleSemanticFieldExploreMulti: `String cleaned = s.trim().toLowerCase(); if (!cleaned.isEmpty()) { seeds.add(cleaned); }` — consistent normalisation"
+      ],
+      "suggestion": "Replace the split-and-collect in handleSemanticFieldComparison with the same normalisation pattern: `Arrays.stream(nounsParam.split(\",\")).map(s -> s.trim().toLowerCase()).filter(s -> !s.isEmpty()).collect(Collectors.toCollection(LinkedHashSet::new))`.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The nullable relationType field was an intentional deferral (converting to Optional<RelationType> was noted as a breaking change) but the deferral was not accompanied by null guards at all call sites, creating a latent NPE path.",
+      "The seed-trimming inconsistency likely reflects the comparison endpoint being implemented separately from (and slightly before) the multi-seed explore endpoint, without a shared parameter-normalisation utility being introduced."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

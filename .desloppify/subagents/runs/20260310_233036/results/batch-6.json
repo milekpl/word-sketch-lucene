@@ -1,0 +1,119 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 6,
+  "assessments": {
+    "api_surface_coherence": 68.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "Sketch endpoints (/api/sketch/*, /api/relations) omit 'status: ok' from the response envelope; all exploration and semantic-field endpoints include it (ExplorationHandlers.java:~93, ~152, ~190, ~220; SketchHandlers.java:handleFullSketchForType, handleRelationQueryInternal — no status key added)",
+        "Count-field naming is inconsistent across endpoints: explore responses use suffixed '*_count' keys (seed_collocates_count, discovered_nouns_count, core_collocates_count); comparison endpoint uses 'total_adjectives', 'total_edges'; concordance uses 'total' + 'limit_requested'; BCQL uses 'total' + 'limit'; examples uses 'count'",
+        "SemanticFieldExplorer.exploreByPattern wraps numeric options in ExploreOptions (topCollocates, nounsPerCollocate, minLogDice, minShared, verbose), while SemanticFieldExplorer.exploreMultiSeed takes the same conceptual options as individual primitives (minLogDice, topCollocates, minShared) — non-parallel public signatures for closely related operations",
+        "The per-relation object shape diverges between full-sketch and single-relation responses: full SURFACE sketch includes 'cql' and 'collocate_pos_group'; single-relation response adds 'id' and 'total_matches' but drops 'cql' and 'collocate_pos_group' (SketchHandlers.java lines ~140-150 vs ~209-213)"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "HTTP method enforcement is applied uniformly: registerGetHandler and registerPostHandler wrap every route with OPTIONS/method-check logic, so no endpoint accidentally accepts the wrong verb",
+        "Error propagation is uniform: HttpApiUtils.sendError and requireParam are used consistently across all handlers, giving callers a predictable JSON error shape on every failure path",
+        "The QueryExecutor interface distinguishes closely related operations (findCollocations vs executeSurfacePattern vs executeBcqlQuery) with clear per-method Javadoc contracts, so implementors know exactly what each method must do",
+        "Single-seed and multi-seed explore responses share four standard sections (seed_collocates, discovered_nouns, core_collocates, edges) populated by the shared buildExploreResponseBody helper, so the two endpoints are structurally parallel"
+      ],
+      "issue_character": "The issues are convention-drift across related areas rather than structural breakage: the same conceptual slots (status envelope, result counts, numeric option grouping) are named or shaped differently depending on which handler or domain the endpoint belongs to.",
+      "score_rationale": "The API layer is well-structured with consistent error handling and HTTP plumbing, placing it above the 60-band where APIs are 'hard to predict'. However, a developer writing a general client would encounter recurring surprises: sketch endpoints lack the status envelope that all other endpoints include, count fields are named differently across endpoints, and the SemanticFieldExplorer public API switches between an options-object convention and individual primitives for the same conceptual parameters. These recurring irregularities place the codebase solidly in the 70-band ('a developer would encounter enough inconsistency that they can't fully trust patterns they've seen elsewhere'), with the score pulled down slightly toward 68 by the per-relation response shape divergence that makes client-side sketch parsing non-uniform."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_missing_status_envelope",
+      "summary": "Sketch and relations endpoints omit 'status: ok' present in all other endpoint responses",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketchForType builds the response map with 'lemma' and 'relations' keys but no 'status' key",
+        "handleRelationQueryInternal similarly omits 'status'",
+        "handleRelationsForType wraps response in Collections.singletonMap(\"relations\", ...) — no status",
+        "All ExplorationHandlers methods explicitly set response.put(\"status\", \"ok\") before returning"
+      ],
+      "suggestion": "Add response.put(\"status\", \"ok\") at the top of handleFullSketchForType, handleRelationQueryInternal, and handleRelationsForType in SketchHandlers.java so that every endpoint returns a uniform top-level status field.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "response_envelope_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "inconsistent_count_field_naming",
+      "summary": "Result-count fields use four different naming conventions across endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Explore response uses suffixed '*_count' keys: seed_collocates_count, discovered_nouns_count, core_collocates_count (buildExploreResponseBody)",
+        "Comparison endpoint uses 'total_adjectives', 'total_edges' (handleSemanticFieldComparison)",
+        "Concordance endpoint uses 'total' for result count plus 'limit_requested' for the cap (handleConcordanceExamples)",
+        "BCQL endpoint uses 'total' for result count plus 'limit' for the cap (handleBcqlQueryPost)",
+        "Examples endpoint uses 'count' for result count (handleSemanticFieldExamples)"
+      ],
+      "suggestion": "Pick one convention for result-count fields (e.g., 'total' for top-level counts, 'count' as a per-list suffix) and apply it uniformly. For the limit/cap field, use a single name ('limit') across concordance and BCQL endpoints. Update handleSemanticFieldComparison, handleConcordanceExamples, handleBcqlQueryPost, handleSemanticFieldExamples, and buildExploreResponseBody together.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "response_envelope_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_multi_seed_raw_params_vs_options_object",
+      "summary": "SemanticFieldExplorer.exploreMultiSeed takes raw primitives where the sibling exploreByPattern takes ExploreOptions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "exploreByPattern(seed, RelationConfig, ExploreOptions) — options grouped as ExploreOptions record",
+        "exploreMultiSeed(Set<String> seeds, RelationConfig, double minLogDice, int topCollocates, int minShared) — same three numeric options passed individually",
+        "ExploreOptions already exists and holds exactly minLogDice, topCollocates (as topCollocates), and minShared — it is not reused in exploreMultiSeed"
+      ],
+      "suggestion": "Change exploreMultiSeed to accept ExploreOptions instead of the three individual numeric parameters. The 'nounsPerCollocate' field in ExploreOptions is not applicable to multi-seed and can be documented as ignored, or a new slim record can be introduced; either is better than the current asymmetry.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_single_vs_full_relation_shape_divergence",
+      "summary": "Per-relation object shape differs between full-sketch and single-relation SURFACE responses",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketchForType (SURFACE branch, lines ~147-148) includes 'cql' and 'collocate_pos_group' in the per-relation object but omits 'total_matches'",
+        "handleRelationQueryInternal (lines ~209-213) includes 'id' and 'total_matches' but omits 'cql' and 'collocate_pos_group'",
+        "A client parsing /api/sketch/{lemma} cannot reuse the same per-relation parsing logic for /api/sketch/{lemma}/{relation}"
+      ],
+      "suggestion": "Unify the per-relation object by extracting a formatRelationData(RelationConfig rel, List<WordSketchResult> results, boolean isDep) helper and using it in both code paths. Include 'id', 'name', 'total_matches', 'collocations', and — for SURFACE — also 'cql' and 'collocate_pos_group' in both responses.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental endpoint addition without a shared response-builder contract: each handler assembles its own response map, so envelope conventions (status field, count naming) drift across handlers",
+      "ExploreOptions was introduced after exploreMultiSeed was written (or vice versa) without retrofitting the sibling method"
+    ],
+    "likely_symptoms": [
+      "sketch_missing_status_envelope",
+      "inconsistent_count_field_naming"
+    ],
+    "possible_false_positives": []
+  }
+}

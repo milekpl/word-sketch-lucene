@@ -53,46 +53,50 @@ public class WordSketchApiServer {
         //   Requires declaring IOException on this constructor, which is a breaking-API change — defer to v2.
     }
 
+    private void registerRoutes() {
+        registerGetHandler(server, "/health", exchange ->
+            HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));
+
+        registerGetHandler(server, "/api/sketch/",
+            wrapHandler(sketchHandlers::handleSketchRequest, "Sketch request"));
+
+        registerGetHandler(server, "/api/relations", sketchHandlers::handleSurfaceRelations);
+
+        registerGetHandler(server, "/api/relations/dep", sketchHandlers::handleDepRelations);
+
+        registerGetHandler(server, "/api/semantic-field/explore", wrapHandler(exchange -> {
+            logger.info("Received request: {}", exchange.getRequestURI());
+            explorationHandlers.handleSemanticFieldExplore(exchange);
+        }, "Semantic field explore"));
+
+        registerGetHandler(server, "/api/semantic-field/explore-multi", wrapHandler(exchange -> {
+            logger.info("Received request: {}", exchange.getRequestURI());
+            explorationHandlers.handleSemanticFieldExploreMulti(exchange);
+        }, "Multi-seed exploration"));
+
+        registerGetHandler(server, "/api/semantic-field",
+            wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
+
+        registerGetHandler(server, "/api/semantic-field/examples",
+            wrapHandler(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));
+
+        registerGetHandler(server, "/api/concordance/examples",
+            wrapHandler(sketchHandlers::handleConcordanceExamples, "Concordance examples"));
+
+        registerPostHandler(server, "/api/visual/radial",
+            wrapHandler(sketchHandlers::handleVisualRadial, "Radial plot"));
+
+        // POST with JSON body to avoid URL encoding issues
+        registerPostHandler(server, "/api/bcql",
+            wrapHandler(sketchHandlers::handleBcqlQueryPost, "BCQL query"));
+    }
+
     public void start() {
         try {
             server = com.sun.net.httpserver.HttpServer.create(
                     new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
 
-            registerGetHandler(server, "/health", exchange ->
-                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));
-
-            registerGetHandler(server, "/api/sketch/",
-                wrapHandler(sketchHandlers::handleSketchRequest, "Sketch request"));
-
-            registerGetHandler(server, "/api/relations", sketchHandlers::handleSurfaceRelations);
-
-            registerGetHandler(server, "/api/relations/dep", sketchHandlers::handleDepRelations);
-
-            registerGetHandler(server, "/api/semantic-field/explore", wrapHandler(exchange -> {
-                logger.info("Received request: {}", exchange.getRequestURI());
-                explorationHandlers.handleSemanticFieldExplore(exchange);
-            }, "Semantic field explore"));
-
-            registerGetHandler(server, "/api/semantic-field/explore-multi", wrapHandler(exchange -> {
-                logger.info("Received request: {}", exchange.getRequestURI());
-                explorationHandlers.handleSemanticFieldExploreMulti(exchange);
-            }, "Multi-seed exploration"));
-
-            registerGetHandler(server, "/api/semantic-field",
-                wrapHandler(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
-
-            registerGetHandler(server, "/api/semantic-field/examples",
-                wrapHandler(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));
-
-            registerGetHandler(server, "/api/concordance/examples",
-                wrapHandler(sketchHandlers::handleConcordanceExamples, "Concordance examples"));
-
-            registerPostHandler(server, "/api/visual/radial",
-                wrapHandler(sketchHandlers::handleVisualRadial, "Radial plot"));
-
-            // POST with JSON body to avoid URL encoding issues
-            registerPostHandler(server, "/api/bcql",
-                wrapHandler(sketchHandlers::handleBcqlQueryPost, "BCQL query"));
+            registerRoutes();
 
             server.setExecutor(null);
             server.start();

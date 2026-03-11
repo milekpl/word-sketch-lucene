@@ -82,9 +82,7 @@ public interface QueryExecutor extends Closeable {
 
     /**
      * Execute a surface pattern query for word sketches using a labeled BCQL pattern.
-     * The collocate position is derived from the {@code 2:} label in {@code bcqlPattern};
-     * {@code headPosition} and {@code collocatePosition} are retained for interface
-     * compatibility but are not used by the current implementation.
+     * The collocate position is inferred from the {@code 2:} label in {@code bcqlPattern}.
      *
      * @param lemma             The head lemma (already substituted into {@code bcqlPattern})
      * @param bcqlPattern       BCQL pattern with labeled positions (1: head, 2: collocate)

@@ -54,7 +54,7 @@ public class Main {
                     handleBlackLabQueryCommand(args);
                     break;
                 case "server":
-                    handleServerCommand(args);
+                    handleBlackLabServerCommand(args);
                     break;
                 case "help":
                     showUsage();
@@ -115,9 +115,9 @@ public class Main {
 
         for (int i = 1; i < args.length; i++) {
             switch (args[i]) {
-                case "--input": case "-i": inputPath = args[++i]; break;
-                case "--output": case "-o": outputPath = args[++i]; break;
-                case "--format-dir": formatDir = args[++i]; break;
+                case "--input": case "-i": inputPath = requireNextArg(args, ++i, "--input"); break;
+                case "--output": case "-o": outputPath = requireNextArg(args, ++i, "--output"); break;
+                case "--format-dir": formatDir = requireNextArg(args, ++i, "--format-dir"); break;
                 default: System.err.println("Unknown option: " + args[i]);
             }
         }
@@ -179,20 +179,20 @@ public class Main {
             switch (args[i]) {
                 case "--index":
                 case "-i":
-                    indexPath = args[++i];
+                    indexPath = requireNextArg(args, ++i, "--index");
                     break;
                 case "--lemma":
                 case "-w":
-                    lemma = args[++i];
+                    lemma = requireNextArg(args, ++i, "--lemma");
                     break;
                 case "--deprel":
-                    deprel = args[++i];
+                    deprel = requireNextArg(args, ++i, "--deprel");
                     break;
                 case "--min-logdice":
-                    minLogDice = Double.parseDouble(args[++i]);
+                    minLogDice = Double.parseDouble(requireNextArg(args, ++i, "--min-logdice"));
                     break;
                 case "--limit":
-                    limit = Integer.parseInt(args[++i]);
+                    limit = Integer.parseInt(requireNextArg(args, ++i, "--limit"));
                     break;
                 default:
                     System.err.println("Unknown option: " + args[i]);
@@ -237,7 +237,7 @@ public class Main {
         }
     }
 
-    private static void handleServerCommand(String[] args) throws IOException {
+    private static void handleBlackLabServerCommand(String[] args) throws IOException {
         String indexPath = null;
         int port = 8080;
 
@@ -245,11 +245,11 @@ public class Main {
             switch (args[i]) {
                 case "--index":
                 case "-i":
-                    indexPath = args[++i];
+                    indexPath = requireNextArg(args, ++i, "--index");
                     break;
                 case "--port":
                 case "-p":
-                    port = Integer.parseInt(args[++i]);
+                    port = Integer.parseInt(requireNextArg(args, ++i, "--port"));
                     break;
                 default:
                     System.err.println("Unknown option: " + args[i]);
@@ -308,5 +308,17 @@ public class Main {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Returns {@code args[i]}, exiting with a helpful message if {@code i} is out of bounds.
+     */
+    private static String requireNextArg(String[] args, int i, String option) {
+        if (i >= args.length) {
+            System.err.println("Error: " + option + " requires an argument");
+            System.err.println("Use 'help' for usage information.");
+            System.exit(1);
+        }
+        return args[i];
     }
 }

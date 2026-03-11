@@ -10,7 +10,6 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 import pl.marcinmilkowski.word_sketch.config.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.utils.PatternSubstitution;
 import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 import java.io.IOException;
@@ -80,7 +79,8 @@ class SketchHandlers {
                 obj.put("id", rel.id());
                 obj.put("name", rel.name());
                 obj.put("description", rel.description());
-                obj.put("relation_type", rel.relationType().orElseThrow().name());
+                obj.put("relation_type", rel.relationType().orElseThrow(
+                        () -> new java.util.NoSuchElementException("relationType absent for relation: " + rel.id())).name());
                 obj.put("pattern", rel.pattern());
                 if (relationType == RelationType.DEP) {
                     obj.put("deprel", rel.getDeprel());
@@ -108,56 +108,82 @@ class SketchHandlers {
      * DEP relations use surface patterns with [deprel="..."] constraints.
      */
     private void handleFullDependencySketch(HttpExchange exchange, String lemma) throws IOException {
-        handleFullSketchForType(exchange, lemma, RelationType.DEP);
+        handleDepSketchForType(exchange, lemma);
     }
 
     private void handleFullSketchForType(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {
-        boolean isDep = relationType == RelationType.DEP;
         Map<String, Object> byRelation = new HashMap<>();
         List<String> relationErrors = new ArrayList<>();
 
         for (var rel : grammarConfig.getRelations()) {
-            if (rel.relationType().orElse(null) == relationType) {
-                try {
-                    if (isDep && rel.getDeprel() == null) continue;
+            if (rel.relationType().orElse(null) != relationType) continue;
+            try {
+                String fullPattern = rel.getFullPattern(lemma);
+                List<QueryResults.WordSketchResult> results =
+                    executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
 
-                    String fullPattern = rel.getFullPattern(lemma);
-                    List<QueryResults.WordSketchResult> results =
-                        executor.executeSurfacePattern(
-                            lemma, fullPattern,
-                            0.0, 20);
-
-                    if (!results.isEmpty()) {
-                        List<Map<String, Object>> collocations = new ArrayList<>();
-                        for (QueryResults.WordSketchResult result : results) {
-                            collocations.add(formatWordSketchResult(result));
-                        }
-
-                        Map<String, Object> relData;
-                        if (isDep) {
-                            relData = buildRelationResponse(rel, results, collocations);
-                        } else {
-                            relData = new HashMap<>();
-                            relData.put("name", rel.name());
-                            relData.put("cql", rel.pattern());
-                            relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
-                            relData.put("collocations", collocations);
-                        }
-                        byRelation.put(rel.id(), relData);
+                if (!results.isEmpty()) {
+                    List<Map<String, Object>> collocations = new ArrayList<>();
+                    for (QueryResults.WordSketchResult result : results) {
+                        collocations.add(formatWordSketchResult(result));
                     }
-                } catch (Exception e) {
-                    logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
-                    relationErrors.add(rel.id() + ": " + e.getMessage());
+                    Map<String, Object> relData = new HashMap<>();
+                    relData.put("name", rel.name());
+                    relData.put("cql", rel.pattern());
+                    relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+                    relData.put("collocations", collocations);
+                    byRelation.put(rel.id(), relData);
                 }
+            } catch (Exception e) {
+                logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
+                relationErrors.add(rel.id() + ": " + e.getMessage());
             }
         }
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("lemma", lemma);
-        if (isDep) {
-            response.put("type", "dependency");
+        response.put("relations", byRelation);
+        if (!relationErrors.isEmpty()) {
+            response.put("errors", relationErrors);
         }
+        HttpApiUtils.sendJsonResponse(exchange, response);
+    }
+
+    /**
+     * Handle full dependency sketch — separate dispatch path from surface sketches.
+     * DEP relations always use {@link #buildRelationResponse} and carry a
+     * {@code "type": "dependency"} field in the response.
+     */
+    private void handleDepSketchForType(HttpExchange exchange, String lemma) throws IOException {
+        Map<String, Object> byRelation = new HashMap<>();
+        List<String> relationErrors = new ArrayList<>();
+
+        for (var rel : grammarConfig.getRelations()) {
+            if (rel.relationType().orElse(null) != RelationType.DEP) continue;
+            if (rel.getDeprel() == null) continue;
+            try {
+                String fullPattern = rel.getFullPattern(lemma);
+                List<QueryResults.WordSketchResult> results =
+                    executor.executeSurfacePattern(lemma, fullPattern, 0.0, 20);
+
+                if (!results.isEmpty()) {
+                    List<Map<String, Object>> collocations = new ArrayList<>();
+                    for (QueryResults.WordSketchResult result : results) {
+                        collocations.add(formatWordSketchResult(result));
+                    }
+                    byRelation.put(rel.id(), buildRelationResponse(rel, results, collocations));
+                }
+            } catch (Exception e) {
+                logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
+                relationErrors.add(rel.id() + ": " + e.getMessage());
+            }
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
+        response.put("lemma", lemma);
+        response.put("type", "dependency");
         response.put("relations", byRelation);
         if (!relationErrors.isEmpty()) {
             response.put("errors", relationErrors);
@@ -202,7 +228,7 @@ class SketchHandlers {
         relData.put("id", rel.id());
         relData.put("name", rel.name());
         relData.put("collocations", collocations);
-        relData.put("total_matches", results.stream().mapToInt(r -> (int) r.frequency()).sum());
+        relData.put("total_matches", results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum());
 
         Map<String, Object> relationsMap = new HashMap<>();
         relationsMap.put(rel.id(), relData);
@@ -228,7 +254,7 @@ class SketchHandlers {
         relData.put("name", rel.name());
         relData.put("description", rel.description());
         relData.put("deprel", rel.getDeprel());
-        relData.put("total_matches", results.stream().mapToInt(r -> (int) r.frequency()).sum());
+        relData.put("total_matches", results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum());
         relData.put("collocations", collocations);
         return relData;
     }
@@ -323,8 +349,8 @@ class SketchHandlers {
             String center = obj.getString("center");
             if (center == null) center = "";
             logger.debug("Radial: center = {}", center);
-            int width = (!obj.containsKey("width") || obj.get("width") == null) ? 840 : obj.getIntValue("width");
-            int height = (!obj.containsKey("height") || obj.get("height") == null) ? 520 : obj.getIntValue("height");
+            int width = (obj.get("width") == null) ? 840 : obj.getIntValue("width");
+            int height = (obj.get("height") == null) ? 520 : obj.getIntValue("height");
 
             JSONArray itemsArr = obj.getJSONArray("items");
             List<RadialPlot.Item> items = new ArrayList<>();

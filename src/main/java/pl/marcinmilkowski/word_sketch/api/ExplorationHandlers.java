@@ -48,7 +48,7 @@ class ExplorationHandlers {
         String query = exchange.getRequestURI().getQuery();
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
 
-        String seed = HttpApiUtils.requireParam(exchange, params, "seed");
+        String seed = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (seed == null) return;
 
         RelationConfig resolvedConfig = resolveRelationConfig(exchange, params);
@@ -187,10 +187,8 @@ class ExplorationHandlers {
         response.put("specific_count", result.getSpecific().size());
 
         List<Map<String, Object>> edges = new ArrayList<>();
-        if (result.getEdges() != null) {
-            for (Edge edge : result.getEdges()) {
-                edges.add(formatEdge(edge));
-            }
+        for (Edge edge : result.buildEdges()) {
+            edges.add(formatEdge(edge));
         }
         response.put("edges", edges);
         response.put("edges_count", edges.size());
@@ -309,7 +307,7 @@ class ExplorationHandlers {
         response.put("core_collocates_count", coreCollocs.size());
 
         List<Map<String, Object>> edges = new ArrayList<>();
-        for (Edge edge : result.getEdges()) {
+        for (Edge edge : result.buildEdges()) {
             edges.add(formatEdge(edge));
         }
         response.put("edges", edges);

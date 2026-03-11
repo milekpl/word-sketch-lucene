@@ -1,0 +1,113 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 14,
+  "assessments": {
+    "logic_clarity": 74.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison line 190: 'if (result.getEdges() != null)' — ComparisonResult.buildEdges() always returns 'new ArrayList<>()', making this null check dead code that can never be false",
+        "SketchHandlers.handleVisualRadial: 'int width = (!obj.containsKey(\"width\") || obj.get(\"width\") == null) ? 840 : obj.getIntValue(\"width\")' — if containsKey returns false then obj.get() returns null, making the two conditions redundant; 'obj.get(\"width\") == null' alone suffices",
+        "BlackLabQueryExecutor.findCollocations: 'if (identity.isEmpty()) { continue; }' — no null check before calling .toString().isEmpty(). BlackLabQueryExecutor.executeDependencyPattern uses 'if (identity == null || identity.isEmpty()) continue;' for the same field. One of these patterns is inconsistently defensive",
+        "CollocateQueryHelper.collectHits: multiple null-guard branches that produce HitRecord with empty strings — these are intentional defensive guards, not logic clarity issues",
+        "SemanticFieldExplorer.exploreByPattern: 'if (seed == null || seed.isEmpty()) { return ExplorationResult.empty(seed); }' — returns ExplorationResult.empty(null) when seed is null; the empty factory method receives null as the seed field, which callers would then get back via getSeed(). This is a subtle no-op edge case",
+        "GrammarConfigLoader.validatePositions has a combined condition: '!hasPlaceholder && !isDual' — this is clear boolean logic with no simplification opportunity",
+        "ConlluConverter.convertConlluToWplChunks: the finally block is genuinely needed and not a logic clarity issue"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Control flow in query execution pipeline (CollocateQueryHelper phases 1-3) is clearly structured with explicit phase comments",
+        "Guard-clause style is consistently used throughout handlers — early return on null/missing params prevents deep nesting",
+        "Boolean conditions in GrammarConfigLoader.validatePositions are readable and not over-complex",
+        "SemanticFieldExplorer exploration steps are clearly numbered with debug logging at each phase"
+      ],
+      "issue_character": "The logic clarity issues are primarily dead or redundant defensive checks that were likely correct at an earlier code state but became vestigial after refactoring — a null check that can never trigger, a redundant compound conditional, and an inconsistent null-guard pattern across two similar methods.",
+      "score_rationale": "The codebase is generally readable and logically clean. There are no identical if/else branches, no code after unconditional returns, and no always-false conditions from constants. The main issues are a handful of redundant defensive checks and one subtle inconsistency in null-guard patterns. These reduce confidence in what the code 'means' but do not cause bugs in practice. Score lands in the mid-70s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_null_check_get_edges",
+      "summary": "Null check on getEdges() is dead code — buildEdges() always returns a non-null list",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison line 190: 'if (result.getEdges() != null)'",
+        "ComparisonResult.buildEdges() implementation: 'List<Edge> edges = new ArrayList<>(); ... return edges;' — always returns a new non-null list",
+        "The null check can never evaluate to false, making the guarded block always execute — the if is dead code"
+      ],
+      "suggestion": "Remove the null check entirely: replace 'if (result.getEdges() != null) { for (Edge edge : result.getEdges()) { ... } }' with 'for (Edge edge : result.buildEdges()) { ... }'. This removes the dead branch and migrates to the non-deprecated API.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_contains_key_check",
+      "summary": "Double containsKey+null check in handleVisualRadial is redundant — null check alone suffices",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleVisualRadial: 'int width = (!obj.containsKey(\"width\") || obj.get(\"width\") == null) ? 840 : obj.getIntValue(\"width\")'",
+        "When containsKey returns false, obj.get() also returns null — the first condition subsumes the second for all JSONObject implementations",
+        "Same redundant pattern for height: '(!obj.containsKey(\"height\") || obj.get(\"height\") == null)'"
+      ],
+      "suggestion": "Simplify to: 'int width = obj.get(\"width\") == null ? 840 : obj.getIntValue(\"width\"); int height = obj.get(\"height\") == null ? 520 : obj.getIntValue(\"height\");'. Or use JSONObject.getIntValue(key, defaultValue) if fastjson2 supports it.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "inconsistent_null_guard_identity",
+      "summary": "Identity null-guard present in executeDependencyPattern but absent in findCollocations for same field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations: 'String identity = group.identity().toString(); if (identity.isEmpty()) { continue; }' — no null check on identity",
+        "executeDependencyPattern: 'String identity = group.identity().toString(); if (identity == null || identity.isEmpty()) continue;' — adds null check on the same field",
+        "After calling .toString() the result cannot be null (toString() never returns null in Java), making the 'identity == null' check in executeDependencyPattern always false and inconsistent with findCollocations"
+      ],
+      "suggestion": "Remove the 'identity == null ||' condition from executeDependencyPattern — after .toString() the value cannot be null. Both methods should use 'if (identity.isEmpty()) continue;'. Add a comment that identity is guaranteed non-null post-toString() to explain why the null check is absent.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "empty_result_with_null_seed",
+      "summary": "exploreByPattern returns ExplorationResult.empty(null) when seed is null, silently propagating null into the result object",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern(String seed, ...): 'if (seed == null || seed.isEmpty()) { return ExplorationResult.empty(seed); }'",
+        "When seed is null, ExplorationResult.empty(null) is constructed with seed field = null",
+        "Callers invoking result.getSeed() on this empty result will receive null, not an empty string, which is a subtle inconsistency with the isEmpty() guard"
+      ],
+      "suggestion": "Change 'return ExplorationResult.empty(seed);' to 'return ExplorationResult.empty(\"\");' in the null/blank guard, ensuring the seed field of the returned result is always a valid string. Alternatively, throw IllegalArgumentException for null to make misuse explicit.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Dead null-check and deprecated getEdges() call stem from the incomplete getEdges->buildEdges migration",
+      "Inconsistent null-guard patterns suggest different authors or different defensive coding habits for the same underlying field type"
+    ],
+    "likely_symptoms": ["dead_null_check_get_edges", "redundant_contains_key_check", "inconsistent_null_guard_identity"],
+    "possible_false_positives": []
+  }
+}

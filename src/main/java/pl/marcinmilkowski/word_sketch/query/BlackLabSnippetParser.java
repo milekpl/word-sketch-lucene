@@ -24,7 +24,10 @@ class BlackLabSnippetParser {
      * Extract lemma from matched text (XML format).
      * Finds the last {@code lemma="xxx"} attribute and returns it lowercased.
      * Used for grouping identity text from HitPropertyHitText results.
+     *
+     * @return the lowercased lemma, or {@code null} if none found
      */
+    /* @Nullable */
     static String extractLemmaFromMatch(String matchText) {
         String lemma = extractLastLemma(matchText);
         return lemma != null ? lemma.toLowerCase() : null;
@@ -52,7 +55,10 @@ class BlackLabSnippetParser {
     /**
      * Extract POS tag from matched text (XML format).
      * Tries xpos first, falls back to upos.
+     *
+     * @return the POS tag string, or {@code null} if not found
      */
+    /* @Nullable */
     static String extractPosFromMatch(String matchText) {
         if (matchText == null || matchText.isEmpty()) {
             return null;
@@ -134,7 +140,9 @@ class BlackLabSnippetParser {
      * Extract collocate lemma from XML by labeled position.
      * @param xmlSnippet The XML snippet containing the full sentence
      * @param position The 1-based position of the token to extract (from findLabelPosition)
+     * @return the lemma at the given position, or {@code null} if not found
      */
+    /* @Nullable */
     static String extractCollocateFromXmlByPosition(String xmlSnippet, int position) {
         if (xmlSnippet == null || xmlSnippet.isEmpty() || position < 1) {
             return null;
@@ -150,6 +158,7 @@ class BlackLabSnippetParser {
         return null;
     }
 
+    /* @Nullable */
     static String extractHeadword(String bcqlPattern) {
         java.util.regex.Matcher m = LEMMA_ATTR_ANY.matcher(bcqlPattern);
         if (m.find()) {
@@ -165,6 +174,7 @@ class BlackLabSnippetParser {
      * @param position  1-based position of the word to extract
      * @return the word at that position, or {@code null} if out of range
      */
+    /* @Nullable */
     static String extractPlainTextTokenAt(String text, int position) {
         if (text == null || text.isEmpty() || position < 1) return null;
         String[] words = text.trim().split("\\s+");
@@ -214,6 +224,7 @@ class BlackLabSnippetParser {
      * @param matchXml The match XML (parts[1] from a concordance)
      * @return The collocate lemma (original case), or {@code null}
      */
+    /* @Nullable */
     static String extractCollocateLemma(String matchXml) {
         return extractLastLemma(matchXml);
     }

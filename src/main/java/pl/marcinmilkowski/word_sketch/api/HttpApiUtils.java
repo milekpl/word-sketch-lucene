@@ -14,7 +14,7 @@ import java.util.Map;
 /**
  * Static HTTP utility helpers for the REST API server.
  */
-public class HttpApiUtils {
+class HttpApiUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
 

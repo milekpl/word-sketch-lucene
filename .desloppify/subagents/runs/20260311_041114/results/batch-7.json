@@ -1,0 +1,59 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 7,
+  "assessments": {"dependency_health": 82.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares exactly 2 BlackLab artifacts (blacklab-engine, blacklab-query-parser) — no redundant overlap. The split makes sense: engine handles indexing/search, query-parser handles CQL/BCQL parsing.",
+        "fastjson2 is the single JSON library. All JSON serialization uses com.alibaba.fastjson2 consistently (JSON.toJSONString, JSONObject, JSONArray). No competing JSON library (Jackson, Gson) is present.",
+        "Logging is SLF4J + Logback classic — a standard idiomatic pair. No competing logging framework (log4j, java.util.logging bridging) is added.",
+        "JUnit 5 trio (junit-jupiter-api, junit-jupiter-engine, junit-platform-launcher) is the test stack — appropriate and complete.",
+        "No dependency exists for HTTP serving: the code uses com.sun.net.httpserver.HttpServer, which is a non-public JDK internal API (exported via jdk.httpserver module but not specified as a stable API surface). This creates a portability risk on certain JDK configurations or future Java versions.",
+        "No unused production dependencies are visible: BlackLab imports appear in query/indexer packages, fastjson2 in api package, SLF4J in all classes with logger fields.",
+        "No heavy-for-light-use pattern: logback/slf4j is standard, fastjson2 is used throughout for serialization, BlackLab is the core engine. No lodash-for-one-function equivalent.",
+        "No circular import cycles are visible in the package structure: api depends on config/exploration/query/model/utils; exploration depends on config/model/query; query depends on model/utils; model/utils/config have no upward dependencies."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Use of com.sun.net.httpserver (an internal/unofficial JDK API) for the HTTP server is the one non-trivial dependency concern: while functional on OpenJDK, it is not a supported public API and could break with module restrictions or JDK changes."
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Dependency count is minimal — 5 production dependencies total (2 BlackLab, 1 fastjson2, 2 logging), no bloat.",
+        "Single JSON library (fastjson2) used consistently throughout — no competing JSON libraries.",
+        "No heavy dependency pulled in for trivial use; all dependencies are central to the application's core purpose.",
+        "No circular dependency cycles visible in the import graph across packages."
+      ],
+      "issue_character": "The dependency set is lean and well-chosen; the only issue is the use of com.sun.net.httpserver, which is a non-public JDK internal API, creating a portability risk rather than a structural dependency health problem.",
+      "score_rationale": "At 80 = solid but uneven, this codebase is slightly above that: the production dependency set is minimal, coherent, and non-overlapping. The com.sun.net.httpserver choice is a meaningful portability concern (future JDK module enforcement or third-party container environments may restrict access to com.sun.* APIs) that prevents a score in the 88-92 range. This is a single architectural choice with a clear fix path rather than a systemic pattern."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "com_sun_httpserver_internal_api",
+      "summary": "HTTP server uses com.sun.net.httpserver, a non-public JDK internal API not guaranteed stable across JDK versions",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": ["WordSketchApiServer imports com.sun.net.httpserver.HttpServer and InetSocketAddress directly. HttpApiUtils, SketchHandlers, and ExplorationHandlers import com.sun.net.httpserver.HttpExchange.", "com.sun.* packages are internal JDK APIs not covered by the Java SE compatibility promise; module enforcement in strict module systems (e.g., OSGi containers, some cloud runtimes) may deny access."],
+      "suggestion": "Replace com.sun.net.httpserver with a small, stable embedded HTTP library — Undertow (io.undertow:undertow-core) or Javalin (with a slim profile) would add one dependency but eliminate the internal-API risk. Alternatively, document the JDK module requirement explicitly in pom.xml.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "jdk_internal_http"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The com.sun.net.httpserver choice is a pragmatic shortcut to avoid adding a third-party HTTP dependency; for a single-user NLP tool this is low risk, but it is technically dependency debt."],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

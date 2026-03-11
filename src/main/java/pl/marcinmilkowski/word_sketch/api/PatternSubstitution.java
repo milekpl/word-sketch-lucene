@@ -1,18 +1,20 @@
-package pl.marcinmilkowski.word_sketch.utils;
+package pl.marcinmilkowski.word_sketch.api;
+
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 import java.util.List;
 
 /**
  * Static helpers for substituting collocates into CQL patterns.
  */
-public class PatternSubstitution {
+class PatternSubstitution {
 
     private PatternSubstitution() {}
 
     /**
      * Substitute the collocate word into a BCQL pattern at the specified position.
      */
-    public static String substituteCollocate(String pattern, String collocate, int collocatePosition) {
+    static String substituteCollocate(String pattern, String collocate, int collocatePosition) {
         if (pattern == null || collocate == null || collocatePosition < 1) {
             return pattern;
         }
@@ -41,6 +43,4 @@ public class PatternSubstitution {
         patternPositions.set(collocatePosition - 1, newConstraint.toString());
         return String.join(" ", patternPositions);
     }
-
-
 }

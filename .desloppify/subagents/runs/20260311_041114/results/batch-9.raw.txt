@@ -1,0 +1,90 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {"mid_level_elegance": 73.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreOptions record cleanly bundles 5 exploration parameters (topCollocates, nounsPerSeed, minLogDice, minShared, includeExamples) that cross the ExplorationHandlers → SemanticFieldExplorer boundary — one object, not 5 positional arguments.",
+        "resolveRelationConfig, resolveExploreParams, parseSeedSet are private helpers in ExplorationHandlers that concentrate boundary translation in named places rather than inline in each handler. This reduces glue-code entropy.",
+        "RelationUtils.resolveRelationAlias centralizes short-alias → grammar-config-ID mapping. All handlers call this one place; none duplicates the mapping.",
+        "Error propagation is consistent at API boundaries: IOException → sendError(500), IllegalArgumentException → sendError(400), with specific messages. Pattern is uniform across 5 handler methods.",
+        "ExplorationResult.toMap() and ComparisonResult.toMap() co-locate serialization with data — the handlers do not contain bespoke field-copy loops for model objects. However, ExplorationHandlers.handleSemanticFieldComparison contains its own AdjectiveProfile and Edge formatting inline (formatAdjectiveProfile, formatEdge helper calls), creating a redundant serialization path alongside toMap().",
+        "ExplorationHandlers.handleSemanticFieldComparison calls result.getEdges() which is annotated @Deprecated (delegates to buildEdges()). The handler should call buildEdges() directly; the deprecated shim is still in active use at a module boundary.",
+        "The null guard 'if (result.getEdges() != null)' in handleSemanticFieldComparison is defensive sprawl: getEdges() calls buildEdges() which always returns a new non-null ArrayList. This check misleads readers about whether null is possible.",
+        "resolvedConfig.relationType().orElseThrow() is called in multiple handlers without an error message. If the optional is empty (e.g., a grammar config relation with no relation_type field), the NoSuchElementException message will be 'No value present' with no context about which relation caused the failure.",
+        "handleSemanticFieldExamples parses maxExamples inline with try/catch(NumberFormatException), while handleSemanticFieldComparison routes through resolveExploreParams for similar numeric parameters. This inconsistency means the boundary translation layer (resolveExploreParams) is only partially applied.",
+        "Data flowing from SemanticFieldExplorer back to handlers is typed model objects (ExplorationResult, ComparisonResult) with toMap() and buildEdges() — this is clean. But the handlers in ExplorationHandlers then re-extract individual fields (e.g., result.getSeed(), result.getCoreCollocates()) for response building alongside toMap(), mixing two serialization strategies."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreOptions record provides a clean, named boundary object for the exploration parameter set, eliminating a 5-argument call.",
+        "resolveRelationConfig and resolveExploreParams concentrate parameter parsing and error sending in one place per concern — handlers stay readable.",
+        "Error boundary handling is consistent: IOException → 500, IllegalArgumentException → 400, uniform message format.",
+        "RelationUtils.resolveRelationAlias ensures all handlers use the same alias mapping without duplication."
+      ],
+      "issue_character": "The seam issues are localized to ExplorationHandlers: a deprecated shim is still called at a module boundary, a null guard misleads readers about post-boundary invariants, and the serialization strategy is split between toMap() on model objects and inline field-by-field extraction in handlers — suggesting the boundary was not fully settled when features were added.",
+      "score_rationale": "At the 80 anchor (solid but uneven), this codebase is a few points below. The explicit ExploreOptions boundary object and the resolveRelation/resolveExploreParams helpers are clear strengths. The drag comes from the active use of a deprecated pass-through at the exploration boundary, the redundant null check on a non-nullable list, the partial application of the resolveExploreParams abstraction (maxExamples bypasses it), and the two-path serialization strategy. These are real seam quality issues concentrated in one class rather than systemic."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "deprecated_get_edges_at_boundary",
+      "summary": "ExplorationHandlers calls the deprecated getEdges() shim instead of buildEdges() directly",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java"
+      ],
+      "evidence": ["handleSemanticFieldComparison calls result.getEdges() which is @Deprecated and delegates to buildEdges(). The deprecation note on getEdges() says 'Use buildEdges()'. The handler should call buildEdges() directly to close the deprecated path."],
+      "suggestion": "Replace result.getEdges() with result.buildEdges() in handleSemanticFieldComparison.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "null_guard_on_non_nullable_list",
+      "summary": "Null check on result.getEdges() is unnecessary and misleads readers about the post-boundary invariant",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": ["if (result.getEdges() != null) { for (Edge edge : result.getEdges()) { ... }} — getEdges() calls buildEdges() which returns new ArrayList<>(), never null.", "The null guard implies to readers that null is a possible return value, adding false complexity to the seam."],
+      "suggestion": "Remove the null check; call buildEdges() directly and iterate the result unconditionally.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "partial_resolve_params_coverage",
+      "summary": "handleSemanticFieldExamples parses maxExamples inline instead of routing through resolveExploreParams, creating inconsistent boundary translation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": ["handleSemanticFieldExamples: int maxExamples; try { maxExamples = Integer.parseInt(params.getOrDefault(\"max\", \"10\")); } catch (NumberFormatException e) { sendError(400, ...) } — same pattern that resolveExploreParams was designed to centralize.", "Other handlers route through resolveExploreParams for topCollocates/minLogDice/minShared/nounsPerSeed but maxExamples and limit (in concordance handler) bypass it."],
+      "suggestion": "Extend resolveExploreParams or add a parseIntParam helper to consolidate all numeric parameter parsing and error sending in one place.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "relation_type_optional_no_message",
+      "summary": "resolvedConfig.relationType().orElseThrow() called without error message, producing uninformative NoSuchElementException",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": ["String relationType = resolvedConfig.relationType().orElseThrow().name(); — if relationType is empty (grammar config relation with no relation_type field), this throws NoSuchElementException: 'No value present' with no indication of which relation or endpoint failed."],
+      "suggestion": "Use orElseThrow(() -> new IllegalStateException(\"Relation '\" + resolvedConfig.id() + \"' has no relation_type — exploration requires a typed relation\")) to produce an actionable error message at the boundary.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The seam inconsistencies in ExplorationHandlers suggest the class grew incrementally — each new endpoint copied nearby patterns rather than refactoring the shared boundary helpers to cover the new cases."],
+    "likely_symptoms": ["deprecated_get_edges_at_boundary", "null_guard_on_non_nullable_list"],
+    "possible_false_positives": []
+  }
+}

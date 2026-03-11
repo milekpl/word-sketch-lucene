@@ -261,21 +261,16 @@ public class GrammarConfigLoader {
         if (pattern == null || pattern.isBlank()) return defaultPos;
         List<String> tokens = CqlUtils.splitCqlTokens(pattern);
         if (tokens.isEmpty()) return defaultPos;
-        int pos = 1;
-        int i = 0;
-        while (i < pattern.length() && pos <= tokens.size()) {
-            if (Character.isWhitespace(pattern.charAt(i))) { i++; continue; }
-            // Label prefix detected: the next token (pos) carries this label
-            if (i + 1 < pattern.length() && pattern.charAt(i) == targetLabel && pattern.charAt(i + 1) == ':') {
-                return pos;
+        int cursor = 0;
+        for (int tokenIdx = 0; tokenIdx < tokens.size(); tokenIdx++) {
+            while (cursor < pattern.length() && Character.isWhitespace(pattern.charAt(cursor))) cursor++;
+            if (cursor + 1 < pattern.length()
+                    && pattern.charAt(cursor) == targetLabel
+                    && pattern.charAt(cursor + 1) == ':') {
+                return tokenIdx + 1;
             }
-            if (pattern.charAt(i) == '[') {
-                // Skip past this token using the pre-split token string
-                i += tokens.get(pos - 1).length();
-                pos++;
-            } else {
-                i++; // skip label digits, colons, or other non-bracket chars
-            }
+            while (cursor < pattern.length() && pattern.charAt(cursor) != '[') cursor++;
+            cursor += tokens.get(tokenIdx).length();
         }
         return defaultPos;
     }

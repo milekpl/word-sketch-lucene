@@ -1,0 +1,42 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {"initialization_coupling": 87.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "All static fields across the codebase are compile-time constants or immutable collections: LogDiceCalculator.UNCOMPUTABLE = Double.NaN, LongIntHashMap.EMPTY_KEY = Long.MIN_VALUE, RelationUtils.RELATION_ALIASES = Map.of(...). No mutable globals.",
+        "GrammarConfigLoader is constructed explicitly at server startup in Main.handleServerCommand, not at class-load time. File I/O only occurs at construction.",
+        "BlackLabQueryExecutor opens the BlackLab index in its constructor (new File(indexPath)) — correct Java practice. No static factory or shared singleton.",
+        "WordSketchApiServer constructs SemanticFieldExplorer, SketchHandlers, and ExplorationHandlers in its constructor from explicitly passed-in dependencies. All wiring is explicit.",
+        "No environment variable reads at static field initialization in production code. BlackLabQueryExecutorTest reads System.getenv at field init, but that is test code.",
+        "No circular constructor dependencies observed: Main creates GrammarConfigLoader and BlackLabQueryExecutor independently, then passes them to WordSketchApiServer.",
+        "No lazy-init singletons or double-checked locking patterns that could cause ordering issues.",
+        "GrammarConfigLoader.fromReader factory method provides a clean test seam without requiring file I/O, showing awareness of initialization coupling."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "BlackLabQueryExecutor's constructor throws IOException wrapping arbitrary exceptions from BlackLab.open, but callers in Main do not distinguish recoverable vs. fatal failures — boot errors are uniformly fatal, which is acceptable but limits operational observability."
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "All static fields are true constants (compile-time or immutable Map.of) with no side effects.",
+        "Dependency wiring in WordSketchApiServer and Main is fully explicit — no service locators or static registries.",
+        "GrammarConfigLoader.fromReader provides a file-system-independent construction path for testing.",
+        "No environment variable reads at class load time in production code.",
+        "BlackLabQueryExecutor implements Closeable/AutoCloseable, enabling clean resource lifecycle management without static state."
+      ],
+      "issue_character": "This Java codebase has essentially none of the initialization coupling concerns the dimension targets; those concerns (import-time side effects, module-level dynamic constants, circular lazy imports) are primarily Python/JS patterns that do not manifest in well-structured Java.",
+      "score_rationale": "The codebase scores very high on this dimension. Static fields are pure constants, all I/O and index initialization happen at construction time via explicit constructor arguments, and there are no shared mutable globals. The minor reduction from 100 reflects that some constructor error paths are coarse-grained (all BlackLab failures become IOException) and that there is no formal DI container to enforce the initialization order — it is implicit in Main's sequential construction calls."
+    }
+  },
+  "issues": [],
+  "retrospective": {
+    "root_causes": [],
+    "likely_symptoms": [],
+    "possible_false_positives": ["mutable_globals scan likely flagged AtomicLong fields in BlackLabConllUIndexer (documentCount, tokenCount, errorCount) — these are instance-scoped mutation counters, not global singletons, and are appropriate for the progress-tracking use case"]
+  }
+}

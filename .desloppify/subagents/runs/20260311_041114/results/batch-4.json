@@ -1,0 +1,111 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {"error_consistency": 68.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "API boundary in ExplorationHandlers consistently separates 400 (IllegalArgumentException) from 500 (IOException) error codes across all four handler methods — clean and predictable",
+        "BlackLabQueryExecutor constructor wraps all exceptions in IOException with cause chain: throw new IOException('Failed to open index: ' + e.getMessage(), e)",
+        "CollocateQueryHelper.executeCollocateSearch catches InvalidQuery and wraps with context: throw new IOException('BCQL parse error: ' + e.getMessage(), e) — same pattern in executeBcqlQuery",
+        "CollocateQueryHelper.getTotalFrequency uses catch (Exception e) — a broad catch that wraps all exceptions regardless of type into IOException, masking the distinction between index corruption, null pointer, and I/O errors",
+        "BlackLabQueryExecutor.findCollocations checks identity.isEmpty() at line 61 without a prior null guard — if BlackLab ever returns null identity the NPE would propagate as a raw RuntimeException rather than a wrapped IOException",
+        "CollocateQueryHelper.scoreHits lines 257-260: when jointFreq is 0 for a valid collocate, emits logger.warn but continues — produces logDice=0 silently instead of propagating or explicitly marking the result as unscored",
+        "Main.handleBlackLabIndexCommand/handleBlackLabQueryCommand parse CLI arguments with args[++i] with no bounds check — ArrayIndexOutOfBoundsException propagates to the outer catch(Exception e) in main() which only prints e.getMessage()",
+        "WordSketchApiServer.wrapHandler catches both IOException and Exception broadly as a top-level safety net — this is an intentional handler boundary and is acceptable",
+        "GrammarConfigLoader uses throws IOException consistently across all parsing methods — throw-based strategy is uniform within config/"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "API layer cleanly maps exception types to HTTP status codes (IllegalArgumentException→400, IOException→500) consistently across all handlers",
+        "Exception cause chains are consistently preserved when wrapping (new IOException('msg', e) pattern throughout)",
+        "GrammarConfigLoader uses a uniform throws IOException strategy with specific, descriptive messages for each validation failure"
+      ],
+      "issue_character": "The pattern is mostly consistent at boundaries but degrades internally: the broad Exception catch in getTotalFrequency, the silent logDice=0 degradation in scoreHits, and the unguarded CLI argument array access are instances where error handling was added defensively but incompletely — catching broadly rather than specifically, or logging instead of failing.",
+      "score_rationale": "The codebase has a clearly designed error strategy at the important seams (API boundary, config loading, query parsing) that is consistently applied. The score is pulled down by three concrete holes: the broad Exception catch in getTotalFrequency that erases diagnostic specificity, the scoreHits silent degradation that produces misleading zero-score results without caller notification, and the CLI argument index arithmetic that produces an unhelpful 'ArrayIndexOutOfBoundsException' message. These are not peripheral — getTotalFrequency is called per-collocate in the hot query path. A developer debugging a subtle ranking bug would have limited signal from the current error handling."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "broad_exception_catch_frequency",
+      "summary": "getTotalFrequency swallows all exception types into IOException, erasing diagnostic specificity",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.java lines 77-79: catch (Exception e) { throw new IOException('Unexpected failure retrieving frequency for lemma ...' + lemma + \"'\", e); }",
+        "The catch covers NullPointerException, ClassCastException, and index-internal RuntimeExceptions equally — a coding bug in the caller path would be wrapped and attributed to a corpus access failure"
+      ],
+      "suggestion": "Narrow the catch to the specific checked exceptions thrown by BlackLab's termFrequencies() API (e.g., IOException or BlackLab-specific runtime exceptions). If the API can throw undocumented RuntimeExceptions, catch RuntimeException separately and re-throw as IllegalStateException to distinguish unexpected state from expected I/O failure.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "silent_logdice_degradation",
+      "summary": "scoreHits silently produces logDice=0 when a collocate's jointFreq is unexpectedly absent, without signaling the data quality issue to the caller",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.java lines 257-260: if (jointFreq == 0L) { logger.warn('Collocate not found in frequency map — logDice will be 0', collocateLemma); }",
+        "Execution continues and a CollocateResult with logDice=0 is added to the result list — the caller receives what looks like a valid scored result",
+        "The Phase 3 sort will rank these zero-score results at the bottom, but they are not excluded — a caller applying a min_logdice=0 threshold would include them"
+      ],
+      "suggestion": "Either skip collocates with jointFreq=0 (continue; after the warning) or set a sentinel value and filter them out before returning. The current behavior violates the expectation that results returned from scoreHits are valid, scored entries.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "cli_args_bounds_unchecked",
+      "summary": "CLI argument parsing in Main uses unchecked array index arithmetic, producing unhelpful ArrayIndexOutOfBoundsException",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Main.java handleBlackLabIndexCommand: case '--input': case '-i': inputPath = args[++i]; — no bounds check before increment",
+        "Same pattern in handleBlackLabQueryCommand and handleServerCommand",
+        "The outer catch in main() prints e.getMessage() which for ArrayIndexOutOfBoundsException is just 'Index N out of bounds for length M' — not helpful to the user"
+      ],
+      "suggestion": "Add a bounds check before each args[++i] access: if (i + 1 >= args.length) { System.err.println('Option ' + args[i] + ' requires a value'); return; } This converts a confusing runtime exception into a clear user-facing error message consistent with the --index/--lemma required-field checks already present.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "null_identity_unguarded",
+      "summary": "findCollocations checks identity.isEmpty() without a prior null guard, inconsistent with sibling methods that include null checks",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations line 61: if (identity.isEmpty()) { continue; } — no null guard",
+        "executeDependencyPattern line 139: if (identity == null || identity.isEmpty()) continue; — includes null guard",
+        "If BlackLab returns a null identity string from group.identity().toString() in some edge case, findCollocations would throw NullPointerException while executeDependencyPattern would silently skip"
+      ],
+      "suggestion": "Add null guard before isEmpty() check in findCollocations to match executeDependencyPattern: if (identity == null || identity.isEmpty()) { continue; }",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The broad Exception catch in getTotalFrequency reflects a defensive coding habit applied at the wrong granularity — wrapping generically rather than understanding the specific exception contract of the called API",
+      "The scoreHits silent degradation suggests the warning was added as a diagnostic during development and never promoted to a proper data-quality gate"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 48.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "Utility layer (LogDiceCalculator, LongIntHashMap, CqlUtils, PatternSubstitution) has dedicated unit tests covering normal paths, edge cases, and null inputs — well covered.",
+        "GrammarConfigLoaderTest and RelationsValidationTest provide config-layer coverage including validation rules.",
+        "SemanticFieldExplorerTest uses a StubExecutor implementing QueryExecutor to test exploration logic without a live index — good design.",
+        "BlackLabSnippetParserTest covers the XML parsing logic with many cases.",
+        "BlackLabQueryExecutorTest: all test methods call Assumptions.assumeTrue(INDEX_PATH != null) — tests skip automatically in CI without the CONCEPT_SKETCH_TEST_INDEX env var. In practice, executeDependencyPattern, executeSurfacePattern, and the full findCollocations path are only testable with a live index.",
+        "CollocateQueryHelper: executeCollocateSearch, buildAndRankCollocates (the core ranking logic), collectHits, and scoreHits are not unit tested. CollocateQueryHelperTest only tests the static extractCollocateLemma helper.",
+        "WordSketchApiServer has no direct test. The HTTP routing logic, CORS handling, and wrapHandler error propagation are not tested.",
+        "ExplorationHandlers has no direct test. The multi-parameter parsing, seed validation (size >= 2), and relationType resolution paths are untested.",
+        "The e2e test directory exists but is empty — no cross-module integration path is verified.",
+        "HandlersTest exists in api package — provides some coverage of SketchHandlers with mock executor.",
+        "AdjectiveCollocateRankerTest covers the ranker logic; SemanticFieldExplorerTest covers the explorer with stubs.",
+        "No snapshot tests found — snapshot overuse is not an issue here.",
+        "DependencySketchTest and HybridAlgorithmTest exist but appear to require live index based on naming patterns."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Utility classes (LogDice, LongIntHashMap, CqlUtils, PatternSubstitution) are thoroughly unit tested.",
+        "SemanticFieldExplorer is tested via a clean stub QueryExecutor — demonstrates good testability design for the exploration layer.",
+        "No snapshot test overuse; all tests assert on specific values.",
+        "Config loading and grammar validation have dedicated tests."
+      ],
+      "issue_character": "The core query execution layer — CollocateQueryHelper's ranking/scoring methods and BlackLabQueryExecutor's three collocate-extraction paths — has no unit tests, and the HTTP handler layer (WordSketchApiServer, ExplorationHandlers) is also untested, leaving the most critical production code paths verified only by manual runs against a live index.",
+      "score_rationale": "The codebase has a clear split: utilities and exploration logic are reasonably well tested, but the integration-heavy query layer and HTTP API layer lack unit tests entirely. BlackLabQueryExecutorTest is effectively skipped in CI (no live index in automated builds), and CollocateQueryHelper's scoring pipeline has no tests at all. The e2e directory being empty means there is no cross-module verification. Scoring at 48 reflects that critical business-logic paths are not covered by any automated test that runs without external infrastructure."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "collocate_ranking_pipeline_untested",
+      "summary": "CollocateQueryHelper.buildAndRankCollocates and scoreHits have no unit tests despite being the core logDice-ranking logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelperTest.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelperTest only tests the static extractCollocateLemma method",
+        "buildAndRankCollocates contains the logDice threshold filtering, posMap fallback, and sort+limit logic — none of this is unit tested",
+        "scoreHits performs the per-hit logDice calculation and OVER_FETCH_FACTOR limiting — not tested"
+      ],
+      "suggestion": "Introduce a unit test for buildAndRankCollocates by passing pre-built freqMap/posMap and a mock getTotalFrequency via either subclassing CollocateQueryHelper or extracting the ranking into a pure static helper that takes frequencies as parameters.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "blacklab_executor_live_index_only",
+      "summary": "BlackLabQueryExecutor's executeDependencyPattern and executeSurfacePattern paths are only reachable via live-index tests skipped in CI",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorTest: Assumptions.assumeTrue(INDEX_PATH != null) at @BeforeAll — all tests skip without CONCEPT_SKETCH_TEST_INDEX env var",
+        "executeDependencyPattern (line 144) and executeSurfacePattern (line 192) have no test coverage in CI",
+        "The collocate identity parsing inside executeDependencyPattern (BlackLabSnippetParser.extractCollocateLemma) and inside executeSurfacePattern (extractCollocateFromXmlByPosition/extractPlainTextTokenAt) differs per method and is not independently tested"
+      ],
+      "suggestion": "Extract BlackLabQueryExecutor's collocate-identification logic into package-private static helpers (as was done with extractCollocateLemma in CollocateQueryHelper), then test those helpers directly with XML fixture strings without needing a live index.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "http_handler_layer_untested",
+      "summary": "WordSketchApiServer routing and ExplorationHandlers parameter parsing have no automated tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "No test class for WordSketchApiServer — CORS preflight handling, wrapHandler error propagation, and route registration are untested",
+        "ExplorationHandlers has no test — the seeds.size() < 2 guard, resolveRelationConfig null-path, resolveExploreParams NumberFormatException handling are all untested",
+        "HandlersTest covers SketchHandlers with mocks but ExplorationHandlers is absent"
+      ],
+      "suggestion": "Add ExplorationHandlersTest using a mock HttpExchange and a stub SemanticFieldExplorer to verify the parameter validation paths (missing seed, invalid numeric, unknown relation). For WordSketchApiServer, an integration test that starts a test server and calls /health and /api/relations with curl or HttpClient would cover routing without a BlackLab index.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "empty_e2e_directory",
+      "summary": "The e2e test directory exists but contains no tests, leaving cross-module flows unverified",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/e2e/"
+      ],
+      "evidence": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/e2e/ directory is present but empty",
+        "No cross-module test verifies the end-to-end path: HTTP request → ExplorationHandlers → SemanticFieldExplorer → QueryExecutor → response JSON"
+      ],
+      "suggestion": "Add at least one end-to-end integration test using an in-memory or test-data BlackLab index that exercises the full /api/semantic-field/explore path and asserts on response shape.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLabQueryExecutor is tightly coupled to the BlackLab library through direct field access, making it difficult to unit test without an index. Extracting the query-building logic from the hit-iteration logic would allow unit testing the business logic independently.",
+      "HTTP handler tests require either a live server or a mock HttpExchange — the project has not invested in a test HTTP framework, leaving the API layer a blind spot."
+    ],
+    "likely_symptoms": ["collocate_ranking_pipeline_untested is the highest-impact gap since buildAndRankCollocates is used by all three sketch methods"],
+    "possible_false_positives": []
+  }
+}

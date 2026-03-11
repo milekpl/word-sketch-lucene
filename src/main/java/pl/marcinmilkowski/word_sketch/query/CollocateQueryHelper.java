@@ -135,7 +135,7 @@ class CollocateQueryHelper {
 
             double logDice = LogDiceCalculator.compute(jointFreq, headwordFreq, collocateFreq);
 
-            if (logDice >= minLogDice) {
+            if (!Double.isNaN(logDice) && logDice >= minLogDice) {
                 double relFreq = LogDiceCalculator.relativeFrequency(jointFreq, headwordFreq);
                 String pos = posMap != null
                         ? posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS)
@@ -172,7 +172,7 @@ class CollocateQueryHelper {
             String headword = BlackLabSnippetParser.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
             int collocatePos = BlackLabSnippetParser.findLabelPosition(bcqlPattern, 2);
-            int sampleSize = (int) Math.min(hits.size(), maxResults * 10L);
+            int sampleSize = (int) Math.min(hits.size(), (long) maxResults * 10); // safe: min ensures result ≤ maxResults*10
 
             // Phase 1: collect per-hit data and accumulate collocate frequencies
             Map<String, Long> collocateFreqMap = new HashMap<>();
@@ -245,7 +245,7 @@ class CollocateQueryHelper {
     private List<QueryResults.CollocateResult> scoreHits(List<HitRecord> records,
             Map<String, Long> collocateFreqMap, long headwordFreq, int maxResults) throws IOException {
         List<QueryResults.CollocateResult> results = new ArrayList<>();
-        int limit = (int) Math.min((long) maxResults * OVER_FETCH_FACTOR, (long) records.size());
+        int limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size());
 
         for (int i = 0; i < limit; i++) {
             HitRecord rec = records.get(i);
@@ -256,7 +256,7 @@ class CollocateQueryHelper {
             if (validCollocate) {
                 jointFreq = collocateFreqMap.getOrDefault(collocateLemma.toLowerCase(), 0L);
                 if (jointFreq == 0L) {
-                    logger.warn("Collocate '{}' not found in frequency map — logDice will be 0", collocateLemma);
+                    logger.debug("No joint frequency found for collocate '{}' — logDice will be 0", collocateLemma);
                 }
             }
             long collocateFreq = validCollocate ? getTotalFrequency(collocateLemma) : 0L;

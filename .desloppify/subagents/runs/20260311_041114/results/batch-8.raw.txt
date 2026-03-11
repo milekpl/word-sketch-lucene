@@ -1,0 +1,76 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 8,
+  "assessments": {"low_level_elegance": 68.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "GrammarConfigLoader.deriveTokenPosition runs a dual-counter loop (char index i and token position pos) simultaneously. When a '[' is found, it does: i += tokens.get(pos - 1).length() to skip the token string, then pos++. This dual-cursor approach is difficult to follow and fragile if label prefix characters (digits, colons) cause the char-index skip to desynchronize with the pre-split token list.",
+        "BlackLabSnippetParser.findLabelPosition walks the pattern string character by character to count '[' characters, then compares the index with the label position. The algorithm is: find label string in pattern, then re-walk from the beginning counting '[' chars until reaching the same index. This manual char-walk duplicates what CqlUtils.splitCqlTokens could do more reliably.",
+        "CollocateQueryHelper.scoreHits computes the sample limit as: int limit = (int) Math.min((long) maxResults * OVER_FETCH_FACTOR, (long) records.size()). The cast to long before Math.min then back to int is unnecessary: maxResults and OVER_FETCH_FACTOR are both int, so integer multiplication at plausible values (e.g. 100 * 3 = 300) cannot overflow; the casts add visual noise without correctness benefit.",
+        "BlackLabQueryExecutor.executeDependencyPattern checks if (identity == null || identity.isEmpty()) where identity = group.identity().toString(). String.toString() never returns null; the null check is defensive sprawl over a non-nullable return.",
+        "BlackLabQueryExecutor.findCollocations and executeDependencyPattern are structurally parallel (both: build BCQL, call executeCollocateSearch, iterate HitGroups, build freqMap/lemmaPosMap, call buildAndRankCollocates) but differ in BCQL construction strategy. The parallelism is clear and the extraction to buildAndRankCollocates is good, but the freqMap population loops are near-identical.",
+        "RelationConfig.posGroupFromConstraint is a long 18-branch if-else chain for pattern string matching. It works, but a Map<String,PosGroup> of prefix→group would be more direct and extensible.",
+        "ConlluConverter.convertConlluToWplChunks manages the writer lifecycle in a try/catch/finally with a try-with-resources inside the finally block (to close the writer). The pattern is correct but non-obvious: the outer try catches reading errors; the inner try-with-resources inside finally closes the writer in all exit paths.",
+        "CollocateQueryHelper.collectHits is well-extracted with clean null/empty guards for concordance parts, and uses early assignment to sentinel values ('', '') for the records list — this is intention-revealing.",
+        "BlackLabSnippetParser static methods are small, focused, and use compiled Pattern constants — good low-level discipline.",
+        "CqlUtils.splitCqlTokens handles nested brackets and escaped quoted strings with a single linear pass — correct and reasonably clear."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "CollocateQueryHelper.collectHits and scoreHits are cleanly separated phases with explicit data structures (HitRecord) for phase handoff.",
+        "BlackLabSnippetParser uses class-level compiled Pattern constants (LEMMA_ATTR, XPOS_ATTR etc.), avoiding per-call recompilation.",
+        "CqlUtils.splitCqlTokens handles edge cases (nested brackets, escaped quotes) in a single linear pass with clear depth-counting logic.",
+        "RelationConfig.mergeLemmaConstraint is a small, pure, well-named function with a clear docstring example."
+      ],
+      "issue_character": "The low-level issues cluster around string-walking algorithms (findLabelPosition, deriveTokenPosition) that use dual-cursor or manual char-by-char approaches where the existing splitCqlTokens abstraction could be leveraged; these are complexity hotspots concentrated in parsing-related helpers rather than scattered throughout.",
+      "score_rationale": "At the 60 anchor (significant drag) to 80 anchor (solid but uneven), this codebase sits in the lower-middle range. Most domain logic methods are clean and direct. However, the dual-counter loop in deriveTokenPosition and the manual char-walk in findLabelPosition are genuinely confusing — a developer maintaining these would need careful tracing to understand them. The redundant null/long-cast patterns suggest inconsistent cleanup. The overall quality is uneven: data-flow methods are good, but string-parsing internals have clear elegance deficits."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "derive_token_position_dual_cursor",
+      "summary": "deriveTokenPosition uses a dual-cursor loop (char index + token count) that is fragile and hard to follow",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": ["The method iterates over pattern chars with index i while also tracking token position pos; when a '[' is found it jumps i by tokens.get(pos-1).length() and increments pos. If any non-bracket, non-whitespace chars shift i out of sync with the token string boundaries (e.g., label prefix chars like '1:'), the jump distance may be wrong.", "The method already calls CqlUtils.splitCqlTokens to get the token list — it could instead iterate the token list directly using indexOf to find where each token sits in the original string."],
+      "suggestion": "Rewrite deriveTokenPosition to iterate CqlUtils.splitCqlTokens(pattern) and use pattern.indexOf(token, offset) to locate each token, checking for the targetLabel prefix at each position. This eliminates the dual-cursor and is more robust to label chars.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "find_label_position_char_walk",
+      "summary": "findLabelPosition manually counts '[' chars by char-walking instead of using splitCqlTokens",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": ["findLabelPosition finds the label string in the pattern, then from position 0 counts '[' characters until it reaches the same index — this is a manual re-walk of the whole pattern.", "CqlUtils.splitCqlTokens is already used elsewhere for the same class of problem and handles nested brackets and quoted strings correctly."],
+      "suggestion": "Use CqlUtils.splitCqlTokens(pattern) to get tokens, then scan for the token that starts with labelStr prefix to return its 1-based index directly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "score_hits_unnecessary_long_cast",
+      "summary": "scoreHits casts int operands to long for overflow protection that is not needed at practical values",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": ["int limit = (int) Math.min((long) maxResults * OVER_FETCH_FACTOR, (long) records.size()). Both maxResults and OVER_FETCH_FACTOR are int; their product at realistic values (e.g. 100 * 3 = 300) is far below Integer.MAX_VALUE. The long casts add noise without correctness benefit."],
+      "suggestion": "Simplify to: int limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size()); Add a comment if overflow protection is a genuine concern for large maxResults.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The dual-cursor and char-walk patterns in the parsing helpers likely evolved before CqlUtils was extracted as a shared primitive; the helpers were not subsequently refactored to use it."],
+    "likely_symptoms": ["derive_token_position_dual_cursor", "find_label_position_char_walk"],
+    "possible_false_positives": []
+  }
+}

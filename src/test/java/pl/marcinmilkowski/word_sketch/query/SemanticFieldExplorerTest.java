@@ -75,6 +75,12 @@ class SemanticFieldExplorerTest {
 
         @Override
         public List<QueryResults.WordSketchResult> executeDependencyPattern(
+                String lemma, String deprel, double minLogDice, int maxResults) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
                 String lemma, String deprel, String headPosConstraint,
                 double minLogDice, int maxResults) {
             return Collections.emptyList();

@@ -61,6 +61,10 @@ public record RelationConfig(
     /**
      * Get the BCQL pattern with headword substituted.
      * For BCQL format: replaces the constraint at head_position with [lemma="headword" & original_constraint]
+     *
+     * @param headword the lemma to substitute at the head position; if {@code null} or blank,
+     *                 the unmodified pattern is returned unchanged
+     * @return the substituted pattern, or the original pattern when headword is null/blank
      */
     public String getFullPattern(String headword) {
         if (pattern == null) return null;

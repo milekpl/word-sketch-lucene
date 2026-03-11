@@ -1,0 +1,82 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 71.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer binds to InetAddress.getLoopbackAddress() — the server is only accessible from the local machine. This is an explicit network-level access control decision.",
+        "HttpApiUtils.CORS_ALLOW_ORIGIN is hardcoded to 'http://localhost:3000'. All responses include this header unconditionally, blocking cross-origin browser requests from any other origin.",
+        "No authentication middleware, session tokens, API keys, or per-route permission checks anywhere in the codebase. This is consistently applied — all endpoints are equally public.",
+        "BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution: lemma is injected into a BCQL pattern via String.format('\"%s\" %s', lemma.toLowerCase(), cqlPattern) without escaping special characters. A lemma containing '\"' or blacklab operator syntax could alter the query structure.",
+        "executeDependencyPattern: headPosConstraint is injected via String.format('[lemma=\"%s\" & xpos=\"%s\"] -%s-> _', lemma, headPosConstraint, deprel) — headPosConstraint and deprel are not sanitized.",
+        "CqlUtils.escapeForRegex exists and is used in PatternSubstitution.substituteCollocate, but is NOT used in buildBcqlWithLemmaSubstitution or executeDependencyPattern.",
+        "All exploration endpoints validate parameter presence and types (requireParam, parseInt, parseDouble) but none validate the semantic content of lemma strings.",
+        "SketchHandlers.handleSketchRequest extracts lemma from the URL path without sanitization before passing to executor methods.",
+        "No audit logging of queries or access patterns."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Loopback-only binding (InetAddress.getLoopbackAddress()) provides network-level isolation — no remote access without tunnelling.",
+        "No authorization framework means there are no inconsistently-applied decorators or middleware stacks — every route behaves the same.",
+        "CqlUtils.escapeForRegex exists in the codebase, showing awareness of the escaping requirement.",
+        "CORS origin restriction prevents cross-origin browser exploitation in the localhost deployment scenario."
+      ],
+      "issue_character": "The codebase has no per-route authentication inconsistency (there is no auth at all), but user-supplied lemma strings are injected into BCQL query patterns without escaping in two places, while the escaping utility already exists and is used elsewhere — creating an inconsistent trust boundary for input sanitization.",
+      "score_rationale": "Authorization consistency is high at the route level — no routes have auth when none is expected for a localhost tool. However, input trust boundaries are inconsistently applied: PatternSubstitution uses CqlUtils.escapeForRegex, but buildBcqlWithLemmaSubstitution and executeDependencyPattern inject user input directly into BCQL strings. The hardcoded CORS origin is an operational concern for any deployment beyond localhost. Scoring at 71 reflects a codebase that is internally consistent on the authorization plane but has a real gap in input sanitization consistency that could affect query integrity."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "lemma_injection_without_escaping",
+      "summary": "User-supplied lemma is injected into BCQL patterns without escaping in buildBcqlWithLemmaSubstitution, while CqlUtils.escapeForRegex exists for this purpose",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java"
+      ],
+      "evidence": [
+        "buildBcqlWithLemmaSubstitution: return String.format('\"\\%s\\\" %s', lemma.toLowerCase(), cqlPattern) — lemma injected unescaped into a double-quoted BCQL token",
+        "executeDependencyPattern: String.format('[lemma=\"%s\" & xpos=\"%s\"] -%s-> _', lemma, headPosConstraint, deprel) — three user-controlled values injected without escaping",
+        "PatternSubstitution.substituteCollocate calls CqlUtils.escapeForRegex(collocate) before injection — same pattern, correctly escaped",
+        "A lemma like 'theory\" OR [lemma=\"house' could break query quoting in the BCQL pattern, potentially producing invalid or unintended queries"
+      ],
+      "suggestion": "Apply CqlUtils.escapeForRegex(lemma) in buildBcqlWithLemmaSubstitution before String.format injection. Similarly escape headPosConstraint and deprel in executeDependencyPattern. This makes the trust boundary consistent with PatternSubstitution.substituteCollocate.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_origin_hardcoded_not_configurable",
+      "summary": "CORS_ALLOW_ORIGIN is hardcoded to 'http://localhost:3000' with no configuration path, blocking legitimate use from other origins and requiring code changes for any deployment",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.CORS_ALLOW_ORIGIN = 'http://localhost:3000' — package-private constant with a comment saying 'restrict to specific origins in production'",
+        "All sendJsonResponse, sendError, sendBinaryResponse, sendOptionsResponse calls use this constant without override mechanism",
+        "No command-line flag, environment variable, or configuration file entry for CORS origin in Main.java or WordSketchApiServer"
+      ],
+      "suggestion": "Accept an optional --cors-origin flag in the server command, defaulting to 'http://localhost:3000'. Pass it through WordSketchApiServer constructor to HttpApiUtils or a server-scoped config record. This avoids requiring code changes for any non-default deployment.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The escaping inconsistency between buildBcqlWithLemmaSubstitution and PatternSubstitution.substituteCollocate suggests the two were written independently without cross-referencing the escaping utility.",
+      "The hardcoded CORS origin reflects the tool's localhost-first design, but the comment acknowledging the production concern was never acted upon."
+    ],
+    "likely_symptoms": ["lemma_injection_without_escaping is the highest-priority finding — a malformed lemma could produce invalid BCQL syntax or unexpected results"],
+    "possible_false_positives": ["The loopback binding and absence of any auth may be flagged by scanners as a missing auth pattern, but this is a deliberate design choice for a localhost research tool"]
+  }
+}

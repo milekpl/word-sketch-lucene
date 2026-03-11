@@ -1,0 +1,118 @@
+{
+  "batch": "type_safety",
+  "batch_index": 15,
+  "assessments": {
+    "type_safety": 76.0
+  },
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "Java is statically typed; no Python-style annotation gaps, Optional-vs-None confusions, or TypedDict issues apply",
+        "SketchHandlers.buildRelationResponse: 'results.stream().mapToInt(r -> (int) r.frequency()).sum()' — r.frequency() returns long, narrowing cast to int; for large corpora frequency can exceed Integer.MAX_VALUE (~2.1B) causing silent overflow",
+        "SketchHandlers.handleRelationQueryForPattern: 'results.stream().mapToInt(r -> (int) r.frequency()).sum()' — same long-to-int narrowing cast in a second location",
+        "CollocateQueryHelper.executeBcqlQuery: 'int sampleSize = (int) Math.min(hits.size(), maxResults * 10L)' — Math.min(long, long) returns long, narrowed to int; safe in practice since maxResults*10 is bounded, but the cast is unchecked",
+        "BlackLabSnippetParser.extractLemmaFromMatch return type is String but can return null — no @Nullable annotation, used with fallback in extractLemmaWithFallback correctly but the raw extractLemmaFromMatch is package-private with invisible nullability",
+        "RelationEdgeType.label() is the stable serialization key; the codebase correctly uses label() not name() in JSON responses — good enum discipline",
+        "Optional<RelationType> in RelationConfig is used consistently for truly optional fields — correct type modeling",
+        "PosGroup.fromString returns OTHER as default for null/unknown input rather than null — good type safety pattern",
+        "No raw types or unchecked generic casts observed in production code",
+        "QueryResults sealed interface with permitted subtypes enforces complete pattern matching"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Java's static type system eliminates entire categories of type safety issues present in Python/JS codebases",
+        "Optional<RelationType> is used correctly for optional configuration fields rather than null",
+        "RelationEdgeType uses label() for serialization, preventing API clients from coupling to internal Java enum naming",
+        "PosGroup.fromString returns a default value (OTHER) rather than null, avoiding NullPointerException at callers",
+        "Sealed interface QueryResults.ConcordanceResult with explicit permit list ensures exhaustive handling"
+      ],
+      "issue_character": "The main type safety gap is long-to-int narrowing casts when computing frequency sums and sample sizes, which are correct in typical usage but will silently overflow in adversarial or very large corpus scenarios.",
+      "score_rationale": "Java's static typing provides a strong baseline. The primary concern is the recurring pattern of casting long frequency values to int in two independent locations in SketchHandlers, which represents a real correctness risk for large corpora. There are no missing annotations on public API methods (the interface QueryExecutor is well-typed), and enums are used consistently. The score sits in the mid-70s primarily due to the long-to-int narrowing casts and the unannotated nullable returns from BlackLabSnippetParser."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "long_to_int_frequency_cast_build_relation",
+      "summary": "long frequency silently narrowed to int in buildRelationResponse — overflow for large corpora",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "SketchHandlers.buildRelationResponse: 'relData.put(\"total_matches\", results.stream().mapToInt(r -> (int) r.frequency()).sum())'",
+        "WordSketchResult.frequency() returns long; casting to int truncates values above Integer.MAX_VALUE (~2.1 billion)",
+        "For a 74M-sentence corpus a high-frequency lemma like 'the' can exceed this bound"
+      ],
+      "suggestion": "Use mapToLong and LongStream.sum() instead: 'results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum()'. Store the result as long in the response map — fastjson2 serializes long correctly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "long_to_int_frequency_cast_relation_query",
+      "summary": "Duplicate long-to-int narrowing cast in handleRelationQueryForPattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "SketchHandlers.handleRelationQueryForPattern: 'relData.put(\"total_matches\", results.stream().mapToInt(r -> (int) r.frequency()).sum())'",
+        "Same pattern and same overflow risk as in buildRelationResponse — these two methods share the total_matches computation but each has a copy",
+        "A shared helper would fix both cast issues simultaneously"
+      ],
+      "suggestion": "Extract a shared private helper: 'private static long sumFrequencies(List<QueryResults.WordSketchResult> results) { return results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum(); }'. Call it from both buildRelationResponse and handleRelationQueryForPattern.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "long_to_int_sample_size_cast",
+      "summary": "Math.min(long, long) result cast to int in executeBcqlQuery — unsafe for very large hit sets",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.executeBcqlQuery: 'int sampleSize = (int) Math.min(hits.size(), maxResults * 10L)'",
+        "hits.size() returns long; Math.min(long, long) returns long; the cast to int is unchecked",
+        "In practice maxResults * 10 is small (e.g., 200), so the overflow is unlikely but the cast should be explicit about its invariant"
+      ],
+      "suggestion": "Add an assertion or bounded cast: 'long rawSample = Math.min(hits.size(), (long) maxResults * 10); if (rawSample > Integer.MAX_VALUE) rawSample = Integer.MAX_VALUE; int sampleSize = (int) rawSample;'. Or add a comment documenting why overflow is impossible: '// maxResults is bounded by the caller; maxResults * 10 << Integer.MAX_VALUE'.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_return_unannotated_snippet_parser",
+      "summary": "BlackLabSnippetParser methods return nullable String without @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "extractLemmaFromMatch declares 'static String extractLemmaFromMatch(String matchText)' but returns null when no lemma is found",
+        "extractPosFromMatch declares 'static String extractPosFromMatch(String matchText)' but returns null when no POS is found",
+        "extractCollocateLemma declares 'static String extractCollocateLemma(String matchXml)' but returns null",
+        "These are package-private methods and callers in BlackLabQueryExecutor handle null correctly, but the contract is invisible from the signature"
+      ],
+      "suggestion": "Add @Nullable (from javax.annotation or a similar library already on the classpath) to the return type of each nullable-returning method. Alternatively, return Optional<String> for the most important ones. At minimum, add @return javadoc clauses: '@return the lemma, or {@code null} if not found'.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Long-to-int narrowing casts likely added before frequency values were tested on large corpora",
+      "Java standard library lacks built-in @Nullable, so nullable returns require either annotation libraries or Optional wrapping — both require a deliberate choice"
+    ],
+    "likely_symptoms": ["long_to_int_frequency_cast_build_relation", "long_to_int_frequency_cast_relation_query"],
+    "possible_false_positives": ["long_to_int_sample_size_cast"]
+  }
+}

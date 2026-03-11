@@ -1,0 +1,81 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {"cross_module_architecture": 72.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Package layout follows a clean layered hierarchy: api -> exploration -> query -> model/utils, with config consumed at multiple layers but never in a bottom-up direction",
+        "QueryExecutor interface in query/ properly abstracts the BlackLab implementation; ExplorationHandlers depends only on the interface, not BlackLabQueryExecutor directly",
+        "CollocateQueryHelper is package-private within query/, correctly constraining its blast radius",
+        "api/ package uses com.sun.net.httpserver (a non-public JDK internal API) in all 5 files: WordSketchApiServer, ExplorationHandlers, SketchHandlers, HttpApiUtils — cross-cutting dependency on a private API",
+        "BlackLabQueryExecutor imports ~15 distinct BlackLab types directly (BlackLab, BlackLabIndex, BLSpanQuery, ContextualQueryLanguageParser, CorpusQueryLanguageParser, HitGroups, etc), making the query/ package a hub tightly coupled to the library's internal type surface",
+        "No dependency cycles detected across packages — dependency graph is acyclic",
+        "ExplorationHandlers calls result.getEdges() which is @Deprecated in ExplorationResult in favor of buildEdges() — caller is not respecting the published boundary change",
+        "LongIntHashMap in utils/ is not referenced in any production package beyond tests — may be an unused utility that inflates the utils boundary without serving a current need"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Clean layered package hierarchy with no detected cross-package cycles",
+        "QueryExecutor interface properly decouples api/exploration layers from the BlackLab implementation",
+        "CollocateQueryHelper scoped package-private, limiting its blast radius to query/ only",
+        "model/ package is a pure data layer with no upward dependencies"
+      ],
+      "issue_character": "Issues are concentrated at the api/infrastructure boundary — the private JDK HTTP API bleeds across all api/ files, and the query/ package holds tight library coupling rather than wrapping it behind a thinner facade.",
+      "score_rationale": "The codebase has a sensible and consistent layered structure that would be immediately navigable by a new engineer. Dependency directions are clean. The two structural concerns — the private JDK HTTP server API pervading api/ and the heavy BlackLab import surface in query/ — reduce resilience against library and JDK changes, but they do not cause cross-layer pollution or cycles. This places the codebase above a 'significant drag' baseline but below 'solid and consistent' because one infrastructure choice (sun.net.httpserver) is load-bearing across the entire HTTP layer with no abstraction."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "sun_http_api_coupling",
+      "summary": "api/ package uses com.sun.net.httpserver (private JDK API) in all 5 files with no wrapper",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.java line 41: private final com.sun.net.httpserver.HttpServer server;",
+        "ExplorationHandlers, SketchHandlers, and HttpApiUtils all import com.sun.net.httpserver.HttpExchange directly",
+        "There is no internal HttpHandler or HttpExchange adapter/wrapper — handler signatures expose the private type directly"
+      ],
+      "suggestion": "Introduce a thin internal request/response abstraction (e.g. a RequestContext record) so that handler logic can be tested without the JDK private type. This also isolates the blast radius if the HTTP server is ever swapped. As a minimum, consolidate the HttpServer creation in WordSketchApiServer and avoid re-importing the JDK private type in every handler file.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "deprecated_boundary_call",
+      "summary": "ExplorationHandlers calls the @Deprecated result.getEdges() instead of buildEdges()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java line 190: if (result.getEdges() != null) {",
+        "ExplorationResult.java line 83-87: @Deprecated public List<Edge> getEdges() { return buildEdges(); } — with explicit deprecation notice naming buildEdges() as the replacement"
+      ],
+      "suggestion": "Replace result.getEdges() with result.buildEdges() in ExplorationHandlers.handleSemanticFieldComparison; the null check can also be removed since buildEdges() never returns null.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The project bootstrapped with the JDK's built-in HTTP server for simplicity; because no abstraction was placed around it early, the private API type propagated into all handler classes",
+      "BlackLab's rich type surface is consumed directly in the executor rather than being wrapped in a narrower adapter class"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

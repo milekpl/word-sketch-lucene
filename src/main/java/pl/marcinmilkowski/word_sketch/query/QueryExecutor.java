@@ -98,19 +98,47 @@ public interface QueryExecutor extends Closeable {
             double minLogDice, int maxResults) throws IOException;
 
     /**
-     * Execute a dependency-pattern query for word sketches with an optional head POS constraint.
+     * Execute a dependency-pattern query without a head POS constraint.
+     *
+     * @param lemma      The head lemma to search for
+     * @param deprel     The dependency relation label (e.g., "nsubj", "obj")
+     * @param minLogDice Minimum logDice score threshold (0 for no minimum)
+     * @param maxResults Maximum number of results to return
+     * @return Collocate results ranked by logDice descending
+     * @throws IOException if index access fails
+     */
+    List<QueryResults.WordSketchResult> executeDependencyPattern(
+            String lemma, String deprel,
+            double minLogDice, int maxResults) throws IOException;
+
+    /**
+     * Execute a dependency-pattern query with a head POS constraint.
      *
      * @param lemma              The head lemma to search for
      * @param deprel             The dependency relation label (e.g., "nsubj", "obj")
-     * @param headPosConstraint  Optional POS regex for the head token (may be null)
+     * @param headPosConstraint  POS regex for the head token (e.g., "VB.*"); must not be null
      * @param minLogDice         Minimum logDice score threshold (0 for no minimum)
      * @param maxResults         Maximum number of results to return
      * @return Collocate results ranked by logDice descending
-     * @throws IOException if index access or parsing fails
+     * @throws IOException if index access fails
      */
-    List<QueryResults.WordSketchResult> executeDependencyPattern(
+    List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
             String lemma, String deprel, String headPosConstraint,
             double minLogDice, int maxResults) throws IOException;
+
+    /**
+     * @deprecated Use {@link #executeDependencyPattern(String, String, double, int)} or
+     *             {@link #executeDependencyPatternWithPos(String, String, String, double, int)}.
+     */
+    @Deprecated
+    default List<QueryResults.WordSketchResult> executeDependencyPattern(
+            String lemma, String deprel, String headPosConstraint,
+            double minLogDice, int maxResults) throws IOException {
+        if (headPosConstraint != null && !headPosConstraint.isEmpty()) {
+            return executeDependencyPatternWithPos(lemma, deprel, headPosConstraint, minLogDice, maxResults);
+        }
+        return executeDependencyPattern(lemma, deprel, minLogDice, maxResults);
+    }
 
     /**
      * Get the type of this executor for logging/debugging.

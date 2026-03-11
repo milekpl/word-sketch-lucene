@@ -1,0 +1,79 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 16,
+  "assessments": {"design_coherence": 68.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "BlackLabQueryExecutor.findCollocations, executeDependencyPattern, and executeSurfacePattern all follow the same structural skeleton: call executeCollocateSearch → iterate groups → extract lemma into freqMap → call buildAndRankCollocates. Each differs only in how it extracts the collocate lemma from the group identity string.",
+        "The structural duplication across the three collocate-extraction methods means any change to the common pipeline (error handling, freqMap logic, logging) must be replicated in all three places.",
+        "WordSketchApiServer.registerRoutes wraps most handlers with wrapHandler() for uniform error handling, but /api/relations and /api/relations/dep are registered without it, creating an inconsistent structural pattern.",
+        "buildBcqlWithLemmaSubstitution handles two distinct CQL format branches (legacy %s and modern [constraint] prefix). The legacy branch is well-documented and retained only for backward compatibility — this is acceptable but adds a low-value code path.",
+        "ExplorationHandlers cleanly extracts resolveRelationConfig and resolveExploreParams into reusable helpers, avoiding duplication between handleSemanticFieldExplore and handleSemanticFieldExploreMulti — a positive design decision.",
+        "CollocateQueryHelper.collectHits is a long method (~50 lines) but has a single coherent responsibility: iterate hits and accumulate records. The length is justified by the domain."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "CollocateQueryHelper successfully extracts shared collocate-ranking logic (buildAndRankCollocates, executeCollocateSearch) used by all three query methods.",
+        "ExplorationHandlers correctly uses private helper methods to avoid parameter-parsing duplication across similar endpoints.",
+        "The two-phase pipeline in executeBcqlQuery (collectHits → scoreHits) is cleanly separated with named record types for intermediate state.",
+        "QueryExecutor interface cleanly separates the public contract from the BlackLab implementation detail.",
+        "GrammarConfigLoader and RelationConfig provide a data-driven way to configure patterns, avoiding hardcoded structural repetition."
+      ],
+      "issue_character": "The dominant issue is that three collocate-extraction methods in BlackLabQueryExecutor share an identical outer skeleton but vary only in a single inner extraction call, and a handful of routes skip the standard error-wrapping pattern that all sibling routes use.",
+      "score_rationale": "The codebase shows good extraction instincts — shared logic is pulled into CollocateQueryHelper and helper methods — but the three collocate methods in BlackLabQueryExecutor still repeat the same loop/freqMap/rank pattern without abstracting the extraction variation as a strategy or lambda parameter. The missing wrapHandler on two routes is a minor but real structural inconsistency. Overall the design is sound with localized duplication issues; score reflects a codebase that has addressed the larger abstractions but left a concrete pipeline duplication unresolved."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "collocate_extraction_pipeline_duplication",
+      "summary": "findCollocations, executeDependencyPattern, and executeSurfacePattern share identical outer loop structure with only collocate-extraction logic varying",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations (line ~55): calls executeCollocateSearch, iterates groups, builds freqMap via merge, calls buildAndRankCollocates",
+        "executeDependencyPattern (line ~144): identical outer structure — executeCollocateSearch, iterate groups, freqMap.merge, buildAndRankCollocates",
+        "executeSurfacePattern (line ~192): same outer structure — executeCollocateSearch, iterate groups, freqMap.merge, buildAndRankCollocates",
+        "The only variation across the three methods is how the collocate lemma is extracted from group.identity().toString()"
+      ],
+      "suggestion": "Extract the common pipeline into a private method that accepts a functional interface (e.g., Function<String, String> identityToCollocate) for the extraction step. The three public methods become thin wrappers that supply the appropriate extraction lambda.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "duplication_design"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "inconsistent_error_wrap_on_relations_routes",
+      "summary": "/api/relations and /api/relations/dep registered without wrapHandler, silently breaking the uniform error-handling pattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "registerGetHandler(server, '/api/relations', sketchHandlers::handleSurfaceRelations) — no wrapHandler",
+        "registerGetHandler(server, '/api/relations/dep', sketchHandlers::handleDepRelations) — no wrapHandler",
+        "All sibling routes (/api/sketch/, /api/semantic-field/explore, etc.) use wrapHandler for consistent IOException and Exception logging/500 responses"
+      ],
+      "suggestion": "Wrap handleSurfaceRelations and handleDepRelations with wrapHandler('Surface relations') and wrapHandler('Dep relations') to match the pattern used by all other routes.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The three collocate-extraction methods in BlackLabQueryExecutor grew organically as each new extraction variant was added, without extracting the common scaffolding into a shared private method.",
+      "The wrapHandler omission is likely an oversight during incremental handler addition."
+    ],
+    "likely_symptoms": ["collocate_extraction_pipeline_duplication is the primary findable symptom"],
+    "possible_false_positives": ["boilerplate_duplication on import blocks at lines 12/20 — Java import blocks naturally share symbols; this is not an extractable pattern"]
+  }
+}

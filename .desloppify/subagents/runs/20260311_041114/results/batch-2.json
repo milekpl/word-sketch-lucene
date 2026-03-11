@@ -1,0 +1,79 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 2,
+  "assessments": {"high_level_elegance": 73.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Packages map directly to domain capabilities: api (HTTP), config (grammar rules), exploration (semantic algorithms), model (DTOs), query (corpus access), indexer (data ingestion), viz (visualization), utils (cross-cutting tools)",
+        "model/ is a clean domain model package with no upward dependencies; 7 records + 2 traditional classes, all named after domain concepts",
+        "WordSketchApiServer is a single-responsibility composition root: wires handlers, registers routes, manages lifecycle — no business logic leaks in",
+        "ExplorationHandlers and SketchHandlers are package-private, keeping the HTTP handler split internal and behind WordSketchApiServer's public facade",
+        "RelationUtils is a manually maintained alias table inside api/ — adding a new grammar relation requires both updating relations.json AND updating this file; the relationship is not enforced by the type system",
+        "model/ mixes records (AdjectiveProfile, CoreCollocate, DiscoveredNoun, Edge, ExploreOptions) with traditional JavaBeans-style classes (ComparisonResult, ExplorationResult); rationale is documented in ComparisonResult Javadoc but increases API surface cognitive load",
+        "GrammarConfigLoader handles loading, JSON parsing, validation, position derivation, and JSON export — coherent but wide responsibility",
+        "ExplorationHandlers.handleSemanticFieldComparison calls result.getEdges() — the deprecated method — instead of buildEdges(), showing drift between published boundary and caller behavior"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Packages map unambiguously to domain capabilities — a new engineer can predict which package owns any given responsibility",
+        "WordSketchApiServer cleanly encapsulates routing and lifecycle, making the entry point readable",
+        "model/ package is a well-named, dependency-free domain layer",
+        "Handler classes are split into exploration and sketch concerns, each with a clear, bounded set of endpoints"
+      ],
+      "issue_character": "Issues are structural surface inconsistencies rather than deep decomposition failures — the mixed record/class pattern in model/ and the manually maintained alias table in RelationUtils create friction proportional to the number of future grammar additions.",
+      "score_rationale": "The high-level decomposition is good — domain boundaries are clear, ownership is predictable, and the public surface of each package is small. The score is held back by the RelationUtils alias table that requires coordinated manual updates alongside grammar config changes, the undocumented coupling between grammar config IDs and the alias map, and the mixed accessor convention in model/ which requires developers to check whether a type is a record or class before knowing how to call its fields. These are not architectural failures but recurring friction points that compound as the grammar grows."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_alias_manual_sync",
+      "summary": "RelationUtils alias table must be manually kept in sync with grammar config relation IDs",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationUtils.java lines 22-31: private static final Map<String, String> RELATION_ALIASES contains hardcoded mappings (adj_modifier->noun_modifiers, etc.)",
+        "The RELATION_ALIASES map has no connection to GrammarConfigLoader.getRelations() — adding a new grammar relation requires a separate edit in this file",
+        "The Javadoc for resolveRelationAlias states 'If new relations are added to the grammar config, register their aliases here' — documenting the manual sync requirement rather than eliminating it"
+      ],
+      "suggestion": "Move alias definitions into the grammar config JSON as an optional 'aliases' array on each relation entry, and load them in GrammarConfigLoader. RelationUtils.resolveRelationAlias can then query the loaded config rather than a static map, eliminating the dual-maintenance requirement.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "deprecated_edges_caller",
+      "summary": "ExplorationHandlers uses deprecated getEdges() instead of buildEdges(), drifting from stated model boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java line 190: if (result.getEdges() != null) { — uses @Deprecated method",
+        "ExplorationResult model explicitly deprecates getEdges() in favor of buildEdges() with a clear Javadoc explanation"
+      ],
+      "suggestion": "Replace result.getEdges() with result.buildEdges() in ExplorationHandlers; remove the now-unnecessary null check since buildEdges() always returns a list.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The alias table predates grammar config aliases support; the natural fix is to move alias resolution into config loading",
+      "The record/class split in model/ reflects incremental growth — classes that need computed state or toMap() grew beyond the record pattern, but the access convention difference creates reader friction"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

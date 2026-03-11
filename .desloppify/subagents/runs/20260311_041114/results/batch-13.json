@@ -1,0 +1,115 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 13,
+  "assessments": {
+    "contract_coherence": 77.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "LogDiceCalculator.compute returns Double.NaN (UNCOMPUTABLE sentinel) when headwordFreq or collocateTotal <= 0; the javadoc documents this and says callers should use Double.isNaN(). However in CollocateQueryHelper.buildAndRankCollocates the result is used in 'if (logDice >= minLogDice)' without an explicit NaN check — NaN comparisons silently return false, so results are filtered out, but the contract is honored implicitly rather than explicitly",
+        "ExplorationHandlers.resolveRelationConfig javadoc states it 'Sends a 400 error response and returns null if unknown or misconfigured'. The Java return type is RelationConfig (no @Nullable annotation), requiring callers to check for null manually — the null-return contract is documented in prose but not in the type system",
+        "ComparisonResult.buildEdges() is documented 'performs list construction on every call' and never returns null. Yet ExplorationHandlers.handleSemanticFieldComparison guards with 'if (result.getEdges() != null)' implying the old getEdges() could return null — it never could, as buildEdges() always returns a new ArrayList. The code's defensive assumption contradicts the documented contract",
+        "GrammarConfigLoader.createDefaultEnglish() is a factory method whose documented behavior is 'Load grammar config from system property (default: grammars/relations.json)' but it re-throws IOException as IllegalStateException — callers who know it's a factory may not expect unchecked exceptions",
+        "QueryExecutor.findCollocations javadoc documents that IllegalArgumentException is thrown for unrecognized pattern format — this is enforced in BlackLabQueryExecutor.buildBcqlWithLemmaSubstitution and correctly propagated",
+        "RelationConfig.getFullPattern(String) can receive a null or blank headword and still returns the raw pattern without substitution — no exception is thrown, no javadoc warns of this behavior; callers may be surprised by unsubstituted patterns",
+        "BlackLabSnippetParser.extractLemmaFromMatch declares 'String' return type but can return null — there is no @Nullable annotation and the method is package-private, so risk is contained"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "LogDiceCalculator.UNCOMPUTABLE sentinel is explicitly documented with clear guidance to use Double.isNaN()",
+        "QueryExecutor interface has detailed javadoc specifying which parser each method uses and what exceptions are thrown",
+        "ComparisonResult and ExplorationResult both document that buildEdges() performs list construction on every call — the rename communicates the side-effect cost",
+        "RelationEdgeType.label() vs name() distinction is clearly documented to prevent API consumers from coupling to Java enum naming"
+      ],
+      "issue_character": "Contracts are generally well-documented in javadoc, but a few method return-type and null-handling conventions break the stated contract at the call site — particularly the null-return from resolveRelationConfig and the defensive null-check on a return value that can never be null.",
+      "score_rationale": "The codebase has clearly invested in javadoc quality for its public-facing contracts. The main failures are: a null-return pattern on a non-annotated return type (resolveRelationConfig), a null-check that contradicts documented non-null behavior (getEdges), and an implicit NaN-silence pattern in logDice filtering. These are real gaps but not severe — most contracts are honored in practice, just not expressible from the type system alone. Score sits in the mid-70s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "null_return_not_annotated",
+      "summary": "resolveRelationConfig returns null as an error signal but return type has no @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "resolveRelationConfig is declared as 'private RelationConfig resolveRelationConfig(...)' with a non-nullable return type",
+        "The method's javadoc says it 'Sends a 400 error response and returns null if the relation is unknown or misconfigured'",
+        "Both callers check for null manually: 'if (resolvedConfig == null) return;' — null is a first-class error sentinel here but is invisible in the type signature"
+      ],
+      "suggestion": "Add a @Nullable annotation (from javax.annotation or org.jetbrains.annotations) to the return type, or change the method to return Optional<RelationConfig> to make the nullable contract explicit at the type level. If annotation support is not available, at minimum add a @return javadoc clause documenting the null case.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "null_check_contradicts_contract",
+      "summary": "Null-guard on getEdges() contradicts documented guarantee that buildEdges() never returns null",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java"
+      ],
+      "evidence": [
+        "ComparisonResult.buildEdges() is documented and implemented to always return 'new ArrayList<>()' — it cannot return null",
+        "ExplorationHandlers.handleSemanticFieldComparison at line 190: 'if (result.getEdges() != null)' — this null check is dead code that misrepresents the contract",
+        "The null check was likely written defensively before the buildEdges() rename, but now signals to readers that null is a possibility when it is not"
+      ],
+      "suggestion": "Remove the 'if (result.getEdges() != null)' guard and switch the call from result.getEdges() to result.buildEdges(). The list iteration is safe unconditionally. This also completes the migration to the non-deprecated API.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "nan_sentinel_implicit_filter",
+      "summary": "LogDiceCalculator.compute NaN sentinel is silently handled via comparison semantics rather than explicit check",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceCalculator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "LogDiceCalculator javadoc: 'Callers should use Double.isNaN(double) to detect this state'",
+        "CollocateQueryHelper.buildAndRankCollocates uses the result directly: 'if (logDice >= minLogDice)' without a Double.isNaN check",
+        "NaN >= any double is always false in IEEE 754, so NaN results are silently filtered out without the code honoring the documented isNaN() contract"
+      ],
+      "suggestion": "Either add an explicit 'if (Double.isNaN(logDice)) continue;' before the threshold check in buildAndRankCollocates to honor the documented contract, or change LogDiceCalculator.compute to return a dedicated low (e.g., -1.0 or 0.0) value instead of NaN so callers do not need IEEE 754 knowledge.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "get_full_pattern_silent_no_op",
+      "summary": "RelationConfig.getFullPattern silently returns unsubstituted pattern when headword is null/blank",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "getFullPattern(String headword): 'if (headword == null || headword.isBlank()) return pattern;' — returns the raw template with no substitution",
+        "No javadoc documents this no-op behavior for null/blank input",
+        "Callers receive a pattern string that still contains the original POS constraints without any lemma substitution, which will produce wrong query results"
+      ],
+      "suggestion": "Document the null/blank no-op behavior explicitly in the javadoc: '@param headword the lemma to substitute; if null or blank, the unmodified pattern is returned'. Alternatively, throw IllegalArgumentException for null/blank headword to surface misuse early and prevent silent bad queries.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Java lacks first-class nullable type annotations in the standard library, so null-return contracts in resolveRelationConfig are invisible at the call site",
+      "The getEdges() → buildEdges() rename left defensive code written for the old pattern in place"
+    ],
+    "likely_symptoms": ["null_check_contradicts_contract"],
+    "possible_false_positives": ["nan_sentinel_implicit_filter"]
+  }
+}

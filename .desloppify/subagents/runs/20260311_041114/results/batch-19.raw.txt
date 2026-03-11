@@ -1,0 +1,117 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 64.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor interface: findCollocations(lemma, cqlPattern, minLogDice, maxResults) and executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) have the same 4-parameter signature pattern with consistent parameter ordering — good.",
+        "executeDependencyPattern(lemma, deprel, headPosConstraint, minLogDice, maxResults) has 5 parameters; headPosConstraint is nullable, which means the method acts differently based on whether it is null or not — a hidden overload.",
+        "HTTP GET /api/semantic-field/explore uses query param 'seed' (singular), while /api/semantic-field/explore-multi uses 'seeds' (plural, comma-separated), and /api/semantic-field also uses 'seeds'. Related endpoints have inconsistent parameter naming for the same concept.",
+        "/api/visual/radial is registered as a POST endpoint despite performing a pure read/render operation with no state mutation — violates REST semantics and differs from all other read endpoints.",
+        "findCollocations accepts cqlPattern (parsed by ContextualQueryLanguageParser) while executeSurfacePattern and executeBcqlQuery accept bcqlPattern (parsed by CorpusQueryLanguageParser). Both are CQL variants but the distinction is not signaled by method names or documented error contracts.",
+        "ExplorationHandlers consistently extracts resolveRelationConfig and resolveExploreParams as shared helpers — the four common params (relation, top, min_logdice, min_shared) are applied uniformly.",
+        "HttpApiUtils.requireParam, sendError, sendJsonResponse form a coherent helper set used consistently across all handlers.",
+        "WordSketchApiServer: /api/relations and /api/relations/dep handlers are registered without wrapHandler, meaning their error contract (IOException propagation) differs from all other routes — inconsistent from a caller's perspective.",
+        "QueryExecutor.executeQuery returns List<ConcordanceResult> while executeBcqlQuery returns List<CollocateResult> and findCollocations returns List<WordSketchResult> — three different return types for 'query and get results' operations; difference is semantically justified but not self-documenting from names alone."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "QueryExecutor interface methods have consistent parameter ordering (lemma always first, minLogDice and maxResults always last).",
+        "ExplorationHandlers.resolveExploreParams centralises numeric parameter parsing, making all exploration endpoints accept the same parameter set.",
+        "RelationUtils.resolveRelationAlias provides a single canonical lookup for the relation parameter, avoiding ad-hoc string comparisons across handlers.",
+        "HttpApiUtils provides a consistent surface for all HTTP plumbing (headers, CORS, errors)."
+      ],
+      "issue_character": "The API surface has pockets of inconsistency: the seed/seeds naming asymmetry between related endpoints, the nullable headPosConstraint turning executeDependencyPattern into an implicit overload, the POST-for-a-read-operation on /api/visual/radial, and the two routes that bypass the error-handling wrapper — each individually small but collectively signal that the API surface was grown incrementally without a unifying review.",
+      "score_rationale": "Parameter ordering and naming within individual method groups is consistent, and the HTTP utility layer is well-abstracted, but the cross-endpoint API shape has several genuine inconsistencies that would surprise an API consumer: the seed/seeds naming mismatch between explore and explore-multi, the POST-only radial endpoint, and the nullable parameter acting as a hidden method overload. Scoring at 64 reflects a mid-tier surface that is coherent within modules but inconsistent across the HTTP API boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "seed_vs_seeds_parameter_naming",
+      "summary": "/api/semantic-field/explore uses 'seed' while sibling endpoints use 'seeds', creating inconsistent parameter naming across related endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: HttpApiUtils.requireParam(exchange, params, 'seed') — singular",
+        "handleSemanticFieldExploreMulti: HttpApiUtils.requireParam(exchange, params, 'seeds') — plural",
+        "handleSemanticFieldComparison: HttpApiUtils.requireParam(exchange, params, 'seeds') — plural",
+        "API callers and frontend code must remember which endpoint takes 'seed' vs 'seeds'"
+      ],
+      "suggestion": "Standardise on 'seeds' for all exploration endpoints. The single-seed endpoint can accept a single value in 'seeds' (comma-split, validate length == 1 if desired), or document the singular as a deliberate alias and add a comment. Update API docs accordingly.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "radial_post_for_read_operation",
+      "summary": "/api/visual/radial is a POST endpoint for a stateless read/render operation, violating REST semantics and inconsistent with all other read endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "registerPostHandler(server, '/api/visual/radial', wrapHandler(sketchHandlers::handleVisualRadial, 'Radial plot'))",
+        "All other endpoints that return computed data (sketch, explore, concordance) use GET",
+        "The method comment says 'POST-only' to avoid URL encoding issues with a complex JSON body, which is a reasonable engineering tradeoff but should be documented"
+      ],
+      "suggestion": "Add a comment to the route registration explaining that POST is used to avoid URL-length limits for the JSON body, and document this in the API endpoint listing in WordSketchApiServer's class Javadoc. Alternatively, accept GET with query params and fall back to POST for large bodies.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dependency_pattern_nullable_param_hidden_overload",
+      "summary": "executeDependencyPattern's nullable headPosConstraint creates an implicit overload — two distinct behaviours in one method signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeDependencyPattern javadoc: '@param headPosConstraint Optional POS regex for the head token (may be null)'",
+        "BlackLabQueryExecutor lines 155-162: if (headPosConstraint != null && !headPosConstraint.isEmpty()) uses different BCQL format: '[lemma=X & xpos=Y] -deprel-> _' vs '\"X\" -deprel-> _'",
+        "The two generated BCQL patterns have meaningfully different semantics but the difference is invisible from the call site"
+      ],
+      "suggestion": "Provide two concrete methods: executeDependencyPattern(lemma, deprel, minLogDice, maxResults) and executeDependencyPatternWithPos(lemma, deprel, headPosConstraint, minLogDice, maxResults). Remove the nullable variant from the interface. This makes the difference explicit and allows each overload to be documented and tested independently.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "relations_routes_inconsistent_error_contract",
+      "summary": "/api/relations and /api/relations/dep lack wrapHandler, so their error contract (exception propagation) differs from all sibling routes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 61: registerGetHandler(server, '/api/relations', sketchHandlers::handleSurfaceRelations) — no wrapHandler",
+        "Line 63: registerGetHandler(server, '/api/relations/dep', sketchHandlers::handleDepRelations) — no wrapHandler",
+        "All other handlers are wrapped: sketch request, explore, explore-multi, comparison, examples, concordance, radial, bcql"
+      ],
+      "suggestion": "Apply wrapHandler('Surface relations') and wrapHandler('Dep relations') to these two handlers to match the uniform error-handling pattern used by all sibling routes.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The HTTP API grew incrementally — single-seed explore was added before multi-seed, and the 'seed' vs 'seeds' asymmetry was never reconciled.",
+      "The POST-for-radial is an intentional workaround but was not flagged for API convention review.",
+      "The nullable headPosConstraint pattern is idiomatic Java but violates interface honesty — it should be two methods."
+    ],
+    "likely_symptoms": ["seed_vs_seeds_parameter_naming is most likely to cause client-side bugs"],
+    "possible_false_positives": []
+  }
+}

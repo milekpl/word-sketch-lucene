@@ -1,0 +1,102 @@
+{
+  "batch": "package_organization",
+  "batch_index": 12,
+  "assessments": {
+    "package_organization": 76.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "api/ package: 5 files (ExplorationHandlers, HttpApiUtils, RelationUtils, SketchHandlers, WordSketchApiServer) — cohesive HTTP handling layer",
+        "config/ package: 4 files (GrammarConfigLoader, PosGroup, RelationConfig, RelationType) — cohesive configuration",
+        "exploration/ package: 2 files (SemanticFieldExplorer, AdjectiveCollocateRanker) — focused semantic analysis layer",
+        "indexer/blacklab/ package: 2 files (BlackLabConllUIndexer, ConlluConverter) — indexing concerns co-located",
+        "model/ package: 9 files (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, Edge, ExplorationResult, ExploreOptions, QueryResults, RelationEdgeType) — data model layer, potentially large but cohesive",
+        "query/ package: 4 files (BlackLabQueryExecutor, BlackLabSnippetParser, CollocateQueryHelper, QueryExecutor) — query execution layer, well-focused",
+        "utils/ package: 4 files (CqlUtils, LogDiceCalculator, LongIntHashMap, PatternSubstitution) — mixed utilities",
+        "viz/ package: 1 file (RadialPlot) — single-class thin package",
+        "tools/ directory exists (contents not inspected via seed files)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "Clear horizontal layering: api, config, model, query, exploration, indexer are distinct and non-circular at the top level",
+        "Indexer subpackage (indexer/blacklab/) correctly groups indexing infrastructure separate from query execution",
+        "exploration/ correctly split from query/ to separate semantic-field analysis from raw execution",
+        "config/ package is cohesive — all grammar/relation configuration grouped together"
+      ],
+      "issue_character": "The package structure has several thin or slightly misaligned placements: a single-class viz package, PatternSubstitution in utils despite being API-layer logic, and QueryResults in model despite tight coupling to query internals.",
+      "score_rationale": "The overall layout is well-organized and shows intentional layering. There are no reciprocal directory edges or obvious downstream-to-upstream violations. The main issues are cosmetic: the viz package is a thin wrapper (1 file) that could merge into api or be co-located with its only consumer, and PatternSubstitution lives in utils but is exclusively used by the api layer. These are mild navigability concerns rather than structural failures, placing this in the 75-80 range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "thin_viz_package",
+      "summary": "viz package contains only one class (RadialPlot), making it an unnecessarily shallow module",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "viz/ package contains exactly one production file: RadialPlot.java",
+        "RadialPlot is consumed exclusively from SketchHandlers.handleVisualRadial in the api package",
+        "A single-class package with one consumer typically does not justify a separate package boundary"
+      ],
+      "suggestion": "Stage 1: Move RadialPlot.java into the api package alongside SketchHandlers (it is an API-layer rendering helper). Stage 2: Delete the now-empty viz/ directory. Stage 3: Update the single import in SketchHandlers. Run mvn test to validate. If RadialPlot is expected to grow into a visualization subsystem, keep the package but add a package-info.java documenting the intent.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pattern_substitution_in_wrong_package",
+      "summary": "PatternSubstitution lives in utils but is only consumed from the api layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitution.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "PatternSubstitution is a static helper that substitutes collocate lemmas into CQL patterns for concordance queries",
+        "Its only production caller is SketchHandlers.handleConcordanceExamples in the api package",
+        "CqlUtils in utils/ is legitimately shared across config and api packages; PatternSubstitution is not shared"
+      ],
+      "suggestion": "Stage 1: Move PatternSubstitution.java to the api package. Stage 2: Update the import in SketchHandlers. Stage 3: Run mvn test. If PatternSubstitution is later needed from non-api code, move it back to utils at that point.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "query_results_in_model",
+      "summary": "QueryResults (containing CollocateResult, WordSketchResult etc.) sits in model but is tightly coupled to query internals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryResults is referenced in QueryExecutor interface signatures (query package) and in BlackLabQueryExecutor (query package), SemanticFieldExplorer (exploration package), and API handlers",
+        "QueryResults encodes query-specific result types (CollocateResult, SnippetResult, KwicResult, WordSketchResult) tied to the query execution contract",
+        "ExplorationResult and ComparisonResult are genuine domain models; QueryResults is more of a query DTO that could live in the query package itself"
+      ],
+      "suggestion": "Consider moving QueryResults.java into the query package where its primary consumers (QueryExecutor, BlackLabQueryExecutor, CollocateQueryHelper) live. SemanticFieldExplorer and api handlers would import it from query. Alternatively, if model is intended as a shared DTO layer, add a package-info.java clarifying this boundary. Run mvn test after moving.",
+      "confidence": "low",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "viz package was likely created anticipating multiple visualization classes that never materialized",
+      "PatternSubstitution may have been placed in utils for future reuse that has not occurred"
+    ],
+    "likely_symptoms": ["thin_viz_package"],
+    "possible_false_positives": ["query_results_in_model"]
+  }
+}

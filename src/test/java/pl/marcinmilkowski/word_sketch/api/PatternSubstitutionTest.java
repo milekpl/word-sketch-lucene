@@ -1,8 +1,7 @@
-package pl.marcinmilkowski.word_sketch.utils;
+package pl.marcinmilkowski.word_sketch.api;
 
 import org.junit.jupiter.api.Test;
 
-import pl.marcinmilkowski.word_sketch.utils.PatternSubstitution;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 import static org.junit.jupiter.api.Assertions.*;

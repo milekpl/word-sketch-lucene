@@ -58,9 +58,11 @@ public class WordSketchApiServer {
         registerGetHandler(server, "/api/sketch/",
             wrapHandler(sketchHandlers::handleSketchRequest, "Sketch request"));
 
-        registerGetHandler(server, "/api/relations", sketchHandlers::handleSurfaceRelations);
+        registerGetHandler(server, "/api/relations",
+            wrapHandler(sketchHandlers::handleSurfaceRelations, "Surface relations"));
 
-        registerGetHandler(server, "/api/relations/dep", sketchHandlers::handleDepRelations);
+        registerGetHandler(server, "/api/relations/dep",
+            wrapHandler(sketchHandlers::handleDepRelations, "Dependency relations"));
 
         registerGetHandler(server, "/api/semantic-field/explore", wrapHandler(exchange -> {
             logger.info("Received request: {}", exchange.getRequestURI());

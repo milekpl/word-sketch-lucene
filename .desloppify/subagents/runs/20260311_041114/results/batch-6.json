@@ -1,0 +1,72 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {"abstraction_fitness": 72.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has exactly one implementation (BlackLabQueryExecutor), but it deliberately isolates the BlackLab external library dependency — this is an intentional adapter boundary, not gratuitous abstraction.",
+        "WordSketchApiServer.registerGetHandler and registerPostHandler are nearly identical — each creates a context, handles OPTIONS, checks method (GET vs POST), and dispatches. The only difference is the method string. This duplication could be collapsed into a single registerHandler(path, method, handler) method.",
+        "handleFullSketchForType in SketchHandlers uses a boolean isDep flag to branch into two different response-building paths (one builds relData with deprel/description, the other with cql/collocate_pos_group). This boolean-dispatching pattern signals two responsibilities in one method.",
+        "RelationUtils is a 35-line class with one real method (resolveRelationAlias) backed by a static Map.of(). Minimal overhead, purposeful use.",
+        "ExplorationHandlers.resolveRelationConfig, resolveExploreParams, parseSeedSet, buildBaseExploreResponse, buildExploreResponseBody are all private helpers that do genuine work — not pass-throughs. Good extraction.",
+        "PatternSubstitution.substituteCollocate and RelationConfig.getFullPattern(String, String) cover the same conceptual operation (headword+collocate substitution) via overlapping paths. RelationConfig delegates CQL walking to CqlUtils; PatternSubstitution does the same CqlUtils walk independently. Partial overlap.",
+        "CollocateQueryHelper is a package-private class (not an interface), so its abstraction overhead is zero — it adds shared logic without adding an unnecessary interface layer.",
+        "ExploreOptions record cleanly bundles 5 exploration parameters that were previously spread across method signatures — this abstraction pays for itself."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 75.0,
+        "indirection_cost": 78.0,
+        "interface_honesty": 70.0,
+        "delegation_density": 80.0,
+        "definition_directness": 72.0,
+        "type_discipline": 74.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "CollocateQueryHelper is package-private (no interface), adding shared logic at zero abstraction overhead.",
+        "ExploreOptions record reduces a 5-parameter call to a single structured value that self-documents its fields.",
+        "RelationUtils.resolveRelationAlias centralizes alias resolution in one place, preventing drift across handlers.",
+        "ExplorationHandlers private helpers (resolveRelationConfig, resolveExploreParams) do genuine parsing and validation work, not mere pass-throughs.",
+        "PatternSubstitution and CqlUtils separation is coherent: CqlUtils handles parsing primitives; PatternSubstitution handles the substitution operation."
+      ],
+      "issue_character": "The abstraction issues are localized and structural rather than systemic: a boolean-flag dispatch in SketchHandlers signals an imprecise boundary, and two near-identical HTTP registration helpers are not collapsed. These are code smell-level issues, not architectural problems.",
+      "score_rationale": "The codebase's abstractions largely pay for themselves. Most classes are cohesive and purpose-built. The QueryExecutor interface earns its place as an isolation adapter. The main drag comes from the isDep boolean dispatch (two responsibilities in one method) and the registerGetHandler/registerPostHandler duplication (two nearly-identical 8-line methods). At the global anchor of 80 = solid but uneven, this codebase is slightly below that: mostly solid with a few abstraction choices that add indirection or overlap without full payoff."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "get_post_handler_near_duplicate",
+      "summary": "registerGetHandler and registerPostHandler are near-identical and should be collapsed into a shared helper",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": ["registerGetHandler and registerPostHandler differ only in the method string (GET vs POST) and the requireMethod check; both create a context, handle OPTIONS with the same pattern, delegate to handler.handle(exchange), and share all other logic."],
+      "suggestion": "Extract a private registerEndpoint(HttpServer, String path, String method, HttpHandler handler) method; call it from both registerGetHandler and registerPostHandler.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "is_dep_boolean_dispatch",
+      "summary": "handleFullSketchForType uses a boolean isDep flag to produce two different response shapes, masking a genuine boundary",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": ["handleFullSketchForType branches on boolean isDep to decide between buildRelationResponse (deprel/description/total_matches) and an inline Map with cql/collocate_pos_group fields — two incompatible response shapes in one method.", "The extracted buildRelationResponse static helper only covers the isDep=true path, making the isDep=false path inline but the isDep=true path extracted — asymmetric extraction."],
+      "suggestion": "Split into two methods: buildSurfaceRelationEntry and buildDepRelationEntry, each responsible for one response shape. Call the appropriate one from the respective surface/dep sketch handlers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The boolean-dispatch and handler-duplication patterns both stem from incremental feature addition (surface sketch → dep sketch → unified handler) without a subsequent cleanup pass."],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

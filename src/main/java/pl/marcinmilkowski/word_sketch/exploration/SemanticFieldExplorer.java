@@ -81,7 +81,7 @@ public class SemanticFieldExplorer {
     private final AdjectiveCollocateRanker comparator;
 
     // Patterns for finding collocates by POS (using xpos field from CoNLL-U index)
-    private static final String NOUN_PATTERN = "[xpos=\"NN.*\"]";
+    private static final String NOUN_CQL_CONSTRAINT = "[xpos=\"NN.*\"]";
 
 
     // Constructor for testing with mock executor
@@ -182,7 +182,7 @@ public class SemanticFieldExplorer {
 
         // Step 3: Score nouns by shared collocate count
         logger.debug("\nStep 3: Scoring nouns by shared {}...", relationName);
-        List<DiscoveredNoun> discoveredNouns = scoreAndFilterCandidates(nounProfiles, minShared);
+        List<DiscoveredNoun> discoveredNouns = filterCandidates(nounProfiles, minShared);
         discoveredNouns.sort((a, b) -> Double.compare(b.sharedCollocateScore(), a.sharedCollocateScore()));
         logger.debug("  Nouns with {}+ shared: {}", minShared, discoveredNouns.size());
 
@@ -233,7 +233,7 @@ public class SemanticFieldExplorer {
         Map<String, Map<String, Double>> nounProfiles = new LinkedHashMap<>();
         for (String collocate : seedCollocScores.keySet()) {
             List<QueryResults.WordSketchResult> nouns = executor.findCollocations(
-                collocate, NOUN_PATTERN, minLogDice, nounsPerPredicate);
+                collocate, NOUN_CQL_CONSTRAINT, minLogDice, nounsPerPredicate);
             logger.debug("  {}: {} nouns", collocate, nouns.size());
             for (QueryResults.WordSketchResult r : nouns) {
                 String noun = r.lemma().toLowerCase();
@@ -249,7 +249,7 @@ public class SemanticFieldExplorer {
      * Phase 3: Score candidate nouns by how many shared collocates they have.
      * Nouns below {@code minShared} are filtered out.
      */
-    private List<DiscoveredNoun> scoreAndFilterCandidates(
+    private List<DiscoveredNoun> filterCandidates(
             Map<String, Map<String, Double>> nounProfiles, int minShared) {
         List<DiscoveredNoun> discoveredNouns = new ArrayList<>();
         for (Map.Entry<String, Map<String, Double>> entry : nounProfiles.entrySet()) {

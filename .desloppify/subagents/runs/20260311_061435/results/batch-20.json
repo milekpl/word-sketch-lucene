@@ -1,0 +1,80 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 78.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "Server binds exclusively to InetAddress.getLoopbackAddress() (127.0.0.1) — all endpoints are inaccessible from any external network interface; this is the primary access control mechanism",
+        "HttpApiUtils.CORS_ALLOW_ORIGIN = 'http://localhost:3000' — hardcoded to localhost origin; any request from a non-localhost origin is rejected by the browser's CORS enforcement",
+        "All endpoints have consistent behavior: no authentication, no session, no per-endpoint access control — this is coherent null-auth, not inconsistent auth",
+        "HttpApiUtils has a comment: 'Restrict to specific origins in production. Change this value (or make it configurable) when deploying to a non-localhost environment.' — the production concern is documented",
+        "No admin/superuser bypass routes found — all endpoints have identical (absent) auth treatment",
+        "Input validation: query parameters are parsed and type-checked (requireParam, parseInt, parseDouble with error responses) — the 'trust boundary' for user input is consistent across all handlers",
+        "CQL/BCQL queries from user input are passed to BlackLab's parser — no injection sanitization beyond URL decoding; BlackLab's own parser handles this, but there is no application-level input sanitization for pattern values",
+        "No permission strings, role checks, or RBAC anywhere — consistent with the local-tool design intent",
+        "POST /api/bcql accepts arbitrary BCQL query strings from the request body — this endpoint could be a security concern if the server were ever exposed beyond localhost"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The CORS origin and the server's loopback binding are the sole access controls. Both are hardcoded constants that cannot be configured without recompiling. If the tool is ever deployed on a shared machine, both would need to be changed, and there is no configuration abstraction to make this safe."
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Loopback-only binding provides network-level access control that is uniform across all endpoints",
+        "CORS_ALLOW_ORIGIN is a single constant in HttpApiUtils — if changed, it applies everywhere consistently",
+        "No endpoint has more or less access control than any other — the authorization posture is perfectly consistent (uniformly absent, by design)",
+        "The production hardening note in HttpApiUtils acknowledges the localhost-only assumption explicitly"
+      ],
+      "issue_character": "Authorization is consistently absent — which is coherent and correct for a local research tool — but the hardcoded nature of both security controls (loopback binding and CORS origin) creates a deployment risk if the tool is ever moved to a shared or networked environment.",
+      "score_rationale": "The codebase is a read-only local research tool with no user accounts, no data mutation, and no sensitive data — uniform absence of authorization is the correct and coherent choice. Score is 78 rather than higher because: the CORS origin and server bind address are hardcoded rather than configurable, and the /api/bcql endpoint that accepts arbitrary query strings could be risky if the tool were ever shared without the loopback constraint. These are forward-looking risks, not current inconsistencies."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "hardcoded_cors_origin_not_configurable",
+      "summary": "CORS_ALLOW_ORIGIN and server bind address are hardcoded, with no runtime configuration option for shared deployments",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.CORS_ALLOW_ORIGIN = 'http://localhost:3000' — constant, no environment variable or config file override",
+        "WordSketchApiServer constructor: new InetSocketAddress(InetAddress.getLoopbackAddress(), port) — hardcoded to loopback",
+        "Comment says 'Change this value (or make it configurable) when deploying to a non-localhost environment' but no mechanism to do so is provided"
+      ],
+      "suggestion": "Add --cors-origin and --bind-address options to the 'server' CLI command in Main.java, with defaults of 'http://localhost:3000' and '127.0.0.1'. Pass these to WordSketchApiServer constructor. This enables safe multi-user deployment without code changes. Alternatively, read from system properties: -Dserver.cors.origin=... and -Dserver.bind.address=...",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "bcql_endpoint_arbitrary_query_risk",
+      "summary": "POST /api/bcql accepts arbitrary BCQL query strings with no sanitization or rate limiting",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "handleBcqlQueryPost reads body JSON, extracts 'query' field, and passes it directly to executor.executeBcqlQuery(bcqlQuery, limit)",
+        "No maximum query length check, no pattern complexity limit, no character whitelist",
+        "If the loopback constraint is ever removed (e.g., by adding a proxy), this endpoint accepts arbitrary index queries — a DoS risk",
+        "The endpoint is currently safe due to loopback binding, but the risk is worth noting"
+      ],
+      "suggestion": "Add a maximum query string length check (e.g., 2000 characters) and consider a list of disallowed regex patterns known to cause catastrophic backtracking. Document that this endpoint assumes trusted-network access. These are low-friction hardening steps that do not affect normal use.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Tool was designed from the start as a single-user local research utility; authorization was never a requirement and the design correctly reflects this"],
+    "likely_symptoms": [],
+    "possible_false_positives": ["The absence of authentication is intentional — flagging every endpoint as 'missing auth' would be false positives for a localhost-only tool"]
+  }
+}

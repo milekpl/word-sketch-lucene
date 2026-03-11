@@ -1,0 +1,93 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 8,
+  "assessments": {"low_level_elegance": 67.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern is cleanly phased into 4 labelled helper methods (fetchSeedCollocates, buildCollocateToNounsMap, filterCandidates, identifyCoreCollocates) — each phase is clearly bounded and the top-level method reads as composition",
+        "LongIntHashMap has direct, clean linear-probing logic with well-scoped state mutation (keys/values arrays) and proper rehash",
+        "CollocateQueryHelper.collectHits processes hits in a single-pass loop with explicit null checks for each concordance field — precise edge-case handling",
+        "CqlUtils.splitCqlTokens uses depth-counting bracket walking with quoted-string skipping — the logic is non-trivial but is directly implemented without unnecessary abstraction layers; well-commented",
+        "AdjectiveCollocateRanker.buildAdjectiveProfileList accumulates stats (avg, max, min, variance) inline using Arrays.stream — direct and readable",
+        "ConlluConverter.convertConlluToWplChunks has a nested try-finally for writer close inside a try-with-resources for the reader — the inner finally correctly closes writer on exception, but the structure (try-finally inside try-catch inside try-with-resources) is hard to follow; try-with-resources could simplify it",
+        "ExplorationHandlers.handleSemanticFieldComparison calls result.buildEdges() twice: once to put in response map and once to get .size() — builds the list twice unnecessarily",
+        "handleRelationsForType contains a deep nested lambda with orElseThrow for an Optional inside a stream map inside a for-each — the throw site is buried and the exception type (NoSuchElementException) escapes the method contract silently",
+        "SketchHandlers.handleFullSketchForType and handleDepSketchForType share very similar structure (iterate relations, filter by type, execute pattern, build response) but are separate methods with duplicated boilerplate — the difference (surface vs dep) could be parameterized",
+        "BlackLabQueryExecutor.executeSurfacePattern computes collocateLabelPos before calling executeCollocateSearch but the result (collocateLabelPos) is only used after group iteration — minor ordering issue but control flow is clear",
+        "CollocateQueryHelper.scoreHits does Math.min(maxResults * OVER_FETCH_FACTOR, records.size()) with a comment 'safe: min ensures result <= maxResults*10' — the comment is slightly inaccurate (it ensures result ≤ maxResults*OVER_FETCH_FACTOR not 10), OVER_FETCH_FACTOR is 3"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer phased decomposition is clean and intention-revealing — each phase reads as a single bounded operation",
+        "LongIntHashMap is a direct, correct implementation of a performance data structure with well-scoped mutation",
+        "CqlUtils.splitCqlTokens handles edge cases (nested brackets, quoted strings) precisely without defensive sprawl"
+      ],
+      "issue_character": "Issues are scattered across: duplicated handler boilerplate (surface vs dep sketch methods), a nested resource management pattern that would be cleaner with try-with-resources, and one double-invocation of a list-building method.",
+      "score_rationale": "The algorithmic core (exploration, CQL parsing, collocate scoring) is written with clear intent and proper decomposition. The api handler layer has structural duplication and one inelegant double-call. The resource management pattern in ConlluConverter is correct but unnecessarily complex. This is mid-range quality — a 67 reflects genuinely good core internals alongside avoidable handler layer duplication."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "sketch_handler_boilerplate_duplication",
+      "summary": "handleFullSketchForType and handleDepSketchForType have near-identical iteration structure, differing only in response shape",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketchForType (surface): for (var rel : grammarConfig.getRelations()) { if (rel.relationType()... != relationType) continue; try { String fullPattern = rel.getFullPattern(lemma); List<...> results = executor.executeSurfacePattern(...); if (!results.isEmpty()) { ... byRelation.put(rel.id(), ...) } } catch (...) { relationErrors.add(...) } }",
+        "handleDepSketchForType (dep): identical iteration pattern with different response building (buildRelationResponse vs inline map construction)",
+        "The only meaningful difference is that dep adds 'type': 'dependency' to the response and calls buildRelationResponse(); the iteration and error-collection logic is character-for-character identical"
+      ],
+      "suggestion": "Unify into a single private method that accepts a RelationType and a response-builder lambda (or a boolean isDep flag), eliminating the duplicated iteration boilerplate.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "build_edges_double_invocation",
+      "summary": "handleSemanticFieldComparison calls result.buildEdges() twice — once for data and once for the count",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "response.put('edges', result.buildEdges().stream().map(Edge::toMap).toList());",
+        "response.put('edges_count', result.buildEdges().size());",
+        "buildEdges() constructs a new List<Edge> on every call (documented as such in ExplorationResult Javadoc)"
+      ],
+      "suggestion": "Assign the result to a local variable: List<Edge> edges = result.buildEdges(); then use edges for both the data and the count.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_converter_nested_resource_management",
+      "summary": "ConlluConverter uses a nested try-finally for writer close inside try-with-resources for reader — unnecessarily complex, could use try-with-resources throughout",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "The outer try-with-resources closes the BufferedReader; the inner try-catch wraps the main loop; the finally block closes writer via 'try (BufferedWriter toClose = writer)' which is a workaround for the variable not being declared in the try-with-resources header",
+        "The chunk++ inside the finally means the final chunk is counted regardless of whether an exception caused early termination — potentially inflating the chunk count in error cases"
+      ],
+      "suggestion": "Declare writer as a field or move it to a method that uses proper try-with-resources, or restructure using a helper that accepts the writer as a parameter. At minimum, add a comment explaining the nested structure's invariants.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Handler methods grown by copy-paste of a working template rather than refactored to a shared form after the second case was added"],
+    "likely_symptoms": ["build_edges_double_invocation in ExplorationHandlers"],
+    "possible_false_positives": ["CollocateQueryHelper.scoreHits comment inaccuracy — the behavior is correct, only the comment is slightly wrong"]
+  }
+}

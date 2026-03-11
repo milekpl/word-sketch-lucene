@@ -1,0 +1,86 @@
+{
+  "batch": "type_safety",
+  "batch_index": 15,
+  "assessments": {"type_safety": 72.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "ExplorationHandlers.buildExploreResponseBody has @SuppressWarnings(\"unchecked\") and casts Object from resultMap.get(\"seed_collocates\") to List<Map<String, Object>> — the cast is from a stringly-typed Map<String, Object> return from ExplorationResult.toMap(), losing all static type guarantees",
+        "ExplorationResult.toMap(), ComparisonResult.toMap() return Map<String, Object> — serialization is performed via an untyped map, making it impossible to statically verify response structure or detect regressions when field names change",
+        "QueryResults inner records (WordSketchResult, CollocateResult) use String for POS ('pos' field) where PosGroup enum exists — raw string comparison or enum bypass possible when consumers check POS values",
+        "BlackLabSnippetParser uses /* @Nullable */ informal comments — see batch 13 — meaning nullability contracts are invisible to the type system; callers that dereference without null checks won't get compiler/IDE warnings",
+        "RelationConfig is a Java record with Optional<RelationType> field — good use of Optional for absence modeling",
+        "GrammarConfigLoader's parseRelationType returns Optional.empty() for unrecognized values rather than throwing — callers must use .orElse or .orElseThrow, enforced by Optional type",
+        "LongIntHashMap.get() returns 0 for absent keys (per Javadoc), which is indistinguishable from a stored 0 value — this is a type-system limitation of primitive specialization, but callers that need to distinguish absent from 0 must call containsKey first (this contract is documented)",
+        "SketchHandlers.handleVisualRadial uses JSONObject directly (fastjson2) with untyped getters; if 'width' or 'height' fields are missing, getIntValue returns 0, which is then checked: '(obj.get(\"width\") == null) ? 840 : obj.getIntValue(\"width\")' — correct but brittle"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 62.0,
+        "indirection_cost": 45.0,
+        "interface_honesty": 70.0,
+        "delegation_density": 60.0,
+        "definition_directness": 75.0,
+        "type_discipline": 68.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Records are used for immutable value types throughout (WordSketchResult, CoreCollocate, AdjectiveProfile, ExploreOptions, CollocateSearch) — Java records enforce immutability by construction",
+        "Optional<RelationType> in RelationConfig forces callers to handle the absent case at the type level rather than relying on null checks",
+        "LogDiceCalculator uses Double.NaN sentinel with a documented constant (UNCOMPUTABLE) rather than a magic -1 or 0",
+        "QueryExecutor interface uses specific checked IOException throughout rather than RuntimeException — callers are forced to handle I/O failure"
+      ],
+      "issue_character": "The dominant type-safety issue is the use of Map<String, Object> for all JSON serialization (toMap() pattern), which erases the type information that records provide and requires unsafe casts at deserialization boundaries; POS values stored as raw String where the PosGroup enum exists is a secondary bypass.",
+      "score_rationale": "Java's static type system means most type issues are caught at compile time; the score reflects the subset of safety concerns that remain — primarily the stringly-typed serialization pattern (Map<String, Object> losing record field types), one @SuppressWarnings(\"unchecked\") cast, and POS values being passed as raw String rather than using the PosGroup enum. These represent real runtime-detectable type mismatches that would be caught by a typed serialization approach."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "unchecked_cast_in_exploration_handlers",
+      "summary": "@SuppressWarnings(\"unchecked\") cast from Map<String,Object> to List<Map<String,Object>> in buildExploreResponseBody",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "buildExploreResponseBody calls result.toMap() then casts: '(List<Map<String, Object>>) resultMap.get(\"seed_collocates\")'",
+        "ExplorationResult.toMap() returns Map<String, Object> — the value for 'seed_collocates' is actually List<Map<String, Object>> but the compiler cannot verify this",
+        "If ExplorationResult.toMap() is ever changed to return a different structure for 'seed_collocates', the cast fails at runtime with ClassCastException"
+      ],
+      "suggestion": "Instead of calling result.toMap() and casting, add typed accessor methods or a typed response DTO to ExplorationResult. For example, add getSeedCollocatesAsJsonMaps() returning List<Map<String,Object>> directly. This eliminates the cast without full typed serialization. Alternatively, use a proper serialization library (e.g., Jackson with typed DTOs).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "pos_as_raw_string_bypasses_posgroup_enum",
+      "summary": "POS values stored and returned as String in WordSketchResult where PosGroup enum exists",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/PosGroup.java"
+      ],
+      "evidence": [
+        "WordSketchResult record: 'String pos' — holds values like 'JJ', 'NN', 'VB' as raw strings",
+        "PosGroup enum has ADJ, VERB, NOUN, ADV, OTHER with getValue() returning group labels",
+        "CollocateQueryHelper.buildAndRankCollocates creates WordSketchResult with pos from lemmaPosMap (Map<String, String>) — no validation that the string matches any known POS",
+        "Callers that check POS (e.g., for display logic) compare raw strings, bypassing the PosGroup enum"
+      ],
+      "suggestion": "Change WordSketchResult.pos field to PosGroup (or keep String for the raw xpos tag but add a PosGroup posGroup() default method that maps it). Update lemmaPosMap and buildAndRankCollocates to store/return PosGroup. This provides compile-time safety for consumers that need to branch on POS category.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["The Map<String, Object> serialization pattern was likely chosen for simplicity (avoiding Jackson/Gson dependency) but sacrifices type safety at the API layer", "POS as String is a legacy of using raw xpos tag values from BlackLab rather than mapping to the application's own PosGroup abstraction"],
+    "likely_symptoms": ["unchecked_cast_in_exploration_handlers is most likely to cause a runtime failure when ExplorationResult.toMap() structure changes"],
+    "possible_false_positives": []
+  }
+}

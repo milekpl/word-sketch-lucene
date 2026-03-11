@@ -1,0 +1,93 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 62.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "21 test classes found: api/ (HandlersTest, HttpApiUtilsTest, PatternSubstitutionTest, RelationUtilsTest), config/ (GrammarConfigLoaderTest, RelationsValidationTest), exploration/ (AdjectiveCollocateRankerTest), query/ (BCQLParserTest, BlackLabBcqlConcordanceTest, BlackLabDummyTest, BlackLabQueryExecutorTest, BlackLabSnippetParserTest, CollocateQueryHelperTest, DependencySketchTest, HybridAlgorithmTest, SemanticFieldExplorerTest), utils/ (CqlUtilsTest, LogDiceCalculatorTest, LongIntHashMapTest), viz/ (RadialPlotTest)",
+        "BlackLabConllUIndexer.java (indexer/blacklab/) has no corresponding test class — the indexer is a critical path for corpus ingestion and has no unit or integration test",
+        "ConlluConverter.java has no corresponding test class — conversion of CoNLL-U to WPL chunks is critical for correct index construction; errors here would silently produce wrong index content",
+        "WordSketchApiServer.java has no direct test — the server startup, route registration, and CORS handling are only tested indirectly through handler tests",
+        "HandlersTest exists (api/) but likely tests handler logic in isolation via mocks; no end-to-end HTTP test found (no e2e/ test using a real HTTP client against a live server port)",
+        "BlackLabQueryExecutorTest exists but likely requires a real BlackLab index to run; a dummy index test (BlackLabDummyTest) suggests some index-based tests are separated",
+        "SemanticFieldExplorerTest and AdjectiveCollocateRankerTest cover the exploration logic with presumably mock executors",
+        "No test for the ConlluConverter chunk-boundary logic (what happens when a sentence spans a chunk boundary), which is a tricky edge case"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "21 test classes with broad coverage of query, exploration, config, and utility logic",
+        "Unit tests exist for all utility classes (CqlUtilsTest, LogDiceCalculatorTest, LongIntHashMapTest) — pure-logic code is well-covered",
+        "BlackLabSnippetParserTest covers the XML parsing that is central to collocate extraction — high-value test for a brittle parsing layer",
+        "RelationsValidationTest provides schema-level validation of the grammar config, acting as an integration guard for configuration changes"
+      ],
+      "issue_character": "The indexer pipeline (BlackLabConllUIndexer + ConlluConverter) — which is the entry point for all corpus data and the source of index correctness — has zero test coverage, while all downstream query logic is tested; this is an inverted risk profile.",
+      "score_rationale": "The test suite is strong for query, exploration, and config logic, but the zero coverage of the indexer pipeline is a critical gap: bugs in ConlluConverter or BlackLabConllUIndexer would silently produce a corrupt index, causing query results to be wrong without any test failure. This gap plus the absence of any end-to-end HTTP test pushes the score to 62 — well below what the quantity of test classes alone would suggest."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "conllu_converter_untested",
+      "summary": "ConlluConverter (CoNLL-U to WPL chunk conversion) has no unit tests despite being a critical indexing step",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "No ConlluConverterTest class found in any test directory",
+        "ConlluConverter.convertConlluToWplChunks handles multi-word token filtering (MWT_OR_EMPTY pattern), sentence boundary detection, chunk splitting, and file writing — each is a distinct edge case",
+        "Critical edge case: what happens when a sentence is split across a chunk boundary (sentencesPerChunk boundary hits mid-sentence)? The implementation uses inSentence flag — untested"
+      ],
+      "suggestion": "Add ConlluConverterTest with cases: (1) basic sentence conversion, (2) MWT line filtering (e.g., '1-2' and '2.1' tokens), (3) chunk boundary: verify last sentence of chunk N appears in chunk N and first sentence of chunk N+1 appears in next chunk, (4) empty input, (5) input with only comments. Use an in-memory temp directory for output.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "blacklab_indexer_untested",
+      "summary": "BlackLabConllUIndexer has no unit or integration test",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "No BlackLabConllUIndexerTest class found",
+        "BlackLabConllUIndexer opens a BlackLabIndexWriter and registers error-continuation behavior (errorOccurred returns true) — this means indexing errors are swallowed silently and logged; no test verifies that error documents are counted or that the index is still valid",
+        "The indexer is the critical first step before any query; a regression here would produce an empty or corrupt index with no test failure"
+      ],
+      "suggestion": "Add a BlackLabConllUIndexerTest that creates a temporary index, indexes a small 3-sentence CoNLL-U sample (could be from test-data/ directory), and verifies that the resulting index has the expected document count. This requires a BlackLab test dependency but BlackLabDummyTest and BlackLabQueryExecutorTest already show this pattern is in use.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "no_e2e_http_test",
+      "summary": "No end-to-end HTTP test verifies the full request/response cycle through WordSketchApiServer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/HandlersTest.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer itself has no test class",
+        "HandlersTest likely tests handlers directly (as Java method calls), not via HTTP",
+        "CORS preflight handling, 405 Method Not Allowed enforcement, and route path matching are implemented in WordSketchApiServer.registerHandler — none of these are reachable through handler-level tests"
+      ],
+      "suggestion": "Add a WordSketchApiServerIntegrationTest that starts the server on a random port with a test index and a test grammar config, then sends real HTTP requests using HttpClient (Java 11+) to verify: (1) /health returns 200 with {status:ok}, (2) OPTIONS /api/sketch/test returns 204 with CORS headers, (3) POST to a GET-only endpoint returns 405.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Indexer code was likely written once and treated as infrastructure-level; its critical nature for test data quality was not reflected in test investment", "Handler-level mocking provides a false sense of API coverage without exercising the HTTP plumbing"],
+    "likely_symptoms": ["conllu_converter_untested is highest priority — silent data corruption in the indexing pipeline affects all downstream query tests"],
+    "possible_false_positives": []
+  }
+}

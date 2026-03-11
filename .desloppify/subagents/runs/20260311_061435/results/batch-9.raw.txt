@@ -1,0 +1,96 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {"mid_level_elegance": 66.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "api→exploration boundary: ExplorationHandlers calls semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts) with a typed ExploreOptions value object — clean minimal handoff",
+        "api→config boundary: resolveRelationConfig() and resolveExploreParams() are shared setup methods that centralize request-to-domain translation for all exploration handlers",
+        "RelationConfig.getFullPattern(lemma) abstracts pattern construction — the api layer does not need to know how BCQL patterns are assembled from grammar config",
+        "ExplorationResult.toMap() is called in buildExploreResponseBody which then casts result values: List<Map<String,Object>> seedCollocs = (List<Map<String,Object>>) resultMap.get('seed_collocates') — the seam requires callers to know internal map key names and perform unsafe downcasts; the translation boundary is not type-safe",
+        "handleSemanticFieldComparison builds its response inline (10+ response.put() calls) without using ExplorationResult.toMap() — two different serialization paths exist for semantically similar results, one delegating to model and one building inline in the handler",
+        "ExplorationHandlers.handleSemanticFieldExplore requires the 'seeds' query parameter (plural) but documents it as single-seed exploration — the parameter name does not match the semantics; the handler reads `params.get('seeds')` and treats the value as a single seed string",
+        "Data translation at boundaries: PosGroup is translated to string via getValue() in multiple handler response maps; there is no centralized PosGroup→String mapper",
+        "The model→JSON seam is partially in ExplorationResult.toMap(), partially in ExplorationHandlers.buildExploreResponseBody(), and partially in ExplorationHandlers.formatAdjectiveProfile() — three places share responsibility for the model-to-JSON translation, with no clear owner",
+        "Lifecycle propagation: QueryExecutor.close() is registered in a shutdown hook in Main — the lifecycle boundary is respected but the shutdown hook captures executor in a local variable which must be set before construction completes; the serverHolder[] workaround handles this but is non-obvious",
+        "Error propagation across the api→exploration boundary: IOException and IllegalArgumentException are explicitly caught and translated to HTTP status codes — clean and explicit at each handler site"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreOptions value object cleanly bundles exploration parameters across the api→exploration boundary",
+        "resolveRelationConfig() and resolveExploreParams() centralize request parsing, keeping handler bodies focused on orchestration",
+        "RelationConfig.getFullPattern() hides BCQL pattern assembly from API handlers — good abstraction at the config boundary",
+        "Error-to-HTTP-status translation is explicit and consistent across ExplorationHandlers"
+      ],
+      "issue_character": "Issues are concentrated at the model→JSON translation boundary: the responsibility is split across three locations (toMap, buildExploreResponseBody, formatAdjectiveProfile), one requires unsafe downcasts, and a parameter naming mismatch (seeds vs seed) creates a subtle API inconsistency.",
+      "score_rationale": "The inbound (request→domain) direction of handoffs is well-designed: value objects, centralized validation, clean interfaces. The outbound (domain→JSON response) direction is fragmented — unsafe casts, split translation responsibility, and two different serialization patterns for similar results. A 66 reflects good input-side seam design undermined by a messy output-side boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "split_serialization_responsibility",
+      "summary": "Model-to-JSON translation is split across three locations: ExplorationResult.toMap(), buildExploreResponseBody(), and formatAdjectiveProfile()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationResult.toMap() serializes seed_collocates, discovered_nouns, core_collocates, edges",
+        "ExplorationHandlers.buildExploreResponseBody() unpacks the toMap() result and re-puts keys into a new response map with additional '_count' keys",
+        "ExplorationHandlers.formatAdjectiveProfile() is a separate static method serializing AdjectiveProfile (used only in handleSemanticFieldComparison, which does NOT use toMap())",
+        "handleSemanticFieldComparison builds its own response inline without calling ExplorationResult.toMap() at all — two divergent serialization paths for semantically similar data"
+      ],
+      "suggestion": "Consolidate all model→JSON translation into a single mapper class (e.g., ExplorationSerializer in the api package). The model should not carry serialization logic (toMap), and handler methods should not contain inline response-building.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "unsafe_downcast_at_api_boundary",
+      "summary": "buildExploreResponseBody performs unchecked cast from toMap() Object values to List<Map<String,Object>>",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "@SuppressWarnings('unchecked') on buildExploreResponseBody",
+        "List<Map<String, Object>> seedCollocs = (List<Map<String, Object>>) resultMap.get('seed_collocates')",
+        "If ExplorationResult.toMap() changes the type or key name of 'seed_collocates', this will fail at runtime with ClassCastException"
+      ],
+      "suggestion": "Replace the toMap()-then-cast pattern with typed accessor methods or a typed serializer, eliminating the need for @SuppressWarnings and the runtime cast risk.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "seeds_parameter_name_mismatch",
+      "summary": "Single-seed handleSemanticFieldExplore reads the 'seeds' query parameter but treats it as a single seed value — plural name suggests multi-value semantics",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: String seed = HttpApiUtils.requireParam(exchange, params, 'seeds')",
+        "The endpoint GET /api/semantic-field/explore takes a single seed, but the query parameter is named 'seeds' (plural)",
+        "handleSemanticFieldExploreMulti also uses 'seeds' as its parameter name — callers cannot distinguish the two endpoints by parameter name alone"
+      ],
+      "suggestion": "Rename the single-seed endpoint parameter from 'seeds' to 'seed'. This matches the singular semantic and makes the API self-documenting. Update the endpoint documentation accordingly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["toMap() serialization in model classes (identified in cross_module_architecture batch) cascades into unsafe casts and split responsibility at the api seam"],
+    "likely_symptoms": ["seeds_parameter_name_mismatch detectable by API consumers without reading source code"],
+    "possible_false_positives": ["serverHolder[] array workaround in Main — this is an intentional lambda capture workaround, not a seam design issue"]
+  }
+}

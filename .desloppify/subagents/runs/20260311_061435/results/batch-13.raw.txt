@@ -1,0 +1,90 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 13,
+  "assessments": {"contract_coherence": 74.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "BlackLabSnippetParser uses informal /* @Nullable */ comments instead of a real nullability annotation (e.g., org.jspecify, javax.annotation.Nullable, or JetBrains @Nullable) for 5+ methods — these comments convey intent but provide no tooling support",
+        "ExplorationHandlers.handleSemanticFieldExplore: the URL parameter is named 'seeds' (plural) per HttpApiUtils.requireParam call, but the method Javadoc comment says '?seed=house' (singular). The variable is then named 'seed' locally. This diverges the documented API surface from the actual parsed parameter name.",
+        "QueryExecutor interface method executeQuery is documented as 'does not compute logDice or extract collocates' while executeBcqlQuery 'handles labeled capture groups and computes per-hit logDice scores' — the distinction is clear in Javadoc but the method names (executeQuery vs executeBcqlQuery) don't encode this difference visibly",
+        "GrammarConfigLoader.createDefaultEnglish() throws IllegalStateException (unchecked) but is typed as returning a value — callers have no static signal that this can fail at the call site",
+        "RelationConfig.collocateReversePattern() has a documented throws IllegalStateException but no @throws in Javadoc; however it is correctly thrown when preconditions are violated",
+        "ComparisonResult.buildEdges() Javadoc says 'performs list construction on every call' — accurate warning, but no caching hint or rename to createEdges() to signal side-effect-free construction cost",
+        "CollocateQueryHelper.extractCollocateLemma is a static utility (package-private) that falls back through two parsing strategies; this fallback chain is undocumented in the method contract",
+        "ExploreOptions record fields are not documented (no Javadoc on record components) — callers must infer meaning of nounsPerSeed vs topCollocates from context"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface has thorough Javadoc distinguishing findCollocations, executeQuery, executeBcqlQuery, and executeSurfacePattern — each method's distinct responsibility is explicitly documented",
+        "RelationConfig.getFullPattern is well-documented with explicit statement of what happens when headword is null/blank",
+        "GrammarConfigLoader throws meaningful, specific exceptions (FileNotFoundException, IOException with descriptive messages) on misconfigured inputs",
+        "LogDiceCalculator.UNCOMPUTABLE sentinel and the note to use Double.isNaN() is a well-honoured contract: all callers (in CollocateQueryHelper) check for NaN as documented"
+      ],
+      "issue_character": "The dominant pattern of issues is informal nullability annotations (/* @Nullable */ comments) that carry intent but no tooling support, combined with a concrete parameter naming mismatch between the API Javadoc and actual query-string key used at runtime.",
+      "score_rationale": "The codebase has strong Javadoc on critical interfaces and throws meaningful exceptions, putting it above baseline. Score is pulled down to 74 by the parameter name divergence in handleSemanticFieldExplore (seeds vs seed) — a runtime contract the Javadoc misrepresents — and the systemic use of comment-based nullable annotations that provide no enforcement. These issues affect API consumers and could cause silent 400 errors when clients follow the documented parameter name."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "single_seed_endpoint_param_name_mismatch",
+      "summary": "handleSemanticFieldExplore Javadoc documents ?seed= but code reads ?seeds= parameter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Method Javadoc: 'GET /api/semantic-field/explore?seed=house&relation=adj_predicate&top=15'",
+        "Actual code: 'String seed = HttpApiUtils.requireParam(exchange, params, \"seeds\");' — reads 'seeds' key",
+        "A client following the Javadoc would send ?seed=house and receive a 400 'Missing required parameter: seeds' error"
+      ],
+      "suggestion": "Decide on the canonical parameter name: 'seed' (singular, matching the single-seed intent and the Javadoc). Change the requireParam call to use 'seed' and add backward-compatible fallback: String seed = params.containsKey(\"seed\") ? params.get(\"seed\") : params.get(\"seeds\"). Update the Javadoc and the README.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "nullable_comment_annotations",
+      "summary": "Nullable return values documented via informal comments rather than enforceable annotations",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "5+ methods use '/* @Nullable */' comment syntax: extractLemmaFromMatch, extractPosFromMatch, extractCollocateFromXmlByPosition, extractHeadword, extractPlainTextTokenAt, extractCollocateLemma",
+        "Java tools (IDEs, static analysis, SpotBugs) cannot enforce these comments; callers can dereference without null checks without any warning"
+      ],
+      "suggestion": "Add a nullability annotation dependency (e.g., org.jspecify:jspecify or jakarta.annotation) to pom.xml, replace the comment annotations with real @Nullable/@NonNull annotations. Run SpotBugs or the IDE null-safety checks to find any call sites that fail to check for null.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "explore_options_undocumented_fields",
+      "summary": "ExploreOptions record components have no Javadoc; nounsPerSeed and topCollocates have easily confused meanings",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExploreOptions.java"
+      ],
+      "evidence": [
+        "ExploreOptions record: topCollocates, nounsPerSeed, minLogDice, minShared, includeExamples — no Javadoc on any component",
+        "SemanticFieldExplorer.exploreByPattern maps: topCollocates -> topPredicates (adjectives per seed), nounsPerSeed -> nounsPerPredicate (nouns per adjective) — these semantics are only visible inside the implementation, not the contract"
+      ],
+      "suggestion": "Add Javadoc to ExploreOptions record components explaining: topCollocates = max adjective/collocate results for the seed; nounsPerSeed = max nouns to find per collocate in the reverse-lookup phase. The name 'nounsPerSeed' is itself misleading (it's nouns per collocate) — rename to nounsPerCollocate.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Javadoc was written at the time of initial API design before the parameter name was finalized; the mismatch was never caught in testing since tests go via the Java API, not the HTTP endpoint"],
+    "likely_symptoms": ["single_seed_endpoint_param_name_mismatch is the highest-impact issue — it causes a silent runtime failure for API clients"],
+    "possible_false_positives": ["ComparisonResult using get-prefix methods (vs records without get-prefix) is intentional and documented in the class Javadoc; not a contract violation"]
+  }
+}

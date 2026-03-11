@@ -1,0 +1,133 @@
+{
+  "batch": "ai_generated_debt",
+  "batch_index": 10,
+  "assessments": {"ai_generated_debt": 62.0},
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "CollocateProfileComparator has 12 consecutive logger.debug() calls including banner headers: '\\n=== SEMANTIC FIELD COMPARISON ===', '----...----' separator lines, section headers '\\n--- Building Comparison Profiles ---', '\\nTop SHARED (high commonality):', '\\nTop DISTINCTIVE (specific to 1 noun):' — this is noisy trace-style debug logging that reads like a development console session left in production code",
+        "SketchHandlers.handleConcordanceExamples has 4 logger.debug() calls logging intermediate pattern transformation steps (patternWithHead, collocatePosition, bcqlQuery, and relation-not-found); these are implementation trace logs, not diagnostic signals",
+        "SketchHandlers.handleVisualRadial has 2 logger.debug() calls: 'Radial: body = {}' and 'Radial: center = {}' — restating inputs at entry, no diagnostic value",
+        "SemanticFieldExplorer has 8+ logger.debug() calls tracing every step: 'Exploring semantic field: seed=...', '  Total candidate nouns: ...', '  Nouns with X+ shared: ...', '  No results found for seed word. Trying fallback...' — these are development-era step-by-step traces",
+        "ExplorationHandlers.handleSemanticFieldExplore and handleSemanticFieldExploreMulti each have logger.info('Received request: {}', exchange.getRequestURI()) at the top — this exists in only 2 of the 4 exploration handlers and is absent from the sketch handlers; inconsistent entry logging with no observable pattern",
+        "No restating comments that echo the code — comments explain WHY, not WHAT; this is clean",
+        "No defensive null checks on typed non-nullable values (records with non-null components are trusted)",
+        "No multi-line docstrings on trivial 2-line functions — Javadoc is proportional to method complexity",
+        "No pass-through wrapper functions beyond the intentional SemanticFieldExplorer.compareCollocateProfiles facade (which is documented)",
+        "Domain names are used consistently in domain code — no handleData, processItem patterns found",
+        "CollocateQueryHelper.scoreHits has a comment 'safe: min ensures result <= maxResults*10' where 10 is the hard-coded value of OVER_FETCH_FACTOR in the comment — the constant itself is 3, not 10; this is a stale comment from when the constant was a different value"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "ai_generated_debt": {
+      "strengths": [
+        "Comments throughout the codebase explain non-obvious decisions (e.g., why ExplorationResult is a class not a record, why ExploreOptions uses 'Explore' not 'Exploration', OVER_FETCH_FACTOR rationale)",
+        "No generic domain names (handleData, processItem) in production code",
+        "Javadoc is present only where it adds value — trivial accessors are undocumented"
+      ],
+      "issue_character": "Issues are concentrated in verbose entry/exit debug logging in CollocateProfileComparator and SemanticFieldExplorer that traces every algorithm step and uses ASCII banner separators — a hallmark of LLM-assisted development sessions where debug output was left in rather than converted to meaningful diagnostic logging.",
+      "score_rationale": "The codebase has clean comments and appropriate Javadoc. However, the exploration subsystem carries 20+ trace-level debug statements including ASCII banners and section headers that are the signature of iterative LLM-assisted development. Two handler methods also log request entry inconsistently. A 62 reflects meaningful technical debt in logging verbosity that would need a cleanup pass before the codebase is fully professional."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "banner_debug_logging",
+      "summary": "CollocateProfileComparator uses ASCII banner debug logging with separator lines and section headers — development-era trace output left in production code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "logger.debug(\"\\n=== SEMANTIC FIELD COMPARISON ===\")",
+        "logger.debug(\"------------------------------------------------------------\")",
+        "logger.debug(\"\\n--- Building Comparison Profiles ---\")",
+        "logger.debug(\"\\nTop SHARED (high commonality):\")",
+        "logger.debug(\"\\nTop DISTINCTIVE (specific to 1 noun):\")",
+        "12 consecutive debug statements tracing every phase of the algorithm — more console session than structured logging"
+      ],
+      "suggestion": "Remove ASCII banner/separator debug lines entirely. Replace step-count logs ('Found {} adjectives', 'Total unique adjectives: {}') with a single structured summary log at the end of compareCollocateProfiles: logger.debug('Comparison complete: {} nouns, {} adjectives found', nounList.size(), profiles.size()). The per-noun detail logs ('Profiling: {}', 'Top 5: {}') should be removed or guarded behind a trace flag.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "exploration_step_trace_logging",
+      "summary": "SemanticFieldExplorer has 8+ debug statements tracing every exploration algorithm step — development-era trace output",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "logger.debug(\"Exploring semantic field: seed='{}', relation='{}', top={}, minShared={}, minLogDice={}\", ...)",
+        "logger.debug(\"  Total candidate nouns: {}\", nounProfiles.size())",
+        "logger.debug(\"  Nouns with {}+ shared: {}\", minShared, discoveredNouns.size())",
+        "logger.debug(\"  {}: {} nouns\", collocate, nouns.size()) — this is inside a per-collocate loop, emitting one log line per collocate",
+        "logger.debug(\"Exploration complete for '{}': {} nouns discovered, {} core collocates\", ...)"
+      ],
+      "suggestion": "Consolidate to two log statements: one at method entry with the key parameters, and one at exit with the result counts. Remove the per-collocate loop log entirely (it can emit hundreds of lines per request). The fallback log ('Trying fallback to simple pattern') is useful and should be kept at WARN level.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "concordance_handler_intermediate_trace_logging",
+      "summary": "handleConcordanceExamples logs 4 intermediate pattern transformation steps at DEBUG level — development trace left in handler code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "logger.debug(\"After getFullPattern: {}\", patternWithHead)",
+        "logger.debug(\"collocatePosition = {}\", rel.get().collocatePosition())",
+        "logger.debug(\"After substituteCollocate: {}\", bcqlQuery)",
+        "logger.debug(\"Relation '{}' not found in grammar config\", relation) — this is WARN-level information (a potentially unexpected state), not DEBUG"
+      ],
+      "suggestion": "Remove the three step-trace debug logs (getFullPattern, collocatePosition, substituteCollocate). Promote the 'Relation not found' log to WARN level since it indicates a misconfiguration or unexpected client input.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "inconsistent_request_entry_logging",
+      "summary": "logger.info('Received request: {}') appears in 2 of 4 exploration handler methods but is absent from all sketch handler methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.registerRoutes: lambda for explore and explore-multi both call logger.info('Received request: {}', exchange.getRequestURI()) before invoking the handler",
+        "No equivalent log exists in any SketchHandlers method or in handleSemanticFieldComparison, handleSemanticFieldExamples",
+        "The logs were added at the call site (in lambdas in WordSketchApiServer) rather than inside the handler methods — inconsistent placement"
+      ],
+      "suggestion": "Either add request logging uniformly in wrapHandler (one place, all endpoints) or remove the two ad-hoc logger.info calls in the lambda sites. The wrapHandler approach is preferable as it ensures consistent coverage.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "stale_comment_over_fetch_factor",
+      "summary": "Comment in CollocateQueryHelper.scoreHits references 'maxResults*10' but the actual OVER_FETCH_FACTOR constant is 3",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "int limit = Math.min(maxResults * OVER_FETCH_FACTOR, records.size()); // safe: min ensures result <= maxResults*10",
+        "OVER_FETCH_FACTOR = 3, not 10 — the comment says *10 which is incorrect"
+      ],
+      "suggestion": "Update the comment to 'safe: min ensures result <= maxResults * OVER_FETCH_FACTOR' or remove the comment (the Math.min is self-explanatory).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Exploration algorithm developed iteratively with debug logging as the primary observability tool; logging was never cleaned up after development stabilized", "Entry logging added ad-hoc to two specific endpoints during debugging and never made uniform"],
+    "likely_symptoms": ["debug log volume making it difficult to diagnose real issues in exploration subsystem"]
+  }
+}

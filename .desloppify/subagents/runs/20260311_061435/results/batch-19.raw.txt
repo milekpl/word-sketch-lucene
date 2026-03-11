@@ -1,0 +1,113 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 65.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "QueryExecutor has two superficially similar methods with different result types: executeQuery(pattern, max) -> List<ConcordanceResult> vs executeBcqlQuery(pattern, max) -> List<CollocateResult>. Both take (String pattern, int max) but return different types and use different parsers — the naming does not make this clear at the call site",
+        "findCollocations and executeSurfacePattern are both collocate search methods but with different parameter lists and return processing: findCollocations(lemma, cqlPattern, minLogDice, maxResults) vs executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults). The parameter signatures are identical but the semantic contract differs (findCollocations does not use labeled positions; executeSurfacePattern requires '2:' labels). This is invisible from the call site.",
+        "executeDependencyPattern(lemma, deprel, minLogDice, maxResults) and executeDependencyPatternWithPos(lemma, deprel, headPosConstraint, minLogDice, maxResults) — headPosConstraint is inserted as the 3rd parameter, breaking the ordering consistency with executeDependencyPattern where minLogDice is 3rd",
+        "Single-seed explore endpoint reads parameter 'seeds' (plural) while multi-seed explore also reads 'seeds'. The parameter name is consistent, but the semantics differ: single-seed 'seeds' takes one value, multi-seed 'seeds' takes a comma-separated list. No API-level documentation distinguishes this.",
+        "handleSemanticFieldExplore accepts 'seeds' parameter (plural) but semantically is a single-seed endpoint — misnamed compared to its counterpart handleSemanticFieldExploreMulti which legitimately uses seeds",
+        "HTTP API is synchronous (Java sun.net.httpserver, blocking handlers) — no mixed sync/async concerns",
+        "ExplorationHandlers.handleSemanticFieldComparison does not accept a 'relation' parameter (uses a hardcoded adjective lookup), while handleSemanticFieldExplore and handleSemanticFieldExploreMulti both require 'relation' — inconsistent parameter surface across semantically related endpoints"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "All handler methods follow a consistent pattern: parse params, validate, execute, build response map, send JSON — no mixed paradigms within the HTTP layer",
+        "QueryExecutor error contracts are consistent: all methods declare throws IOException for index-level failures",
+        "All HTTP endpoints consistently use sendJsonResponse/sendError from HttpApiUtils — no direct response construction outside the utility class",
+        "HttpApiUtils.requireParam provides a consistent 400-error pattern for all required parameters"
+      ],
+      "issue_character": "The primary coherence issues are in the QueryExecutor interface where two pairs of methods have similar signatures but different semantics (findCollocations vs executeSurfacePattern; executeQuery vs executeBcqlQuery), and parameter ordering inconsistency between executeDependencyPattern and executeDependencyPatternWithPos.",
+      "score_rationale": "The HTTP API layer is fairly coherent (consistent response patterns, consistent error handling), but the QueryExecutor interface — which is the core programmatic API — has multiple coherence issues: name confusion between executeQuery/executeBcqlQuery, semantic distinction between findCollocations/executeSurfacePattern invisible from signatures, and a parameter ordering inconsistency in the dependency variants. These issues make the interface harder to use correctly and score the dimension at 65."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "execute_query_vs_bcql_naming_confusion",
+      "summary": "executeQuery and executeBcqlQuery have identical parameter shapes but different parsers and return types — confusing at the call site",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "executeQuery(String cqlPattern, int maxResults) -> List<ConcordanceResult> uses ContextualQueryLanguageParser",
+        "executeBcqlQuery(String bcqlPattern, int maxResults) -> List<CollocateResult> uses CorpusQueryLanguageParser",
+        "A caller seeing both in IntelliSense/completion has no indication which to use; only the Javadoc distinguishes them",
+        "executeQuery is used nowhere in production code — only executeBcqlQuery is called by handlers"
+      ],
+      "suggestion": "Rename executeQuery to executeCqlQuery for symmetry with executeBcqlQuery. Consider deprecating it if it has no current callers. If executeQuery is truly unused in production, mark it @Deprecated with a note to remove after confirming no external callers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dependency_pattern_param_ordering",
+      "summary": "executeDependencyPatternWithPos inserts headPosConstraint as 3rd parameter, breaking ordering consistency with executeDependencyPattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "executeDependencyPattern(String lemma, String deprel, double minLogDice, int maxResults)",
+        "executeDependencyPatternWithPos(String lemma, String deprel, String headPosConstraint, double minLogDice, int maxResults)",
+        "headPosConstraint is inserted before minLogDice, breaking the convention that minLogDice and maxResults are always the last two parameters",
+        "A caller adding POS constraint must remember to shift argument positions 3 and 4"
+      ],
+      "suggestion": "Reorder to: executeDependencyPatternWithPos(String lemma, String deprel, double minLogDice, int maxResults, String headPosConstraint). Or use a builder/options object: DependencyQuery.builder().lemma(x).deprel(y).headPos(z).minLogDice(d).maxResults(n).build(). The options-object approach would also allow executeDependencyPattern to be a special case of executeDependencyPatternWithPos.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "single_seed_explore_seeds_param_name",
+      "summary": "Single-seed explore endpoint reads 'seeds' parameter (plural) but accepts only one value — inconsistent semantics with the multi-seed endpoint",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore reads: HttpApiUtils.requireParam(exchange, params, \"seeds\") — expects ?seeds=house",
+        "handleSemanticFieldExploreMulti reads: HttpApiUtils.requireParam(exchange, params, \"seeds\") — expects ?seeds=theory,model,hypothesis",
+        "Both endpoints use the same parameter name with different cardinality expectations — a client cannot tell from the name alone how many seeds to pass",
+        "The Javadoc comment for handleSemanticFieldExplore says '?seed=house' (singular) — further mismatch"
+      ],
+      "suggestion": "Rename the single-seed endpoint's parameter to 'seed' (singular). The multi-seed endpoint keeps 'seeds' (plural). This creates a visible, memorable API distinction. Update handleSemanticFieldExplore to read 'seed', update Javadoc, and update any API documentation or client code.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "semantic_field_comparison_no_relation_param",
+      "summary": "handleSemanticFieldComparison lacks 'relation' parameter that its sibling explore endpoints require",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateRanker.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldComparison calls semanticFieldExplorer.compareCollocateProfiles(seeds, minLogDice, topCollocates) — no relation parameter, hardcoded to adjective collocates",
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti both require a 'relation' parameter for pattern selection",
+        "A user of the /api/semantic-field endpoint cannot customize the grammatical relation used for comparison"
+      ],
+      "suggestion": "Add an optional 'relation' parameter to handleSemanticFieldComparison, defaulting to 'noun_adj_predicates' (the current hardcoded behavior). Pass the resolved RelationConfig to compareCollocateProfiles. This brings the endpoint in line with the explore endpoint API surface and makes the relation configurable.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["QueryExecutor interface grew incrementally as new query types were added without a unified parameter convention", "Single-seed endpoint parameter name was likely copy-pasted from the multi-seed endpoint template without adjustment"],
+    "likely_symptoms": ["single_seed_explore_seeds_param_name directly causes 400 errors for clients following the Javadoc"],
+    "possible_false_positives": []
+  }
+}

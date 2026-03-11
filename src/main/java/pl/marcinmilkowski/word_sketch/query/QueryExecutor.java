@@ -4,6 +4,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
+
 /**
  * Interface for word sketch query executors.
  * Allows different implementations to be used interchangeably.

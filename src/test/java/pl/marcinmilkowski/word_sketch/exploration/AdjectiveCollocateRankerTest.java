@@ -3,7 +3,7 @@ package pl.marcinmilkowski.word_sketch.exploration;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 import java.io.IOException;
@@ -13,7 +13,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class AdjectiveCollocateComparatorTest {
+class AdjectiveCollocateRankerTest {
 
     /** Stub QueryExecutor that returns predefined collocate lists per lemma. */
     private static QueryExecutor stubExecutor(java.util.Map<String, List<QueryResults.WordSketchResult>> data) {
@@ -41,7 +41,7 @@ class AdjectiveCollocateComparatorTest {
 
     @Test
     void compareCollocateProfiles_emptySeeds_returnsEmpty() throws IOException {
-        AdjectiveCollocateComparator comparator = new AdjectiveCollocateComparator(stubExecutor(Collections.emptyMap()));
+        AdjectiveCollocateRanker comparator = new AdjectiveCollocateRanker(stubExecutor(Collections.emptyMap()));
         ComparisonResult result = comparator.compareCollocateProfiles(Collections.emptySet(), 0.0, 10);
 
         assertNotNull(result);
@@ -51,7 +51,7 @@ class AdjectiveCollocateComparatorTest {
 
     @Test
     void compareCollocateProfiles_nullSeeds_returnsEmpty() throws IOException {
-        AdjectiveCollocateComparator comparator = new AdjectiveCollocateComparator(stubExecutor(Collections.emptyMap()));
+        AdjectiveCollocateRanker comparator = new AdjectiveCollocateRanker(stubExecutor(Collections.emptyMap()));
         ComparisonResult result = comparator.compareCollocateProfiles(null, 0.0, 10);
 
         assertNotNull(result);
@@ -69,7 +69,7 @@ class AdjectiveCollocateComparatorTest {
         data.put("theory", List.of(wsr("important", 8.0), wsr("novel", 5.0)));
         data.put("model",  List.of(wsr("important", 7.0)));
 
-        AdjectiveCollocateComparator comparator = new AdjectiveCollocateComparator(stubExecutor(data));
+        AdjectiveCollocateRanker comparator = new AdjectiveCollocateRanker(stubExecutor(data));
         ComparisonResult result = comparator.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 10);
 
         List<AdjectiveProfile> adjectives = result.getAllAdjectives();
@@ -92,7 +92,7 @@ class AdjectiveCollocateComparatorTest {
         data.put("model",      List.of(wsr("important", 8.0), wsr("recent", 5.0)));
         data.put("hypothesis", List.of(wsr("important", 7.0), wsr("large",  4.0)));
 
-        AdjectiveCollocateComparator comparator = new AdjectiveCollocateComparator(stubExecutor(data));
+        AdjectiveCollocateRanker comparator = new AdjectiveCollocateRanker(stubExecutor(data));
         ComparisonResult result = comparator.compareCollocateProfiles(
                 Set.of("theory", "model", "hypothesis"), 0.0, 10);
 

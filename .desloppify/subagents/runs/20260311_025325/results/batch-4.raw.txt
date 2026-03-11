@@ -1,0 +1,102 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 4,
+  "assessments": {"test_strategy": 57.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "BlackLabSnippetParser has 30+ focused unit tests covering all public methods including null/empty edge cases, boundary trimming, XML extraction, and position-based extraction.",
+        "SemanticFieldExplorer is tested via a hand-written StubExecutor in SemanticFieldExplorerTest — no live index required, covers compare(), exploreByPattern(), and exploreMultiSeed() with multiple scenarios.",
+        "RelationUtils, LogDiceCalculator, LongIntHashMap, PatternSubstitution, CqlUtils all have dedicated, well-scoped unit tests with boundary inputs.",
+        "HandlersTest uses a carefully constructed MockExchange inner class and an emptyExecutor() stub — no coupling to real infrastructure. Covers 400 error paths and a 200 happy path for the explore-multi endpoint.",
+        "CollocateQueryHelper — the multi-phase BCQL pipeline (collectHits → scoreHits → rank) that is the core production query path — has zero unit tests. Only reachable via live-index integration tests (BlackLabBcqlConcordanceTest, DependencySketchTest, BlackLabQueryExecutorTest) that are skipped whenever CONCEPT_SKETCH_TEST_INDEX is absent.",
+        "ExplorationHandlers.handleSemanticFieldComparison() and handleSemanticFieldExamples() — two complete endpoint handler methods — have no test coverage at all. HandlersTest only exercises handleSemanticFieldExplore and handleSemanticFieldExploreMulti.",
+        "HttpApiUtils (parseQueryParams, requireParam, sendJsonResponse, sendError) is used by every handler but has no dedicated unit tests. parseQueryParams has edge-case behaviour (URL decoding, malformed pairs) that is completely untested.",
+        "All four live-index test classes use Assumptions.assumeTrue() for graceful skips, so CI always passes regardless of index availability — the actual BlackLab integration path is never verified in normal build runs.",
+        "No snapshot tests present; no timing- or ordering-dependent tests found.",
+        "BlackLabConllUIndexer (126-line indexer) and ConlluConverter have no unit tests, though they require real file I/O so stub-based testing would require non-trivial test fixtures."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "BlackLabSnippetParser is exhaustively tested with 30+ assertions, covering null inputs, boundary conditions, and all extraction paths — exemplary for a parsing utility.",
+        "SemanticFieldExplorer tests use a hand-written StubExecutor that cleanly isolates test logic from BlackLab infrastructure, making them fast and always-runnable.",
+        "Live-index tests use Assumptions.assumeTrue() for explicit, documented skips rather than hard-coded flags or ignored annotations.",
+        "HandlersTest uses a thorough MockExchange inner class to test HTTP-layer logic without an actual server, covering both error (400) and success (200) paths.",
+        "Pure algorithmic utilities (LogDiceCalculator, LongIntHashMap, RelationUtils, PatternSubstitution) all have dedicated, well-scoped unit tests."
+      ],
+      "issue_character": "Coverage is strong for leaf-level utilities and pure algorithmic code, but the multi-phase query execution pipeline (CollocateQueryHelper) and two handler methods (handleSemanticFieldComparison, handleSemanticFieldExamples) are completely untested outside gated integration tests, forming a concentrated gap in the most operationally critical paths.",
+      "score_rationale": "The codebase sits below the 'solid but uneven' range (80). Pure algorithmic utilities are well covered, and the stub-based design for SemanticFieldExplorer is genuinely good practice. However, CollocateQueryHelper — the heart of the BCQL scoring pipeline — has zero unit tests, two handler endpoints are unexercised, and the widely-used HttpApiUtils has no tests despite edge-case behaviour in URL decoding. Because all live-index integration tests are systematically skipped in CI, the real query execution path is never verified in an automated build. This is significant drag rather than isolated gaps, placing the score around 55-60."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "collocate_query_helper_untested",
+      "summary": "CollocateQueryHelper's multi-phase BCQL pipeline (collectHits/scoreHits/rank) has zero unit tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper contains collectHits(), scoreHits(), buildAndRankCollocates(), and executeBcqlQuery() — the core collocate scoring and ranking pipeline used by BlackLabQueryExecutor.",
+        "No test file targeting CollocateQueryHelper exists in src/test.",
+        "The only tests that exercise this code (BlackLabBcqlConcordanceTest, DependencySketchTest) are skipped in CI unless CONCEPT_SKETCH_TEST_INDEX is set."
+      ],
+      "suggestion": "Extract the scoring and ranking logic (buildAndRankCollocates, extractCollocateLemma) into pure-function helpers and test them with small synthetic inputs. The HitRecord record and freqMap accumulation logic in collectHits can also be tested with a fake HitGroups/Hits stub.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "exploration_handlers_gap",
+      "summary": "handleSemanticFieldComparison and handleSemanticFieldExamples handlers have no test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/HandlersTest.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers exposes four handler methods; HandlersTest covers only handleSemanticFieldExplore (400 path) and handleSemanticFieldExploreMulti (400 + 200 paths).",
+        "handleSemanticFieldComparison and handleSemanticFieldExamples — including their parameter validation, error paths, and response shapes — are completely absent from HandlersTest.",
+        "handleSemanticFieldComparison has its own numeric-parameter parsing and ComparisonResult serialisation path that shares no logic with the explore handlers."
+      ],
+      "suggestion": "Add test cases in HandlersTest for handleSemanticFieldComparison (missing 'seeds' → 400, valid seeds with emptyExecutor → 200) and handleSemanticFieldExamples (missing 'adjective' → 400, missing 'noun' → 400, valid → 200). The existing MockExchange and emptyExecutor() helpers make this straightforward.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "http_api_utils_untested",
+      "summary": "HttpApiUtils has no unit tests despite non-trivial parsing behaviour in parseQueryParams",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "parseQueryParams performs URL decoding via URLDecoder.decode() and silently swallows exceptions with a logger.warn — edge cases (null query, empty query, missing '=', percent-encoded values, duplicate keys) are untested.",
+        "requireParam, sendError, sendJsonResponse, and sendOptionsResponse are called from every handler but have no isolated test coverage.",
+        "HttpApiUtils is a codebase-wide shared utility; a silent misbehaviour in parseQueryParams would affect all endpoints."
+      ],
+      "suggestion": "Add a HttpApiUtilsTest covering: null/empty query string → empty map; key-only pair (no '=') → skipped; URL-encoded values → decoded correctly; requireParam with absent/empty key → null return. Use the existing MockExchange pattern from HandlersTest.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Integration-only coverage of the BlackLab-dependent execution path means real query logic is never exercised in CI — this is a structural gap rather than individual test omissions.",
+      "The API handler test suite was written to cover the new exploration endpoints but was not updated to include the comparison and examples endpoints as they were added."
+    ],
+    "likely_symptoms": [
+      "collocate_query_helper_untested",
+      "exploration_handlers_gap"
+    ],
+    "possible_false_positives": []
+  }
+}

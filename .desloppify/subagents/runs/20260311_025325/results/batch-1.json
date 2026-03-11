@@ -1,0 +1,88 @@
+{
+  "batch": "package_organization",
+  "batch_index": 1,
+  "assessments": {
+    "package_organization": 78.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "9 packages (api, config, exploration, indexer/blacklab, model, query, utils, viz) plus root Main.java — all below the 10-file overload threshold; largest is model/ with 7 files",
+        "Package names directly reflect responsibilities: api/ for HTTP handlers, config/ for grammar loading, exploration/ for semantic field analysis, query/ for BlackLab execution, utils/ for shared helpers",
+        "exploration/SemanticFieldExplorer.java and exploration/AdjectiveCollocateComparator.java both import pl.marcinmilkowski.word_sketch.query.QueryResults, creating an exploration→query dependency to reach plain result DTOs",
+        "model/ contains domain result records (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, ExplorationResult) while query/QueryResults.java contains parallel result records (WordSketchResult, ConcordanceResult family); QueryResults.java's own javadoc reads 'Used by BlackLabQueryExecutor and SemanticFieldExplorer' — acknowledging cross-package use",
+        "viz/ contains exactly one file (RadialPlot.java), consumed only by api/SketchHandlers.java — a single-file package with a single consumer is thin",
+        "No reciprocal or bidirectional cross-directory edges observed; dependency flow is api/exploration → query → (nothing back up)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "All nine package names precisely mirror their contained responsibility (api, config, exploration, query, utils, viz) — a developer can navigate to the right package without reading file contents",
+        "No directory exceeds 7 files; the flat-overload risk (>10 files with mixed concerns) does not apply anywhere in the codebase",
+        "Dependency direction is clean and acyclic: api/exploration depend on query/model/config; nothing downstream imports upstream packages",
+        "Main.java as the single root-level file is the CLI entry point with genuine high fan-in — not a straggler root",
+        "indexer/blacklab/ nesting correctly anticipates future indexer variants while keeping the current implementation contained"
+      ],
+      "issue_character": "The single structural inconsistency is a split home for result/DTO types: exploration result records live in model/ while query result records live in query/QueryResults.java, forcing the exploration subsystem to import from query/ for plain data types.",
+      "score_rationale": "This is a well-organized codebase: naming is precise, no directory is overloaded, and the dependency flow is acyclic. What keeps the score from reaching 85+ is the dual home for result types — model/ hosts exploration DTOs while query/ hosts equally plain word-sketch result records, and the exploration package must cross into query/ for those types. The viz/ single-file package is a minor secondary smell. Together these are real but contained inconsistencies in an otherwise clear layout, placing the score solidly in the 'solid but uneven' range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "query_results_in_wrong_package",
+      "summary": "QueryResults.java (plain result DTOs) lives in query/ instead of model/, forcing exploration/ to import from query/ for data types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/AdjectiveCollocateComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java"
+      ],
+      "evidence": [
+        "query/QueryResults.java contains WordSketchResult, ConcordanceResult, SnippetResult, KwicResult, CollocateResult — all plain data records with no query-execution logic",
+        "Its own javadoc states 'Used by BlackLabQueryExecutor and SemanticFieldExplorer', acknowledging that a non-query package is the second primary consumer",
+        "exploration/SemanticFieldExplorer.java line 10: import pl.marcinmilkowski.word_sketch.query.QueryResults;",
+        "exploration/AdjectiveCollocateComparator.java line 14: import pl.marcinmilkowski.word_sketch.query.QueryResults;",
+        "Parallel result records in model/ (AdjectiveProfile, ComparisonResult, CoreCollocate, DiscoveredNoun, ExplorationResult) share the same DTO character but live in the correct package, making QueryResults.java an outlier by comparison"
+      ],
+      "suggestion": "Move the result records out of QueryResults.java into model/. Staged plan: (1) Create model/WordSketchResult.java, model/ConcordanceResult.java (sealed interface), model/SnippetResult.java, model/KwicResult.java, model/CollocateResult.java — or consolidate into a single model/QueryResults.java wrapper record if the namespace grouping is desired. (2) Update all import sites: `grep -rn 'import pl.marcinmilkowski.word_sketch.query.QueryResults' src/` identifies api/SketchHandlers, exploration/SemanticFieldExplorer, exploration/AdjectiveCollocateComparator, query/BlackLabQueryExecutor, query/CollocateQueryHelper, query/QueryExecutor, and several test files. (3) Delete the now-empty query/QueryResults.java. (4) Run `mvn compile` to confirm no missed imports. This eliminates the exploration→query dependency for plain data types.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "result_type_placement"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "viz_single_file_package",
+      "summary": "viz/ is a single-file package (RadialPlot.java) with exactly one consumer (api/SketchHandlers), making it a thin isolated namespace",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "viz/ contains exactly one file: RadialPlot.java (confirmed by directory_profiles: file_count=1 is implied by absence from profile list — only RadialPlot.java is in viz/)",
+        "grep for RadialPlot importers returns only api/SketchHandlers.java and viz/RadialPlot.java itself — a single external consumer",
+        "RadialPlot contains no interface or extension point suggesting future siblings; it is a standalone SVG-generation utility"
+      ],
+      "suggestion": "Move RadialPlot.java into utils/ (as a visualization utility) or, if SVG generation is expected to grow, add at least one sibling (e.g. a CollocatePlot or PlotConfig record) to justify the package. Staged plan: (1) Move src/main/java/.../viz/RadialPlot.java to src/main/java/.../utils/RadialPlot.java and update its package declaration. (2) Update the import in api/SketchHandlers.java. (3) Run `mvn compile` to verify. If the viz/ namespace is intentionally reserved for future plot types, add a package-info.java comment documenting that intent.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "result_type_placement"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "QueryResults.java was likely created early alongside BlackLabQueryExecutor and never migrated to model/ when the model/ package was established for exploration DTOs — a classic incremental growth inconsistency"
+    ],
+    "likely_symptoms": [
+      "query_results_in_wrong_package"
+    ],
+    "possible_false_positives": []
+  }
+}

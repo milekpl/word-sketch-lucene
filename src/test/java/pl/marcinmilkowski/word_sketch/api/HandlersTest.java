@@ -9,7 +9,7 @@ import com.sun.net.httpserver.HttpPrincipal;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 import java.io.*;
@@ -163,5 +163,70 @@ class HandlersTest {
         assertTrue(body.containsKey("seeds"), "Response must contain 'seeds' key");
         assertTrue(body.containsKey("discovered_nouns"), "Response must contain 'discovered_nouns' key");
         assertTrue(body.containsKey("core_collocates"), "Response must contain 'core_collocates' key");
+    }
+
+    @Test
+    void handleSemanticFieldComparison_missingSeeds_returns400() throws Exception {
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
+        MockExchange ex = new MockExchange("http://localhost/api/semantic-field");
+        handlers.handleSemanticFieldComparison(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleSemanticFieldComparison_validSeeds_returns200() throws Exception {
+        QueryExecutor executor = emptyExecutor();
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), explorer);
+        MockExchange ex = new MockExchange(
+                "http://localhost/api/semantic-field?seeds=theory,model&min_logdice=3.0");
+        handlers.handleSemanticFieldComparison(ex);
+        assertEquals(200, ex.statusCode);
+        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
+        assertEquals("ok", body.getString("status"));
+        assertTrue(body.containsKey("seeds"), "Response must contain 'seeds' key");
+        assertTrue(body.containsKey("adjectives"), "Response must contain 'adjectives' key");
+        assertTrue(body.containsKey("edges"), "Response must contain 'edges' key");
+    }
+
+    @Test
+    void handleSemanticFieldComparison_invalidNumericParam_returns400() throws Exception {
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
+        MockExchange ex = new MockExchange(
+                "http://localhost/api/semantic-field?seeds=theory,model&min_logdice=notanumber");
+        handlers.handleSemanticFieldComparison(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleSemanticFieldExamples_missingAdjective_returns400() throws Exception {
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
+        MockExchange ex = new MockExchange("http://localhost/api/semantic-field/examples?noun=theory");
+        handlers.handleSemanticFieldExamples(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleSemanticFieldExamples_missingNoun_returns400() throws Exception {
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), null);
+        MockExchange ex = new MockExchange("http://localhost/api/semantic-field/examples?adjective=important");
+        handlers.handleSemanticFieldExamples(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleSemanticFieldExamples_validParams_returns200() throws Exception {
+        QueryExecutor executor = emptyExecutor();
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor);
+        ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), explorer);
+        MockExchange ex = new MockExchange(
+                "http://localhost/api/semantic-field/examples?adjective=important&noun=theory&relation=noun_adj_predicates");
+        handlers.handleSemanticFieldExamples(ex);
+        assertEquals(200, ex.statusCode);
+        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
+        assertEquals("ok", body.getString("status"));
+        assertTrue(body.containsKey("examples"), "Response must contain 'examples' key");
+        assertEquals("important", body.getString("adjective"));
+        assertEquals("theory", body.getString("noun"));
     }
 }

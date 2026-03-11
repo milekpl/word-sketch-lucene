@@ -28,7 +28,7 @@ import java.util.Objects;
  * - GET  /api/semantic-field                - Semantic field overview
  * - GET  /api/semantic-field/examples       - Semantic field concordance examples
  * - GET  /api/concordance/examples          - Concordance examples for a word pair
- * - GET  /api/visual/radial                 - Radial plot (also accepts POST)
+ * - POST /api/visual/radial                 - Radial plot (POST-only)
  * - POST /api/bcql                          - Arbitrary BCQL query
  */
 public class WordSketchApiServer {

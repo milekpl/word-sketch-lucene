@@ -1,0 +1,117 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 3,
+  "assessments": {
+    "api_surface_coherence": 66.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "HttpApiUtils has six helpers (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse, requireMethod, requireParam, parseQueryParams) with consistent signatures and a uniform CORS pattern applied in every response method.",
+        "All handler methods return a consistent { status: 'ok', ...data } envelope.",
+        "QueryExecutor interface documents five distinct execution methods with clear Javadoc, but findCollocations(lemma, cqlPattern, minLogDice, maxResults) and executeSurfacePattern(lemma, bcqlPattern, minLogDice, maxResults) are nearly identical in signature and return type (both return List<WordSketchResult>) — the only difference being labelled-position semantics, which is not surfaced in the method names.",
+        "/api/semantic-field/explore uses parameter 'top' for max collocates; /api/semantic-field (comparison endpoint) uses 'max_per_noun' for the same concept, and no shared parameter-parsing helper is used.",
+        "handleFullSketchForType (surface path) produces per-relation objects with keys {name, cql, collocate_pos_group, collocations}; handleRelationQueryForPattern produces {id, name, collocations, total_matches}; buildRelationResponse (dep path) produces {id, name, description, deprel, total_matches, collocations} — three different shapes for the same conceptual object depending on call path.",
+        "Class-level Javadoc on WordSketchApiServer lists '- GET  /api/visual/radial   - Radial plot (also accepts POST)' but registerRoutes() registers it via registerPostHandler only — contradicting the documented GET support.",
+        "executeQuery returns List<ConcordanceResult> while executeBcqlQuery returns List<CollocateResult> — CollocateResult implements ConcordanceResult, so the return type asymmetry is real but partially mitigated by the sealed interface hierarchy."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "HttpApiUtils applies a uniform CORS-headers-plus-status pattern across all four response methods, so every response path behaves identically without each handler having to remember CORS logic.",
+        "All handlers return a consistent { status: 'ok', ... } envelope with no exceptions, making client-side response parsing predictable.",
+        "QueryExecutor is a clean, well-documented interface whose Javadoc explicitly distinguishes the responsibilities of each execution method and warns callers about return-type differences.",
+        "Error contracts are explicit: every handler uses requireParam and sends typed 400/500 responses; there is no silent null return path from the public API layer."
+      ],
+      "issue_character": "The issues are not isolated accidents but stem from two recurring patterns: parameter names and response shapes for related endpoints were independently defined rather than extracted into shared abstractions, producing locally coherent but inter-endpoint inconsistencies; and the QueryExecutor interface grew two nearly-identical collocate methods without a clear naming convention to distinguish them.",
+      "score_rationale": "The codebase's base layer (HttpApiUtils, response envelope, error contracts) is well-structured and highly consistent, which pushes the score above 60. However, three independent coherence problems — different parameter names for the same concept across similar explore/compare endpoints, three non-isomorphic relation-response shapes from the same sketch resource, and a duplicated QueryExecutor surface (findCollocations vs executeSurfacePattern) — would require a developer to audit each endpoint individually rather than relying on a single mental model. These are real 'developer experience drag' issues at the module level, placing the codebase solidly below 80 on the global anchor scale."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_param_name_mismatch",
+      "summary": "Sibling exploration endpoints use different parameter names for the same max-collocates concept ('top' vs 'max_per_noun')",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "parseExploreParams (used by handleSemanticFieldExplore and handleSemanticFieldExploreMulti) reads params.getOrDefault(\"top\", \"15\")",
+        "handleSemanticFieldComparison reads params.getOrDefault(\"max_per_noun\", \"50\") for the same concept",
+        "Both endpoints are documented under /api/semantic-field/* and conceptually do similar things (find collocates for nouns), so callers expect the same parameter names"
+      ],
+      "suggestion": "Standardise on a single name — 'top' is more concise — across both handlers. Extract a shared parseComparisonParams helper analogous to parseExploreParams so future additions can't diverge again.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "relation_response_shape_divergence",
+      "summary": "The /api/sketch resource returns three different per-relation object shapes depending on code path (surface full-sketch vs single-relation vs dep)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Surface full-sketch path (handleFullSketchForType, non-dep branch) produces {name, cql, collocate_pos_group, collocations} — no 'id', no 'total_matches'",
+        "Single-relation path (handleRelationQueryForPattern) produces {id, name, collocations, total_matches} — no 'cql', no 'collocate_pos_group'",
+        "Dep full-sketch path (buildRelationResponse) produces {id, name, description, deprel, total_matches, collocations} — adds 'description' and 'deprel'"
+      ],
+      "suggestion": "Define a single canonical relation-result shape (id, name, description, type, pattern, collocations, total_matches) and use it in all three paths. A private static buildRelationEntry method covering both surface and dep types would eliminate the divergence.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "findCollocations_executeSurfacePattern_ambiguity",
+      "summary": "QueryExecutor exposes two nearly-identical collocate methods (findCollocations and executeSurfacePattern) with the same parameter order and return type but different semantics that are not distinguishable from their names",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "findCollocations(String lemma, String cqlPattern, double minLogDice, int maxResults) returns List<WordSketchResult>",
+        "executeSurfacePattern(String lemma, String bcqlPattern, double minLogDice, int maxResults) returns List<WordSketchResult>",
+        "SketchHandlers exclusively calls executeSurfacePattern; findCollocations appears unused in the API call chain, suggesting it is an earlier API that was not retired when executeSurfacePattern was introduced",
+        "The Javadoc explains the distinction but the names give no hint about the CQL-vs-BCQL or label-position difference"
+      ],
+      "suggestion": "If findCollocations is still needed (e.g., for a non-labeled pattern path), rename it to clarify the distinction — e.g., findCollocationsByCql vs executeSurfacePattern. If it is dead code in the current system, remove it from the interface to reduce the decision surface for future implementors.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "radial_get_post_doc_contradiction",
+      "summary": "WordSketchApiServer class Javadoc documents /api/visual/radial as a GET endpoint that 'also accepts POST', but it is registered exclusively as a POST handler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Class-level comment: '- GET  /api/visual/radial   - Radial plot (also accepts POST)'",
+        "registerRoutes() calls registerPostHandler(server, \"/api/visual/radial\", ...) only — no registerGetHandler call for this path"
+      ],
+      "suggestion": "Update the Javadoc to '- POST /api/visual/radial - Radial plot' to match the actual registration, or add a GET handler if the endpoint is intended to support both methods.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Endpoints were added incrementally without a shared parameter-schema contract, allowing same-concept parameters to acquire different names in different handlers.",
+      "The QueryExecutor interface accumulated methods over time without retiring superseded ones, creating a confusing surface with two overlapping collocate retrieval methods."
+    ],
+    "likely_symptoms": [
+      "explore_param_name_mismatch",
+      "radial_get_post_doc_contradiction"
+    ],
+    "possible_false_positives": []
+  }
+}

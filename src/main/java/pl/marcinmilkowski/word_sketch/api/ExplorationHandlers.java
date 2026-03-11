@@ -56,7 +56,7 @@ class ExplorationHandlers {
 
         String relationType = resolvedConfig.relationType().orElseThrow().name();
 
-        ExploreParams exploreParams = parseExploreParams(exchange, params);
+        ExploreParams exploreParams = resolveExploreParams(exchange, params);
         if (exploreParams == null) return;
         int topCollocates = exploreParams.topCollocates();
         int minShared = exploreParams.minShared();
@@ -109,7 +109,7 @@ class ExplorationHandlers {
 
         String relationType = resolvedConfig.relationType().orElseThrow().name();
 
-        ExploreParams exploreParams = parseExploreParams(exchange, params);
+        ExploreParams exploreParams = resolveExploreParams(exchange, params);
         if (exploreParams == null) return;
         int topCollocates = exploreParams.topCollocates();
         int minShared = Math.min(exploreParams.minShared(), seeds.size());
@@ -154,7 +154,7 @@ class ExplorationHandlers {
         int topCollocates;
         try {
             minLogDice = Double.parseDouble(params.getOrDefault("min_logdice", "3.0"));
-            topCollocates = Integer.parseInt(params.getOrDefault("max_per_noun", "50"));
+            topCollocates = Integer.parseInt(params.getOrDefault("top", "50"));
         } catch (NumberFormatException e) {
             HttpApiUtils.sendError(exchange, 400, "Invalid numeric parameter: " + e.getMessage());
             return;
@@ -406,7 +406,7 @@ class ExplorationHandlers {
         return relationConfig.get();
     }
 
-    private ExploreParams parseExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
+    private ExploreParams resolveExploreParams(HttpExchange exchange, Map<String, String> params) throws IOException {
         try {
             int top = Integer.parseInt(params.getOrDefault("top", "15"));
             int minShared = Integer.parseInt(params.getOrDefault("min_shared", "2"));

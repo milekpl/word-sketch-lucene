@@ -6,19 +6,21 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.ExploreOptions;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
+import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 
 /**
  * Analyses semantic fields around seed words by querying collocate patterns.
@@ -55,7 +57,7 @@ import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
  * <h2>Comparison Mode (multi-seed)</h2>
  * <p>Given multiple seed words, compares their collocate profiles to reveal
  * which collocates are shared across all seeds (the semantic core) and which
- * are distinctive to individual seeds. See {@link AdjectiveCollocateComparator#compareCollocateProfiles}.</p>
+ * are distinctive to individual seeds. See {@link AdjectiveCollocateRanker#compareCollocateProfiles}.</p>
  *
  * <h2>Result classes</h2>
  * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
@@ -75,7 +77,7 @@ public class SemanticFieldExplorer {
     private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 
     private final QueryExecutor executor;
-    private final AdjectiveCollocateComparator comparator;
+    private final AdjectiveCollocateRanker comparator;
 
     // Patterns for finding collocates by POS (using xpos field from CoNLL-U index)
     private static final String NOUN_PATTERN = "[xpos=\"NN.*\"]";
@@ -84,7 +86,7 @@ public class SemanticFieldExplorer {
     // Constructor for testing with mock executor
     public SemanticFieldExplorer(QueryExecutor executor) {
         this.executor = executor;
-        this.comparator = new AdjectiveCollocateComparator(executor);
+        this.comparator = new AdjectiveCollocateRanker(executor);
     }
 
     // ==================== EXPLORATION MODE ====================

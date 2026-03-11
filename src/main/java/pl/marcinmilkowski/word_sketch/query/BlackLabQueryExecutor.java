@@ -8,6 +8,8 @@ import nl.inl.blacklab.search.lucene.BLSpanQuery;
 import nl.inl.blacklab.search.results.Concordances;
 import nl.inl.blacklab.search.results.ContextSize;
 import nl.inl.blacklab.search.results.Hit;
+
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import nl.inl.blacklab.search.results.HitGroup;
 import nl.inl.blacklab.search.results.HitGroups;
 import nl.inl.blacklab.search.results.Hits;
@@ -56,7 +58,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             return Collections.emptyList();
         }
 
-        String bcql = buildBcqlFromPattern(cqlPattern, lemma);
+        String bcql = buildBcqlWithLemmaSubstitution(cqlPattern, lemma);
 
         CollocateQueryHelper.CollocateSearch cs = helper.executeCollocateSearch(bcql, lemma, true);
         long headwordFreq = cs.headwordFreq();
@@ -232,7 +234,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
      * Builds a BCQL pattern string from a CQL template and lemma.
      * Supports {@code %s}-style substitution templates and {@code [constraint]}-prefix patterns.
      */
-    private static String buildBcqlFromPattern(String cqlPattern, String lemma) {
+    private static String buildBcqlWithLemmaSubstitution(String cqlPattern, String lemma) {
         if (cqlPattern.contains("%s")) {
             return String.format(cqlPattern, lemma.toLowerCase());
         } else if (cqlPattern.startsWith("[")) {

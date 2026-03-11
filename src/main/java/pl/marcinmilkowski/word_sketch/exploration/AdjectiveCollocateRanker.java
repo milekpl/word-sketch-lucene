@@ -11,7 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 /**
@@ -19,15 +19,15 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  * and distinctive collocates.  Extracted from {@link SemanticFieldExplorer} to keep
  * that class below the 400-line threshold.
  */
-public class AdjectiveCollocateComparator {
+public class AdjectiveCollocateRanker {
 
-    private static final Logger logger = LoggerFactory.getLogger(AdjectiveCollocateComparator.class);
+    private static final Logger logger = LoggerFactory.getLogger(AdjectiveCollocateRanker.class);
 
     private static final String ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
 
     private final QueryExecutor executor;
 
-    public AdjectiveCollocateComparator(QueryExecutor executor) {
+    public AdjectiveCollocateRanker(QueryExecutor executor) {
         this.executor = executor;
     }
 

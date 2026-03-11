@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Utility methods for parsing BlackLab XML snippets and extracting collocates.
  */
-public class BlackLabSnippetParser {
+class BlackLabSnippetParser {
     private static final Logger logger = LoggerFactory.getLogger(BlackLabSnippetParser.class);
 
     private static final java.util.regex.Pattern LEMMA_ATTR      = java.util.regex.Pattern.compile("lemma=\"([^\"]+)\"");

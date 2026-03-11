@@ -6,7 +6,7 @@ import com.alibaba.fastjson2.JSONException;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 import java.io.IOException;

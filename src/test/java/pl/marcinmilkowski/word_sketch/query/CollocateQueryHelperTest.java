@@ -2,7 +2,7 @@ package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.utils.LogDiceCalculator;
 
 import java.io.IOException;

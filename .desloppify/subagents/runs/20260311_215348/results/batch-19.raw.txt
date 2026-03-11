@@ -1,0 +1,65 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {
+    "api_surface_coherence": 83.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All endpoints return {\"status\":\"ok\", ...} on success and {\"error\":\"...\"} on failure — consistent top-level envelope",
+        "Error classification is uniform: IAE→400 with {\"error\":\"Bad request: ...\"}, oversized body→413, unexpected→500",
+        "/api/sketch/{lemma} and /api/sketch/{lemma}/{relation} both return {\"status\":\"ok\",\"lemma\":...,\"relations\":{...}} — consistent shape for surface and dep variants",
+        "/api/semantic-field/explore uses parameter name 'seed' (singular), /api/semantic-field/explore-multi uses 'seeds' (plural) — intentional and documented in handler Javadoc",
+        "/api/semantic-field/examples uses 'adjective' and 'noun' as parameter names; /api/concordance/examples uses 'seed' and 'collocate' — these endpoints serve similar purposes (fetch corpus examples for a word pair) but have different parameter naming conventions",
+        "/api/semantic-field/examples response has 'adjective', 'noun' fields; /api/concordance/examples response has 'seed', 'collocate' fields — parallel fields with different names for the same semantic role (the queried word pair)",
+        "/api/semantic-field/compare response does not include a 'relation_type' field (cross-relational by design); /api/semantic-field/explore and /api/semantic-field/explore-multi both include 'relation_type' — documented asymmetry but a developer using both endpoints must know to check",
+        "All exploration responses include a 'parameters' sub-map echoing the request parameters — consistent pattern",
+        "QueryExecutor interface: all methods are synchronous and throw IOException — no mixed sync/async concern"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "The two 'fetch examples for a word pair' endpoints (/api/semantic-field/examples and /api/concordance/examples) use different parameter names for the same semantic roles: one uses (adjective, noun) and the other uses (seed, collocate). A developer building a client must look up each endpoint separately."
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Consistent {\"status\":\"ok\"} success envelope and {\"error\":\"...\"} error envelope across all endpoints",
+        "All exploration-family endpoints (/explore, /explore-multi, /compare) include a 'parameters' sub-map echoing the resolved request parameters — clients can inspect what defaults were applied",
+        "The explore vs explore-multi parameter naming (seed vs seeds) is intentional and documented in handler Javadoc — the distinction is a feature, not drift",
+        "All endpoints are synchronous GET or POST (no mixed async); error classification is uniform across all handlers",
+        "QueryExecutor interface has consistent method signatures: all take (lemma, ..., minLogDice, maxResults) in that order for collocate-retrieval methods"
+      ],
+      "issue_character": "The main inconsistency is localised to two sibling 'fetch examples' endpoints that use different parameter names for the same semantic roles — an API-client developer must read both endpoint docs to discover the naming difference.",
+      "score_rationale": "The API surface is mostly coherent: a developer who has seen one endpoint can predict the envelope shape, error format, and parameter pattern for most others. The primary friction point is the parameter naming split between /api/semantic-field/examples (adjective, noun) and /api/concordance/examples (seed, collocate) — two endpoints that serve the same user story (show corpus examples for a word pair) but expose different parameter vocabularies. This creates a 'why is this different?' moment that pushes the score below 85. The absence of relation_type in /api/semantic-field/compare is a documented asymmetry with a sound reason, which is less penalising. Per the 80-anchor, the developer would 'mostly be well-served but would hit recurring friction — moments of why is this different?'"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "examples_endpoints_inconsistent_param_names",
+      "summary": "/api/semantic-field/examples and /api/concordance/examples use different parameter names for the same semantic roles",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "/api/semantic-field/examples accepts parameters 'adjective' and 'noun' (ExplorationHandlers.handleSemanticFieldExamples)",
+        "/api/concordance/examples accepts parameters 'seed' and 'collocate' (ConcordanceHandlers.parseConcordanceExamplesRequest)",
+        "Both endpoints return example sentences for a word pair — a client developer using both must map between 'noun'/'adjective' and 'seed'/'collocate' for conceptually identical roles",
+        "Response bodies also diverge: /semantic-field/examples echoes 'adjective'/'noun' while /concordance/examples echoes 'seed'/'collocate'"
+      ],
+      "suggestion": "Align parameter names to one vocabulary. The 'seed' and 'collocate' naming is more general (not limited to nouns/adjectives) and matches the explore endpoint family. Rename /api/semantic-field/examples parameters to 'seed' (for the noun) and 'collocate' (for the adjective), and update the response echo fields accordingly. Add backward-compat aliases if clients are already using the old names.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Two endpoints serving the same use case were developed by different handlers without coordinating parameter naming conventions"],
+    "likely_symptoms": ["examples_endpoints_inconsistent_param_names"],
+    "possible_false_positives": []
+  }
+}

@@ -106,18 +106,18 @@ public final class GrammarConfigLoader {
     }
 
     /** Extracts and validates the 'version' field from the root JSON object. */
-    private static String parseAndValidateVersion(JSONObject root) throws IOException {
+    private static String parseAndValidateVersion(JSONObject root) {
         String parsedVersion = root.getString("version");
         if (parsedVersion == null || parsedVersion.isBlank()) {
-            throw new IOException("Config error: Missing 'version' field in grammar config");
+            throw new IllegalArgumentException("Config error: Missing 'version' field in grammar config");
         }
         return parsedVersion;
     }
 
     /** Rejects deprecated top-level keys that must not appear in the config. */
-    private static void validateNoLegacyKeys(JSONObject root) throws IOException {
+    private static void validateNoLegacyKeys(JSONObject root) {
         if (root.containsKey("copulas")) {
-            throw new IOException("Config error: Grammar config must NOT contain 'copulas' key. " +
+            throw new IllegalArgumentException("Config error: Grammar config must NOT contain 'copulas' key. " +
                 "Copulas must be embedded in CQL patterns using [lemma=\"be|appear|seem|...\"]. " +
                 "See noun_adj_predicates for example.");
         }
@@ -126,15 +126,15 @@ public final class GrammarConfigLoader {
     /** Parses all relation entries from the JSON root into the provided mutable lists/maps. */
     private static void parseRelations(JSONObject root,
             List<RelationConfig> loadedRelations,
-            Map<String, RelationConfig> loadedRelationsById) throws IOException {
+            Map<String, RelationConfig> loadedRelationsById) {
         JSONArray relationsArray = root.getJSONArray("relations");
         if (relationsArray == null || relationsArray.isEmpty()) {
-            throw new IOException("Config error: Missing or empty 'relations' array in grammar config");
+            throw new IllegalArgumentException("Config error: Missing or empty 'relations' array in grammar config");
         }
         for (int i = 0; i < relationsArray.size(); i++) {
             RelationConfig config = parseRelation(relationsArray.getJSONObject(i), i);
             if (loadedRelationsById.containsKey(config.id())) {
-                throw new IOException("Config error: Duplicate relation id: " + config.id());
+                throw new IllegalArgumentException("Config error: Duplicate relation id: " + config.id());
             }
             loadedRelations.add(config);
             loadedRelationsById.put(config.id(), config);
@@ -142,20 +142,20 @@ public final class GrammarConfigLoader {
     }
 
     /** Parses and validates a single relation JSON object into a {@link RelationConfig}. */
-    private static RelationConfig parseRelation(JSONObject relObj, int index) throws IOException {
+    private static RelationConfig parseRelation(JSONObject relObj, int index) {
         if (relObj == null) {
-            throw new IOException("Config error: Invalid relation at index " + index);
+            throw new IllegalArgumentException("Config error: Invalid relation at index " + index);
         }
 
         String id = relObj.getString("id");
         if (id == null || id.isBlank()) {
-            throw new IOException("Config error: Missing 'id' field for relation at index " + index);
+            throw new IllegalArgumentException("Config error: Missing 'id' field for relation at index " + index);
         }
 
         // Canonical field name is "pattern"; cql_pattern is no longer supported
         String pattern = relObj.getString("pattern");
         if (pattern == null || pattern.isBlank()) {
-            throw new IOException("Config error: Relation '" + id + "' has no 'pattern' field - every relation must have a BCQL pattern");
+            throw new IllegalArgumentException("Config error: Relation '" + id + "' has no 'pattern' field - every relation must have a BCQL pattern");
         }
 
         int headPosition = relObj.containsKey("head_position")
@@ -187,12 +187,12 @@ public final class GrammarConfigLoader {
      * dual relations where head and collocate refer to the same token.
      */
     private static void validatePositions(String id, String pattern,
-            int headPosition, int collocatePosition, boolean isDual) throws IOException {
+            int headPosition, int collocatePosition, boolean isDual) {
         boolean hasPlaceholder = pattern.contains("{head}") || pattern.indexOf("{deprel") >= 0;
         if (!hasPlaceholder && !isDual) {
             int tokenCount = countPatternTokens(pattern);
             if (headPosition < 1 || headPosition > tokenCount || collocatePosition < 1 || collocatePosition > tokenCount) {
-                throw new IOException("Config error: Relation '" + id + "': positions (" + headPosition + "," + collocatePosition
+                throw new IllegalArgumentException("Config error: Relation '" + id + "': positions (" + headPosition + "," + collocatePosition
                     + ") must be between 1 and " + tokenCount + " (pattern has " + tokenCount + " positions: " + pattern + ")");
             }
         }

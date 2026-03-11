@@ -1,0 +1,82 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {
+    "test_strategy": 82.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "27 test files for 43 source files — strong test-to-source ratio",
+        "HandlersTest.java (440 lines) covers SketchHandlers, ConcordanceHandlers, ExplorationHandlers error paths and happy paths using a MockExchange stub",
+        "WrapHandlerTest verifies IAE→400, IOException→500, RuntimeException→500 error-classification contract",
+        "WordSketchApiServerTest starts a real HTTP server on port 18080 with a stub executor — provides integration confidence for route registration and server lifecycle",
+        "MultiSeedExplorerTest and SemanticFieldExplorerInternalTest cover the core exploration algorithms with stub executors",
+        "GrammarConfigLoaderTest and RelationsValidationTest cover config parsing including error cases",
+        "CollocateQueryHelperTest, BCQLParserTest, BlackLabSnippetParserTest, CqlUtilsTest cover query-layer internals",
+        "BlackLabQueryExecutorIntegrationTest is @Disabled — the real BlackLab query path is only reachable with a live index",
+        "Main.java command dispatch has no unit tests — the CLI parsing and command routing (blacklab-index, blacklab-query, server) is untested",
+        "CorpusQueryHandlers (parseBcqlRequest, body size limit, bracket complexity check) is covered indirectly via WordSketchApiServerTest but no dedicated unit test class",
+        "VisualizationHandlers is tested via RadialPlotTest (tests the underlying RadialPlot) but no handler-level unit test for the POST body parsing or size-limit enforcement path"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Main.java CLI dispatch is untested; CorpusQueryHandlers body-validation logic (size limit, bracket depth) lacks dedicated unit tests analogous to WrapHandlerTest; BlackLabQueryExecutorIntegrationTest is @Disabled meaning the real query path has no automated CI validation."
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Stub-executor pattern used consistently across HandlersTest, SemanticFieldExplorerTest, MultiSeedExplorerTest, CollocateProfileComparatorTest — tests are fast and do not require a live index",
+        "WrapHandlerTest validates the entire error-classification contract (IAE→400, IOException→500, RuntimeException→500) — this critical cross-cutting behaviour has explicit test coverage",
+        "WordSketchApiServerTest starts a real HTTP server with stub executor — validates route registration, CORS headers, and server lifecycle without a real corpus",
+        "GrammarConfigLoaderTest covers both valid and invalid config cases (missing version, duplicate ids, invalid positions) — the parsing validation logic has good branch coverage",
+        "ExploreResponseAssemblerTest covers the model-to-JSON serialization path for both ExplorationResult and ComparisonResult"
+      ],
+      "issue_character": "Gaps are concentrated at two points: the Main.java CLI layer (zero unit tests) and CorpusQueryHandlers body-validation logic (no dedicated handler-level tests beyond the server integration test).",
+      "score_rationale": "The codebase has strong coverage for the exploration and query algorithm paths, the error handling contract, and grammar config parsing. The test portfolio uses appropriate techniques (stub executors, real server with stub, dedicated contract tests). The score is pulled below 85 by three gaps: Main.java CLI dispatch is completely untested (if a developer breaks the argument parsing or adds a new command, there is no safety net), CorpusQueryHandlers validation paths are only incidentally covered, and BlackLabQueryExecutorIntegrationTest being @Disabled means the full real-index path is never automatically validated. Per the 80-anchor, a developer would 'worry about making changes in certain areas' — specifically the CLI layer and the BCQL body-parsing handler."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "main_cli_dispatch_untested",
+      "summary": "Main.java CLI argument parsing and command dispatch has zero unit test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "No test file targets Main.java or its private handleBlackLabIndexCommand, handleBlackLabQueryCommand, handleBlackLabServerCommand methods",
+        "Main.java contains 300+ lines of argument parsing, validation, and command routing — a refactor or addition to the CLI has no automated regression protection",
+        "The requireNextArg helper and the missing-arg validation paths are not covered"
+      ],
+      "suggestion": "Extract argument parsing into a testable MainOptions class or use a parameter-parsing library. Add a MainTest that exercises: missing required args (should print usage and exit 1), unknown command (should print error), and valid args passed to a mocked executor. Since the server and indexer are I/O-heavy, use a flag or test profile to stub out the executor construction.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "corpus_query_handler_body_validation_untested",
+      "summary": "CorpusQueryHandlers body-validation paths (size limit, bracket depth, blank query) lack dedicated unit tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.parseBcqlRequest validates body size (65536 bytes), query length (1024 chars), and bracket depth (20) — all via IllegalArgumentException or RequestEntityTooLargeException",
+        "HandlersTest.java covers SketchHandlers, ConcordanceHandlers, and ExplorationHandlers error paths explicitly, but CorpusQueryHandlers is not represented",
+        "The RequestEntityTooLargeException→413 path is only tested for its error classification in WrapHandlerTest (which uses a generic handler, not CorpusQueryHandlers specifically)"
+      ],
+      "suggestion": "Add CorpusQueryHandlersTest (analogous to HandlersTest) covering: blank query body → 400, oversized body → 413, oversized pattern length → 400, excessive bracket depth → 400, valid query → 200. Use the existing MockExchange and stub executor patterns already established in HandlersTest.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["CLI layer and some handler validation paths were not covered by the handler-test expansion that covered other handlers"],
+    "likely_symptoms": ["main_cli_dispatch_untested", "corpus_query_handler_body_validation_untested"],
+    "possible_false_positives": []
+  }
+}

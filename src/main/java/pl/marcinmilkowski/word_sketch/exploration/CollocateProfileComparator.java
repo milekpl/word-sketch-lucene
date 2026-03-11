@@ -14,7 +14,7 @@ import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 

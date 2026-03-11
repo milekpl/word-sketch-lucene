@@ -9,9 +9,6 @@ package pl.marcinmilkowski.word_sketch.exploration;
  */
 public record FetchExamplesOptions(int maxExamples) {
 
-    /** Default options: return up to 10 example sentences. */
-    public static final FetchExamplesOptions DEFAULT = new FetchExamplesOptions(10);
-
     public FetchExamplesOptions {
         if (maxExamples < 1) throw new IllegalArgumentException("maxExamples must be >= 1");
     }

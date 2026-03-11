@@ -7,7 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 

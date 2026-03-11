@@ -92,8 +92,7 @@ public class WordSketchApiServer {
         registerGetHandler(server, "/api/semantic-field/compare",
             HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
 
-        // Legacy alias for /api/semantic-field/compare — kept for backward compatibility.
-        // TODO: remove in a future version after clients have migrated to /api/semantic-field/compare.
+        // @deprecated - legacy alias for /api/semantic-field/compare; kept for backward compatibility.
         registerGetHandler(server, "/api/semantic-field",
             HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison (legacy)"));
 

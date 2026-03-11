@@ -256,6 +256,12 @@ public class Main {
             var grammarPath = java.nio.file.Paths.get(grammarConfigPath);
             grammarConfig = GrammarConfigLoader.load(grammarPath);
             System.out.println("Loaded grammar config: " + grammarConfig.getVersion());
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid grammar config at '{}': {}", grammarConfigPath, e.getMessage());
+            System.err.println("Error: invalid grammar config at '" + grammarConfigPath + "': " + e.getMessage());
+            System.err.println("Check the JSON for missing fields, duplicate IDs, or invalid patterns.");
+            executor.close();
+            return;
         } catch (IOException e) {
             logger.error("Failed to load grammar config at '{}': {}", grammarConfigPath, e.getMessage());
             System.err.println("Error: failed to load grammar config at '" + grammarConfigPath + "': " + e.getMessage());

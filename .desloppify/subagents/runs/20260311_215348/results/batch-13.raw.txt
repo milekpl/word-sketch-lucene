@@ -1,0 +1,60 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 13,
+  "assessments": {
+    "logic_clarity": 86.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "SketchHandlers.handleSketchRequest: path parsing splits on '/' and dispatches via if/else tree — each branch is distinct and the decisions (dep vs surface, single-relation vs full) are clear",
+        "ExplorationHandlers.handleSemanticFieldComparison: carries an explicit 'Handler asymmetry note' comment explaining why this handler does not call buildExploreRequest — the asymmetry is documented rather than silently introduced",
+        "ExplorationHandlers.handleSemanticFieldExploreMulti: validates 'nouns_per' before buildExploreRequest, then validates seed count after — the ordering is intentional (fail-fast on unsupported param before doing heavier validation)",
+        "GrammarConfigLoader.deriveTokenPosition: single-pass bracket-depth counting to find labeled positions — the algorithm is non-trivial but documented inline",
+        "MultiSeedExplorer.identifyCommonCollocates uses `Math.min(minShared, seeds.size())` to cap threshold — clear guard against nonsensical minShared values larger than seed count",
+        "SketchHandlers.executeRelationQueries uses a BiFunction callback to avoid duplicating the loop across handleFullSketchForType and handleDepSketchForType — good logic extraction",
+        "ConcordanceHandlers: bcqlQuery initialised to null and conditionally assigned inside an if block; a null check then activates the fallback — the null-flow is correct but the pattern introduces a mutable intermediate"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "ConcordanceHandlers.handleConcordanceExamples uses a nullable mutable local (String bcqlQuery = null; ... if (rel.isPresent()) { bcqlQuery = ...; }) where a more direct Optional-map flow would be cleaner. Not blocking, but a developer tracing the null-path must verify the fallback is reachable."
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Dispatch in SketchHandlers.handleSketchRequest is a shallow if/else tree over path segments — each decision point leads to one handler with no shared fallthrough",
+        "ExplorationHandlers documents the asymmetry of handleSemanticFieldComparison with an inline comment explaining why it deviates from the buildExploreRequest pattern — unusual control flow is annotated",
+        "Guard clauses are used consistently throughout HTTP handlers: missing params throw IAE before any business logic runs",
+        "MultiSeedExplorer.identifyCommonCollocates caps the minShared threshold at seeds.size() with a clear one-liner — edge case is handled in the obvious place",
+        "The executeRelationQueries callback approach eliminates a copy-pasted loop between surface and dependency sketch paths — single control flow implementation"
+      ],
+      "issue_character": "The one clarity gap is a nullable mutable local in ConcordanceHandlers — an isolated pattern in a single method that a developer reading the fallback path must manually trace.",
+      "score_rationale": "A developer tracing logic through this codebase will find clear, documented decision branches and no duplicated logic. The handlers are well-factored: helpers like buildExploreRequest, parseExplorationParams, and executeRelationQueries reduce the cognitive load on each handler. The score is pulled below 90 by the nullable-intermediate pattern in handleConcordanceExamples, which is the one method where a developer must mentally track a mutable null variable to understand the fallback path. Per the 90-anchor ('mostly clear with isolated simplification opportunities'), the score sits just below."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "nullable_bcql_query_mutable_flow",
+      "summary": "handleConcordanceExamples uses a null-initialized mutable local to decide fallback, obscuring the decision path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "`String bcqlQuery = null;` followed by `if (rel.isPresent()) { ... bcqlQuery = ...; }` followed by `if (bcqlQuery == null || bcqlQuery.isEmpty()) { ... fallback = true; }` — the logic depends on a null sentinel to detect the 'relation not resolved' case",
+        "A developer reading the method must track two variables (bcqlQuery and fallback) to understand when the fallback activates"
+      ],
+      "suggestion": "Refactor to use Optional.map or a ternary: `String bcqlQuery = grammarConfig.getRelation(req.relation()).map(rel -> RelationPatternBuilder.buildFullPattern(rel, req.noun())).map(p -> CqlUtils.substituteAtPosition(p, req.adjective(), grammarConfig.getRelation(req.relation()).get().collocatePosition())).orElse(null);` — or extract to a private method `resolveOrNullBcqlQuery(req)` that returns Optional<String>, then the fallback branch is a clear orElseGet.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Null-as-sentinel pattern for optional intermediate values"],
+    "likely_symptoms": ["nullable_bcql_query_mutable_flow"],
+    "possible_false_positives": []
+  }
+}

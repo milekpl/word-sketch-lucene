@@ -66,25 +66,6 @@ class ExplorationHandlers {
             ExplorationParams exploreParams) {}
 
     /**
-     * Shared preamble for the single-seed handler: reads the {@code seed} parameter,
-     * parses the relation config and exploration parameters.
-     *
-     * @throws IllegalArgumentException if {@code seed} is missing, the relation is unknown, or
-     *         the relation config is misconfigured
-     */
-    private ValidatedSingleSeedRequest buildSingleSeedRequest(Map<String, String> params) {
-        String seed = HttpApiUtils.requireParam(params, "seed");
-        RelationConfig resolvedConfig = parseRelationConfig(params);
-        ExplorationParams exploreParams = parseExplorationParams(params);
-        return new ValidatedSingleSeedRequest(seed, resolvedConfig, exploreParams);
-    }
-
-    private record ValidatedSingleSeedRequest(
-            String seed,
-            RelationConfig relationConfig,
-            ExplorationParams exploreParams) {}
-
-    /**
      * Accepts a single {@code seed} noun and returns its semantic neighbourhood under the
      * requested grammatical relation.
      *
@@ -98,22 +79,24 @@ class ExplorationHandlers {
      */
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
-        ValidatedSingleSeedRequest req = buildSingleSeedRequest(params);
+        String seed = HttpApiUtils.requireParam(params, "seed");
+        RelationConfig relationConfig = parseRelationConfig(params);
+        ExplorationParams exploreParams = parseExplorationParams(params);
 
         // Safe: parseRelationConfig guarantees relationType is present
-        String relationType = req.relationConfig().relationType().get().name();
+        String relationType = relationConfig.relationType().get().name();
 
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(
-            new ExplorationOptions(req.exploreParams().topCollocates(), req.exploreParams().minLogDice(), req.exploreParams().minShared()),
-            req.exploreParams().nounsPerCollocate());
+            new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared()),
+            exploreParams.nounsPerCollocate());
 
-        ExplorationResult result = semanticFieldExplorer.exploreByPattern(req.seed(), req.relationConfig(), opts);
+        ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, relationConfig, opts);
 
         Map<String, Object> extraParams = new HashMap<>();
-        extraParams.put("nouns_per", req.exploreParams().nounsPerCollocate());
+        extraParams.put("nouns_per", exploreParams.nounsPerCollocate());
         Map<String, Object> response = buildBaseExploreResponse(
-            relationType, req.exploreParams().topCollocates(), req.exploreParams().minShared(),
-            req.exploreParams().minLogDice(), extraParams);
+            relationType, exploreParams.topCollocates(), exploreParams.minShared(),
+            exploreParams.minLogDice(), extraParams);
         response.put("seed", result.seed());
         ExploreResponseAssembler.populateExploreResponse(response, result);
 

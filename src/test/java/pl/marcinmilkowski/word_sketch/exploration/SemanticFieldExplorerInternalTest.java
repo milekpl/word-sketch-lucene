@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.model.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.SingleSeedExplorationOptions;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 import java.io.IOException;

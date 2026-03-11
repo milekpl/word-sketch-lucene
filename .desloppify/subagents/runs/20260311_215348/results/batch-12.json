@@ -1,0 +1,61 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 12,
+  "assessments": {
+    "contract_coherence": 88.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface: all 7 methods carry precise Javadoc (parameters, return semantics, exception contracts, and the distinction between executeCollocations vs executeSurfacePattern is explicitly documented)",
+        "GrammarConfigLoader.createDefaultEnglish() explicitly documents its two-tier exception contract: 'this method intentionally wraps IOException in IllegalStateException so that startup code and dependency-injection containers that cannot handle checked exceptions can call it directly'",
+        "HttpApiUtils.requireParam throws IllegalArgumentException (not returns null) when param is missing; wrapWithErrorHandling maps IAE→400; this chain is documented on each method",
+        "HttpApiUtils.parseQueryParams: @Nullable query → @NonNull Map return contract is annotated and documented",
+        "CollocateQueryHelper accepts @Nullable BlackLabIndex in constructor: comment says 'Null is accepted to support test subclasses that override getTotalFrequency and executeCollocateSearch. Production callers must always supply a non-null index.' — the annotation technically permits null in contexts where it will NPE",
+        "ExplorationHandlers handleSemanticFieldExplore has inline comment 'Safe: parseRelationConfig guarantees relationType is present' but this is an informal comment-guarantee rather than a type-level contract",
+        "RelationConfig.computeDeprel() is correctly annotated @Nullable and handles both cases (null when not DEP type)"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "CollocateQueryHelper's @Nullable constructor parameter is the one contract whose annotation doesn't match its production semantics — it creates a documented 'null is ok for test subclasses' exception to the production rule without a type-level guardrail."
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface documents the semantic distinction between executeCollocations, executeSurfacePattern, executeBcqlQuery, and executeCqlQuery — four similar-sounding methods whose differences are precisely stated",
+        "HttpApiUtils.wrapWithErrorHandling maps exceptions to HTTP status codes, and every throwing method in handler classes declares IAE for client errors — this chain is consistent and explicitly documented",
+        "GrammarConfigLoader.createDefaultEnglish() documents its deliberate IOException→IllegalStateException wrapping with the specific audience (DI containers) that motivates it",
+        "GrammarConfig.getRelation() returns Optional<RelationConfig> rather than nullable — the Optional contract correctly signals that absent-relation is a normal case",
+        "RelationConfig.computeDeprel() is @Nullable with clear semantics: null when relation type is not DEP"
+      ],
+      "issue_character": "The only contract gap is localised to CollocateQueryHelper's constructor, where @Nullable on a parameter that NPEs in production is a mismatch between the annotation and the actual safe-call precondition.",
+      "score_rationale": "A developer reading this codebase will find that the vast majority of contracts — error propagation, Optional semantics, return-type completeness, exception chaining — are precisely stated and honoured. The one recurring pattern that pulls the score below 90 is the @Nullable BlackLabIndex in CollocateQueryHelper: the annotation says null is acceptable but production code will NPE, and the only escape hatch is a constructor comment. This is a low-downstream-impact gap but it is a genuine contract mismatch. Per the 90-anchor ('minor local mismatches with low downstream impact'), the score sits just below 90."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "nullable_index_contradicts_production_precondition",
+      "summary": "CollocateQueryHelper accepts @Nullable BlackLabIndex but production callers must not pass null",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Constructor: `CollocateQueryHelper(@Nullable BlackLabIndex index)` — @Nullable annotation declares null as a valid argument",
+        "getTotalFrequency calls `Objects.requireNonNull(index, \"BlackLabIndex must not be null for getTotalFrequency\")` — NPE on null in production",
+        "Comment in constructor: 'Null is accepted to support test subclasses that override getTotalFrequency and executeCollocateSearch. Production callers must always supply a non-null index.' — the @Nullable annotation is used as a test-seam mechanism rather than a true nullability contract"
+      ],
+      "suggestion": "Remove @Nullable from the constructor parameter and add a Objects.requireNonNull guard in the constructor body (or keep the existing requireNonNull calls in the methods). For test subclasses that need to pass null, use a package-private factory method or a dedicated test subclass that overrides the constructor, avoiding the annotation mismatch entirely.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["@Nullable used as a test-seam signal rather than a strict nullability annotation"],
+    "likely_symptoms": ["nullable_index_contradicts_production_precondition"],
+    "possible_false_positives": []
+  }
+}

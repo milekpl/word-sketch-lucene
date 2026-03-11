@@ -1,13 +1,15 @@
-package pl.marcinmilkowski.word_sketch.config;
+package pl.marcinmilkowski.word_sketch.api;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 
 /**
  * Converts {@link GrammarConfig} and {@link RelationConfig} value objects to
  * {@link JSONObject} representations for API responses and diagnostic output.
  *
- * <p>Serialization is kept here rather than on the value objects so that
+ * <p>Serialization lives here rather than on the value objects so that
  * {@link GrammarConfig} and {@link RelationConfig} remain pure data carriers
  * with no dependency on the JSON library.</p>
  */

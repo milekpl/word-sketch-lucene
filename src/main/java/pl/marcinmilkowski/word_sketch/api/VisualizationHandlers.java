@@ -23,6 +23,7 @@ class VisualizationHandlers {
     private static final Logger logger = LoggerFactory.getLogger(VisualizationHandlers.class);
 
     private static final int MAX_REQUEST_BODY_BYTES = 65536;
+    private static final int MAX_RADIAL_ITEMS = 40;
 
     /**
      * POST /api/visual/radial
@@ -47,7 +48,7 @@ class VisualizationHandlers {
         JSONArray itemsArr = obj.getJSONArray("items");
         List<RadialPlot.Item> items = new ArrayList<>();
         if (itemsArr != null) {
-            int limit = Math.min(40, itemsArr.size());
+            int limit = Math.min(MAX_RADIAL_ITEMS, itemsArr.size());
             for (int i = 0; i < limit; i++) {
                 JSONObject it = itemsArr.getJSONObject(i);
                 String label = it.getString("label");
@@ -56,6 +57,9 @@ class VisualizationHandlers {
             }
         }
         String mode = obj.getString("mode");
+        if (mode != null && !mode.isEmpty() && !mode.equals("signed")) {
+            throw new IllegalArgumentException("Unknown mode: " + mode);
+        }
 
         String svg = RadialPlot.renderFromItems(center, items, width, height, mode);
         byte[] bytes = svg.getBytes(StandardCharsets.UTF_8);

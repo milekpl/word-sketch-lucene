@@ -1,0 +1,63 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {
+    "authorization_consistency": 91.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer Javadoc explicitly documents the security model: 'the server binds exclusively to the loopback address (127.0.0.1) so it is never exposed on any external network interface. All endpoints are unauthenticated — access control is provided by the host firewall and the loopback-only bind.'",
+        "All 14 registered route handlers follow the same trust model: no authentication, no session checks, no role checks — consistent posture across all endpoints",
+        "The CORS handling is applied uniformly via registerHandler/registerGetHandler/registerPostHandler — no endpoint bypasses CORS preflight handling",
+        "The /api/bcql POST endpoint (arbitrary query execution) has consistent input validation: size limit (65536 bytes), pattern length limit (1024 chars), bracket complexity limit (20) — all enforced uniformly",
+        "No magic permission strings, role literals, or auth decorators exist anywhere in the codebase — there is nothing to be inconsistently applied",
+        "The loopback bind uses InetAddress.getLoopbackAddress() — not a string literal — so there is no risk of an accidental 0.0.0.0 bind from a typo",
+        "WordSketchApiServer Javadoc includes an explicit migration warning: 'Any change to the bind address (e.g., to 0.0.0.0 for container deployment) must be accompanied by an authentication or network-level access-control layer'",
+        "Input validation (HttpApiUtils.requireParam, parseIntParam, parseDoubleParam) is applied consistently across all request parameters in all handlers"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The security model is correct and consistently applied for a local research tool, but there is no mechanism to enforce the loopback-only constraint if the server is ever containerised or the bind address is changed by a future developer. The warning exists in Javadoc but there is no runtime assertion or test that verifies the bind address restriction."
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Security model is explicitly documented in WordSketchApiServer class Javadoc — a developer reading the code understands the auth posture before writing any handler",
+        "All endpoints share exactly the same trust model (unauthenticated, loopback-only) — there are no sibling routes with inconsistent auth patterns",
+        "CORS handling is applied uniformly via the registerHandler infrastructure — no endpoint can bypass it",
+        "InetAddress.getLoopbackAddress() is used programmatically rather than as a string literal — reduces the risk of an accidental bind-address change",
+        "The /api/bcql endpoint's input validation (size limit, complexity limit) is consistent with how other POST handlers validate bodies"
+      ],
+      "issue_character": "No authorization inconsistencies exist — the security model is uniformly unauthenticated with documented rationale. The only concern is the lack of a runtime or test-level enforcement of the loopback-only bind.",
+      "score_rationale": "A developer auditing this codebase for auth consistency will find a uniform, explicitly documented posture: all endpoints are unauthenticated, loopback-only, with consistent CORS and input-validation patterns. There are no partially-auth'd siblings, no magic permission strings, and no trust boundary violations. The score is held below 95 because the loopback-only bind guarantee exists only in Javadoc and runtime code — a future developer who changes the bind address (for containerisation) would need to read the Javadoc warning to know they must add auth; there is no test or assertion that would fail to alert them. Per the 90-anchor, this is 'mostly consistent with limited, documented exceptions' — actually even stronger than that, as there are no exceptions at all, just a future-proofing gap."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "loopback_bind_not_test_asserted",
+      "summary": "The loopback-only security guarantee exists only in Javadoc with no test or runtime assertion to catch a future bind-address change",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServerTest.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.start() uses InetAddress.getLoopbackAddress() — correctly restricts to 127.0.0.1",
+        "The class Javadoc warns: 'Any change to the bind address (e.g., to 0.0.0.0 for container deployment) must be accompanied by an authentication or network-level access-control layer'",
+        "WordSketchApiServerTest starts the server on TEST_PORT 18080 but does not assert that the server refuses connections on non-loopback addresses or that the bound address is the loopback"
+      ],
+      "suggestion": "Add a test to WordSketchApiServerTest that verifies the server binds to the loopback address: after server.start(), assert that a connection attempt to InetAddress.getLocalHost() (if different from loopback) is refused or that server.getAddress().getAddress().isLoopbackAddress() returns true. This makes the security guarantee machine-checkable, not just Javadoc-checkable.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Security guarantee documented only in Javadoc, not enforced by a test"],
+    "likely_symptoms": ["loopback_bind_not_test_asserted"],
+    "possible_false_positives": []
+  }
+}

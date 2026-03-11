@@ -1,0 +1,75 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 4,
+  "assessments": {"naming_quality": 89.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Consistent execute* verb family on QueryExecutor: executeCollocations, executeSurfacePattern, executeBcqlQuery, executeCqlQuery, executeDependencyPattern, executeDependencyPatternWithPos — each verb precisely matches the semantics.",
+        "handle* verbs on all HTTP handler methods (handleSketchRequest, handleSemanticFieldExplore, handleConcordanceExamples etc.) are uniform and intention-revealing.",
+        "build* is reserved for factory/assembly (buildEdges, buildFullPattern, buildBcqlResponse, buildCoreCollocates), parse* for parsing (parseQueryParams, parseSeedSet, parseConcordanceExamplesRequest), format* for serialization (formatDiscoveredNouns, formatAdjectiveProfile).",
+        "ConcordanceHandlers.parseConcordanceExamplesRequest: local vars 'noun' and 'adjective' are derived from generic HTTP params 'seed' and 'collocate' — the endpoint docs say seed=noun, collocate=adjective, but this mapping is a domain assumption baked silently into local naming.",
+        "FetchExamplesOptions declares 'public static final FetchExamplesOptions DEFAULT' but no production caller uses DEFAULT; ExplorationHandlers creates 'new FetchExamplesOptions(maxExamples)' every time. The constant name implies it is the recommended entry point but it is unused.",
+        "computeCollocateIntersection (MultiSeedExplorer) precisely names the algorithm; identifyCoreCollocates, filterByMinShared, buildCollocateToNounsMap (SemanticFieldExplorer) all name their phases accurately.",
+        "ValidatedExploreRequest and ValidatedSingleSeedRequest in ExplorationHandlers are private record names — descriptive and typed correctly for their scope."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "execute*/handle*/build*/parse*/format* verb families are consistent across all production classes — no generic 'process' or 'handle' catch-all names.",
+        "Phase method names in SemanticFieldExplorer (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates) read as an algorithm narrative.",
+        "Domain vocabulary is maintained end-to-end: logDice, collocate, seed, headword, lemma, deprel, bcql, cql — no leakage of technical acronyms into domain names.",
+        "Private record names (ValidatedExploreRequest, SeedCollocateData, ConcordanceExamplesRequest, ExplorationParams) are precise and reveal their scope."
+      ],
+      "issue_character": "The two issues are isolated: one is a silent domain assumption baked into a local variable rename, and the other is a dead constant that misleads about the intended entry point.",
+      "score_rationale": "Naming quality is well above the 80 anchor. The verb-family discipline is one of the strongest aspects of this codebase — finding a method is fast because the naming discipline predicts it. The two flagged items (ConcordanceHandlers noun/adjective assumption, unused DEFAULT constant) are minor and localized. A score of 89 reflects near-exemplary naming with two small rough edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "concordance_handler_implicit_noun_adjective_mapping",
+      "summary": "ConcordanceHandlers.parseConcordanceExamplesRequest silently renames 'seed' param to 'noun' and 'collocate' to 'adjective', baking in a domain assumption",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "parseConcordanceExamplesRequest: 'String noun = HttpApiUtils.requireParam(params, \"seed\");' and 'String adjective = HttpApiUtils.requireParam(params, \"collocate\");'",
+        "The ConcordanceExamplesRequest record uses 'String noun' and 'String adjective' fields even though the HTTP contract uses 'seed' and 'collocate' as the generic terms.",
+        "The endpoint could be used for non-adjective collocates (e.g. verb collocates), but the local name 'adjective' implies a type constraint that is not enforced."
+      ],
+      "suggestion": "Rename the local variables and record fields to match the HTTP parameter names: 'headword' (from 'seed') and 'collocate' (keep). If the endpoint is adjective-specific by design, document that constraint in the Javadoc and reject non-adjective relation types explicitly.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "fetch_examples_default_constant_unused",
+      "summary": "FetchExamplesOptions.DEFAULT constant is defined but never used in production code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/FetchExamplesOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "FetchExamplesOptions.java: 'public static final FetchExamplesOptions DEFAULT = new FetchExamplesOptions(10);'",
+        "ExplorationHandlers.handleSemanticFieldExamples: 'new FetchExamplesOptions(maxExamples)' is called with a parsed param, not DEFAULT.",
+        "No other production call site references FetchExamplesOptions.DEFAULT."
+      ],
+      "suggestion": "Either remove DEFAULT if it serves no purpose, or use it in callers where 10 is the intended default (e.g. replace 'new FetchExamplesOptions(HttpApiUtils.parseIntParam(params, \"top\", 10))' with conditional use of DEFAULT when the param is absent).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["DEFAULT constant added for completeness but callers always receive user-supplied values, leaving it stranded."],
+    "likely_symptoms": ["fetch_examples_default_constant_unused"],
+    "possible_false_positives": []
+  }
+}

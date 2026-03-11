@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 import pl.marcinmilkowski.word_sketch.model.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.utils.MathUtils;
 import pl.marcinmilkowski.word_sketch.model.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.DiscoveredNoun;
@@ -91,7 +92,7 @@ public final class ExploreResponseAssembler {
         for (Map.Entry<String, Double> e : result.seedCollocates().entrySet()) {
             Map<String, Object> c = new HashMap<>();
             c.put("word", e.getKey());
-            c.put("log_dice", roundTo2DecimalPlaces(e.getValue()));
+            c.put("log_dice", MathUtils.round2dp(e.getValue()));
             c.put("frequency", result.seedCollocateFrequencies().getOrDefault(e.getKey(), 0L));
             seedCollocs.add(c);
         }
@@ -104,8 +105,8 @@ public final class ExploreResponseAssembler {
             Map<String, Object> nm = new HashMap<>();
             nm.put("word", n.noun());
             nm.put("shared_count", n.sharedCount());
-            nm.put("similarity_score", roundTo2DecimalPlaces(n.combinedRelevanceScore()));
-            nm.put("avg_logdice", roundTo2DecimalPlaces(n.avgLogDice()));
+            nm.put("similarity_score", MathUtils.round2dp(n.combinedRelevanceScore()));
+            nm.put("avg_logdice", MathUtils.round2dp(n.avgLogDice()));
             nm.put("shared_collocates", n.sharedCollocateList());
             nouns.add(nm);
         }
@@ -119,8 +120,8 @@ public final class ExploreResponseAssembler {
             cm.put("word", c.collocate());
             cm.put("shared_by_count", c.sharedByCount());
             cm.put("total_nouns", c.totalNouns());
-            cm.put("coverage", roundTo2DecimalPlaces(c.coverage()));
-            cm.put("seed_logdice", roundTo2DecimalPlaces(c.seedLogDice()));
+            cm.put("coverage", MathUtils.round2dp(c.coverage()));
+            cm.put("seed_logdice", MathUtils.round2dp(c.seedLogDice()));
             coreCollocs.add(cm);
         }
         return coreCollocs;
@@ -135,17 +136,17 @@ public final class ExploreResponseAssembler {
         adjMap.put("word", adj.adjective());
         adjMap.put("present_in", adj.presentInCount());
         adjMap.put("total_nouns", adj.totalNouns());
-        adjMap.put("avg_logdice", roundTo2DecimalPlaces(adj.avgLogDice()));
-        adjMap.put("max_logdice", roundTo2DecimalPlaces(adj.maxLogDice()));
-        adjMap.put("variance", roundTo2DecimalPlaces(adj.variance()));
-        adjMap.put("commonality_score", roundTo2DecimalPlaces(adj.commonalityScore()));
-        adjMap.put("distinctiveness_score", roundTo2DecimalPlaces(adj.distinctivenessScore()));
+        adjMap.put("avg_logdice", MathUtils.round2dp(adj.avgLogDice()));
+        adjMap.put("max_logdice", MathUtils.round2dp(adj.maxLogDice()));
+        adjMap.put("variance", MathUtils.round2dp(adj.variance()));
+        adjMap.put("commonality_score", MathUtils.round2dp(adj.commonalityScore()));
+        adjMap.put("distinctiveness_score", MathUtils.round2dp(adj.distinctivenessScore()));
 
         adjMap.put("category", adj.sharingCategory().label());
 
         Map<String, Double> scores = new HashMap<>();
         for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
-            scores.put(entry.getKey(), roundTo2DecimalPlaces(entry.getValue()));
+            scores.put(entry.getKey(), MathUtils.round2dp(entry.getValue()));
         }
         adjMap.put("noun_scores", scores);
 
@@ -202,9 +203,5 @@ public final class ExploreResponseAssembler {
         m.put("log_dice", Math.round(edge.weight() * 100.0) / 100.0);
         m.put("type", edge.type().label());
         return m;
-    }
-
-    public static double roundTo2DecimalPlaces(double value) {
-        return Math.round(value * 100.0) / 100.0;
     }
 }

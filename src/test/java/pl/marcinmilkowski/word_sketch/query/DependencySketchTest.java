@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import java.io.File;
 import java.util.List;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**

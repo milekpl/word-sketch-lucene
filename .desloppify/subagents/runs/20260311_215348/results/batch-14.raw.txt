@@ -1,0 +1,63 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {
+    "type_safety": 86.0
+  },
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify annotations (@NonNull, @Nullable) used in HttpApiUtils on all public method parameters and return types",
+        "QueryExecutor.executeCollocations declares @Nullable String lemma — matches the null-guard at the top of the implementation: 'if (lemma == null || lemma.isEmpty()) return empty'",
+        "GrammarConfig.getConfigPath() declared @Nullable Path — correct, since classpath loads pass null",
+        "QueryResults.CollocateResult.collocateLemma declared @Nullable — matches the null-handling in ExploreResponseAssembler and CorpusQueryHandlers (both use null checks before using the value)",
+        "RelationConfig record uses Optional<RelationType> for relationType rather than @Nullable — a stronger type-level contract",
+        "ExploreResponseAssembler methods all annotated @NonNull on both parameters and return types",
+        "BlackLabSnippetParser.extractLemmaFromMatch() declared @Nullable return — matches the null check in extractLemmaWithFallback",
+        "CollocateQueryHelper constructor accepts @Nullable BlackLabIndex but production code calls requireNonNull inside methods — annotation overstates what is actually safe in production",
+        "ConlluConverter.processLines returns @Nullable BufferedWriter — correctly annotated, caller handles null in finally block"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "CollocateQueryHelper's @Nullable BlackLabIndex annotation is a type-level misstatement: the annotation declares null as valid input but production paths will NPE; and WordSketchResult.pos field has no null annotation despite being set to UNKNOWN_POS sentinel in some paths."
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "JSpecify @NonNull/@Nullable annotations applied throughout the api/ and query/ packages on public method signatures — a developer can trust annotations on API boundaries",
+        "Optional<RelationType> used in RelationConfig rather than @Nullable — stronger than annotation alone because callers are forced to handle the absent case at compile time",
+        "BlackLabSnippetParser declares @Nullable on extractLemmaFromMatch and extractLastLemma — callers use null-checks consistently",
+        "QueryExecutor.executeCollocations @Nullable String lemma matches the null-guard in the implementation without silent fallthrough",
+        "ConlluConverter.processLines @Nullable BufferedWriter return type correctly signals to the caller that no writer may exist on certain code paths"
+      ],
+      "issue_character": "The type safety gaps are isolated: one constructor parameter annotation that is technically permissive beyond the safe precondition, and one record field (WordSketchResult.pos) that omits a nullability annotation.",
+      "score_rationale": "Annotations are broadly accurate and consistently applied across public API surfaces. The codebase uses Optional appropriately for Optional config fields and @Nullable for legitimately nullable returns. The score is held below 90 by the CollocateQueryHelper constructor annotation mismatch (documented elsewhere as a contract_coherence issue as well) and by WordSketchResult.pos having no nullability annotation despite the UNKNOWN_POS sentinel indicating it is never null in practice — that lack of annotation creates minor friction for callers using null-analysis tools. Per the 90-anchor, these are soft spots that 'don't cause real confusion' but are real annotation gaps."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "word_sketch_result_pos_no_nullability_annotation",
+      "summary": "WordSketchResult.pos field carries no @NonNull or @Nullable annotation despite having a UNKNOWN_POS sentinel constant",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryResults.java"
+      ],
+      "evidence": [
+        "`public record WordSketchResult(String lemma, String pos, ...)` — pos has no nullability annotation",
+        "`public static final String UNKNOWN_POS = \"unknown\";` sentinel exists on the record, implying pos is always non-null (never null, just potentially 'unknown')",
+        "ExploreResponseAssembler and SketchHandlers use pos without null checks, consistent with the non-null assumption"
+      ],
+      "suggestion": "Add @NonNull to the pos field: `public record WordSketchResult(String lemma, @NonNull String pos, ...)`. This documents the invariant (callers use UNKNOWN_POS sentinel, not null) and lets null-analysis tools enforce it at construction sites.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Record fields less consistently annotated than method signatures"],
+    "likely_symptoms": ["word_sketch_result_pos_no_nullability_annotation"],
+    "possible_false_positives": []
+  }
+}

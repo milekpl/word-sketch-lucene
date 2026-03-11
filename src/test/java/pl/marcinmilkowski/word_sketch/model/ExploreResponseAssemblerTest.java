@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.model;
 
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.api.ExploreResponseAssembler;
+import pl.marcinmilkowski.word_sketch.utils.MathUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -147,9 +148,9 @@ class ExploreResponseAssemblerTest {
 
     @Test
     void round2dp_roundsCorrectly() {
-        assertEquals(3.14, ExploreResponseAssembler.roundTo2DecimalPlaces(3.14159), 0.001);
-        assertEquals(0.0, ExploreResponseAssembler.roundTo2DecimalPlaces(0.0), 0.001);
-        assertEquals(14.0, ExploreResponseAssembler.roundTo2DecimalPlaces(14.0), 0.001);
+        assertEquals(3.14, MathUtils.round2dp(3.14159), 0.001);
+        assertEquals(0.0, MathUtils.round2dp(0.0), 0.001);
+        assertEquals(14.0, MathUtils.round2dp(14.0), 0.001);
     }
 
     @Test

@@ -5,7 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationPatternBuilder;
-import pl.marcinmilkowski.word_sketch.query.QueryResults;
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
@@ -50,18 +50,18 @@ class ConcordanceHandlers {
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
         ConcordanceExamplesRequest req = parseConcordanceExamplesRequest(params);
 
-        String bcqlQuery = null;
         var rel = grammarConfig.getRelation(req.relation());
-        if (rel.isPresent()) {
-            String patternWithHead = RelationPatternBuilder.buildFullPattern(rel.get(), req.noun());
-            bcqlQuery = CqlUtils.substituteAtPosition(patternWithHead, req.adjective(), rel.get().collocatePosition());
-        }
+        String resolvedQuery = rel.isPresent()
+            ? CqlUtils.substituteAtPosition(
+                RelationPatternBuilder.buildFullPattern(rel.get(), req.noun()),
+                req.adjective(), rel.get().collocatePosition())
+            : null;
 
-        boolean fallback = false;
-        if (bcqlQuery == null || bcqlQuery.isEmpty()) {
-            bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"",
-                req.noun().toLowerCase(), req.adjective().toLowerCase());
-            fallback = true;
+        boolean fallback = resolvedQuery == null || resolvedQuery.isEmpty();
+        String bcqlQuery = fallback
+            ? String.format("\"%s\" []{0,5} \"%s\"", req.noun().toLowerCase(), req.adjective().toLowerCase())
+            : resolvedQuery;
+        if (fallback) {
             logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", req.relation(), bcqlQuery);
         }
 
@@ -89,7 +89,14 @@ class ConcordanceHandlers {
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
-    /** Parsed and validated request parameters for {@link #handleConcordanceExamples}. */
+    /**
+     * Parsed and validated request parameters for {@link #handleConcordanceExamples}.
+     *
+     * <p>Field names use domain vocabulary ({@code noun}, {@code adjective}) rather than
+     * the HTTP parameter names ({@code seed}, {@code collocate}): the renaming is performed
+     * in {@link #parseConcordanceExamplesRequest} where {@code seed} → {@code noun} and
+     * {@code collocate} → {@code adjective}.</p>
+     */
     private record ConcordanceExamplesRequest(String noun, String adjective, String relation, int top) {}
 
     private ConcordanceExamplesRequest parseConcordanceExamplesRequest(Map<String, String> params) {

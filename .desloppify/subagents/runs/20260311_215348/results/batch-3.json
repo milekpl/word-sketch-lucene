@@ -1,0 +1,59 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 3,
+  "assessments": {"error_consistency": 86.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "All HTTP handlers throw IllegalArgumentException for 400-class errors and RequestEntityTooLargeException for 413; HttpApiUtils.wrapWithErrorHandling provides a single translation point for all five handler classes.",
+        "GrammarConfigLoader.parse() uses IOException for semantic validation errors (missing version, duplicate relation IDs, invalid positions) in addition to I/O failures — conflating two distinct failure categories under the same exception type.",
+        "config/ directory shows 'returns_null: 5' in holistic_context errors. RelationConfig.computeDeprel() returns @Nullable String; documented with @Nullable annotation and callers handle null explicitly.",
+        "CollocateQueryHelper accepts @Nullable BlackLabIndex in constructor and has an internal Objects.requireNonNull guard in getTotalFrequency — the null is deliberately accepted for testing, documented in the code.",
+        "BlackLabQueryExecutor constructor catches ErrorOpeningIndex (a RuntimeException) and converts it to IOException — explicit boundary translation with a code comment explaining why.",
+        "ExplorationHandlers.handleSemanticFieldExplore: SemanticFieldExplorer.exploreByPattern throws IOException and IllegalArgumentException; both propagate cleanly to wrapWithErrorHandling.",
+        "FetchExamplesOptions constructor: 'if (maxExamples < 1) throw new IllegalArgumentException(...)' — consistent validation throwing IAE at the boundary."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "All HTTP handlers funnel errors through a single wrapWithErrorHandling translation point — error-to-HTTP-status mapping is defined in exactly one place.",
+        "BlackLabQueryExecutor explicitly converts ErrorOpeningIndex (runtime) to IOException (checked) with a comment explaining the contract rationale.",
+        "@Nullable annotations are used consistently for nullable return values (RelationConfig.computeDeprel, QueryResults.CollocateResult.collocateLemma), giving callers clear guidance.",
+        "FetchExamplesOptions validates its constructor argument and throws IAE immediately, consistent with the rest of the codebase."
+      ],
+      "issue_character": "The main issue is localized to GrammarConfigLoader: it reuses IOException for semantic validation errors (missing version, duplicate ID) rather than distinguishing file-IO failures from config-schema failures — a conflation that makes callers in Main.java handle both with identical catch blocks.",
+      "score_rationale": "The codebase is solidly above 80 on error consistency. The unified handler pipeline is a genuine strength and eliminates entire categories of inconsistency. The one real issue — IOException overloading in GrammarConfigLoader — is a known pattern in Java config loaders and does not cascade to callers in a harmful way (Main.java handles both cases identically). A score of 86 reflects a largely unified error strategy with one principled but imperfect exception-category choice."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "grammar_config_validation_uses_ioexception",
+      "summary": "GrammarConfigLoader throws IOException for semantic validation failures (duplicate ID, missing version), conflating schema errors with I/O failures",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.parseAndValidateVersion(): 'throw new IOException(\"Config error: Missing version field...\")' — not an I/O failure.",
+        "GrammarConfigLoader.parseRelations(): 'throw new IOException(\"Config error: Duplicate relation id: \" + config.id())' — not an I/O failure.",
+        "GrammarConfigLoader.validatePositions(): 'throw new IOException(\"Config error: Relation positions...\")' — not an I/O failure.",
+        "Main.java catch block: 'catch (IOException e)' handles both file-not-found and schema-validation errors identically, giving no differentiation."
+      ],
+      "suggestion": "Replace semantic validation throws inside parse() with IllegalArgumentException (or a dedicated ConfigParseException extends IllegalArgumentException). Keep IOException only for file-reading failures. In Main.java and GrammarConfigLoader.createDefaultEnglish(), catch IAE/ConfigParseException separately to give users a clearer 'invalid config' vs 'can't read file' message.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["GrammarConfigLoader was written as a single-concern class combining file reading and JSON validation, leading to IOException being the natural shared error type."],
+    "likely_symptoms": ["grammar_config_validation_uses_ioexception"],
+    "possible_false_positives": []
+  }
+}

@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.query;
+package pl.marcinmilkowski.word_sketch.model;
 
 import java.util.List;
 import org.jspecify.annotations.Nullable;

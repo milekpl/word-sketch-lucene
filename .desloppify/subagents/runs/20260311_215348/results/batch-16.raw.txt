@@ -1,0 +1,63 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 16,
+  "assessments": {
+    "cross_module_architecture": 91.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is well-maintained: model/ imports nothing from other domain packages; utils/ imports nothing; query/ imports only model/ and utils/; config/ imports only model/ and utils/; exploration/ imports config/, query/, and model/; api/ imports config/, exploration/, query/, and model/; Main.java imports all subsystems as the entry point",
+        "No reciprocal (bidirectional) dependencies found: model/ does not import api/, query/ does not import exploration/ or api/, config/ does not import query/ or exploration/",
+        "api/ExploreResponseAssembler was correctly moved to api/ — it imports model/ (fine) and does not leak presentation concerns back into model/",
+        "SemanticFieldExplorer imports exploration.* (its own package) plus config/, query/, model/ — no upward imports",
+        "RelationType enum lives in model/ and is referenced by both config/ (RelationConfig.relationType) and exploration/ (SemanticFieldExplorer, CollocateProfileComparator) — correct direction",
+        "QueryResults lives in query/ and is imported by api/, exploration/ — both are outer layers importing from an inner layer (query/), appropriate",
+        "One note: ExplorationHandlers (in api/) imports exploration.SemanticFieldExplorer — this is expected (api orchestrates exploration); no reverse dependency",
+        "GrammarConfigSerializer lives in config/ and imports fastjson2 (a serialization library) — the config/ package now has a light dependency on fastjson2 for this serializer, though GrammarConfig and RelationConfig themselves remain free of it"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "GrammarConfigSerializer.java in config/ introduces a fastjson2 dependency into the config package. If config/ is ever used in a context that does not include the JSON library, this serializer would need to be moved. It is a minor boundary concern — the serializer is currently used only in SketchHandlers to respond to /api/relations, so it could live in api/ instead."
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Strict unidirectional dependency flow: model ← utils ← query/config ← exploration ← api ← Main; no layer violates this order",
+        "model/ has zero outbound domain imports — it is a true dependency sink, enabling all other packages to import from it safely",
+        "RelationType enum lives in model/ rather than config/ — correctly avoiding a situation where query/ or exploration/ would need to import from config/",
+        "GrammarConfig and RelationConfig are pure data carriers with no JSON or I/O imports — serialization concern extracted to GrammarConfigSerializer",
+        "QueryExecutor is an interface in query/ — api/ and exploration/ depend on the interface, not the implementation (BlackLabQueryExecutor), keeping the dependency abstract"
+      ],
+      "issue_character": "The only boundary concern is that GrammarConfigSerializer introduces a fastjson2 dependency into the config/ package, making config/ depend on a serialization library that its value objects (GrammarConfig, RelationConfig) do not need.",
+      "score_rationale": "A developer examining the dependency graph will find a clean unidirectional flow with no cycles. The layer boundaries are respected throughout, and model/ correctly serves as the dependency anchor. The score is held below 95 by GrammarConfigSerializer residing in config/ rather than api/ — this places a presentation-layer library dependency (fastjson2) in a package whose other classes are deliberately free of it. Per the 90-anchor ('mostly coherent with isolated boundary drift'), this is a single isolated drift point that does not currently cause harm but would complicate a hypothetical future use of config/ in a non-JSON context."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "grammar_config_serializer_in_config_pkg",
+      "summary": "GrammarConfigSerializer in config/ introduces a fastjson2 dependency into a package designed as a pure data layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigSerializer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "GrammarConfigSerializer imports com.alibaba.fastjson2.JSONArray and JSONObject — a serialization library dependency in a package that otherwise contains only data carriers and grammar logic",
+        "GrammarConfig.java and RelationConfig.java have no JSON library imports — the serializer was deliberately extracted to avoid this, but then placed in the same package",
+        "The serializer is called in SketchHandlers (api/) to serialize config for the /api/relations endpoint — its only consumer is in the api/ layer"
+      ],
+      "suggestion": "Move GrammarConfigSerializer to api/ package alongside ExploreResponseAssembler (which performs the analogous model-to-JSON translation for exploration results). Update the import in SketchHandlers. This keeps config/ free of the JSON library dependency and co-locates all model-to-presentation translation in api/. Staged: (1) move file, (2) update SketchHandlers import, (3) run `mvn test`.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Serializer placed in the package of its data source rather than the package of its consumer"],
+    "likely_symptoms": ["grammar_config_serializer_in_config_pkg"],
+    "possible_false_positives": []
+  }
+}

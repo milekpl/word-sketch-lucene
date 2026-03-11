@@ -1,0 +1,60 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 8,
+  "assessments": {"mid_level_elegance": 86.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler owns all model-to-presentation translation for exploration endpoints; ExplorationHandlers calls populateExploreResponse/populateComparisonResponse and handles only HTTP concerns.",
+        "Error propagation follows a single consistent path: handler methods throw IAE/RequestEntityTooLargeException → wrapWithErrorHandling in WordSketchApiServer translates to HTTP status codes. Translation happens in one place.",
+        "GrammarConfigSerializer keeps JSON serialization concern out of GrammarConfig and RelationConfig; callers in SketchHandlers import only GrammarConfigSerializer, not the JSON library directly.",
+        "SemanticFieldExplorer.exploreByPattern takes RelationConfig and extracts pattern strings internally; callers do not manipulate pattern strings — the config-to-pattern translation is at the right layer.",
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc documents why it intentionally does NOT call buildExploreRequest (cross-relational, not single-relation) — the asymmetry is documented rather than hidden.",
+        "ConcordanceHandlers.handleConcordanceExamples: the local variable 'fallback' tracks whether a proximity pattern was used when the relation was not found, and the response includes a 'fallback: true/false' field — this is transparent and useful seam information.",
+        "BlackLabQueryExecutor.executeSurfacePattern takes both lemma and bcqlPattern (lemma already substituted); the Javadoc explains the two-argument redundancy: lemma is needed for frequency lookup, pattern drives the search. The seam is explicit.",
+        "GrammarConfig.getRelation(String id) returns Optional<RelationConfig>, forcing callers to handle the absent case — boundary contract is honest."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler centralizes all model→JSON translation for exploration endpoints, preventing scattered formatting logic across handlers.",
+        "Error propagation has a single translation point (wrapWithErrorHandling); handlers throw only domain errors (IAE, RequestEntityTooLargeException), HTTP mapping is not their concern.",
+        "Documented asymmetry in ExplorationHandlers (comparison handler does not call buildExploreRequest) makes an intentional design decision visible rather than leaving it as a surprise.",
+        "BlackLabQueryExecutor.executeSurfacePattern two-argument redundancy is documented in Javadoc with clear rationale — no hidden assumptions at the seam.",
+        "GrammarConfig.getRelation returns Optional, making the absent-relation case explicit at every call site."
+      ],
+      "issue_character": "Issues are few and isolated: the main tension is that ConcordanceHandlers embeds an implicit domain assumption (noun/adjective parameter rename) at the HTTP-to-domain seam without a guard, and VisualizationHandlers.handleVisualRadial extracts mode but never validates or documents its accepted values.",
+      "score_rationale": "Handoff design is consistently clean across the major seams (HTTP→handler, handler→explorer, explorer→query, query→results, results→assembler→response). The two minor issues are localized to VisualizationHandlers and ConcordanceHandlers parameter handling. A score of 86 reflects handoff quality that is solid and mostly exemplary, pulled down slightly by localized seam assumptions in two handlers."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "visualization_mode_param_undocumented",
+      "summary": "VisualizationHandlers extracts a 'mode' parameter from the POST body but never validates or documents accepted values",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "VisualizationHandlers.handleVisualRadial: 'String mode = obj.getString(\"mode\");' — extracted but not validated; null is passed to RadialPlot.renderFromItems.",
+        "RadialPlot.renderFromItems accepts a String mode parameter; the accepted values and null behavior are not documented at the handler seam.",
+        "A caller sending an unsupported mode value would receive no error; the output may be silently wrong."
+      ],
+      "suggestion": "Add accepted-values documentation to the endpoint Javadoc (e.g. mode: 'spiral' | 'radial' | null-for-default). Add a validation guard at the handler boundary that throws IAE for unrecognized mode values, consistent with how other optional enum-style parameters are handled in the codebase.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["VisualizationHandlers was added to handle a single rendering endpoint and received less design attention than the exploration/sketch handlers."],
+    "likely_symptoms": ["visualization_mode_param_undocumented"],
+    "possible_false_positives": []
+  }
+}

@@ -43,12 +43,20 @@ class ExplorationHandlers {
     }
 
     /**
+     * Parses the query string from the exchange into a parameter map.
+     * All four exploration handlers share this identical preamble.
+     */
+    private static Map<String, String> parseBaseExploreRequest(HttpExchange exchange) {
+        String query = exchange.getRequestURI().getQuery();
+        return HttpApiUtils.parseQueryParams(query);
+    }
+
+    /**
      * Handle semantic field exploration (single seed).
      * GET /api/semantic-field/explore?seeds=house&relation=adj_predicate&top=15&min_shared=2&min_logdice=3.0
      */
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
-        String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
+        Map<String, String> params = parseBaseExploreRequest(exchange);
 
         String seed = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (seed == null) return;
@@ -93,8 +101,7 @@ class ExplorationHandlers {
      * GET /api/semantic-field/explore-multi?seeds=theory,model,hypothesis&relation=adj_predicate&top=15&min_shared=2
      */
     void handleSemanticFieldExploreMulti(HttpExchange exchange) throws IOException {
-        String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
+        Map<String, String> params = parseBaseExploreRequest(exchange);
 
         String seedsStr = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (seedsStr == null) return;
@@ -148,8 +155,7 @@ class ExplorationHandlers {
      * GET /api/semantic-field?seeds=theory,model,hypothesis&min_logdice=3.0
      */
     void handleSemanticFieldComparison(HttpExchange exchange) throws IOException {
-        String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
+        Map<String, String> params = parseBaseExploreRequest(exchange);
 
         String seedsParam = HttpApiUtils.requireParam(exchange, params, "seeds");
         if (seedsParam == null) return;
@@ -204,8 +210,7 @@ class ExplorationHandlers {
      * GET /api/semantic-field/examples?adjective=good&noun=theory&max=10&relation=adj_predicate
      */
     void handleSemanticFieldExamples(HttpExchange exchange) throws IOException {
-        String query = exchange.getRequestURI().getQuery();
-        Map<String, String> params = HttpApiUtils.parseQueryParams(query);
+        Map<String, String> params = parseBaseExploreRequest(exchange);
 
         String adjective = HttpApiUtils.requireParam(exchange, params, "adjective");
         if (adjective == null) return;

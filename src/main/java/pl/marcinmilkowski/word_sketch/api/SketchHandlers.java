@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
+import java.util.function.Predicate;
 
 /**
  * HTTP handlers for word sketch, concordance, BCQL, and radial-plot endpoints.
@@ -119,23 +121,14 @@ class SketchHandlers {
         Map<String, Object> byRelation = new HashMap<>();
         List<String> relationErrors = new ArrayList<>();
 
-        for (var rel : grammarConfig.getRelations()) {
-            if (rel.relationType().orElse(null) != relationType) continue;
-            try {
-                ExecutedSketch sketch = executeAndFormatCollocations(lemma, rel);
-                if (sketch != null) {
-                    Map<String, Object> relData = new HashMap<>();
-                    relData.put("name", rel.name());
-                    relData.put("cql", rel.pattern());
-                    relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
-                    relData.put("collocations", sketch.collocations());
-                    byRelation.put(rel.id(), relData);
-                }
-            } catch (IOException | RuntimeException e) {
-                logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
-                relationErrors.add(rel.id() + ": " + e.getMessage());
-            }
-        }
+        iterateRelations(relationType, rel -> true, lemma, byRelation, relationErrors, (rel, sketch) -> {
+            Map<String, Object> relData = new HashMap<>();
+            relData.put("name", rel.name());
+            relData.put("cql", rel.pattern());
+            relData.put("collocate_pos_group", rel.collocatePosGroup().getValue());
+            relData.put("collocations", sketch.collocations());
+            return relData;
+        });
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -156,19 +149,8 @@ class SketchHandlers {
         Map<String, Object> byRelation = new HashMap<>();
         List<String> relationErrors = new ArrayList<>();
 
-        for (var rel : grammarConfig.getRelations()) {
-            if (rel.relationType().orElse(null) != RelationType.DEP) continue;
-            if (rel.getDeprel() == null) continue;
-            try {
-                ExecutedSketch sketch = executeAndFormatCollocations(lemma, rel);
-                if (sketch != null) {
-                    byRelation.put(rel.id(), buildRelationResponse(rel, sketch.results(), sketch.collocations()));
-                }
-            } catch (IOException | RuntimeException e) {
-                logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
-                relationErrors.add(rel.id() + ": " + e.getMessage());
-            }
-        }
+        iterateRelations(RelationType.DEP, rel -> rel.getDeprel() != null, lemma, byRelation, relationErrors,
+            (rel, sketch) -> buildRelationResponse(rel, sketch.results(), sketch.collocations()));
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -179,6 +161,41 @@ class SketchHandlers {
             response.put("errors", relationErrors);
         }
         HttpApiUtils.sendJsonResponse(exchange, response);
+    }
+
+    /**
+     * Shared loop that iterates over grammar relations of the given type, executes each one,
+     * and delegates response-map construction to the provided {@code builder} callback.
+     * Relations that execute with no results are skipped; errors are collected in
+     * {@code relationErrors} rather than propagated.
+     *
+     * @param relationType    the type of relations to process
+     * @param extraFilter     additional per-relation predicate (e.g. {@code rel -> rel.getDeprel() != null})
+     * @param lemma           the head lemma being sketched
+     * @param byRelation      accumulator map from relation-id to response map
+     * @param relationErrors  accumulator list for error strings
+     * @param builder         callback that converts a relation config + executed sketch into the JSON-ready map
+     */
+    private void iterateRelations(
+            RelationType relationType,
+            Predicate<pl.marcinmilkowski.word_sketch.config.RelationConfig> extraFilter,
+            String lemma,
+            Map<String, Object> byRelation,
+            List<String> relationErrors,
+            BiFunction<pl.marcinmilkowski.word_sketch.config.RelationConfig, ExecutedSketch, Map<String, Object>> builder) {
+        for (var rel : grammarConfig.getRelations()) {
+            if (rel.relationType().orElse(null) != relationType) continue;
+            if (!extraFilter.test(rel)) continue;
+            try {
+                ExecutedSketch sketch = executeAndFormatCollocations(lemma, rel);
+                if (sketch != null) {
+                    byRelation.put(rel.id(), builder.apply(rel, sketch));
+                }
+            } catch (IOException | RuntimeException e) {
+                logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
+                relationErrors.add(rel.id() + ": " + e.getMessage());
+            }
+        }
     }
 
     /**

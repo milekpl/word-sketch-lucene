@@ -16,7 +16,6 @@ import pl.marcinmilkowski.word_sketch.model.exploration.AdjectiveProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 /**
@@ -40,8 +39,7 @@ class CollocateProfileComparator {
 
     private static String deriveAdjectivePattern(GrammarConfig grammarConfig) {
         return RelationUtils.findBestCollocatePattern(
-            grammarConfig, PosGroup.ADJ, FALLBACK_ADJECTIVE_PATTERN,
-            RelationType.ADJ_MODIFIER, RelationType.ADJ_PREDICATE);
+            grammarConfig, PosGroup.ADJ, FALLBACK_ADJECTIVE_PATTERN);
     }
 
     /**

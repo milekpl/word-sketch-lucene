@@ -25,7 +25,6 @@ import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
@@ -107,8 +106,7 @@ public class SemanticFieldExplorer {
 
     private static String deriveNounCqlConstraint(GrammarConfig grammarConfig) {
         return RelationUtils.findBestCollocatePattern(
-            grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_CQL_CONSTRAINT,
-            RelationType.OBJECT_OF, RelationType.SUBJECT_OF);
+            grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_CQL_CONSTRAINT);
     }
 
     // ==================== EXPLORATION MODE ====================

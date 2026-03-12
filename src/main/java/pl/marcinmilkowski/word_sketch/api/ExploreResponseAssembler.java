@@ -55,10 +55,10 @@ final class ExploreResponseAssembler {
     /** Builds {@link RelationEdgeType#MODIFIER} edges for collocate-noun pairs with positive logDice scores. */
     static @NonNull List<Edge> buildComparisonEdges(@NonNull ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
-        for (CollocateProfile adj : result.collocates()) {
-            for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
+        for (CollocateProfile collocate : result.collocates()) {
+            for (Map.Entry<String, Double> entry : collocate.nounScores().entrySet()) {
                 if (entry.getValue() > 0) {
-                    edges.add(new Edge(adj.collocate(), entry.getKey(), entry.getValue(), RelationEdgeType.MODIFIER));
+                    edges.add(new Edge(collocate.collocate(), entry.getKey(), entry.getValue(), RelationEdgeType.MODIFIER));
                 }
             }
         }
@@ -132,29 +132,29 @@ final class ExploreResponseAssembler {
      * Serialises a single {@link CollocateProfile} into the JSON-compatible map that the
      * {@code /api/semantic-field} endpoint returns for each collocate entry.
      */
-    static @NonNull Map<String, Object> collocateProfileToMap(@NonNull CollocateProfile adj) {
-        Map<String, Object> adjMap = new HashMap<>();
-        adjMap.put("word", adj.collocate());
-        adjMap.put("present_in", adj.presentInCount());
-        adjMap.put("total_nouns", adj.totalNouns());
-        adjMap.put("avg_logdice", MathUtils.round2dp(adj.avgLogDice()));
-        adjMap.put("max_logdice", MathUtils.round2dp(adj.maxLogDice()));
-        adjMap.put("variance", MathUtils.round2dp(adj.variance()));
-        adjMap.put("commonality_score", MathUtils.round2dp(adj.commonalityScore()));
-        adjMap.put("distinctiveness_score", MathUtils.round2dp(adj.distinctivenessScore()));
+    static @NonNull Map<String, Object> collocateProfileToMap(@NonNull CollocateProfile collocate) {
+        Map<String, Object> collocateMap = new HashMap<>();
+        collocateMap.put("word", collocate.collocate());
+        collocateMap.put("present_in", collocate.presentInCount());
+        collocateMap.put("total_nouns", collocate.totalNouns());
+        collocateMap.put("avg_logdice", MathUtils.round2dp(collocate.avgLogDice()));
+        collocateMap.put("max_logdice", MathUtils.round2dp(collocate.maxLogDice()));
+        collocateMap.put("variance", MathUtils.round2dp(collocate.variance()));
+        collocateMap.put("commonality_score", MathUtils.round2dp(collocate.commonalityScore()));
+        collocateMap.put("distinctiveness_score", MathUtils.round2dp(collocate.distinctivenessScore()));
 
-        adjMap.put("category", adj.sharingCategory().label());
+        collocateMap.put("category", collocate.sharingCategory().label());
 
         Map<String, Double> scores = new HashMap<>();
-        for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
+        for (Map.Entry<String, Double> entry : collocate.nounScores().entrySet()) {
             scores.put(entry.getKey(), MathUtils.round2dp(entry.getValue()));
         }
-        adjMap.put("noun_scores", scores);
+        collocateMap.put("noun_scores", scores);
 
-        if (adj.isSpecific()) {
-            adj.strongestNoun().ifPresent(n -> adjMap.put("specific_to", n));
+        if (collocate.isSpecific()) {
+            collocate.strongestNoun().ifPresent(n -> collocateMap.put("specific_to", n));
         }
-        return adjMap;
+        return collocateMap;
     }
 
     /**
@@ -167,11 +167,11 @@ final class ExploreResponseAssembler {
      * {@link #populateExploreResponse}.</p>
      */
     static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result) {
-        java.util.List<Map<String, Object>> adjectives = new java.util.ArrayList<>();
-        for (CollocateProfile adj : result.collocates()) {
-            adjectives.add(collocateProfileToMap(adj));
+        java.util.List<Map<String, Object>> collocates = new java.util.ArrayList<>();
+        for (CollocateProfile collocate : result.collocates()) {
+            collocates.add(collocateProfileToMap(collocate));
         }
-        response.put("collocates", adjectives);
+        response.put("collocates", collocates);
         response.put("collocates_count", result.collocates().size());
 
         ComparisonResult.SummaryCounts counts = result.summaryCounts();

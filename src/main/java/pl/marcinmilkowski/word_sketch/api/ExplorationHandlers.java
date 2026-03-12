@@ -59,7 +59,7 @@ class ExplorationHandlers {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
         String seed = HttpApiUtils.requireParam(params, "seed");
         RelationConfig resolvedConfig = resolveRelationConfig(params);
-        CommonExploreParams commonParams = parseCommonExploreParams(params);
+        SharedExploreParams commonParams = parseSharedExploreParams(params);
         int nounsPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
 
         ExplorationOptions base = new ExplorationOptions(
@@ -97,7 +97,7 @@ class ExplorationHandlers {
 
         String seedsParam = HttpApiUtils.requireParam(params, "seeds");
         RelationConfig resolvedConfig = resolveRelationConfig(params);
-        CommonExploreParams commonParams = parseCommonExploreParams(params);
+        SharedExploreParams commonParams = parseSharedExploreParams(params);
 
         Set<String> seeds = parseSeedSet(seedsParam);
 
@@ -136,7 +136,7 @@ class ExplorationHandlers {
      * seed/relation parsing preamble used by the other two because comparison is cross-relational —
      * it aggregates collocates across all relations rather than routing to a specific one.
      * The shared base-parameter extraction ({@code top}, {@code min_shared}, {@code min_logdice})
-     * is still performed via {@link #parseCommonExploreParams}.</p>
+     * is still performed via {@link #parseSharedExploreParams}.</p>
      *
      * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing or has
      *                 fewer than 2 values
@@ -151,7 +151,7 @@ class ExplorationHandlers {
                 "Comparison requires at least 2 seed nouns; received " + seeds.size());
         }
 
-        CommonExploreParams commonParams = parseCommonExploreParams(params);
+        SharedExploreParams commonParams = parseSharedExploreParams(params);
 
         ExplorationOptions opts = new ExplorationOptions(
             commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
@@ -184,7 +184,7 @@ class ExplorationHandlers {
 
         RelationConfig resolvedConfig = resolveRelationConfig(params);
 
-        CommonExploreParams commonParams = parseCommonExploreParams(params);
+        SharedExploreParams commonParams = parseSharedExploreParams(params);
         FetchExamplesResult fetched = semanticFieldExplorer.fetchExamples(seed, collocate, resolvedConfig, commonParams.topCollocates());
 
         List<Map<String, Object>> exampleMaps = fetched.examples().stream()
@@ -210,7 +210,7 @@ class ExplorationHandlers {
      * {@code extras.topLevelFields()} entries land at the top level of the response envelope.</p>
      */
     private Map<String, Object> buildExploreResponseEnvelope(
-            String relationType, CommonExploreParams params,
+            String relationType, SharedExploreParams params,
             EnvelopeExtras extras) {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -246,11 +246,11 @@ class ExplorationHandlers {
     }
 
     /**
-     * Parameters common to all three exploration handlers: {@code top}, {@code min_shared},
+     * Parameters shared across all exploration handlers: {@code top}, {@code min_shared},
      * and {@code min_logdice}. Handler-specific parameters (e.g., {@code nouns_per} for
      * single-seed, rejected {@code nouns_per} for multi-seed) are parsed inline per handler.
      */
-    private record CommonExploreParams(int topCollocates, int minShared, double minLogDice) {}
+    private record SharedExploreParams(int topCollocates, int minShared, double minLogDice) {}
 
     /**
      * Resolves and validates the relation parameter from request params.
@@ -272,10 +272,10 @@ class ExplorationHandlers {
         return relationConfig.get();
     }
 
-    private CommonExploreParams parseCommonExploreParams(Map<String, String> params) {
+    private SharedExploreParams parseSharedExploreParams(Map<String, String> params) {
         int top = HttpApiUtils.parseIntParam(params, "top", 10);
         int minShared = HttpApiUtils.parseIntParam(params, "min_shared", 2);
         double minLogDice = HttpApiUtils.parseDoubleParam(params, "min_logdice", 3.0);
-        return new CommonExploreParams(top, minShared, minLogDice);
+        return new SharedExploreParams(top, minShared, minLogDice);
     }
 }

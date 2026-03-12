@@ -114,7 +114,7 @@ class CollocateProfileComparator {
         List<CollocateProfile> profiles = new ArrayList<>();
 
         for (Map.Entry<String, Map<String, Double>> entry : collocateProfiles.entrySet()) {
-            String adj = entry.getKey();
+            String collocate = entry.getKey();
             Map<String, Double> nounScores = entry.getValue();
 
             Map<String, Double> fullScores = new LinkedHashMap<>();
@@ -148,7 +148,7 @@ class CollocateProfileComparator {
                                          + Math.sqrt(variance);
 
             profiles.add(new CollocateProfile(
-                adj, fullScores, presentIn, nounCount,
+                collocate, fullScores, presentIn, nounCount,
                 avgScore, maxScore, minScore, variance,
                 commonalityScore, distinctivenessScore
             ));

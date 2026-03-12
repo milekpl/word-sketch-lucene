@@ -10,11 +10,10 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
 /**
  * Unified query interface for corpus lookups.
  *
- * <p>This interface intentionally combines surface-pattern, collocate, and dependency query
- * methods in one type. The single production implementation ({@link BlackLabQueryExecutor})
- * means the interface acts primarily as a testability seam rather than an abstraction boundary.
- * A future split into narrower ports (e.g. CollocateQueryPort / DependencyQueryPort) is feasible
- * but deferred until a second implementation or clearer isolation need arises.</p>
+ * <p>This interface extends {@link CollocateQueryPort} (BCQL concordance queries) and adds
+ * surface-pattern, collocate-scoring, and dependency-query methods used by the word-sketch layer.
+ * Handlers that only need BCQL retrieval should declare {@link CollocateQueryPort} instead;
+ * the single production implementation ({@link BlackLabQueryExecutor}) implements both.</p>
  *
  * <h2>Method responsibilities</h2>
  * <ul>
@@ -32,7 +31,7 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
  *       {@link #executeCollocations} which ignores position hints.</li>
  * </ul>
  */
-public interface QueryExecutor extends Closeable {
+public interface QueryExecutor extends CollocateQueryPort, Closeable {
 
     /**
      * Find collocations for a lemma using a CQL pattern.
@@ -63,17 +62,6 @@ public interface QueryExecutor extends Closeable {
      * @throws IOException if index access fails
      */
     List<QueryResults.ConcordanceResult> executeCqlQuery(String cqlPattern, int maxResults) throws IOException;
-
-    /**
-     * Execute a BCQL (CorpusQueryLanguageParser) pattern for concordance results.
-     * Supports labeled capture groups ({@code 1:}, {@code 2:}) and computes per-hit logDice scores.
-     * Unlike {@link #executeCqlQuery}, this uses the BCQL parser and ranks results by logDice.
-     *
-     * @param bcqlPattern  BCQL pattern, optionally with labeled positions
-     * @param maxResults   Maximum number of results after ranking
-     * @throws IOException if index access or parsing fails
-     */
-    List<QueryResults.CollocateResult> executeBcqlQuery(String bcqlPattern, int maxResults) throws IOException;
 
     /**
      * Get the total frequency of a lemma in the corpus.

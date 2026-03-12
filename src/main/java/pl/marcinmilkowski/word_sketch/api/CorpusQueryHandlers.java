@@ -5,10 +5,9 @@ import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.CollocateQueryPort;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,9 +25,9 @@ class CorpusQueryHandlers {
     /** Maximum number of {@code [} bracket tokens accepted in a BCQL pattern (complexity limit). */
     private static final int MAX_BCQL_BRACKET_DEPTH = 20;
 
-    private final QueryExecutor executor;
+    private final CollocateQueryPort executor;
 
-    CorpusQueryHandlers(QueryExecutor executor) {
+    CorpusQueryHandlers(CollocateQueryPort executor) {
         this.executor = executor;
     }
 
@@ -78,14 +77,21 @@ class CorpusQueryHandlers {
         return new BcqlRequest(bcqlQuery, resolvedTop);
     }
 
-    /** Build the BCQL query JSON response map from the parsed request and results. */
-    private static Map<String, Object> buildBcqlResponse(BcqlRequest req, List<QueryResults.CollocateResult> results) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", "ok");
-        response.put("query", req.query());
-        response.put("total_results", results.size());
-        response.put("top", req.top());
-        response.put("results", results.stream().map(ExploreResponseAssembler::collocateResultToFullMap).toList());
-        return response;
+    /** Typed response envelope for the BCQL query endpoint. Serialised to JSON by Jackson. */
+    private record BcqlQueryResponse(
+            String status,
+            String query,
+            int total_results,
+            int top,
+            List<Map<String, Object>> results) {}
+
+    /** Build the typed BCQL query response from the parsed request and results. */
+    private static BcqlQueryResponse buildBcqlResponse(BcqlRequest req, List<QueryResults.CollocateResult> results) {
+        return new BcqlQueryResponse(
+            "ok",
+            req.query(),
+            results.size(),
+            req.top(),
+            results.stream().map(ExploreResponseAssembler::collocateResultToFullMap).toList());
     }
 }

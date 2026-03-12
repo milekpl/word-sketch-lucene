@@ -244,6 +244,7 @@ class SketchHandlers {
         relData.put("id", rel.id());
         relData.put("name", rel.name());
         relData.put("pattern", rel.pattern());
+        relData.put("relation_type", "SURFACE");
         relData.put("collocate_pos_group", rel.collocatePosGroup().label());
         relData.put("total_matches", totalMatches);
         relData.put("collocations", collocations);
@@ -262,6 +263,7 @@ class SketchHandlers {
         relData.put("id", rel.id());
         relData.put("name", rel.name());
         relData.put("description", rel.description());
+        relData.put("relation_type", "DEP");
         relData.put("deprel", rel.deriveDeprel());
         relData.put("pattern", rel.pattern());
         relData.put("collocate_pos_group", rel.collocatePosGroup().label());

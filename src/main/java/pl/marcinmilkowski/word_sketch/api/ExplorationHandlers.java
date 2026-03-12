@@ -112,7 +112,7 @@ class ExplorationHandlers {
 
         Map<String, Object> response = buildExploreResponseEnvelope(
             resolvedConfig.id(), commonParams,
-            new EnvelopeExtras(Map.of(), Map.of("seeds", new ArrayList<>(seeds), "seed_count", seeds.size())));
+            new EnvelopeExtras(Map.of(), Map.of("seeds", result.seeds(), "seed_count", result.seeds().size())));
 
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
@@ -184,18 +184,22 @@ class ExplorationHandlers {
 
         RelationConfig resolvedConfig = resolveRelationConfig(params);
 
-        SharedExploreParams commonParams = parseSharedExploreParams(params);
-        FetchExamplesResult fetched = semanticFieldExplorer.fetchExamples(seed, collocate, resolvedConfig, commonParams.topCollocates());
+        int top = HttpApiUtils.parseIntParam(params, "top", 10);
+        FetchExamplesResult fetched = semanticFieldExplorer.fetchExamples(seed, collocate, resolvedConfig, top);
 
         List<Map<String, Object>> exampleMaps = fetched.examples().stream()
             .map(ExploreResponseAssembler::collocateResultToExampleMap)
             .toList();
 
-        Map<String, Object> response = buildExploreResponseEnvelope(
-            resolvedConfig.id(), commonParams,
-            new EnvelopeExtras(Map.of(), Map.of("seed", seed, "collocate", collocate, "bcql", fetched.bcqlPattern())));
-        response.put("examples", exampleMaps);
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
+        response.put("seed", seed);
+        response.put("collocate", collocate);
+        response.put("relation", resolvedConfig.id());
+        response.put("bcql", fetched.bcqlPattern());
+        response.put("top", top);
         response.put("total_results", exampleMaps.size());
+        response.put("examples", exampleMaps);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }

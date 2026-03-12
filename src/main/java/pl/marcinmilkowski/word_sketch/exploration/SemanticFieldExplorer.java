@@ -190,17 +190,16 @@ public class SemanticFieldExplorer implements ExplorationService {
      * <p>Policy: requires at least 2 non-blank seed nouns so the comparison is meaningful.
      * Delegates computation to {@link CollocateProfileComparator}.</p>
      *
-     * <p>Design note: unlike {@link #exploreByPattern} and {@link #exploreMultiSeed}, this method
-     * does not accept a {@link pl.marcinmilkowski.word_sketch.config.RelationConfig} parameter.
-     * {@link CollocateProfileComparator} aggregates collocates across all loaded relations rather
-     * than filtering to a single relation type, which gives a broader cross-relational profile.</p>
-     *
      * @param seeds       Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
      * @return ComparisonResult with graded adjective profiles
      */
     public @NonNull ComparisonResult compareCollocateProfiles(
             @NonNull Set<String> seeds, @NonNull ExplorationOptions opts) throws IOException {
+        if (seeds.size() < 2) {
+            throw new IllegalArgumentException(
+                "Profile comparison requires at least 2 seed nouns; received " + seeds.size());
+        }
         return comparator.compareCollocateProfiles(seeds, opts);
     }
 
@@ -266,6 +265,10 @@ public class SemanticFieldExplorer implements ExplorationService {
             @NonNull Set<String> seeds,
             @NonNull RelationConfig relationConfig,
             @NonNull ExplorationOptions opts) throws IOException {
+        if (seeds.size() < 2) {
+            throw new IllegalArgumentException(
+                "Multi-seed exploration requires at least 2 seeds; received " + seeds.size());
+        }
         return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts);
     }
 

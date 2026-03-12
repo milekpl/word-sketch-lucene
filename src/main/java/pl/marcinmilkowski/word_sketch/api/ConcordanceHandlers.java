@@ -8,7 +8,7 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationPatternUtils;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.CollocateQueryPort;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -23,10 +23,10 @@ class ConcordanceHandlers {
 
     private static final Logger logger = LoggerFactory.getLogger(ConcordanceHandlers.class);
 
-    private final QueryExecutor executor;
+    private final CollocateQueryPort executor;
     private final GrammarConfig grammarConfig;
 
-    ConcordanceHandlers(QueryExecutor executor, @NonNull GrammarConfig grammarConfig) {
+    ConcordanceHandlers(CollocateQueryPort executor, @NonNull GrammarConfig grammarConfig) {
         this.executor = executor;
         this.grammarConfig = grammarConfig;
     }

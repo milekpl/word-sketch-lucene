@@ -53,11 +53,27 @@ class VisualizationHandlers {
      */
     void handleVisualRadial(HttpExchange exchange) throws IOException {
         ObjectNode obj = HttpApiUtils.readJsonBody(exchange);
+
         String center = obj.path("center").textValue();
-        if (center == null) center = "";
+        if (center == null || center.isBlank()) {
+            throw new IllegalArgumentException("Missing required field: 'center'");
+        }
+        if (center.length() > HttpApiUtils.MAX_PARAM_LENGTH) {
+            throw new IllegalArgumentException(
+                "Field 'center' exceeds maximum length of " + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
+        }
         logger.debug("Radial: center = {}", center);
+
         int width = obj.path("width").asInt(840);
+        if (width < 1 || width > 5000) {
+            throw new IllegalArgumentException(
+                "Field 'width' must be between 1 and 5000, got: " + width);
+        }
         int height = obj.path("height").asInt(520);
+        if (height < 1 || height > 5000) {
+            throw new IllegalArgumentException(
+                "Field 'height' must be between 1 and 5000, got: " + height);
+        }
 
         JsonNode itemsNode = obj.get("items");
         List<RadialPlot.Item> items = new ArrayList<>();
@@ -71,6 +87,11 @@ class VisualizationHandlers {
                         "items array contains non-object element at index " + i);
                 }
                 String label = it.path("label").textValue();
+                if (label != null && label.length() > HttpApiUtils.MAX_PARAM_LENGTH) {
+                    throw new IllegalArgumentException(
+                        "items[" + i + "].label exceeds maximum length of "
+                        + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
+                }
                 double score = it.path("score").asDouble();
                 items.add(new RadialPlot.Item(label, score));
             }

@@ -73,15 +73,29 @@ final class HttpApiUtils {
     private HttpApiUtils() {}
 
     /**
+     * Emits a one-time startup warning when the {@code cors.allow.origin} system property is set
+     * to {@code *}. Call this once during server startup, before the first request is accepted,
+     * so operators are alerted before any traffic is served.
+     *
+     * <p>A hard rejection is intentionally avoided: this is an internal research tool that may
+     * legitimately run with wildcard CORS in a controlled environment. The warning ensures
+     * operators are aware without breaking valid deployments.</p>
+     */
+    static void warnIfWildcardCors() {
+        String origin = System.getProperty("cors.allow.origin", DEFAULT_CORS_ALLOW_ORIGIN);
+        if ("*".equals(origin)) {
+            logger.warn("CORS allow-origin is set to '*' — all origins permitted. "
+                    + "Set -Dcors.allow.origin=https://your-app.example.com in production.");
+        }
+    }
+
+    /**
      * Sets the {@code Access-Control-Allow-Origin} response header, reading {@code cors.allow.origin}
      * from the JVM system property at call time so per-test overrides take effect immediately.
      * Called by every response-sending method to ensure consistent CORS behaviour.
      */
     private static void setCorsHeader(HttpExchange exchange) {
         String origin = System.getProperty("cors.allow.origin", DEFAULT_CORS_ALLOW_ORIGIN);
-        if ("*".equals(origin)) {
-            logger.warn("cors.allow.origin is set to '*' — this widens the browser trust boundary across all endpoints");
-        }
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
     }
 

@@ -113,6 +113,7 @@ public class WordSketchApiServer {
         }
         registerRoutes();
         server.setExecutor(null);
+        HttpApiUtils.warnIfWildcardCors();
         server.start();
         logger.info("API server started on port {} — see class Javadoc for endpoint listing", port);
         logger.info("Press Ctrl+C to stop.");

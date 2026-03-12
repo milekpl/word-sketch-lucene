@@ -314,18 +314,6 @@ final class ExploreResponseAssembler {
     }
 
     /**
-     * Serialises a {@link CollocateResult} to the compact "examples" projection:
-     * {@code sentence} and {@code raw} only. Use this when the caller needs concordance context
-     * but not scoring metadata (e.g., the concordance-examples endpoint).
-     */
-    static @NonNull Map<String, Object> collocateResultToExampleMap(CollocateResult r) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("sentence", r.sentence());
-        m.put("raw", r.rawXml() != null ? r.rawXml() : "");
-        return m;
-    }
-
-    /**
      * Converts a {@link CollocateResult} to a typed {@link ExamplesResponse.ExampleEntry}.
      */
     static ExamplesResponse.ExampleEntry collocateResultToExampleEntry(CollocateResult r) {

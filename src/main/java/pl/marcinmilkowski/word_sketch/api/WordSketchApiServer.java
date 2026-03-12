@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
-import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
+import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 
 import java.io.IOException;
 import java.net.InetAddress;

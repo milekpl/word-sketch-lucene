@@ -78,7 +78,7 @@ public interface QueryExecutor extends CollocateQueryPort, Closeable {
      * and the headword lemma is extracted from the pattern's {@code lemma=} attribute.
      *
      * <p>The headword lemma must be embedded in {@code bcqlPattern} (typically by the caller via
-     * {@link pl.marcinmilkowski.word_sketch.utils.RelationPatternUtils#buildFullPattern}).
+     * {@link pl.marcinmilkowski.word_sketch.config.RelationPatternUtils#buildFullPattern}).
      * It is extracted internally to look up the head-word's total corpus frequency for logDice
      * scoring, keeping the interface free of redundant parameters.
      *

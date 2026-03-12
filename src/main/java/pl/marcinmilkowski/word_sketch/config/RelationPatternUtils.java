@@ -92,8 +92,7 @@ public final class RelationPatternUtils {
         String pat = pattern.toLowerCase(Locale.ROOT);
         String target = extractLabelContent(pat, 2);
         if (target == null) target = pat;
-        PosGroup result = resolvePosGroupFromPrefix(target, "xpos=");
-        return result != null ? result : PosGroup.OTHER;
+        return resolvePosGroupFromPrefix(target, "xpos=");
     }
 
     /** Extract the bracket content of the nth labeled position (e.g. "2:[...]"). */
@@ -110,7 +109,7 @@ public final class RelationPatternUtils {
         return null;
     }
 
-    private static @Nullable PosGroup resolvePosGroupFromPrefix(String s, String attr) {
+    private static PosGroup resolvePosGroupFromPrefix(String s, String attr) {
         String q = attr + "\"";
         if (s.contains(q + "jj")) return PosGroup.ADJ;
         if (s.contains(q + "vb")) return PosGroup.VERB;
@@ -118,6 +117,6 @@ public final class RelationPatternUtils {
         if (s.contains(q + "rb")) return PosGroup.ADV;
         if (s.contains(q + "in")) return PosGroup.OTHER;
         if (s.contains(q + "rp") || s.contains(q + "to")) return PosGroup.OTHER;
-        return null;
+        return PosGroup.OTHER;
     }
 }

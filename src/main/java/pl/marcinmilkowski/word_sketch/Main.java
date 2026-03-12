@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.api.WordSketchApiServer;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
-import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
+import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.indexer.blacklab.BlackLabConllUIndexer;
 import pl.marcinmilkowski.word_sketch.indexer.blacklab.ConlluConverter;

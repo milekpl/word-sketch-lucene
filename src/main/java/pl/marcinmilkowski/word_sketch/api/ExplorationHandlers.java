@@ -13,8 +13,10 @@ import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
-import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
+import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 import pl.marcinmilkowski.word_sketch.model.exploration.Seeds;
+
+import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 
 import java.util.Objects;
 
@@ -82,9 +84,10 @@ class ExplorationHandlers {
 
         ExplorationResult result = semanticFieldExplorer.exploreByRelation(seed, resolvedConfig, opts);
 
-        Map<String, Object> response = buildSingleSeedResponseEnvelope(
-            resolvedConfig.id(), commonParams, nounsPerSeed, result.seed());
-        ExploreResponseAssembler.populateExploreResponse(response, result);
+        ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
+                result, resolvedConfig.id(),
+                commonParams.topCollocates(), commonParams.minShared(), commonParams.minLogDice(),
+                nounsPerSeed);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -120,10 +123,9 @@ class ExplorationHandlers {
             commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
         ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
 
-        Map<String, Object> response = buildMultiSeedResponseEnvelope(
-            resolvedConfig.id(), commonParams, result.seeds());
-
-        ExploreResponseAssembler.populateExploreResponse(response, result);
+        ExploreResponse response = ExploreResponseAssembler.buildMultiSeedExploreResponse(
+                result, resolvedConfig.id(),
+                commonParams.topCollocates(), commonParams.minShared(), commonParams.minLogDice());
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -199,26 +201,12 @@ class ExplorationHandlers {
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
-    /** Holds the response map and the nested parameters sub-map returned by {@link #buildBaseResponseEnvelope}. */
-    private record BaseEnvelope(Map<String, Object> response, Map<String, Object> paramsUsed) {}
-
-    /**
-     * Builds the response envelope for single-seed exploration ({@code /api/semantic-field/explore}).
-     *
-     * <p>Puts {@code nouns_per} inside the {@code parameters} sub-map and {@code seed} at the
-     * top level of the response envelope.</p>
-     */
-    private Map<String, Object> buildSingleSeedResponseEnvelope(
-            String relationType, SharedExploreParams params, int nounsPerSeed, String seed) {
-        BaseEnvelope base = buildBaseResponseEnvelope(relationType, params);
-        base.paramsUsed().put("nouns_per", nounsPerSeed);
-        base.response().put("seed", seed);
-        return base.response();
-    }
+    /** Holds the pre-populated response map returned by {@link #buildBaseResponseEnvelope}. */
+    private record BaseEnvelope(Map<String, Object> response) {}
 
     /**
      * Builds the response envelope for multi-seed exploration and comparison endpoints
-     * ({@code /api/semantic-field/explore-multi} and {@code /api/semantic-field/compare}).
+     * ({@code /api/semantic-field/compare}).
      *
      * <p>Puts {@code seeds} and {@code seed_count} at the top level of the response envelope.</p>
      */
@@ -231,7 +219,7 @@ class ExplorationHandlers {
     }
 
     /**
-     * Builds the common skeleton shared by all explore response envelopes: {@code status "ok"}
+     * Builds the common skeleton shared by comparison response envelopes: {@code status "ok"}
      * and the {@code parameters} sub-map ({@code relation}, {@code top}, {@code min_shared},
      * {@code min_logdice}).  Caller adds any variant fields on top.
      */
@@ -245,8 +233,7 @@ class ExplorationHandlers {
         paramsUsed.put("min_shared", params.minShared());
         paramsUsed.put("min_logdice", params.minLogDice());
         response.put("parameters", paramsUsed);
-
-        return new BaseEnvelope(response, paramsUsed);
+        return new BaseEnvelope(response);
     }
 
     /** Parses a comma-separated seeds parameter into a cleaned, lowercased ordered set. */

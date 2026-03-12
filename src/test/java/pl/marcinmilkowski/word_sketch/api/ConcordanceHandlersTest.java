@@ -50,7 +50,7 @@ class ConcordanceHandlersTest {
         handlers.handleConcordanceExamples(ex);
         assertEquals(200, ex.statusCode);
         assertEquals(1, callCount.get(), "executeBcqlQuery must be called exactly once per request");
-        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertEquals(capturedPattern[0], body.path("bcql").asText(),
                 "Response bcql must match the pattern that was passed to the executor");
     }
@@ -62,7 +62,7 @@ class ConcordanceHandlersTest {
                 "http://localhost/api/concordance/examples?seed=house&collocate=big&relation=noun_adj_predicates");
         handlers.handleConcordanceExamples(ex);
         assertEquals(200, ex.statusCode);
-        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertEquals("ok", body.path("status").asText());
         assertEquals("house", body.path("seed").asText());
         assertEquals("big", body.path("collocate").asText());

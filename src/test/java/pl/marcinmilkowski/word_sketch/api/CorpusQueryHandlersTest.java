@@ -40,7 +40,7 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"[lemma=\\\"theory\\\"]\", \"top\": 5}");
         handlersWithStub().handleCorpusQuery(ex);
         assertEquals(200, ex.statusCode);
-        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertEquals("ok", body.path("status").asText());
         assertTrue(body.has("results"), "Response must contain 'results' key");
     }
@@ -58,7 +58,7 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("not-json");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
-        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertNotNull(body.path("error").asText(), "Error field must be present");
     }
 
@@ -67,7 +67,7 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"top\": 10}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
-        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertTrue(body.path("error").asText().contains("query"), "Error should mention 'query'");
     }
 
@@ -85,7 +85,7 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"" + deepPattern + "\"}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
-        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertTrue(body.path("error").asText().contains("complex"), "Error should mention pattern complexity");
     }
 }

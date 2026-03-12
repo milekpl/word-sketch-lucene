@@ -19,7 +19,10 @@ final class HttpApiUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
 
-    static final ObjectMapper MAPPER = JsonUtils.mapper();
+    private static final ObjectMapper MAPPER = JsonUtils.mapper();
+
+    /** Returns the shared Jackson {@link ObjectMapper}. Exposed for tests that need to parse response bodies. */
+    static ObjectMapper mapper() { return MAPPER; }
 
     /**
      * Default allowed CORS origin (used when the {@code cors.allow.origin} system property

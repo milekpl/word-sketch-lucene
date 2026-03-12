@@ -31,7 +31,6 @@ import pl.marcinmilkowski.word_sketch.utils.LogDiceUtils;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 
-import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
@@ -54,38 +53,26 @@ class CollocateQueryHelper {
     /** Over-fetch factor: request 3x as many hits as needed to compensate for scoring discards. */
     private static final int OVER_FETCH_FACTOR = 3;
 
-    private final @Nullable BlackLabIndex index;
+    private final BlackLabIndex index;
 
     /**
      * Creates a helper bound to the given BlackLab index.
-     * All production callers must supply a non-null index.
      *
-     * @param index the BlackLab index to query
+     * @param index the BlackLab index to query; must not be null
      */
-    CollocateQueryHelper(@NonNull BlackLabIndex index) {
+    CollocateQueryHelper(BlackLabIndex index) {
+        if (index == null) throw new NullPointerException("index");
         this.index = index;
     }
 
     /**
      * No-index constructor for test subclasses that override all I/O methods
-     * ({@link #getTotalFrequency} and {@link #executeCollocateSearchWithContent}).
-     * Not for production use.
+     * ({@link #getTotalFrequency} and {@link #performCollocateSearch}).
+     * Not for production use — index is never accessed when all I/O methods are overridden.
      */
+    @SuppressWarnings("NullAway")
     protected CollocateQueryHelper() {
         this.index = null;
-    }
-
-    /**
-     * Returns the index, throwing {@link IllegalStateException} when called via the
-     * test-seam (no-index) constructor. All production methods must use this accessor
-     * rather than the raw field to surface misconfiguration early.
-     */
-    private BlackLabIndex requireIndex() {
-        if (index == null) {
-            throw new IllegalStateException(
-                    "index is null — use the production constructor CollocateQueryHelper(BlackLabIndex)");
-        }
-        return index;
     }
 
     // -------------------------------------------------------------------------
@@ -100,7 +87,7 @@ class CollocateQueryHelper {
      */
     long getTotalFrequency(String lemma) throws IOException {
         try {
-            BlackLabIndex idx = requireIndex();
+            BlackLabIndex idx = this.index;
             AnnotatedField field = idx.mainAnnotatedField();
             Annotation annotation = field.annotation("lemma");
             if (annotation == null) {
@@ -149,7 +136,7 @@ class CollocateQueryHelper {
     private CollocateSearch performCollocateSearch(String lemma, String bcqlPattern, boolean withStoredHits)
             throws IOException {
         try {
-            BlackLabIndex idx = requireIndex();
+            BlackLabIndex idx = this.index;
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));
@@ -237,7 +224,7 @@ class CollocateQueryHelper {
     List<CollocateResult> executeBcqlQuery(String bcqlPattern, int maxResults)
             throws IOException {
         try {
-            BlackLabIndex idx = requireIndex();
+            BlackLabIndex idx = this.index;
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));
@@ -339,10 +326,6 @@ class CollocateQueryHelper {
 
             String key = collocateLemma.toLowerCase();
             long jointFreq = collocateFreqMap.getOrDefault(key, 0L);
-            if (jointFreq == 0L) {
-                // Trace-level: this fires once per hit in a hot loop; debug would flood logs.
-                logger.trace("No joint frequency found for collocate '{}' — logDice will be 0", collocateLemma);
-            }
             long collocateFreq = collocateCorpusFreqs.getOrDefault(key, 0L);
 
             double logDice = (headwordFreq > 0 && collocateFreq > 0)

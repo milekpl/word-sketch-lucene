@@ -8,6 +8,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
+import pl.marcinmilkowski.word_sketch.api.model.SeedCollocateEntry;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.utils.MathUtils;
@@ -67,10 +69,143 @@ final class ExploreResponseAssembler {
     }
 
     /**
+     * Builds a fully-typed {@link ExploreResponse} for the single-seed explore endpoint
+     * ({@code GET /api/semantic-field/explore}).
+     *
+     * <p>The returned record carries the complete response body including the envelope fields
+     * ({@code status}, {@code seed}, {@code parameters}) and the payload fields
+     * ({@code seed_collocates}, {@code discovered_nouns}, {@code core_collocates},
+     * {@code edges} and their count companions).</p>
+     *
+     * @param result        exploration result from the service layer
+     * @param relationType  resolved relation identifier (e.g. {@code "adj_predicate"})
+     * @param top           maximum number of collocates requested
+     * @param minShared     minimum shared-by count filter applied
+     * @param minLogDice    minimum logDice threshold applied
+     * @param nounsPerSeed  maximum discovered nouns per seed
+     * @return typed response ready for JSON serialisation
+     */
+    static @NonNull ExploreResponse buildSingleSeedExploreResponse(
+            @NonNull ExplorationResult result,
+            @NonNull String relationType,
+            int top, int minShared, double minLogDice, int nounsPerSeed) {
+        ExploreResponse.Parameters params = new ExploreResponse.Parameters(
+                relationType, top, minShared, minLogDice, nounsPerSeed);
+        return buildExplorePayload(result, result.seed(), null, null, params);
+    }
+
+    /**
+     * Builds a fully-typed {@link ExploreResponse} for the multi-seed explore endpoint
+     * ({@code GET /api/semantic-field/explore-multi}).
+     *
+     * <p>The {@code seeds} / {@code seed_count} envelope fields are set and {@code seed} is
+     * absent; the {@code nouns_per} parameter field is absent because multi-seed exploration
+     * does not support it.</p>
+     *
+     * @param result       exploration result from the service layer
+     * @param relationType resolved relation identifier
+     * @param top          maximum number of collocates requested
+     * @param minShared    minimum shared-by count filter applied
+     * @param minLogDice   minimum logDice threshold applied
+     * @return typed response ready for JSON serialisation
+     */
+    static @NonNull ExploreResponse buildMultiSeedExploreResponse(
+            @NonNull ExplorationResult result,
+            @NonNull String relationType,
+            int top, int minShared, double minLogDice) {
+        List<String> seeds = result.seeds();
+        ExploreResponse.Parameters params = new ExploreResponse.Parameters(
+                relationType, top, minShared, minLogDice, null);
+        return buildExplorePayload(result, null, seeds, seeds.size(), params);
+    }
+
+    /** Shared payload builder used by both single- and multi-seed factory methods. */
+    private static ExploreResponse buildExplorePayload(
+            @NonNull ExplorationResult result,
+            @Nullable String seed,
+            @Nullable List<String> seeds,
+            @Nullable Integer seedCount,
+            ExploreResponse.Parameters parameters) {
+
+        List<SeedCollocateEntry> seedCollocs = buildSeedCollocateEntries(result);
+        List<ExploreResponse.DiscoveredNounEntry> nouns = buildDiscoveredNounEntries(result);
+        List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
+        List<ExploreResponse.EdgeEntry> edges = buildEdgeEntries(result);
+
+        return new ExploreResponse(
+                "ok", seed, seeds, seedCount, parameters,
+                seedCollocs, seedCollocs.size(),
+                nouns, nouns.size(),
+                core, core.size(),
+                edges, edges.size());
+    }
+
+    // -------------------------------------------------------------------------
+    // Typed entry builders (used by the factory methods above)
+    // -------------------------------------------------------------------------
+
+    private static @NonNull List<SeedCollocateEntry> buildSeedCollocateEntries(
+            @NonNull ExplorationResult result) {
+        List<SeedCollocateEntry> entries = new ArrayList<>();
+        for (Map.Entry<String, Double> e : result.seedCollocates().entrySet()) {
+            long freq = result.seedCollocateFrequencies().getOrDefault(e.getKey(), 0L);
+            entries.add(new SeedCollocateEntry(e.getKey(), MathUtils.round2dp(e.getValue()), freq));
+        }
+        return entries;
+    }
+
+    private static @NonNull List<ExploreResponse.DiscoveredNounEntry> buildDiscoveredNounEntries(
+            @NonNull ExplorationResult result) {
+        List<ExploreResponse.DiscoveredNounEntry> entries = new ArrayList<>();
+        for (DiscoveredNoun n : result.discoveredNouns()) {
+            entries.add(new ExploreResponse.DiscoveredNounEntry(
+                    n.noun(),
+                    n.sharedCount(),
+                    MathUtils.round2dp(n.combinedRelevanceScore()),
+                    MathUtils.round2dp(n.avgLogDice()),
+                    n.sharedCollocateList()));
+        }
+        return entries;
+    }
+
+    private static @NonNull List<ExploreResponse.CoreCollocateEntry> buildCoreCollocateEntries(
+            @NonNull ExplorationResult result) {
+        List<ExploreResponse.CoreCollocateEntry> entries = new ArrayList<>();
+        for (CoreCollocate c : result.coreCollocates()) {
+            entries.add(new ExploreResponse.CoreCollocateEntry(
+                    c.collocate(),
+                    c.sharedByCount(),
+                    c.totalNouns(),
+                    MathUtils.round2dp(c.coverage()),
+                    MathUtils.round2dp(c.seedLogDice())));
+        }
+        return entries;
+    }
+
+    private static @NonNull List<ExploreResponse.EdgeEntry> buildEdgeEntries(
+            @NonNull ExplorationResult result) {
+        return buildExplorationEdges(result).stream()
+                .map(e -> new ExploreResponse.EdgeEntry(
+                        e.source(), e.target(),
+                        MathUtils.round2dp(e.weight()),
+                        e.type().label()))
+                .toList();
+    }
+
+    // -------------------------------------------------------------------------
+    // Legacy Map-based helper kept for tests and internal callers that still
+    // use the Map-based populateExploreResponse path.
+    // -------------------------------------------------------------------------
+
+    /**
      * Populates {@code response} with all exploration result fields:
      * {@code seed_collocates}, {@code discovered_nouns}, {@code core_collocates}, and {@code edges}.
-     * Centralises response assembly so HTTP handler classes only handle HTTP concerns.
+     *
+     * @deprecated Prefer {@link #buildSingleSeedExploreResponse} or
+     *             {@link #buildMultiSeedExploreResponse} which return a typed
+     *             {@link ExploreResponse} record instead of mutating a raw map.
      */
+    @Deprecated
     static void populateExploreResponse(@NonNull Map<String, Object> response, @NonNull ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = formatSeedCollocates(result);
         response.put("seed_collocates", seedCollocs);
@@ -168,7 +303,7 @@ final class ExploreResponseAssembler {
      * {@link #populateExploreResponse}.</p>
      */
     static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result) {
-        java.util.List<Map<String, Object>> collocates = new java.util.ArrayList<>();
+        List<Map<String, Object>> collocates = new ArrayList<>();
         for (CollocateProfile collocate : result.collocates()) {
             collocates.add(collocateProfileToMap(collocate));
         }

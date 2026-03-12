@@ -1,7 +1,7 @@
 package pl.marcinmilkowski.word_sketch.model.exploration;
 
 /**
- * Options for {@link pl.marcinmilkowski.word_sketch.exploration.ExplorationService#fetchExamples}.
+ * Options for {@link pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService#fetchExamples}.
  *
  * <p>Matches the options-record convention used by sibling methods:
  * {@link ExplorationOptions} (multi-seed / comparison) and

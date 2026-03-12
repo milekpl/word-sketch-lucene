@@ -1,0 +1,101 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 11,
+  "assessments": {"api_surface_coherence": 72.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "Handler classes are separated by concern: SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers — each owns a distinct endpoint group with no overlap.",
+        "HttpApiUtils.wrapWithErrorHandling provides a uniform error contract: IllegalArgumentException -> 400, RequestEntityTooLargeException -> 413, IOException -> 500, RuntimeException -> 500 — applied consistently across every endpoint via method reference.",
+        "Parameter names 'seed' and 'collocate' are used consistently across sibling endpoints /api/semantic-field/examples and /api/concordance/examples, as explicitly noted in the Javadoc ('Parameter names seed and collocate mirror those used by the sibling /api/concordance/examples endpoint').",
+        "ExplorationService interface has 4 methods with @NonNull-annotated parameters, clear semantic separation between single-seed, multi-seed, comparison, and examples modes.",
+        "QueryExecutor defines 4 closely-named abstract methods: executeCollocations, executeCqlQuery, executeBcqlQuery, executeSurfacePattern. The differences (CQL vs BCQL parser, labeled positions, logDice scoring, headword extraction) require multi-paragraph Javadoc to distinguish and are not encoded in the type system — a developer must read all four comments to choose the right method.",
+        "ExplorationService.fetchExamples signature is (collocate, seed, relationConfig, opts) — collocate is listed before seed. All other service methods use seed-first ordering: exploreByPattern(seed, relationConfig, opts), exploreMultiSeed(seeds, relationConfig, opts). The URL parameter convention also uses seed first (?seed=theory&collocate=good). The inversion is a silent trap when reading or implementing the interface.",
+        "The /api/semantic-field/compare endpoint is cross-relational and does not accept a 'relation' parameter, while its sibling /api/semantic-field/explore-multi requires one. The asymmetry is documented in the handler Javadoc but not surfaced in the WordSketchApiServer endpoint listing at the top of the class, making it invisible at first glance.",
+        "WordSketchApiServer exposes two constructors: a convenience constructor (executor, port, grammarConfig) and a full injection constructor (executor, semanticFieldExplorer, port, grammarConfig). Parameter order is consistent between the two."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Handlers are split by responsibility into five classes with no cross-handler overlap, giving a clean module boundary per endpoint group.",
+        "HttpApiUtils.wrapWithErrorHandling establishes a uniform, documented error contract applied consistently to every registered endpoint via method reference.",
+        "Parameter names 'seed' and 'collocate' are used uniformly across all exploration and concordance endpoints, with the vocabulary deliberately documented in handler Javadoc.",
+        "ExplorationService is a small, well-documented interface (4 methods) with consistent @NonNull contracts, making it easy to implement for testing.",
+        "WordSketchApiServer defers port binding to start(), clearly separating construction from network side-effects — a well-shaped public construction contract."
+      ],
+      "issue_character": "Issues are localized rather than systemic: one parameter-order inversion on a single interface method (fetchExamples), one wide interface requiring Javadoc study to navigate (QueryExecutor's 4 execute variants), and one undocumented asymmetry in endpoint parameter acceptance (compare vs explore-multi).",
+      "score_rationale": "The codebase shows genuine care for API surface coherence: consistent parameter vocabulary, uniform error handling, clean handler decomposition, and small focused interfaces. What pulls the score down are two localized but real problems — the fetchExamples(collocate, seed) parameter order is inverted relative to every convention in the codebase (URL order, sibling method order), creating a silent correctness trap; and QueryExecutor's four closely-named execute methods require significant Javadoc study to distinguish safely. Neither is a systemic structural flaw, placing this squarely in the 'solid but uneven' range rather than 'significant drag'."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "fetch_examples_param_order",
+      "summary": "ExplorationService.fetchExamples puts collocate before seed, inverting the convention used by every other method and by the URL parameter order",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationService.fetchExamples signature: fetchExamples(@NonNull String collocate, @NonNull String seed, @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)",
+        "All other ExplorationService methods are seed-first: exploreByPattern(seed, relationConfig, opts), exploreMultiSeed(seeds, relationConfig, opts)",
+        "URL convention uses seed-first: GET /api/semantic-field/examples?seed=theory&collocate=good",
+        "Caller in ExplorationHandlers line 194: semanticFieldExplorer.fetchExamples(collocate, seed, resolvedConfig, ...) — the two String arguments are in reversed position relative to what is natural from reading the parameter names"
+      ],
+      "suggestion": "Reorder the fetchExamples signature to (seed, collocate, relationConfig, opts) to match all sibling methods and the URL parameter convention. Update the single call site in ExplorationHandlers and the implementation in SemanticFieldExplorer accordingly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "query_executor_wide_execute_surface",
+      "summary": "QueryExecutor exposes four closely-named execute methods whose differences are encoded only in Javadoc, not in the type system",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "Interface defines: executeCollocations(lemma, cqlPattern, minLogDice, maxResults), executeCqlQuery(cqlPattern, maxResults), executeBcqlQuery(bcqlPattern, maxResults), executeSurfacePattern(bcqlPattern, minLogDice, maxResults)",
+        "The distinction between CQL and BCQL parsers, labeled-position support, logDice ranking, and headword extraction are all explained in Javadoc but not expressed as separate types or ports",
+        "The interface Javadoc itself acknowledges: 'This interface intentionally combines surface-pattern, collocate, and dependency query methods in one type' and flags a future split as 'feasible but deferred'",
+        "executeSurfacePattern and executeCollocations both return List<WordSketchResult> with similar parameters but different semantics (labeled positions vs unlabeled, headword extraction vs explicit lemma)"
+      ],
+      "suggestion": "Consider splitting into two narrower interfaces (e.g. CollocateQueryPort for executeCollocations/executeCqlQuery/executeBcqlQuery and SketchQueryPort for executeSurfacePattern/executeDependencyPattern) now that the deferred condition ('second implementation or clearer isolation need') is partially met by the test seam already in CollocateQueryHelper. Alternatively, introduce marker types (CqlPattern vs BcqlPattern value objects) so callers cannot accidentally pass a CQL string to a BCQL method.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "compare_endpoint_undocumented_relation_asymmetry",
+      "summary": "/api/semantic-field/compare silently ignores the 'relation' parameter that is required by sibling explore endpoints, with no mention in the server-level endpoint listing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer Javadoc lists endpoints but does not annotate that /api/semantic-field/compare does not accept 'relation'",
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc notes: 'This endpoint does not accept a relation parameter because CollocateProfileComparator aggregates collocates across all loaded relations' — but this is only visible by reading the handler source",
+        "A developer consuming explore-multi with ?relation=adj_predicate would naturally pass the same param to compare and receive unexpected results (the parameter is silently ignored rather than rejected with 400)"
+      ],
+      "suggestion": "Add an explicit guard in handleSemanticFieldComparison that throws IllegalArgumentException (mapped to 400) when 'relation' is present, matching the pattern used in handleSemanticFieldExploreMulti for 'nouns_per'. Also add a note to the WordSketchApiServer endpoint listing comment for /api/semantic-field/compare.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "fetchExamples parameter inversion likely introduced when the method was added with a collocate-centric mental model (collocate is the primary lookup key in the implementation), diverging from the URL-facing seed-centric model used everywhere else.",
+      "QueryExecutor breadth is a conscious deferral decision documented in the interface Javadoc; it is not an oversight but an acknowledged design trade-off that has not yet been revisited."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

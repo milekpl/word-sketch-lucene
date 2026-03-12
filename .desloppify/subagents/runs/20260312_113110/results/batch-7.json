@@ -1,0 +1,96 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 7,
+  "assessments": {"logic_clarity": 76.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "ConcordanceHandlers.handleConcordanceExamples computes `boolean fallback = rel.isEmpty()` and the Javadoc states 'the response includes a `fallback: true` field to signal this to callers', but `response.put(\"fallback\", fallback)` is never called — the computed variable goes unused and callers cannot detect the fallback mode",
+        "SemanticFieldExplorer.fetchExamples calls executor.executeBcqlQuery(bcqlQuery, opts.maxExamples()) to fetch exactly maxExamples results, then immediately deduplicates them and breaks when deduped.size() == opts.maxExamples() — if duplicates exist the method silently returns fewer than maxExamples without over-fetching to compensate, contradicting the `top` parameter semantics",
+        "SketchHandlers.routeSketchRequest assigns `specificDeprel = parts.length > 2 ? parts[2] : null` then immediately tests `if (specificDeprel != null)` — the null check is an indirect proxy for `parts.length > 2`, making the control flow slightly harder to read",
+        "CollocateQueryHelper.buildAndRankCollocates and scoreHits both guard logDice computation with `if (headwordFreq > 0 && collocateFreq > 0)` — the zero-guard is correct but the same pattern is repeated verbatim in two places, creating a subtle inconsistency risk",
+        "MultiSeedExplorer.identifyCommonCollocates uses Math.min(minShared, seedCount) to cap the threshold, which correctly prevents requiring more seeds than exist, but the capping is silent — a caller requesting minShared=5 with 3 seeds gets threshold=3 without any indication"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 0.0,
+        "indirection_cost": 0.0,
+        "interface_honesty": 0.0,
+        "delegation_density": 0.0,
+        "definition_directness": 0.0,
+        "type_discipline": 0.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses and early-return patterns are used consistently: executeDependencyPattern, executeSurfacePattern, and executeCollocations all return empty lists immediately on null/empty lemma with a log message, making the boundary behavior explicit",
+        "Two-phase pipeline algorithms (collectHits → scoreHits in CollocateQueryHelper, buildRawCollocateProfiles → buildCollocateProfileList in CollocateProfileComparator) separate I/O from pure computation, making data flow easy to follow",
+        "Null propagation through BlackLabSnippetParser is explicit — safeParts returns null on missing concordance, callers test for null before proceeding, with no silent swallowing",
+        "Switch expression in VisualizationHandlers.handleVisualRadial handles the null mode case explicitly, making the default path visible rather than hidden in a fallthrough"
+      ],
+      "issue_character": "Issues are isolated logical oversights — a variable computed but never surfaced in the response, an under-fetch/dedup mismatch, and a minor indirect condition — rather than systemic flaws; the core algorithmic control flow is correct throughout.",
+      "score_rationale": "The codebase largely delivers what it claims: algorithms are correctly structured, conditions are meaningful, and null handling is purposeful rather than cargo-culted. The `fallback` field omission is a concrete divergence between documented contract and implementation that will mislead API callers, and the fetchExamples under-fetch is a genuine semantic gap. These are not widespread but they do represent real logic failures, not just style issues, pulling the score below the 80-solid-but-uneven threshold. The absence of dead code, always-true conditions, or identical branches keeps it well above the 60-significant-drag range, landing at 76."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "concordance_fallback_not_emitted",
+      "summary": "ConcordanceHandlers computes `fallback` boolean but never adds it to the response, breaking documented contract",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"],
+      "evidence": [
+        "`boolean fallback = rel.isEmpty();` is computed at line 56",
+        "Javadoc explicitly states: 'the response includes a `fallback: true` field to signal this to callers'",
+        "No `response.put(\"fallback\", fallback)` call exists anywhere in the method — the variable is only used as a condition in `if (!fallback)` to choose execution path, but never serialised into the response map"
+      ],
+      "suggestion": "Add `response.put(\"fallback\", fallback);` to the response map before calling `sendJsonResponse`, so API consumers can detect when the proximity fallback pattern was used instead of the configured relation",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "fetch_examples_under_fetch_with_dedup",
+      "summary": "SemanticFieldExplorer.fetchExamples fetches exactly maxExamples results then deduplicates, silently returning fewer than requested when duplicates exist",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "`executor.executeBcqlQuery(bcqlQuery, opts.maxExamples())` fetches a hard-capped result set of size maxExamples",
+        "The subsequent deduplication loop may discard duplicate sentences, then breaks when `deduped.size() == opts.maxExamples()`",
+        "When duplicates exist the method returns fewer than maxExamples examples even if the corpus has more unique matches — there is no over-fetch to compensate for deduplication losses"
+      ],
+      "suggestion": "Fetch a multiple of maxExamples (e.g. `opts.maxExamples() * 3`) to compensate for deduplication, then cap the deduplicated result to maxExamples — mirroring the OVER_FETCH_FACTOR pattern already used in CollocateQueryHelper.executeBcqlQuery",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "indirect_null_check_for_array_length",
+      "summary": "SketchHandlers.routeSketchRequest uses a nullable ternary then null-checks it instead of testing the length condition directly",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "`String specificDeprel = parts.length > 2 ? parts[2] : null;`",
+        "`if (specificDeprel != null) { ... } else { ... }` is semantically equivalent to `if (parts.length > 2)`",
+        "The null variable adds an indirection step that obscures the real predicate being tested"
+      ],
+      "suggestion": "Replace with a direct length check: `if (parts.length > 2) { handleDependencyRelationQuery(exchange, lemma, parts[2]); } else { handleDepSketch(exchange, lemma); }` to make the routing condition explicit",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Documentation-code divergence: the fallback issue appears to be a feature that was designed and documented but not fully implemented in the response path",
+      "Over-fetch pattern exists in CollocateQueryHelper but was not applied in fetchExamples, suggesting the deduplication was added after the initial implementation without updating the fetch limit"
+    ],
+    "likely_symptoms": [
+      "concordance_fallback_not_emitted"
+    ],
+    "possible_false_positives": []
+  }
+}

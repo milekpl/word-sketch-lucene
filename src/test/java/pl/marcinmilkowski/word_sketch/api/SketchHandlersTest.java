@@ -66,7 +66,7 @@ class SketchHandlersTest {
         GrammarConfig config = GrammarConfigHelper.requireTestConfig();
         // Pick the first surface relation by ID (IDs are URL-safe)
         String firstRelationId = config.relations().stream()
-                .filter(r -> r.relationType() != null)
+                .filter(r -> r.relationType().isPresent())
                 .findFirst()
                 .map(pl.marcinmilkowski.word_sketch.config.RelationConfig::id)
                 .orElse("adj_predicate");

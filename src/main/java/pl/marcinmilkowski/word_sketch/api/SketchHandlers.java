@@ -5,7 +5,7 @@ import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.query.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 
@@ -81,13 +81,12 @@ class SketchHandlers {
     private void handleRelationsForType(HttpExchange exchange, RelationType relationType) throws IOException {
         List<Map<String, Object>> relationsArray = new ArrayList<>();
         for (var rel : grammarConfig.relations()) {
-            var rt = rel.relationType();
-            if (rt == relationType) {
+            if (rel.relationType().filter(rt -> rt == relationType).isPresent()) {
                 Map<String, Object> obj = new HashMap<>();
                 obj.put("id", rel.id());
                 obj.put("name", rel.name());
                 obj.put("description", rel.description());
-                obj.put("relation_type", rt.name());
+                obj.put("relation_type", relationType.name());
                 obj.put("pattern", rel.pattern());
                 if (relationType == RelationType.DEP) {
                     obj.put("deprel", rel.deriveDeprel());
@@ -162,7 +161,7 @@ class SketchHandlers {
             List<String> relationErrors,
             BiFunction<pl.marcinmilkowski.word_sketch.config.RelationConfig, ExecutedSketch, Map<String, Object>> builder) {
         for (var rel : grammarConfig.relations()) {
-            if (rel.relationType() != relationType) continue;
+            if (rel.relationType().orElse(null) != relationType) continue;
             if (!extraFilter.test(rel)) continue;
             try {
                 Optional<ExecutedSketch> sketchOpt = buildSketch(lemma, rel);
@@ -188,8 +187,8 @@ class SketchHandlers {
         if (rel == null) {
             throw new IllegalArgumentException("Unknown relation: " + relationId);
         }
-        if (rel.relationType() != relationType) {
-            String actualType = rel.relationType() != null ? rel.relationType().name() : "(none)";
+        if (rel.relationType().orElse(null) != relationType) {
+            String actualType = rel.relationType().map(RelationType::name).orElse("(none)");
             throw new IllegalArgumentException(
                 "Relation '" + relationId + "' has type " + actualType + "; expected " + relationType.name());
         }

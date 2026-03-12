@@ -1,0 +1,71 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 4,
+  "assessments": {"dependency_health": 82.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares only 6 production-scoped dependencies: blacklab-engine, blacklab-query-parser, jackson-databind, jackson-core, slf4j-api+logback-classic, jspecify",
+        "HTTP server uses JDK built-in com.sun.net.httpserver — no Jetty/Undertow/Netty dependency added",
+        "jackson-core is explicitly pinned at ${jackson.version} with a comment explaining it prevents a transitive older-version resolution",
+        "blacklab-query-parser is genuinely used: ContextualQueryLanguageParser.parse() called in BlackLabQueryExecutor.java:111",
+        "jspecify is an annotation-only library (no runtime overhead) used consistently for @NonNull/@Nullable across 15+ files",
+        "UFAL Maven repository (https://ufal.mff.cuni.cz/maven2) is declared in pom.xml but no UDPipe dependency exists and no ufal/udpipe imports appear anywhere in source",
+        "BlackLab 4.0.0 is not published to Maven Central; the project requires a manual install-blacklab.sh pre-step, and a fallback profile uses a GitHub raw-content URL with no SLA guarantee"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Exceptionally lean production dependency set: only 6 runtime deps for a corpus analysis server, with zero redundant libraries (single JSON lib, single logging facade, JDK built-in HTTP server)",
+        "jackson-core is explicitly pinned to match jackson-databind with a clarifying comment, showing deliberate version conflict management",
+        "blacklab-query-parser dependency is fully justified — ContextualQueryLanguageParser is actively used in the query path, not a dead import",
+        "jspecify chosen over heavier alternatives (e.g. Guava's @Nullable) — zero transitive baggage for nullability annotations"
+      ],
+      "issue_character": "Issues are isolated configuration noise rather than structural dependency problems: one dead repository declaration and one non-standard distribution channel for a core library.",
+      "score_rationale": "The codebase demonstrates strong dependency discipline: a minimal, purposeful set of libraries each earning their weight, no duplication, and proactive version-conflict management. Two issues modestly reduce the score — the UFAL repository is declared but serves no current dependency (dead config), and BlackLab 4.0.0's absence from Maven Central introduces fragility via a GitHub raw-URL fallback profile. Neither issue creates a runtime problem today, but the distribution channel fragility is a real supply-chain risk. This puts the codebase solidly above the 80 'solid but uneven' anchor, without quite reaching exemplary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "dead_ufal_repo",
+      "summary": "UFAL Maven repository declared but no corresponding dependency exists",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "pom.xml declares <repository> with id='ufal' pointing to https://ufal.mff.cuni.cz/maven2, described as 'UFAL Repository for UDPipe'",
+        "No UDPipe artifact appears in <dependencies>; no ufal or udpipe imports exist anywhere in src/main/java/"
+      ],
+      "suggestion": "Remove the 'ufal' repository block from pom.xml. If UDPipe support is planned, add both the repository and the dependency together in the same commit to keep configuration consistent.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab_no_central",
+      "summary": "Core dependency BlackLab 4.0.0 is not on Maven Central, requiring a fragile manual install or a no-SLA GitHub raw-URL fallback",
+      "related_files": ["pom.xml", "install-blacklab.sh"],
+      "evidence": [
+        "pom.xml comment: 'BlackLab 4.x is NOT published to Maven Central (latest on Central is 3.0.1). REQUIRED FIRST STEP: run ./install-blacklab.sh'",
+        "Profile 'blacklab-github-fallback' uses url='https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/' with checksumPolicy=warn and a comment noting 'no SLA and may become unavailable'"
+      ],
+      "suggestion": "Mirror the BlackLab JARs to a private registry (Nexus, Artifactory, or GitHub Packages) under the project's control, and replace both the install script and the GitHub raw fallback with a stable, version-pinned registry URL. This eliminates the manual bootstrap step and the single-point-of-failure GitHub URL.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The UFAL repository was likely added in anticipation of UDPipe integration that never landed, leaving dead configuration behind",
+      "BlackLab 4.x being unavailable on Maven Central is an upstream publishing gap, not a project authoring mistake — the workaround is reasonable but introduces supply-chain risk"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

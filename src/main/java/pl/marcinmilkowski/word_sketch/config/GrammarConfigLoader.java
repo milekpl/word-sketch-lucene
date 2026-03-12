@@ -8,7 +8,8 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.utils.RelationPatternUtils;
+import pl.marcinmilkowski.word_sketch.query.RelationType;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -19,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Loads grammar configuration from JSON and produces {@link GrammarConfig} value objects.
@@ -140,7 +142,12 @@ public final class GrammarConfigLoader {
             throw new IllegalArgumentException("Config error: Missing or empty 'relations' array in grammar config");
         }
         for (int i = 0; i < relationsNode.size(); i++) {
-            RelationConfig config = parseRelation((ObjectNode) relationsNode.get(i), i);
+            JsonNode node = relationsNode.get(i);
+            if (!(node instanceof ObjectNode relObj)) {
+                logger.warn("Skipping relation at index {}: expected object, got {}", i, node.getNodeType());
+                continue;
+            }
+            RelationConfig config = parseRelation(relObj, i);
             if (loadedRelationsById.containsKey(config.id())) {
                 throw new IllegalArgumentException("Config error: Duplicate relation id: " + config.id());
             }
@@ -150,10 +157,6 @@ public final class GrammarConfigLoader {
     }
 
     private static RelationConfig parseRelation(ObjectNode relObj, int index) {
-        if (relObj == null) {
-            throw new IllegalArgumentException("Config error: Invalid relation at index " + index);
-        }
-
         String id = relObj.path("id").textValue();
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("Config error: Missing 'id' field for relation at index " + index);
@@ -246,9 +249,9 @@ public final class GrammarConfigLoader {
      *     are the names of the {@link RelationType} enum (case-insensitive), which typically
      *     indicates a typo in the grammar config.
      */
-    private static @Nullable RelationType parseRelationType(String value) {
-        if (value == null || value.isBlank()) return null;
-        try { return RelationType.valueOf(value.toUpperCase(Locale.ROOT)); }
+    private static Optional<RelationType> parseRelationType(String value) {
+        if (value == null || value.isBlank()) return Optional.empty();
+        try { return Optional.of(RelationType.valueOf(value.toUpperCase(Locale.ROOT))); }
         catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(
                 "Unrecognised relation_type '" + value + "' in grammar config; valid values: "

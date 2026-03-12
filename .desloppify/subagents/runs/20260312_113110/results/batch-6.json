@@ -1,0 +1,103 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 6,
+  "assessments": {
+    "mid_level_elegance": 68.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "GrammarConfig/GrammarConfigLoader/GrammarConfigSerializer are cleanly separated: loading, data, and serialization each live in one class with no cross-contamination.",
+        "ExplorationService interface defines a precise, typed boundary between the HTTP layer and the exploration layer; handlers depend on the interface, not the concrete SemanticFieldExplorer.",
+        "ExploreResponseAssembler centralises model-to-presentation translation for exploration responses, keeping handler classes free of map-building boilerplate.",
+        "HttpApiUtils.wrapWithErrorHandling provides a single consistent error-propagation seam across all endpoints.",
+        "handleSemanticFieldExamples builds bcqlQuery via RelationPatternUtils.buildFullPattern only to echo it in the response body; SemanticFieldExplorer.fetchExamples independently rebuilds the same pattern at line 335 for execution. The two constructions are coupled by naming convention only — they can drift silently.",
+        "ExploreRequestParams and ExploreResponseShape wrapper records in ExplorationHandlers encode destination (parameters sub-map vs top-level envelope) implicitly in the type name rather than the method signature, making the contract of buildExploreResponseEnvelope non-obvious to a reader.",
+        "handleSemanticFieldExamples assembles its response inline (direct HashMap puts for relation, bcql, top, seed, collocate) while the three sibling handlers use buildExploreResponseEnvelope + ExploreResponseAssembler; two structurally similar 'fetch examples' endpoints (one in ExplorationHandlers, one in ConcordanceHandlers) follow different assembly paths.",
+        "buildExploreResponseEnvelope accepts relationType as a raw String; in handleSemanticFieldComparison the constant CROSS_RELATIONAL is passed, while the other two handlers pass resolvedConfig.id(). The parameters.relation field carries semantically different values across endpoints with no type-level signal."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "GrammarConfig/GrammarConfigLoader/GrammarConfigSerializer division cleanly separates IO, data, and presentation concerns with no leakage across the three boundaries.",
+        "ExplorationService interface provides a well-typed seam between the HTTP and exploration layers; handlers never reference the concrete implementation.",
+        "ExploreResponseAssembler consolidates all model-to-JSON translation for exploration results into one place, preventing per-handler drift.",
+        "HttpApiUtils.wrapWithErrorHandling gives every endpoint a uniform, predictable error propagation path from handler throw to HTTP status code.",
+        "CollocateProfile, ComparisonResult, and CoreCollocate are pure data carriers with no JSON or HTTP dependencies, making them clean objects to pass across seams."
+      ],
+      "issue_character": "Boundary glue entropy is localised to ExplorationHandlers: the seam issues are not systemic across the codebase but form a consistent cluster around how the three exploration endpoints share response-building logic, with one endpoint partially bypassing shared infrastructure, a double-construction pattern at the fetchExamples seam, and ad-hoc wrapper types encoding implicit destination contracts.",
+      "score_rationale": "The config and model layers demonstrate exemplary seam design, and the service interface cleanly decouples the HTTP and exploration layers. What pulls the score down is a cluster of boundary-glue issues in ExplorationHandlers: the examples endpoint bypasses the shared response-assembly infrastructure used by its siblings; the same BCQL pattern is independently constructed in both the handler and the service implementation with no contract tying them together; and the ExploreRequestParams/ExploreResponseShape wrapper records encode their destination (sub-map vs. top-level) implicitly, making buildExploreResponseEnvelope harder to reason about. These are not isolated cosmetic issues — they create real divergence risk at the integration seam. Against the global anchor of 80 (solid but uneven), the strong foundations in config/model push toward 70-75, but the concrete seam fragility in the handler layer keeps it below that range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "double_bcql_construction",
+      "summary": "bcqlQuery is independently built in both ExplorationHandlers and SemanticFieldExplorer.fetchExamples with no shared contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExamples calls RelationPatternUtils.buildFullPattern(resolvedConfig, seed.toLowerCase(), collocate.toLowerCase()) at the handler layer solely to populate the response's 'bcql' field.",
+        "SemanticFieldExplorer.fetchExamples independently calls RelationPatternUtils.buildFullPattern(relationConfig, seed.toLowerCase(), collocate.toLowerCase()) at line 335 for the actual execution.",
+        "The two constructions are not linked: if one is changed (e.g. casing normalisation, substitution logic) without updating the other, the echoed 'bcql' value in the response will silently diverge from the pattern actually executed."
+      ],
+      "suggestion": "Have fetchExamples return the constructed pattern alongside results (e.g. wrap in a record FetchExamplesResult(List<CollocateResult> results, String bcqlPattern)), or expose a dedicated buildPatternFor(collocate, seed, relationConfig) method on ExplorationService so the handler sources the display value from the same path as execution rather than rebuilding it independently.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "inconsistent_examples_response_assembly",
+      "summary": "handleSemanticFieldExamples bypasses the shared buildExploreResponseEnvelope/ExploreResponseAssembler path used by its three sibling handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticFieldComparison all call buildExploreResponseEnvelope followed by ExploreResponseAssembler.populate*Response.",
+        "handleSemanticFieldExamples instead directly populates a raw HashMap with response.put(\"status\", ...), response.put(\"relation\", ...), response.put(\"bcql\", ...) etc., duplicating the envelope structure inline.",
+        "The two 'fetch examples' endpoints (ExplorationHandlers and ConcordanceHandlers) are structurally similar but each assembles its response differently, making the examples response format a maintenance risk."
+      ],
+      "suggestion": "Extract an 'examples' response envelope builder (parallel to buildExploreResponseEnvelope) or add a populateExamplesResponse method to ExploreResponseAssembler so that both concordance and semantic-field examples endpoints share one assembly path. At minimum, route handleSemanticFieldExamples through buildExploreResponseEnvelope for the envelope fields.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "cross_relational_magic_string_seam",
+      "summary": "buildExploreResponseEnvelope accepts relationType as raw String; CROSS_RELATIONAL constant breaks the semantic contract for parameters.relation across endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore and handleSemanticFieldExploreMulti pass resolvedConfig.id() (a real relation ID from GrammarConfig) as the relationType argument.",
+        "handleSemanticFieldComparison passes the package-private constant CROSS_RELATIONAL = \"cross_relational\", a synthetic marker with no corresponding RelationConfig.",
+        "The parameters.relation field in the API response therefore carries semantically different kinds of values depending on the endpoint called, with no type-level or contract-level indication of this at the seam."
+      ],
+      "suggestion": "Model the relationType parameter as a sealed type or Optional<RelationConfig> so comparison's cross-relational mode is structurally distinct from a real relation ID. Alternatively, accept a dedicated boolean/enum flag for the cross-relational case so the buildExploreResponseEnvelope seam makes the distinction explicit rather than relying on a magic string.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The ExplorationHandlers class grew three closely related but slightly asymmetric endpoints; the shared envelope builder was retrofitted after the examples endpoint was written, leaving it on a separate code path.",
+      "fetchExamples was designed as a pure execution method with no result provenance, forcing callers to redundantly reconstruct display metadata (the executed pattern) that the service already possesses."
+    ],
+    "likely_symptoms": [
+      "double_bcql_construction",
+      "inconsistent_examples_response_assembly"
+    ],
+    "possible_false_positives": []
+  }
+}

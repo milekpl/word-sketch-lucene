@@ -1,9 +1,10 @@
-package pl.marcinmilkowski.word_sketch.config;
+package pl.marcinmilkowski.word_sketch.utils;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.query.RelationType;
 
 
 
@@ -23,7 +24,7 @@ class RelationPatternUtilsTest {
                 "test_relation", "Test Relation", null,
                 pattern, headPos, collocatePos,
                 false, 0,
-                RelationType.SURFACE,
+                java.util.Optional.of(RelationType.SURFACE),
                 true, posGroup);
     }
 
@@ -33,7 +34,7 @@ class RelationPatternUtilsTest {
                 "rev_rel", null, null,
                 "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]", 1, 2,
                 false, 0,
-                relationType,
+                java.util.Optional.ofNullable(relationType),
                 true, posGroup);
     }
 

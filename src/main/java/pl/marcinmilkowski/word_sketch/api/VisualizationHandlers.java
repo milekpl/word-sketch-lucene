@@ -71,7 +71,11 @@ class VisualizationHandlers {
             ArrayNode itemsArr = (ArrayNode) itemsNode;
             int limit = Math.min(MAX_RADIAL_ITEMS, itemsArr.size());
             for (int i = 0; i < limit; i++) {
-                ObjectNode it = (ObjectNode) itemsArr.get(i);
+                JsonNode itemNode = itemsArr.get(i);
+                if (!(itemNode instanceof ObjectNode it)) {
+                    throw new IllegalArgumentException(
+                        "items array contains non-object element at index " + i);
+                }
                 String label = it.path("label").textValue();
                 double score = it.path("score").asDouble();
                 items.add(new RadialPlot.Item(label, score));

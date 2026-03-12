@@ -1,0 +1,116 @@
+{
+  "batch": "type_safety",
+  "batch_index": 8,
+  "assessments": {"type_safety": 72.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify @NonNull/@Nullable used actively in CollocateQueryHelper, BlackLabSnippetParser, HttpApiUtils, ExplorationService, QueryExecutor — shows intentional annotation discipline",
+        "Sealed interface ConcordanceResult with records SnippetResult/CollocateResult provides proper sum-type for concordance results",
+        "RelationConfig is a record with @NonNull String pattern and @Nullable RelationType relationType — the nullable relationType spreads defensive null checks to 6+ call sites (SketchHandlers:192, GrammarConfigSerializer:57, RelationConfig:53, RelationPatternUtils:61, RelationUtils:71+76, SemanticFieldExplorer:122)",
+        "RelationConfig declares pattern as @NonNull but deriveDeprel() contains 'if (pattern == null || ...)' — a direct contradiction in the nullability contract on the same record",
+        "VisualizationHandlers line 74: '(ObjectNode) itemsArr.get(i)' is an unchecked cast — if any items array element is not a JSON object (string, number, null, nested array), this throws ClassCastException which propagates as HTTP 500, not 400",
+        "GrammarConfigLoader line 143: '(ObjectNode) relationsNode.get(i)' is an unchecked cast — a malformed config where relations array contains non-object elements throws ClassCastException bypassing the parseRelation(null) null-check guard",
+        "BlackLabSnippetParser.detokenize(String text) has no @Nullable on its parameter but guards 'if (text == null ...)' — undeclared nullable contract",
+        "Map<String, Object> used for all API responses (59 occurrences) — field-level type guarantees absent, but this is a deliberate architectural choice given Jackson and no formal response-schema layer",
+        "ExploreRequestParams and ExploreResponseShape are records wrapping Map<String, Object> — nominal typing without actual field-level enforcement"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "JSpecify @NonNull/@Nullable annotations are used actively and consistently across query, api, and config layers, showing deliberate annotation practice",
+        "Sealed ConcordanceResult interface with record subtypes provides compiler-enforced exhaustive pattern matching for concordance result types",
+        "Optional is used appropriately for query-style accessors (GrammarConfig.relation()) distinguishing 'absent' from 'null'",
+        "Record types throughout model layer (QueryResults, RelationConfig, CollocateProfile, etc.) provide strong immutable typed DTOs",
+        "CollocateQueryHelper's @NonNull/@Nullable on constructor and test-subclass seam is correctly documented and enforced"
+      ],
+      "issue_character": "Issues are a mix of two isolated unchecked-cast crash risks (VisualizationHandlers, GrammarConfigLoader) and a design-level nullable type (@Nullable RelationType) that correctly documents optionality but propagates defensive null checks across the codebase; the deriveDeprel contradiction is a documentation bug on the same record.",
+      "score_rationale": "The codebase has genuine annotation discipline — JSpecify is imported and applied, sealed types and records provide structural type guarantees, and Optional is used in the right places. However, two unchecked casts that could produce ClassCastExceptions on malformed input (rather than 400-mapped IllegalArgumentExceptions) are concrete type-safety failures that a developer would hit in production. The @Nullable RelationType spreading null checks to six sites, combined with the @NonNull pattern / null-guard contradiction in RelationConfig.deriveDeprel, show that the nullable design was not fully thought through. This places the codebase solidly above 60 (significant drag) — the infrastructure is right — but clearly below 80 (solid but uneven) due to the crash-risk casts and the unresolved nullability contradiction."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "unchecked_cast_visualization_items",
+      "summary": "Unchecked cast (ObjectNode) on items array elements in VisualizationHandlers throws ClassCastException on malformed JSON",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"],
+      "evidence": [
+        "Line 74: 'ObjectNode it = (ObjectNode) itemsArr.get(i);' — no instanceof guard",
+        "If any array element is a JSON string, number, null, or nested array, ClassCastException propagates as a 500, bypassing the IllegalArgumentException → 400 mapping in wrapWithErrorHandling",
+        "The outer guard 'if (itemsNode != null && itemsNode.isArray())' confirms the array exists but does not validate element types"
+      ],
+      "suggestion": "Replace the unchecked cast with an instanceof guard: 'JsonNode elem = itemsArr.get(i); if (!(elem instanceof ObjectNode it)) continue;' — or throw IllegalArgumentException(\"items[\" + i + \"] must be a JSON object\") so wrapWithErrorHandling maps it to 400.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "unchecked_cast_grammar_loader_relations",
+      "summary": "Unchecked cast (ObjectNode) on relations array elements in GrammarConfigLoader throws ClassCastException on malformed config",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Line 143: 'RelationConfig config = parseRelation((ObjectNode) relationsNode.get(i), i);'",
+        "parseRelation checks 'if (relObj == null)' but the null check is unreachable — a non-ObjectNode element produces ClassCastException before the null guard",
+        "A config with a relations array containing a string or number element produces an unhandled ClassCastException rather than the expected IllegalArgumentException with a helpful message"
+      ],
+      "suggestion": "Guard with instanceof before cast: 'JsonNode elem = relationsNode.get(i); if (!(elem instanceof ObjectNode relObj)) throw new IllegalArgumentException(\"Config error: relation at index \" + i + \" must be a JSON object\"); parseRelation(relObj, i);'",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nonnull_pattern_null_guard_contradiction",
+      "summary": "RelationConfig.pattern declared @NonNull but deriveDeprel() guards against pattern == null — contradictory nullability contract",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"],
+      "evidence": [
+        "Record field declared as '@NonNull String pattern' (line 24)",
+        "deriveDeprel() at line 53: 'if (pattern == null || relationType() != RelationType.DEP)' — the null branch is dead code given the @NonNull declaration, but misleads readers",
+        "If @NonNull is trusted (as it should be), the null guard hides a semantic bug; if pattern can be null, the @NonNull annotation is false"
+      ],
+      "suggestion": "Remove the 'pattern == null' branch from deriveDeprel() if @NonNull is the intended contract. If null is genuinely possible at runtime (e.g., via deserialization bypass), change the annotation to @Nullable and update callers accordingly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_relation_type_spreads_null_checks",
+      "summary": "@Nullable RelationType on RelationConfig causes defensive null checks scattered across six call sites instead of using Optional or a sentinel value",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigSerializer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "RelationConfig.relationType() is @Nullable per Javadoc: 'null when the grammar JSON omits or has an unrecognised relation_type field'",
+        "SketchHandlers line 192: 'rel.relationType() != null ? rel.relationType().name() : \"(none)\"'",
+        "RelationUtils lines 71, 76: '.filter(r -> r.relationType() != null && ...)'",
+        "GrammarConfigSerializer line 57: 'if (rel.relationType() != null) obj.put(...)'",
+        "SemanticFieldExplorer line 122: 'if (relationConfig.relationType() == null)'",
+        "No relation loaded without a relationType passes validation in GrammarConfigLoader — making the nullable impossible in practice but forcing all callers to treat it as nullable anyway"
+      ],
+      "suggestion": "Validate relationType as required in GrammarConfigLoader.parseRelation() (throw IllegalArgumentException for missing/unrecognized type) so RelationConfig.relationType() can be @NonNull. Remove all six defensive null checks. If an 'unknown' sentinel is needed, add RelationType.UNKNOWN rather than allowing null.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The @Nullable RelationType design predates rigorous JSpecify adoption — once it was @Nullable, all callers inherited the null-defensive pattern rather than pushing the validation earlier",
+      "Unchecked Jackson casts are a common omission when parsing untrusted JSON in Java — the pattern of 'readValue(body, ObjectNode.class)' guards the root but not nested elements"
+    ],
+    "likely_symptoms": ["unchecked_cast_visualization_items", "unchecked_cast_grammar_loader_relations"],
+    "possible_false_positives": []
+  }
+}

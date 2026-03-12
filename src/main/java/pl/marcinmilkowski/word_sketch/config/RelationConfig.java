@@ -3,8 +3,9 @@ package pl.marcinmilkowski.word_sketch.config;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.query.RelationType;
 
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,8 +27,8 @@ public record RelationConfig(
     int collocatePosition,
     boolean dual,
     int defaultSlop,
-    /** {@code null} when the grammar JSON omits or has an unrecognised {@code relation_type} field. */
-    @Nullable RelationType relationType,
+    /** {@link Optional#empty()} when the grammar JSON omits or has an unrecognised {@code relation_type} field. */
+    Optional<RelationType> relationType,
     boolean explorationEnabled,
     /** Pre-computed collocate POS group — cached at construction time so repeated calls are O(1). */
     PosGroup collocatePosGroup
@@ -50,7 +51,7 @@ public record RelationConfig(
      *         type is not {@link RelationType#DEP} or no deprel can be derived
      */
     public @org.jspecify.annotations.Nullable String deriveDeprel() {
-        if (pattern == null || relationType() != RelationType.DEP) {
+        if (pattern == null || relationType().orElse(null) != RelationType.DEP) {
             return null;
         }
         // Look for deprel="xxx" or deprel='xxx' attribute constraint

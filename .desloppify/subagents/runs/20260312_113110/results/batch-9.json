@@ -1,0 +1,90 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 9,
+  "assessments": {"test_strategy": 68.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "285 @Test annotations across 38 test files mirror 53 production files; most handler and service classes have dedicated test classes",
+        "StubQueryExecutor, TestExchangeFactory.MockExchange, and GrammarConfigHelper form a reusable, well-documented test infrastructure used consistently across handler and exploration tests",
+        "BlackLabConllUIndexerTest is fully @Disabled: 'Requires conllu-sentences.blf.yaml format config in the project root — not distributed with source'; the entire indexing pipeline (blacklab-index CLI command) has zero runnable CI tests",
+        "4 additional test classes are @Disabled (BlackLabBcqlConcordanceTest, BlackLabQueryExecutorIntegrationTest, DependencySketchTest, BlackLabQueryExecutorTest.LiveIndex) because they require a live BlackLab index",
+        "BlackLabIntegrationTest and CollocateQueryHelperTest provide CI-compatible coverage of the XML-snippet parsing and logDice scoring pipeline via a stub CollocateQueryHelper subclass",
+        "Tests consistently inject QueryExecutor via the interface boundary rather than BlackLabQueryExecutor internals — low test-production coupling",
+        "ExplorationHandlersTest covers 12+ scenarios: happy path, missing params, single seed, unknown relation, invalid numeric param — thorough validation coverage"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "SemanticFieldExplorer is covered by three dedicated test files (SemanticFieldExplorerTest, SemanticFieldExplorerInternalTest, SemanticFieldExplorerFetchExamplesTest) exercising exploration, internal phase logic, and example-fetching independently",
+        "Reusable StubQueryExecutor base class with override-per-test pattern prevents test-production coupling and keeps tests isolated from BlackLab internals",
+        "All API handler classes (ExplorationHandlers, ConcordanceHandlers, SketchHandlers, CorpusQueryHandlers, VisualizationHandlers) have test classes covering both happy-path responses and parameter validation",
+        "BlackLabIntegrationTest exercises the full collocate pipeline (XML parsing → logDice scoring → ranking) without a live index using a stub frequency map",
+        "Config layer (GrammarConfigLoader, GrammarConfigSerializer, RelationPatternUtils, RelationUtils) is covered by dedicated unit tests with assertions on relation loading and pattern construction"
+      ],
+      "issue_character": "The test gaps are structurally concentrated in the I/O-heavy indexing subsystem: the entire blacklab-index pipeline is disabled due to a non-distributed config dependency, and multiple query-layer tests require a live index, leaving the most data-intensive code paths with no automated validation.",
+      "score_rationale": "The exploration, config, and API layers are covered comprehensively via well-designed stubs and mocks, with no fragility or snapshot overuse patterns observed — this is closer to a 90 for those subsystems. However, BlackLabConllUIndexerTest is wholly disabled because the required format config file is not shipped with the source, meaning one of three advertised CLI commands (blacklab-index) has zero runnable test coverage; four additional test classes covering live query execution are also disabled. This structural blind spot for the indexing and live query paths pulls the overall score well below 80, landing near the 68 mark where a developer can trust changes to the exploration/API core but must manually validate indexing changes."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexer_tests_fully_disabled",
+      "summary": "BlackLabConllUIndexerTest is entirely @Disabled — the indexing pipeline (blacklab-index command) has no runnable CI tests",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "@Disabled annotation on the entire class with reason: 'Requires conllu-sentences.blf.yaml format config in the project root — not distributed with source'",
+        "ConlluConverter (CoNLL-U to WPL conversion) is tested in ConlluConverterTest without a live index, demonstrating the feasibility of splitting out testable units",
+        "The blacklab-index CLI path in Main.java constructs a BlackLabConllUIndexer and calls indexFile() — this logic path cannot be validated in CI"
+      ],
+      "suggestion": "Extract the document-count and token-count tracking logic from BlackLabConllUIndexer into a unit-testable method that doesn't require a BlackLab format registration. For the indexing integration test, bundle a minimal test fixture of the conllu-sentences.blf.yaml config in src/test/resources so the test can run without a local installation, then remove the @Disabled annotation.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "external_config_dependency"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "live_index_tests_permanently_disabled",
+      "summary": "Three full test classes and one nested class for live BlackLab query execution are @Disabled with no CI fallback for their scenarios",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java"
+      ],
+      "evidence": [
+        "BlackLabBcqlConcordanceTest: @Disabled('Requires a live BlackLab index') — covers the BCQL concordance query path",
+        "BlackLabQueryExecutorIntegrationTest: @Disabled — covers executeCollocations, executeBcqlQuery with real index responses",
+        "DependencySketchTest: @Disabled — covers dependency-relation sketch queries",
+        "BlackLabQueryExecutorTest.LiveIndex nested class: @Disabled — covers executeCollocations and getTotalFrequency with a real index",
+        "BlackLabIntegrationTest provides partial CI coverage via a stub CollocateQueryHelper, but BCQL concordance and dependency queries have no CI-runnable equivalents"
+      ],
+      "suggestion": "For each disabled live-index scenario, identify the response-parsing and scoring logic that can be exercised with pre-recorded BlackLab XML responses (a small set of canned forward-index XML strings, as already done in BlackLabIntegrationTest). Extract those assertions into CI-runnable sub-tests that don't require a live index, keeping the @Disabled live-index variants for local validation of the full I/O path.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "external_config_dependency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The BlackLab format config file (conllu-sentences.blf.yaml) is a runtime dependency of the indexer but is not bundled with the source repository, making the indexer's integration test permanently disabled in CI",
+      "Live-index tests were written as full integration tests against a real index without extracting a CI-compatible stub layer for the response-parsing portions, leading to wholesale @Disabled rather than partial coverage"
+    ],
+    "likely_symptoms": [
+      "indexer_tests_fully_disabled",
+      "live_index_tests_permanently_disabled"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -203,7 +203,7 @@ class SemanticFieldExplorerTest {
             new pl.marcinmilkowski.word_sketch.config.RelationConfig(
                 "test", "test", "test", "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]",
                 1, 2, false, 0,
-                pl.marcinmilkowski.word_sketch.model.RelationType.SURFACE,
+                java.util.Optional.of(pl.marcinmilkowski.word_sketch.query.RelationType.SURFACE),
                 true, pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
             new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(10, 0.0, 1));
 
@@ -245,7 +245,7 @@ class SemanticFieldExplorerTest {
             new pl.marcinmilkowski.word_sketch.config.RelationConfig(
                 "test", "test", "test", "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]",
                 1, 2, false, 0,
-                pl.marcinmilkowski.word_sketch.model.RelationType.SURFACE,
+                java.util.Optional.of(pl.marcinmilkowski.word_sketch.query.RelationType.SURFACE),
                 true, pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
             new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(10, 0.0, 2));
 

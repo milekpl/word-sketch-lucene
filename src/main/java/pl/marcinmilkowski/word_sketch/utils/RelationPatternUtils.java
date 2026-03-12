@@ -1,5 +1,6 @@
-package pl.marcinmilkowski.word_sketch.config;
+package pl.marcinmilkowski.word_sketch.utils;
 
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
@@ -58,7 +59,7 @@ public final class RelationPatternUtils {
      * @throws IllegalStateException if relationType is absent or the POS group has no known reverse pattern
      */
     public static String buildCollocateReversePattern(RelationConfig config) {
-        if (config.relationType() == null) {
+        if (config.relationType().isEmpty()) {
             throw new IllegalStateException(
                 "Cannot determine collocate reverse pattern: relationType is absent for relation '"
                     + config.id() + "'");

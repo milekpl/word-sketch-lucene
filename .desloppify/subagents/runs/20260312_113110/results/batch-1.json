@@ -1,0 +1,105 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {"high_level_elegance": 74.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package structure maps directly to domain capabilities: api (HTTP), config (grammar loading/serialization), exploration (semantic analysis service), indexer/blacklab (corpus building), model (domain types), query (search execution), utils (shared utilities), viz (visualization) — each explainable in one sentence.",
+        "GrammarConfig / GrammarConfigLoader / GrammarConfigSerializer trio cleanly separates concerns: the data carrier has no I/O or JSON library imports; the loader isolates all file-IO and JSON parsing; the serializer keeps Jackson out of the value object. The config/package-info.java documents this explicitly.",
+        "ExplorationService interface exposes exactly four methods (exploreByPattern, exploreMultiSeed, compareCollocateProfiles, fetchExamples), all meaningful to the HTTP layer, with a clear documented rationale for bundling them. The public surface is minimal and cohesive.",
+        "model/exploration sub-package holds only DTOs (CollocateProfile, Edge, ExplorationOptions, etc.); exploration package holds service logic (SemanticFieldExplorer, CollocateProfileComparator). The model/package-info.java documents the distinction and boundary contract explicitly.",
+        "API handler decomposition is thorough: SketchHandlers, ConcordanceHandlers, ExplorationHandlers, CorpusQueryHandlers, VisualizationHandlers are each extracted with single-purpose responsibility, all package-private and wired through WordSketchApiServer.",
+        "RelationType enum lives in model package but is a query-strategy discriminator used primarily by config.RelationConfig and api.SketchHandlers — its model placement blurs ownership, since it is not a domain data type but a routing tag for subsystem dispatch.",
+        "config package contains both pure loading classes (GrammarConfigLoader, GrammarConfig) and pattern-manipulation utility classes (RelationPatternUtils, RelationUtils, RelationPatternUtils) — these utilities are called from api and exploration packages, making config a de-facto shared utility layer rather than a focused loading layer.",
+        "QueryResults (word-sketch result DTOs) remains in the root model package as acknowledged in model/package-info.java, with a reserved but empty model/sketch sub-package. The model/sketch/package-info.java is referenced but the debt is unresolved; callers importing QueryResults hit the root package while exploration results live in the sub-package.",
+        "WordSketchApiServer convenience constructor directly instantiates SemanticFieldExplorer (concrete class) in the api package, creating a compile-time api → exploration.SemanticFieldExplorer dependency that bypasses the ExplorationService interface. The injected constructor exists for tests, but the default wiring leaks the concrete class into the API layer."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package-to-capability mapping is clear and domain-aligned: every top-level package name corresponds to a distinct subsystem role (api, config, exploration, indexer, model, query, utils, viz), and each has a package-info.java that states its contract.",
+        "Config triple (GrammarConfig / GrammarConfigLoader / GrammarConfigSerializer) is a textbook separation: load concern, data concern, and serialization concern in three dedicated classes with no cross-contamination.",
+        "ExplorationService interface cleanly bounds the exploration sub-system's public surface and documents why its four methods are bundled together — callers depend on the interface, the concrete class is an internal detail.",
+        "model/exploration DTOs are purely structural records or immutable classes with no I/O or HTTP imports, and the model/package-info.java explicitly lists what belongs here and what does not.",
+        "API handler decomposition into five focused package-private handler classes (SketchHandlers, ConcordanceHandlers, ExplorationHandlers, CorpusQueryHandlers, VisualizationHandlers) is predictable: adding a new API concern maps to a new handler class, not a larger existing file."
+      ],
+      "issue_character": "The ownership blurs are localized and mostly acknowledged in documentation, but they create two recurring friction points: config has grown a pattern-utility responsibility that pulls unrelated callers into a loading-focused package, and RelationType's placement in model makes its subsystem affiliation ambiguous to new engineers navigating the codebase.",
+      "score_rationale": "The overall structure is well above average: packages are domain-aligned, separations are deliberate, package-info files explain the boundaries, and a new engineer can orient quickly. The ExplorationService interface and the config triple are genuinely exemplary. What pulls the score below 80 is a cluster of small but real ownership ambiguities: RelationType in model (routing discriminator, not a domain type), config as a de-facto utility layer (RelationPatternUtils and RelationUtils imported from api and exploration), the unresolved QueryResults-in-root-vs-model/sketch debt, and the convenience constructor that hard-wires the concrete SemanticFieldExplorer into the api package. These are individually minor but collectively mean a developer following the package contracts will hit surprises in at least three places, placing the codebase in the solid-but-uneven range (70–80)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "config_utility_creep",
+      "summary": "config package acts as a shared utility layer for pattern-manipulation helpers used outside config loading",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "RelationPatternUtils.buildFullPattern and RelationUtils.resolveRelationAlias are static utility helpers called directly from ConcordanceHandlers, ExplorationHandlers, and SketchHandlers — all in the api package.",
+        "config/package-info.java describes the package as 'Grammar configuration loading, serialization, and relation pattern building' — the last part ('pattern building') signals that utility responsibility has been folded into a loading-focused package.",
+        "A developer navigating api → config to understand loading will unexpectedly find pattern-manipulation logic; a developer navigating exploration → config will similarly be pulled into loading infrastructure."
+      ],
+      "suggestion": "Extract RelationPatternUtils and RelationUtils into a dedicated grammar utility package (e.g., config.util or grammar) so that config remains focused on loading and serialization. API and exploration callers import from the utility package without implying a loading dependency.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_type_misplaced",
+      "summary": "RelationType enum lives in the model package despite being a query-strategy discriminator, not a domain data type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "RelationType Javadoc reads: 'Relation type enum used by SketchHandlers and RelationConfig#relationType() to select the query execution strategy.' — it explicitly acknowledges this is a routing discriminator for two concrete subsystems.",
+        "RelationConfig (config package) holds a RelationType field; SketchHandlers (api package) switches on it to choose between SURFACE and DEP query paths. Neither use is a domain-model concern.",
+        "model/package-info.java does not mention RelationType in its type inventory, suggesting it arrived in model by default rather than by deliberate placement decision."
+      ],
+      "suggestion": "Move RelationType to the config package alongside RelationConfig where it is defined and consumed, or to a shared grammar sub-package if config.util is created for issue config_utility_creep. This places the discriminator next to the relation definition it annotates.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "api_leaks_concrete_explorer",
+      "summary": "WordSketchApiServer convenience constructor hard-wires concrete SemanticFieldExplorer into the api package, bypassing the ExplorationService interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer convenience constructor: 'public WordSketchApiServer(QueryExecutor executor, int port, GrammarConfig grammarConfig) throws IOException { this(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig); }' — directly names the concrete class.",
+        "The ExplorationService interface exists precisely to decouple api from exploration internals; the convenience constructor negates that decoupling for the production path.",
+        "Because Main.java calls the convenience constructor, the production wiring path (Main → WordSketchApiServer → SemanticFieldExplorer) ignores the interface boundary."
+      ],
+      "suggestion": "Move the default-construction responsibility to Main.java or a factory/wiring class outside the api package: create the SemanticFieldExplorer there and pass it as ExplorationService. WordSketchApiServer should only have the injected constructor, keeping the api package free of exploration implementation imports.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental extraction without ownership review: utility methods (RelationPatternUtils, RelationUtils) were extracted into config because that was the closest related package at the time, rather than creating a dedicated grammar utility layer.",
+      "Interface-vs-convenience-constructor tension: the ExplorationService interface was added for testability but the production wiring was not updated to use it, leaving a permanent concrete-class reference in the api package.",
+      "RelationType defaulted to model because no other package felt like a natural home; its actual role as a routing discriminator was not reflected in placement."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

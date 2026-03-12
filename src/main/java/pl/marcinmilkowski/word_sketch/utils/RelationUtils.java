@@ -1,11 +1,14 @@
-package pl.marcinmilkowski.word_sketch.config;
+package pl.marcinmilkowski.word_sketch.utils;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
+import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.query.RelationType;
 
 /**
  * Shared utilities for relation identifier handling.
@@ -68,12 +71,12 @@ public final class RelationUtils {
         if (grammarConfig == null) return fallback;
         Set<RelationType> primary = Set.of(primaryTypes);
         return grammarConfig.relations().stream()
-            .filter(r -> r.relationType() != null && primary.contains(r.relationType())
+            .filter(r -> r.relationType().map(primary::contains).orElse(false)
                 && r.collocatePosGroup() == posGroup)
             .findFirst()
             .map(r -> RelationPatternUtils.buildCollocateReversePattern(r))
             .orElseGet(() -> grammarConfig.relations().stream()
-                .filter(r -> r.collocatePosGroup() == posGroup && r.relationType() != null)
+                .filter(r -> r.collocatePosGroup() == posGroup && r.relationType().isPresent())
                 .findFirst()
                 .map(r -> RelationPatternUtils.buildCollocateReversePattern(r))
                 .orElse(fallback));

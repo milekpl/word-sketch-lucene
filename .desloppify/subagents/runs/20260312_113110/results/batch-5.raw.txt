@@ -1,0 +1,63 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 5,
+  "assessments": {
+    "low_level_elegance": 86.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "BlackLabSnippetParser is a focused, stateless utility class: each static method has a single responsibility, precise name, and bounded logic (e.g., trimLeftAtSentenceBoundary, extractCollocateFromXmlByPosition)",
+        "CollocateQueryHelper.executeBcqlQuery decomposes a complex operation into two bounded phases — collectHits (phase 1) and scoreHits (phase 2) — with an explicit HitRecord handoff record, making the pipeline direct and traceable",
+        "MultiSeedExplorer.aggregateCollocateStats maintains 4 parallel HashMaps (maxLogDice, totalFreq, logDiceSum, logDiceCount) for the same per-lemma key; a single per-lemma accumulator record would keep all mutable state co-located and reduce cognitive scatter across the loop body",
+        "ExplorationHandlers uses typed private records (CommonExploreParams, ExploreRequestParams, ExploreResponseShape) to distinguish parameter destinations, making the response-envelope construction explicit and intention-revealing",
+        "CollecteQueryHelper.prefetchCorpusFrequencies and buildAndRankCollocates are cleanly separated: pre-fetch batches I/O; ranking is a pure transformation — side effects are bounded to the I/O phase"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "The aggregateCollocateStats method scatters a single per-lemma aggregate across 4 parallel HashMaps rather than a cohesive record accumulator, making the mutation footprint unnecessarily wide. Additionally, handleSemanticFieldExamples constructs the BCQL pattern twice for the same inputs (once for response echoing, once inside fetchExamples), creating a subtle contract divergence risk if either construction path changes."
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "BlackLabSnippetParser is a model utility class: all methods are stateless, single-purpose, and precisely named; the boundary between XML-path and plain-text paths is explicit and non-overlapping",
+        "The two-phase BCQL pipeline (collectHits / scoreHits) decomposes a complex aggregation into bounded stages with an explicit intermediate record (HitRecord), making each phase independently readable",
+        "ExploreResponseAssembler extraction is well-proportioned: each format* method is focused on a single result type, with no mixed concerns or defensive sprawl",
+        "ExplorationHandlers uses private typed records (CommonExploreParams, ExploreRequestParams, ExploreResponseShape) to make response-field routing explicit at call sites rather than relying on positional arguments",
+        "collectFrequenciesAndPosFromGroups extracts a shared iteration pattern cleanly with a functional lemma-extractor parameter, removing duplication across three distinct query paths without over-indirection"
+      ],
+      "issue_character": "Issues are isolated rather than systemic: the main friction is a single method (aggregateCollocateStats) where per-lemma aggregation state is scattered across 4 parallel maps; elsewhere, local implementations are clean, proportionate, and intention-revealing.",
+      "score_rationale": "The codebase sits firmly in the 85-90 range on this dimension. Function and class internals are consistently concise and proportionate: pipelines are well-staged, helpers are well-extracted, and the few large methods (exploreByPattern, collectHits) have clear structure. The primary drag is MultiSeedExplorer.aggregateCollocateStats, where four parallel maps track a single per-lemma aggregate rather than using a cohesive accumulator record — a developer reading this method must mentally join 4 data structures to understand one data concept. A secondary friction is the duplicate BCQL construction in handleSemanticFieldExamples. These are isolated rough edges, not a recurring pattern, placing the score at 86.0 rather than the 90 a developer would expect from the otherwise clean craft throughout."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "aggregate_stats_parallel_maps",
+      "summary": "MultiSeedExplorer.aggregateCollocateStats scatters a single per-lemma aggregate across 4 parallel HashMaps instead of one accumulator record",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "aggregateCollocateStats declares Map<String,Double> maxLogDice, Map<String,Long> totalFreq, Map<String,Double> logDiceSum, Map<String,Integer> logDiceCount — all keyed on lemma string — then mutates all four in the same inner loop",
+        "The method returns an AggregatedCollocateStats record only at the end; a developer reading the loop body must mentally join 4 independent maps to understand the single conceptual 'per-lemma aggregate' being built",
+        "The pattern contrasts with the cleaner single-pass design in CollocateProfileComparator.buildCollocateProfileList which accumulates sum/min/max in one explicit loop over scores[] with named locals"
+      ],
+      "suggestion": "Introduce a private mutable accumulator record inside MultiSeedExplorer: `record CollocateAcc(double maxLogDice, long totalFreq, double logDiceSum, int count)` with a merge helper, then accumulate into `Map<String, CollocateAcc>` and derive maxLogDice/avgLogDice/totalFreq from it at the end. This bounds all per-lemma mutation to one map and makes the loop body directly express the aggregation intent.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The 4-parallel-map pattern in aggregateCollocateStats likely reflects incremental growth: each metric was added to the method at a different time rather than being designed as a unit from the start"
+    ],
+    "likely_symptoms": [
+      "aggregate_stats_parallel_maps"
+    ],
+    "possible_false_positives": []
+  }
+}

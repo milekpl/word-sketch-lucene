@@ -42,11 +42,11 @@ class GrammarConfigSerializerTest {
     void toJson_relationConfig_includesRelationType_whenPresent() {
         GrammarConfig config = GrammarConfigHelper.requireTestConfig();
         config.relations().stream()
-            .filter(rel -> rel.relationType() != null)
+            .filter(rel -> rel.relationType().isPresent())
             .findFirst()
             .ifPresent(rel -> {
                 ObjectNode json = GrammarConfigSerializer.toJson(rel);
-                assertEquals(rel.relationType().name(), json.path("relation_type").asText());
+                assertEquals(rel.relationType().get().name(), json.path("relation_type").asText());
             });
     }
 
@@ -54,7 +54,7 @@ class GrammarConfigSerializerTest {
     void toJson_relationConfig_omitsNullOptionalFields() {
         RelationConfig minimal = new RelationConfig(
             "test_rel", null, null, null,
-            1, 2, false, 0, null, false, PosGroup.OTHER);
+            1, 2, false, 0, java.util.Optional.empty(), false, PosGroup.OTHER);
         ObjectNode json = GrammarConfigSerializer.toJson(minimal);
 
         assertEquals("test_rel", json.path("id").asText());

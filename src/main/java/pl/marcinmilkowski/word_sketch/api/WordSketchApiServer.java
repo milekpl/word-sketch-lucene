@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
-import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -54,12 +53,7 @@ public class WordSketchApiServer {
     // TODO: migrate to Undertow or Jetty if a multi-module build or custom classloader is needed.
     private com.sun.net.httpserver.HttpServer server;
 
-    /** Convenience constructor for production use: constructs {@link SemanticFieldExplorer} internally. */
-    public WordSketchApiServer(QueryExecutor executor, int port, GrammarConfig grammarConfig) throws IOException {
-        this(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig);
-    }
-
-    /** Full constructor accepting an injected {@link ExplorationService}, useful for testing. */
+    /** Full constructor accepting an injected {@link ExplorationService}. */
     public WordSketchApiServer(QueryExecutor executor, ExplorationService semanticFieldExplorer,
                                 int port, GrammarConfig grammarConfig) throws IOException {
         this.port = port;

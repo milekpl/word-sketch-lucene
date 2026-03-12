@@ -16,8 +16,8 @@ public final class JsonUtils {
 
     private JsonUtils() {}
 
-    /** Returns the application-wide {@link ObjectMapper}. Do not mutate the returned instance. */
+    /** Returns a configured copy of the application-wide {@link ObjectMapper}. Callers may safely customize the returned instance without affecting others. */
     public static ObjectMapper mapper() {
-        return MAPPER;
+        return MAPPER.copy();
     }
 }

@@ -36,7 +36,7 @@ final class ExploreResponseAssembler {
      * {@code SEED_COLLOCATE} edge correctly names its source (e.g. "theory" or "model") rather than
      * the comma-joined aggregate string that {@link ExplorationResult#seed()} would return.</p>
      */
-    public static @NonNull List<Edge> buildExplorationEdges(@NonNull ExplorationResult result) {
+    static @NonNull List<Edge> buildExplorationEdges(@NonNull ExplorationResult result) {
         List<Edge> edges = new ArrayList<>();
         Map<String, Map<String, Double>> perSeed = result.perSeedCollocates();
         for (Map.Entry<String, Map<String, Double>> seedEntry : perSeed.entrySet()) {
@@ -53,7 +53,7 @@ final class ExploreResponseAssembler {
     }
 
     /** Builds {@link RelationEdgeType#MODIFIER} edges for collocate-noun pairs with positive logDice scores. */
-    public static @NonNull List<Edge> buildComparisonEdges(@NonNull ComparisonResult result) {
+    static @NonNull List<Edge> buildComparisonEdges(@NonNull ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
         for (CollocateProfile adj : result.collocates()) {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
@@ -70,7 +70,7 @@ final class ExploreResponseAssembler {
      * {@code seed_collocates}, {@code discovered_nouns}, {@code core_collocates}, and {@code edges}.
      * Centralises response assembly so HTTP handler classes only handle HTTP concerns.
      */
-    public static void populateExploreResponse(@NonNull Map<String, Object> response, @NonNull ExplorationResult result) {
+    static void populateExploreResponse(@NonNull Map<String, Object> response, @NonNull ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = formatSeedCollocates(result);
         response.put("seed_collocates", seedCollocs);
         response.put("seed_collocates_count", seedCollocs.size());
@@ -85,9 +85,10 @@ final class ExploreResponseAssembler {
 
         List<Edge> edges = buildExplorationEdges(result);
         response.put("edges", edges.stream().map(ExploreResponseAssembler::edgeToMap).toList());
+        response.put("edges_count", edges.size());
     }
 
-    public static @NonNull List<Map<String, Object>> formatSeedCollocates(@NonNull ExplorationResult result) {
+    static @NonNull List<Map<String, Object>> formatSeedCollocates(@NonNull ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         for (Map.Entry<String, Double> e : result.seedCollocates().entrySet()) {
             Map<String, Object> c = new HashMap<>();
@@ -99,7 +100,7 @@ final class ExploreResponseAssembler {
         return seedCollocs;
     }
 
-    public static @NonNull List<Map<String, Object>> formatDiscoveredNouns(@NonNull ExplorationResult result) {
+    static @NonNull List<Map<String, Object>> formatDiscoveredNouns(@NonNull ExplorationResult result) {
         List<Map<String, Object>> nouns = new ArrayList<>();
         for (DiscoveredNoun n : result.discoveredNouns()) {
             Map<String, Object> nm = new HashMap<>();
@@ -113,7 +114,7 @@ final class ExploreResponseAssembler {
         return nouns;
     }
 
-    public static @NonNull List<Map<String, Object>> formatCoreCollocates(@NonNull ExplorationResult result) {
+    static @NonNull List<Map<String, Object>> formatCoreCollocates(@NonNull ExplorationResult result) {
         List<Map<String, Object>> coreCollocs = new ArrayList<>();
         for (CoreCollocate c : result.coreCollocates()) {
             Map<String, Object> cm = new HashMap<>();
@@ -131,7 +132,7 @@ final class ExploreResponseAssembler {
      * Serialises a single {@link CollocateProfile} into the JSON-compatible map that the
      * {@code /api/semantic-field} endpoint returns for each collocate entry.
      */
-    public static @NonNull Map<String, Object> collocateProfileToMap(@NonNull CollocateProfile adj) {
+    static @NonNull Map<String, Object> collocateProfileToMap(@NonNull CollocateProfile adj) {
         Map<String, Object> adjMap = new HashMap<>();
         adjMap.put("word", adj.collocate());
         adjMap.put("present_in", adj.presentInCount());
@@ -158,14 +159,14 @@ final class ExploreResponseAssembler {
 
     /**
      * Populates {@code response} with comparison data fields:
-     * {@code adjectives}, {@code adjectives_count}, {@code fully_shared_count},
+     * {@code collocates}, {@code collocates_count}, {@code fully_shared_count},
      * {@code partially_shared_count}, {@code specific_count}, {@code edges}, and {@code edges_count}.
      *
      * <p>Envelope fields ({@code status}, {@code seeds}, {@code seed_count}, {@code parameters})
      * are the caller's responsibility, keeping this method symmetric with
      * {@link #populateExploreResponse}.</p>
      */
-    public static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result) {
+    static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result) {
         java.util.List<Map<String, Object>> adjectives = new java.util.ArrayList<>();
         for (CollocateProfile adj : result.collocates()) {
             adjectives.add(collocateProfileToMap(adj));
@@ -188,7 +189,7 @@ final class ExploreResponseAssembler {
      * {@code sentence} and {@code raw} only. Use this when the caller needs concordance context
      * but not scoring metadata (e.g., the concordance-examples endpoint).
      */
-    public static @NonNull Map<String, Object> collocateResultToExampleMap(QueryResults.CollocateResult r) {
+    static @NonNull Map<String, Object> collocateResultToExampleMap(QueryResults.CollocateResult r) {
         Map<String, Object> m = new HashMap<>();
         m.put("sentence", r.sentence());
         m.put("raw", r.rawXml() != null ? r.rawXml() : "");
@@ -201,7 +202,7 @@ final class ExploreResponseAssembler {
      * {@code frequency}, and {@code log_dice}. Use for endpoints that expose full scoring data
      * (e.g., the BCQL query endpoint).
      */
-    public static @NonNull Map<String, Object> collocateResultToFullMap(QueryResults.CollocateResult r) {
+    static @NonNull Map<String, Object> collocateResultToFullMap(QueryResults.CollocateResult r) {
         Map<String, Object> m = new HashMap<>();
         m.put("sentence", r.sentence());
         m.put("raw", r.rawXml() != null ? r.rawXml() : "");
@@ -219,7 +220,7 @@ final class ExploreResponseAssembler {
      *
      * @return mutable map with keys {@code source}, {@code target}, {@code log_dice}, {@code type}
      */
-    public static @NonNull Map<String, Object> edgeToMap(@NonNull Edge edge) {
+    static @NonNull Map<String, Object> edgeToMap(@NonNull Edge edge) {
         Map<String, Object> m = new HashMap<>();
         m.put("source", edge.source());
         m.put("target", edge.target());

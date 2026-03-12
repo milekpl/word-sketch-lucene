@@ -49,7 +49,7 @@ public interface ExplorationService {
      * Compares collocate profiles across a set of seed nouns, revealing shared and distinctive collocates.
      */
     @NonNull ComparisonResult compareCollocateProfiles(
-            @NonNull Set<String> seedNouns,
+            @NonNull Set<String> seeds,
             @NonNull ExplorationOptions opts) throws IOException;
 
     /**

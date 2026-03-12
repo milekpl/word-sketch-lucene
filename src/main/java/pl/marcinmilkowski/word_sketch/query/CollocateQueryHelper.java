@@ -34,8 +34,6 @@ import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.Objects;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -56,7 +54,7 @@ class CollocateQueryHelper {
     /** Over-fetch factor: request 3x as many hits as needed to compensate for scoring discards. */
     private static final int OVER_FETCH_FACTOR = 3;
 
-    private final @Nullable BlackLabIndex index;
+    private final BlackLabIndex index;
 
     /**
      * Creates a helper bound to the given BlackLab index.
@@ -73,7 +71,7 @@ class CollocateQueryHelper {
      * ({@link #getTotalFrequency} and {@link #executeCollocateSearchWithContent}).
      * Not for production use.
      */
-    CollocateQueryHelper() {
+    protected CollocateQueryHelper() {
         this.index = null;
     }
 
@@ -88,7 +86,6 @@ class CollocateQueryHelper {
      * @throws IOException if an unexpected non-runtime failure occurs
      */
     long getTotalFrequency(String lemma) throws IOException {
-        Objects.requireNonNull(index, "BlackLabIndex must not be null for getTotalFrequency");
         try {
             AnnotatedField field = index.mainAnnotatedField();
             Annotation annotation = field.annotation("lemma");
@@ -137,7 +134,6 @@ class CollocateQueryHelper {
 
     private CollocateSearch performCollocateSearch(String lemma, String bcqlPattern, boolean withStoredHits)
             throws IOException {
-        Objects.requireNonNull(index, "BlackLabIndex must not be null for executeCollocateSearch");
         try {
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");

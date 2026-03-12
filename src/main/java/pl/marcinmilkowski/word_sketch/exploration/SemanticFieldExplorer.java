@@ -97,10 +97,32 @@ public class SemanticFieldExplorer implements ExplorationService {
     private final String nounCqlConstraint;
 
     public SemanticFieldExplorer(QueryExecutor executor, GrammarConfig grammarConfig) {
+        this(executor,
+             new CollocateProfileComparator(executor, grammarConfig),
+             new MultiSeedExplorer(executor),
+             grammarConfig);
+    }
+
+    /**
+     * Primary constructor that accepts all dependencies explicitly, enabling injection.
+     * Use this in production wiring code (e.g. {@code Main}) to supply pre-constructed
+     * {@link CollocateProfileComparator} and {@link MultiSeedExplorer} instances.
+     *
+     * @param executor          the query executor for corpus lookups
+     * @param comparator        collocate profile comparator (multi-seed comparison)
+     * @param multiSeedExplorer multi-seed intersection explorer
+     * @param grammarConfig     grammar config used to derive the noun CQL constraint;
+     *                          {@code null} falls back to {@link #FALLBACK_NOUN_PATTERN}
+     */
+    public SemanticFieldExplorer(
+            QueryExecutor executor,
+            CollocateProfileComparator comparator,
+            MultiSeedExplorer multiSeedExplorer,
+            GrammarConfig grammarConfig) {
         this.executor = executor;
+        this.comparator = comparator;
+        this.multiSeedExplorer = multiSeedExplorer;
         this.nounCqlConstraint = deriveNounCqlConstraint(grammarConfig);
-        this.comparator = new CollocateProfileComparator(executor, grammarConfig);
-        this.multiSeedExplorer = new MultiSeedExplorer(executor);
     }
 
     private static String deriveNounCqlConstraint(GrammarConfig grammarConfig) {
@@ -211,6 +233,33 @@ public class SemanticFieldExplorer implements ExplorationService {
 
     /**
      * Phase 1: Fetch seed collocates using the BCQL pattern, with fallback to simplePattern.
+     *
+     * <h3>Query strategy: executeSurfacePattern primary, executeCollocations fallback</h3>
+     *
+     * <p><b>Primary — {@code executeSurfacePattern(bcqlPattern, ...)}:</b>
+     * The BCQL pattern encodes the full grammatical context from the grammar config (e.g.
+     * {@code [lemma="theory"] [xpos="VB.*"]} for SUBJECT_OF). It identifies collocates that
+     * co-occur with the seed in the expected syntactic position, which yields the highest-quality
+     * results but requires the seed to appear frequently enough to generate matches.</p>
+     *
+     * <p><b>Fallback — {@code executeCollocations(seed, simplePattern, ...)}:</b>
+     * A POS-group-only pattern (e.g. {@code [xpos="JJ.*"]}) passed to the dependency-aware
+     * collocation index. This bypasses syntactic structure but is more reliably populated for
+     * low-frequency seeds. The trade-off is lower precision: results reflect raw co-occurrence
+     * rather than a specific grammatical relation.</p>
+     *
+     * <p><b>Why not use {@code executeCollocations} everywhere?</b>
+     * {@code executeCollocations} relies on the precomputed collocation index and does not
+     * evaluate positional CQL constraints, so it cannot enforce the full grammatical structure
+     * that a BCQL pattern captures. Using {@code executeSurfacePattern} first maximises
+     * grammatical precision; only if that yields nothing do we fall back to the looser approach.</p>
+     *
+     * <p><b>Why {@link MultiSeedExplorer} does not apply this fallback:</b>
+     * Multi-seed exploration compares collocates across seeds and requires a consistent
+     * retrieval strategy for fair cross-seed comparison. Mixing BCQL results for one seed with
+     * simple-pattern results for another would make collocate scores incomparable. Seeds that
+     * return no BCQL results naturally contribute nothing to the intersection, which is the
+     * correct behaviour. See {@link MultiSeedExplorer#fetchCollocatesPerSeed}.</p>
      */
     private List<QueryResults.WordSketchResult> fetchSeedCollocates(
             String seed, String bcqlPattern, String simplePattern,
@@ -315,23 +364,43 @@ public class SemanticFieldExplorer implements ExplorationService {
      * {@link CollocateProfileComparator} aggregates collocates across all loaded relations rather
      * than filtering to a single relation type, which gives a broader cross-relational profile.</p>
      *
-     * @param seedNouns   Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
+     * @param seeds       Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
      * @return ComparisonResult with graded adjective profiles
      */
     public @NonNull ComparisonResult compareCollocateProfiles(
-            @NonNull Set<String> seedNouns, @NonNull ExplorationOptions opts) throws IOException {
-        return comparator.compareCollocateProfiles(seedNouns, opts);
+            @NonNull Set<String> seeds, @NonNull ExplorationOptions opts) throws IOException {
+        return comparator.compareCollocateProfiles(seeds, opts);
     }
 
     /**
      * Fetch example sentences for a seed-collocate pair using the provided relation pattern.
      *
+     * <h3>Query strategy: executeBcqlQuery (not executeSurfacePattern or executeCollocations)</h3>
+     *
+     * <p>This method retrieves <em>concordance examples</em> — full sentences showing a specific
+     * (seed, collocate) pair in context — rather than a ranked list of collocates. It therefore
+     * uses {@code executeBcqlQuery}, which returns {@link pl.marcinmilkowski.word_sketch.model.QueryResults.CollocateResult}
+     * objects carrying the sentence text and character offsets needed for display.</p>
+     *
+     * <p>Neither {@code executeSurfacePattern} nor {@code executeCollocations} is appropriate
+     * here because both return {@link pl.marcinmilkowski.word_sketch.model.QueryResults.WordSketchResult}
+     * objects designed for ranked collocate scoring, not for sentence retrieval. The BCQL pattern
+     * built by {@link pl.marcinmilkowski.word_sketch.config.RelationPatternUtils#buildFullPattern}
+     * pins both the seed and the collocate at specific labeled positions (e.g. position 1 = seed,
+     * position 2 = collocate), so the query is a precision lookup rather than a collocation scan.</p>
+     *
+     * <p><b>Important:</b> do not "unify" this with the {@link #fetchSeedCollocates} strategy.
+     * The two serve different purposes: {@code fetchSeedCollocates} scans for <em>candidate</em>
+     * collocates of an unknown-collocate query, while {@code fetchExamples} retrieves sentences
+     * for an already-known (seed, collocate) pair. Using {@code executeSurfacePattern} here would
+     * return scored collocate lists, not sentence examples.</p>
+     *
      * @param seed           The seed lemma (e.g. a noun)
      * @param collocate      The collocate lemma (e.g. an adjective)
      * @param relationConfig The relation config defining how collocate and seed co-occur
-     * @param opts           Options controlling how many examples to fetch
-     * @return List of example sentences showing the collocate-seed combination
+     * @param maxExamples    Maximum number of deduplicated example sentences to return
+     * @return {@link FetchExamplesResult} containing example concordance lines and the query used
      */
     public @NonNull FetchExamplesResult fetchExamples(@NonNull String seed, @NonNull String collocate,
             @NonNull RelationConfig relationConfig, int maxExamples)

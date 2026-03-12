@@ -100,6 +100,7 @@ final class HttpApiUtils {
 
     public static void sendError(@NonNull HttpExchange exchange, int code, @NonNull String message) throws IOException {
         ObjectNode error = MAPPER.createObjectNode();
+        error.put("status", "error");
         error.put("error", message);
         String json = MAPPER.writeValueAsString(error);
         byte[] bytes = json.getBytes("UTF-8");

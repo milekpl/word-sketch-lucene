@@ -28,11 +28,11 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  * algorithms each have a focused owner. {@link SemanticFieldExplorer} is now a thin facade
  * delegating to both this class and {@link CollocateProfileComparator}.</p>
  */
-class MultiSeedExplorer {
+public class MultiSeedExplorer {
 
     private final QueryExecutor executor;
 
-    MultiSeedExplorer(QueryExecutor executor) {
+    public MultiSeedExplorer(QueryExecutor executor) {
         this.executor = executor;
     }
 
@@ -76,6 +76,31 @@ class MultiSeedExplorer {
             discoveredNounsList, coreCollocatesList, perSeedCollocates);
     }
 
+    /**
+     * Fetches collocates for each seed using {@code executeSurfacePattern} with the grammar-derived
+     * BCQL pattern. No fallback to {@code executeCollocations} is applied.
+     *
+     * <h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>
+     *
+     * <p>Multi-seed exploration compares collocate scores across all seeds to identify a shared
+     * semantic core. This requires a <em>consistent retrieval method</em> for every seed: if some
+     * seeds used {@code executeSurfacePattern} (BCQL, grammatically precise) and others fell back
+     * to {@code executeCollocations} (dependency index, less precise), the resulting logDice scores
+     * would reflect different retrieval strategies and could not be meaningfully compared.</p>
+     *
+     * <p>Contrast with {@link SemanticFieldExplorer#fetchSeedCollocates}, which applies the
+     * {@code executeCollocations} fallback for single-seed exploration. In that context only
+     * one seed is queried, so mixing strategies has no cross-seed comparability cost; the
+     * fallback simply rescues rare seeds from returning empty results. That rescue is not
+     * appropriate here.</p>
+     *
+     * <p><b>Design implication:</b> seeds that produce no BCQL results contribute nothing to
+     * the intersection. This is correct: if a seed is too infrequent to return structured
+     * collocates, it should not artificially inflate or distort the shared collocate set.</p>
+     *
+     * <p><b>Do not introduce a fallback here</b> unless you also normalise the scores so that
+     * BCQL-derived and dependency-index-derived logDice values are on the same scale.</p>
+     */
     private SeedCollocateData fetchCollocatesPerSeed(
             Set<String> seeds, RelationConfig relationConfig,
             double minLogDice, int topCollocates) throws IOException {
@@ -134,15 +159,15 @@ class MultiSeedExplorer {
     private List<CoreCollocate> buildCoreCollocates(
             Set<String> commonCollocates,
             Map<String, Integer> collocateSharedCount,
-            Map<String, Double> seedCollocScores,
+            Map<String, Double> maxLogDiceByCollocate,
             Map<String, Double> avgLogDiceMap,
             int numSeeds) {
         List<CoreCollocate> coreCollocatesList = new ArrayList<>();
         for (String collocateLemma : commonCollocates) {
             int sharedBy = collocateSharedCount.getOrDefault(collocateLemma, 0);
             double avgLogDice = avgLogDiceMap.getOrDefault(collocateLemma, 0.0);
-            double seedLd = seedCollocScores.getOrDefault(collocateLemma, 0.0);
-            coreCollocatesList.add(new CoreCollocate(collocateLemma, sharedBy, numSeeds, seedLd, avgLogDice));
+            double peakLogDice = maxLogDiceByCollocate.getOrDefault(collocateLemma, 0.0);
+            coreCollocatesList.add(new CoreCollocate(collocateLemma, sharedBy, numSeeds, peakLogDice, avgLogDice));
         }
         return coreCollocatesList;
     }

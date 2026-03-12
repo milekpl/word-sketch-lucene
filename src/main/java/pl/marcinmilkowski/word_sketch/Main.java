@@ -5,7 +5,9 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.api.WordSketchApiServer;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
+import pl.marcinmilkowski.word_sketch.exploration.CollocateProfileComparator;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
+import pl.marcinmilkowski.word_sketch.exploration.MultiSeedExplorer;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.indexer.blacklab.BlackLabConllUIndexer;
 import pl.marcinmilkowski.word_sketch.indexer.blacklab.ConlluConverter;
@@ -261,7 +263,9 @@ public class Main {
             }
         }));
 
-        WordSketchApiServer server = new WordSketchApiServer(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig);
+        CollocateProfileComparator comparator = new CollocateProfileComparator(executor, grammarConfig);
+        MultiSeedExplorer multiSeedExplorer = new MultiSeedExplorer(executor);
+        WordSketchApiServer server = new WordSketchApiServer(executor, new SemanticFieldExplorer(executor, comparator, multiSeedExplorer, grammarConfig), port, grammarConfig);
         serverHolder.set(server);
 
         server.start();

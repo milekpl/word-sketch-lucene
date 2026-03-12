@@ -24,7 +24,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  * collocates. Given a set of seed nouns, fetches adjective collocates for each and computes
  * commonality and distinctiveness scores across the full set.
  */
-class CollocateProfileComparator {
+public class CollocateProfileComparator {
 
     private static final Logger logger = LoggerFactory.getLogger(CollocateProfileComparator.class);
 
@@ -33,7 +33,7 @@ class CollocateProfileComparator {
     private final QueryExecutor executor;
     private final String collocatePattern;
 
-    CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
+    public CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
         this.executor = executor;
         this.collocatePattern = deriveCollocatePattern(grammarConfig);
     }

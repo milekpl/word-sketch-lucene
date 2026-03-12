@@ -19,10 +19,34 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Smoke tests for {@link BlackLabConllUIndexer}.
  *
- * <p>These tests cover the end-to-end indexing pipeline: CoNLL-U → WPL conversion →
- * BlackLab index. They require the {@code conllu-sentences.blf.yaml} format config file
- * to be present in the project root (working directory). Tests are skipped automatically
- * when the format config is not found.
+ * <p><strong>Why these tests are disabled:</strong> The indexer wraps BlackLab's on-disk
+ * document format system, which must locate a YAML format config file
+ * ({@code conllu-sentences.blf.yaml}) at startup via
+ * {@link DocumentFormats#addConfigFormatsInDirectories}. This config file registers the
+ * CoNLL-U token/sentence structure with BlackLab and is <em>not distributed with the
+ * source</em> because it contains site-specific field mappings. Without it, BlackLab
+ * cannot parse the WPL-format intermediate files produced by {@link ConlluConverter},
+ * and all indexing attempts fail.</p>
+ *
+ * <p><strong>What these tests verify:</strong>
+ * <ul>
+ *   <li>End-to-end pipeline: CoNLL-U text → {@link ConlluConverter} WPL chunks →
+ *       {@link BlackLabConllUIndexer} → on-disk BlackLab index.</li>
+ *   <li>Document and token counts are correct after indexing a minimal corpus.</li>
+ *   <li>The constructor creates the index directory when it does not exist.</li>
+ *   <li>{@code indexFile} throws {@link IOException} for a missing input path.</li>
+ *   <li>{@code getTokenCount()} starts at zero before any documents are indexed.</li>
+ * </ul>
+ * </p>
+ *
+ * <p><strong>Prerequisites to run locally:</strong>
+ * <ol>
+ *   <li>Place {@code conllu-sentences.blf.yaml} in the project root (working directory
+ *       when running Maven, i.e. the directory containing {@code pom.xml}).</li>
+ *   <li>Remove the {@code @Disabled} annotation from this class.</li>
+ *   <li>Run: {@code JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn test -Dtest=BlackLabConllUIndexerTest}</li>
+ * </ol>
+ * </p>
  */
 @Disabled("Requires conllu-sentences.blf.yaml format config in the project root — not distributed with source; run from a local environment that has the BlackLab format config installed")
 @DisplayName("BlackLabConllUIndexer")

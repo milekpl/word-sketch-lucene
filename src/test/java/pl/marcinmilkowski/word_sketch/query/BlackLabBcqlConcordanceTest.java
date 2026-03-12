@@ -9,12 +9,32 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * TDD Test: BCQL Query with Full Sentence Concordance
+ * Integration tests for BCQL query execution using a live BlackLab index.
  *
- * Tests for:
- * 1. BCQL endpoint uses CorpusQueryLanguageParser (not ContextualQueryLanguageParser)
- * 2. Full sentences are returned (not just 5-word KWIC)
- * 3. Plain text AND raw XML both available (toggle)
+ * <p><strong>Why these tests require a live index:</strong> {@link BlackLabQueryExecutor}
+ * wraps BlackLab's on-disk inverted index. There is no in-memory substitute, so
+ * these tests cannot run in CI without a pre-built corpus index on disk.</p>
+ *
+ * <p><strong>What these tests verify:</strong>
+ * <ol>
+ *   <li>The BCQL endpoint uses {@code CorpusQueryLanguageParser} (not
+ *       {@code ContextualQueryLanguageParser}) so that labeled capture groups
+ *       ({@code 1:}, {@code 2:}) are supported.</li>
+ *   <li>Full sentences are returned in {@link QueryResults.CollocateResult#sentence()}
+ *       rather than the truncated 5-word KWIC window.</li>
+ *   <li>Plain text and raw XML are both available via the result object.</li>
+ * </ol>
+ * </p>
+ *
+ * <p><strong>How to run locally:</strong>
+ * <pre>
+ *   export CONCEPT_SKETCH_TEST_INDEX=/path/to/your/blacklab-index
+ *   # Remove @Disabled from this class, then:
+ *   JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn test -Dtest=BlackLabBcqlConcordanceTest
+ * </pre>
+ * The index must contain sentences with "theory" and "concept" as lemmas. The
+ * 74M-sentence corpus index at {@code d:\corpus_74m\index-hybrid} satisfies this.
+ * </p>
  */
 @Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
 public class BlackLabBcqlConcordanceTest {

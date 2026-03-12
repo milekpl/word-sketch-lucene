@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
+import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.StubQueryExecutor;
@@ -43,7 +44,7 @@ class WordSketchApiServerTest {
     @BeforeEach
     void startServer() throws IOException {
         var grammar = GrammarConfigHelper.requireTestConfig();
-        var explorer = new SemanticFieldExplorer(STUB_EXECUTOR, grammar);
+        ExplorationService explorer = new SemanticFieldExplorer(STUB_EXECUTOR, grammar);
         server = new WordSketchApiServer(STUB_EXECUTOR, explorer, TEST_PORT, grammar);
         server.start();
     }

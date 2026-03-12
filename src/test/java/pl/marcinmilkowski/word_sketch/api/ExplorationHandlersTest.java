@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONObject;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
+import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.Edge;
@@ -35,7 +36,7 @@ class ExplorationHandlersTest {
 
     private static ExplorationHandlers handlers() throws IOException {
         GrammarConfig config = GrammarConfigHelper.requireTestConfig();
-        SemanticFieldExplorer explorer = new SemanticFieldExplorer(emptyExecutor(), config);
+        ExplorationService explorer = new SemanticFieldExplorer(emptyExecutor(), config);
         return new ExplorationHandlers(explorer, config);
     }
 
@@ -144,7 +145,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExamples_validParams_returns200() throws Exception {
-        SemanticFieldExplorer explorer = new SemanticFieldExplorer(emptyExecutor(), null);
+        ExplorationService explorer = new SemanticFieldExplorer(emptyExecutor(), null);
         ExplorationHandlers handlers = new ExplorationHandlers(explorer, GrammarConfigHelper.requireTestConfig());
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/examples?collocate=important&seed=theory&relation=noun_adj_predicates");
@@ -190,7 +191,7 @@ class ExplorationHandlersTest {
             "theory", List.of(wsr("abstract", 9.0)),
             "model",  List.of(wsr("abstract", 6.0))
         ));
-        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
+        ExplorationService explorer = new SemanticFieldExplorer(executor, null);
         ComparisonResult result = explorer.compareCollocateProfiles(
                 Set.of("theory", "model"), new ExplorationOptions(50, 0.0, 1));
 

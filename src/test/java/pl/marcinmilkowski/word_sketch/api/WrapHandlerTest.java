@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import org.junit.jupiter.api.Test;
@@ -29,8 +28,8 @@ class WrapHandlerTest {
 
         assertEquals(400, ((TestExchangeFactory.MockExchange) ex).statusCode,
                 "IAE must map to HTTP 400");
-        JSONObject body = JSON.parseObject(((TestExchangeFactory.MockExchange) ex).getResponseBodyAsString());
-        assertTrue(body.getString("error").contains("bad param"),
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(((TestExchangeFactory.MockExchange) ex).getResponseBodyAsString(), ObjectNode.class);
+        assertTrue(body.path("error").asText().contains("bad param"),
                 "Error message should include original IAE message");
     }
 
@@ -54,8 +53,8 @@ class WrapHandlerTest {
 
         assertEquals(500, ((TestExchangeFactory.MockExchange) ex).statusCode,
                 "RuntimeException must map to HTTP 500");
-        JSONObject body = JSON.parseObject(((TestExchangeFactory.MockExchange) ex).getResponseBodyAsString());
-        assertTrue(body.getString("error").contains("unexpected"),
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(((TestExchangeFactory.MockExchange) ex).getResponseBodyAsString(), ObjectNode.class);
+        assertTrue(body.path("error").asText().contains("unexpected"),
                 "Error message should include original exception message");
     }
 
@@ -67,8 +66,8 @@ class WrapHandlerTest {
         HttpApiUtils.wrapWithErrorHandling(throwsTooLarge, "test-op").handle(ex);
 
         assertEquals(413, ex.statusCode, "RequestEntityTooLargeException must map to HTTP 413");
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertTrue(body.getString("error").contains("body too large"),
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertTrue(body.path("error").asText().contains("body too large"),
                 "Error message should include the original message");
     }
 

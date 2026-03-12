@@ -1,0 +1,116 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 7,
+  "assessments": {"naming_quality": 74.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Handler method names are precise and consistent: handleConcordanceExamples, handleSemanticFieldExploreMulti, handleSemanticFieldComparison — each names both the what and the which endpoint.",
+        "Model record fields communicate domain semantics directly: nounScores, presentInCount, commonalityScore, distinctivenessScore, sharedByCount in CollocateProfile and CoreCollocate.",
+        "CQL utility method names are surgical: extractConstraintAttribute, substituteAtPosition, injectLemmaConstraint, trimLeftAtSentenceBoundary — no generic verbs.",
+        "CollocateProfileComparator is named as a generic collocate comparator, but its internals consistently use 'adjective' vocabulary: field adjectivePattern, constants FALLBACK_ADJECTIVE_PATTERN, private methods buildRawAdjectiveProfiles and buildAdjectiveProfileList, and doc comments 'fetches adjective collocates'. The class is parameterized by PosGroup and could serve any POS.",
+        "processConlluLines in ConlluConverter uses the generic verb 'process'. The method reads CoNLL-U input and writes WPL-format XML chunks to disk — a name like writeWplChunksFromConllu or streamConlluToWplChunks would eliminate the ambiguity.",
+        "Parallel fallback-pattern constants in the exploration layer use inconsistent vocabulary: FALLBACK_ADJECTIVE_PATTERN (CollocateProfileComparator) vs FALLBACK_NOUN_CQL_CONSTRAINT (SemanticFieldExplorer) — same structural role, different word choices for both the type ('PATTERN' vs 'CQL_CONSTRAINT') and the POS label.",
+        "buildCoreExploreResponse in ExplorationHandlers borrows the word 'Core' from the domain concept CoreCollocate (collocates shared across all seeds), but here 'Core' means 'shared/common response structure'. A reader must pause to distinguish the two usages.",
+        "executeCollocateSearchWithContent vs executeCollocateSearch in CollocateQueryHelper forms an asymmetric pair: 'WithContent' means 'with stored hit XML for lemma extraction', but 'Content' is too generic to communicate that; the complementary method has no suffix at all."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "HTTP handler methods are consistently named with handleX pattern and encode both action and subject: handleConcordanceExamples, handleSemanticFieldExploreMulti — no ambiguity about what each handles.",
+        "Domain model types are expressive and use the project's own vocabulary precisely: CollocateProfile, CoreCollocate, DiscoveredNoun, SharingCategory.FULLY_SHARED — a developer reading any of these knows exactly what they represent.",
+        "CQL utility methods in CqlUtils avoid generic verbs entirely: substituteAtPosition, injectLemmaConstraint, trimLeftAtSentenceBoundary — each name describes the exact transformation performed.",
+        "Cross-layer vocabulary is consistent: 'seed', 'collocate', 'relation', 'logDice' appear with the same meaning in the model, exploration, API, and config layers with no synonym drift.",
+        "Record field names in query results are unambiguous: WordSketchResult.logDice, CollocateResult.collocateLemma, CollocateProfile.presentInCount — no abbreviated or overloaded names."
+      ],
+      "issue_character": "Issues are localized to the exploration-layer internals: a vocabulary split where the class and external API speak 'collocate' but private fields and methods speak 'adjective', plus one generic 'process' verb in the indexer and two minor naming-convention inconsistencies.",
+      "score_rationale": "The codebase sits solidly above the 60-point threshold of 'significant drag': the handler, model, utility, and config layers are exemplary — a developer reading any of them immediately understands intent without comments. What pulls the score below 80 is a concentrated vocabulary divergence inside CollocateProfileComparator (adjectivePattern, buildRawAdjectiveProfiles, buildAdjectiveProfileList all encode a specialization that was superseded by the generic CollocateProfile abstraction), the generic processConlluLines verb in ConlluConverter, and a minor naming-convention split between parallel fallback-pattern constants. These are real but bounded defects — a 74 reflects a codebase that is broadly strong but has one subsystem where the naming did not keep pace with the abstraction."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "collocate_comparator_adjective_vocabulary_leak",
+      "summary": "CollocateProfileComparator internals use 'adjective' vocabulary despite the class being a generic collocate comparator",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "Field: private final String adjectivePattern — the class is parameterized by PosGroup.ADJ at construction but could serve any PosGroup",
+        "Constant: private static final String FALLBACK_ADJECTIVE_PATTERN — parallel constant in SemanticFieldExplorer is FALLBACK_NOUN_CQL_CONSTRAINT",
+        "Private methods buildRawAdjectiveProfiles and buildAdjectiveProfileList encode the POS specialization that the class name and public API (compareCollocateProfiles) abstract away",
+        "Javadoc on compareCollocateProfiles says 'Compare adjective collocate profiles' and 'fetches adjective collocates' but the method accepts any seedNouns and returns CollocateProfile objects"
+      ],
+      "suggestion": "Rename the field to collocatePattern, the constant to FALLBACK_COLLOCATE_PATTERN, and the private helpers to buildRawCollocateProfiles / buildCollocateProfileList. Update the Javadoc on compareCollocateProfiles to say 'collocate profiles' and 'fetches collocates'. This aligns the internal vocabulary with the class name and external interface.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "process_conllu_lines_generic_verb",
+      "summary": "processConlluLines uses a generic 'process' verb that does not communicate the method's actual transformation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "private static @Nullable BufferedWriter processConlluLines(BufferedReader reader, Path outputDir, int sentencesPerChunk, long[] state) — 'process' reveals nothing about the output format or the transformation performed",
+        "The method reads CoNLL-U token records and writes WPL (word-per-line) XML chunk files to outputDir — both the input format and output format are obscured by 'process'"
+      ],
+      "suggestion": "Rename to writeWplChunksFromConllu or convertConlluToWplChunks to name both the source format (CoNLL-U) and the output operation (write WPL XML chunks). The return type (BufferedWriter for the current open chunk file) can stay; the name change alone eliminates the ambiguity.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "fallback_pattern_constant_naming_inconsistency",
+      "summary": "Parallel fallback-pattern constants use inconsistent vocabulary across two adjacent classes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "CollocateProfileComparator: private static final String FALLBACK_ADJECTIVE_PATTERN = \"[xpos=\\\"JJ.*\\\"]\";",
+        "SemanticFieldExplorer: private static final String FALLBACK_NOUN_CQL_CONSTRAINT = \"[xpos=\\\"NN.*\\\"]\";",
+        "Both constants serve the same structural role — a default CQL token constraint used when no grammar config match is found — but one says 'PATTERN' and the other says 'CQL_CONSTRAINT'; one prefixes the POS label before the type word and the other appends it after"
+      ],
+      "suggestion": "Standardise on one convention for both constants. Given that CqlUtils and GrammarConfigLoader use 'pattern' throughout, prefer FALLBACK_ADJECTIVE_CQL_PATTERN and FALLBACK_NOUN_CQL_PATTERN, or simply FALLBACK_ADJECTIVE_PATTERN and FALLBACK_NOUN_PATTERN if the 'CQL' qualifier is considered implicit.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "build_core_explore_response_domain_term_collision",
+      "summary": "'buildCoreExploreResponse' borrows the domain term 'Core' from CoreCollocate with a different meaning",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "private Map<String, Object> buildCoreExploreResponse(...) in ExplorationHandlers — 'Core' here means 'shared/common response scaffolding across all three exploration endpoints'",
+        "CoreCollocate in model/exploration is a domain type meaning 'a collocate present in all seed nouns' — the same word 'core' carries a distinct domain meaning two packages away",
+        "All three callers (handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison) use this method as a template-method factoring, not for anything related to CoreCollocate"
+      ],
+      "suggestion": "Rename to buildSharedExploreResponse or buildCommonExploreResponse to avoid borrowing a domain term already assigned to CoreCollocate. Both names describe the intent (shared structure across exploration endpoints) without colliding with the existing vocabulary.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration layer underwent an abstraction shift from adjective-specific to generic collocate profiles, but the internal method and field names in CollocateProfileComparator were not updated to match the new abstraction level.",
+      "Naming conventions for private implementation constants and helper methods are not enforced by any convention document, leading to small vocabulary drifts between parallel structures in adjacent classes."
+    ],
+    "likely_symptoms": [
+      "collocate_comparator_adjective_vocabulary_leak — the public interface already uses the correct vocabulary; only internals are affected"
+    ],
+    "possible_false_positives": []
+  }
+}

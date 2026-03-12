@@ -1,7 +1,7 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -32,6 +32,8 @@ import java.util.Map;
 final class HttpApiUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
+
+    static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
      * Default allowed CORS origin (used when the {@code cors.allow.origin} system property
@@ -84,7 +86,7 @@ final class HttpApiUtils {
     }
 
     public static void sendJsonResponse(@NonNull HttpExchange exchange, @NonNull Object data) throws IOException {
-        String json = JSON.toJSONString(data);
+        String json = MAPPER.writeValueAsString(data);
         byte[] bytes = json.getBytes("UTF-8");
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -97,9 +99,9 @@ final class HttpApiUtils {
     }
 
     public static void sendError(@NonNull HttpExchange exchange, int code, @NonNull String message) throws IOException {
-        JSONObject error = new JSONObject();
+        ObjectNode error = MAPPER.createObjectNode();
         error.put("error", message);
-        String json = JSON.toJSONString(error);
+        String json = MAPPER.writeValueAsString(error);
         byte[] bytes = json.getBytes("UTF-8");
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");

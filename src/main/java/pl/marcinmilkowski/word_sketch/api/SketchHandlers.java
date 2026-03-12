@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSONArray;
 import com.sun.net.httpserver.HttpExchange;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -80,7 +79,7 @@ class SketchHandlers {
     }
 
     private void handleRelationsForType(HttpExchange exchange, RelationType relationType) throws IOException {
-        JSONArray relationsArray = new JSONArray();
+        List<Map<String, Object>> relationsArray = new ArrayList<>();
         for (var rel : grammarConfig.relations()) {
             var rt = rel.relationType();
             if (rt == relationType) {

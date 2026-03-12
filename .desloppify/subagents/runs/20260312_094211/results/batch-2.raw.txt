@@ -1,0 +1,65 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 2,
+  "assessments": {"dependency_health": 80.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares exactly 5 production-scope runtime deps: blacklab-engine, blacklab-query-parser, fastjson2, slf4j-api, logback-classic, and the annotation-only jspecify. All 3 test deps (junit-jupiter-api, junit-jupiter-engine, junit-platform-launcher) are correctly scoped to 'test'.",
+        "blacklab-query-parser (separate artifact from blacklab-engine) is imported in exactly one file (BlackLabQueryExecutor.java line 22: ContextualQueryLanguageParser.parse()) and is genuinely needed since the query parser is a distinct BlackLab module not bundled with the engine.",
+        "fastjson2 (com.alibaba.fastjson2:fastjson2:2.0.57) is used across 6 production files (HttpApiUtils, CorpusQueryHandlers, SketchHandlers, VisualizationHandlers, GrammarConfigLoader, GrammarConfigSerializer) for JSON object construction, parsing, and serialization — real usage, not token use.",
+        "jspecify:1.0.0 is an annotation-only compile-time dependency with zero runtime footprint; imported in 21 files for @Nullable/@NonNull annotations — appropriate lightweight use.",
+        "The project deliberately uses com.sun.net.httpserver (JDK built-in HTTP server) to avoid external web-framework dependencies, documented with inline TODO comments in WordSketchApiServer.java and pom.xml. fastjson2 is the sole external library providing functionality the JDK does not (Java 21 has no built-in JSON API).",
+        "No duplicate libraries for the same purpose: single JSON library (fastjson2), single logging implementation (logback), single null-annotation library (jspecify), single corpus engine (BlackLab).",
+        "SLF4J 2.0.7 + logback-classic 1.5.18 is a compatible pair; logback 1.5.x implements the SLF4J 2.x ServiceLoader-based binding correctly.",
+        "fastjson2 version 2.0.57 is a recent release of the Alibaba JSON library rewrite. Unlike fastjson1 (which had dozens of CVEs), fastjson2 is an architectural rewrite and current in terms of releases, but remains a less mainstream choice compared to Jackson (com.fasterxml.jackson) in the Java ecosystem."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Extremely lean production dependency footprint — only 6 runtime deps (5 functional + 1 annotation-only) for a full NLP API server with corpus indexing.",
+        "Intentional avoidance of heavy web frameworks (Undertow, Jetty, Spring) in favour of the JDK built-in HTTP server, documented explicitly in pom.xml and source comments.",
+        "All declared dependencies are genuinely used: fastjson2 across 6 files with real JSON manipulation, BlackLab artifacts each serving distinct roles (engine vs. query parser), jspecify as a zero-weight annotation dependency.",
+        "Clean test-scope discipline: all three JUnit artifacts are correctly scoped to 'test', preventing accidental runtime leakage.",
+        "No redundant libraries: one JSON library, one logging impl, one null-annotation library — no evidence of moment+dayjs-style duplication."
+      ],
+      "issue_character": "The single mild concern is a supply-chain/ecosystem-alignment risk: fastjson2 is used as the sole JSON library in a project that otherwise aggressively minimises external dependencies, yet fastjson2 is an Alibaba-authored library with lower mainstream Java adoption than Jackson; this is a stylistic incongruence rather than a structural defect.",
+      "score_rationale": "By dependency_health rubric standards this codebase scores well: no multiple libs for the same purpose, no heavy dep pulled in for trivial use, no version conflicts visible, and test deps properly scoped. The sole friction point — fastjson2 over the more idiomatic Jackson — is a real but minor stylistic risk (supply-chain trust, ecosystem alignment) rather than a functional defect or architecture problem. This places the codebase solidly above the 'significant drag' threshold (60) and near 'solid but uneven' (80), with the fastjson2 choice being the only factor preventing a higher score."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "fastjson2_ecosystem_mismatch",
+      "summary": "fastjson2 (Alibaba) used as sole JSON library in a project that otherwise deliberately avoids non-JDK external dependencies",
+      "related_files": [
+        "pom.xml",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "pom.xml uses com.sun.net.httpserver (JDK built-in) intentionally to avoid external web framework deps, with a documented TODO comment ('migrate to Undertow or Jetty if a multi-module build…').",
+        "fastjson2 (com.alibaba.fastjson2:fastjson2:2.0.57) is declared without a rationale comment explaining the choice over the Java-ecosystem-standard Jackson (com.fasterxml.jackson.core).",
+        "fastjson1 accumulated dozens of deserialization CVEs; fastjson2 is an architectural rewrite but inherits the supply-chain reputation risk, and is less widely audited than Jackson in the enterprise Java community.",
+        "fastjson2 usage is legitimate (6 files, real JSON construction and parsing), so this is not a 'pulled in for trivial use' issue — it is an ecosystem alignment concern."
+      ],
+      "suggestion": "Consider replacing fastjson2 with Jackson databind (com.fasterxml.jackson.core:jackson-databind), the de-facto standard JSON library in Java. All usages are straightforward: JSON.toJSONString(obj) → mapper.writeValueAsString(obj), new JSONObject() → new ObjectNode(mapper.getNodeFactory()), JSON.parseObject(str) → mapper.readTree(str). Jackson is more widely adopted, better audited, and better aligned with the project's philosophy of using well-established JVM-ecosystem libraries.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The fastjson2 choice likely reflects a developer preference or early decision made before the ecosystem-minimal philosophy was fully established; no comment in pom.xml explains the rationale."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

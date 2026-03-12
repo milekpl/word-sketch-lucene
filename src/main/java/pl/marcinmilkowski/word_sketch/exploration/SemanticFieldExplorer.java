@@ -2,11 +2,11 @@ package pl.marcinmilkowski.word_sketch.exploration;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -90,7 +90,7 @@ public class SemanticFieldExplorer implements ExplorationService {
 
     private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 
-    private static final String FALLBACK_NOUN_CQL_CONSTRAINT = "[xpos=\"NN.*\"]";
+    private static final String FALLBACK_NOUN_PATTERN = "[xpos=\"NN.*\"]";
 
     private final QueryExecutor executor;
     private final CollocateProfileComparator comparator;
@@ -106,7 +106,7 @@ public class SemanticFieldExplorer implements ExplorationService {
 
     private static String deriveNounCqlConstraint(GrammarConfig grammarConfig) {
         return RelationUtils.findBestCollocatePattern(
-            grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_CQL_CONSTRAINT);
+            grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_PATTERN);
     }
 
     // ==================== EXPLORATION MODE ====================
@@ -332,18 +332,17 @@ public class SemanticFieldExplorer implements ExplorationService {
 
         List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, opts.maxExamples());
 
-        return results.stream()
-            .filter(r -> {
-                String s = r.sentence();
-                return s != null && !s.isEmpty();
-            })
-            .collect(Collectors.collectingAndThen(
-                Collectors.toMap(
-                    QueryResults.CollocateResult::sentence,
-                    r -> r,
-                    (a, b) -> a,
-                    java.util.LinkedHashMap::new),
-                m -> m.values().stream().limit(opts.maxExamples()).collect(Collectors.toList())));
+        Set<String> seen = new HashSet<>();
+        List<QueryResults.CollocateResult> deduped = new ArrayList<>();
+        for (QueryResults.CollocateResult r : results) {
+            String s = r.sentence();
+            if (s == null || s.isEmpty()) continue;
+            if (seen.add(s)) {
+                deduped.add(r);
+                if (deduped.size() == opts.maxExamples()) break;
+            }
+        }
+        return deduped;
     }
 
     /**

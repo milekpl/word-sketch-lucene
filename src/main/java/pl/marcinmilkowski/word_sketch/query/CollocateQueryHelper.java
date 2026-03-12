@@ -28,6 +28,7 @@ import nl.inl.blacklab.search.textpattern.TextPattern;
 import nl.inl.blacklab.searches.SearchHits;
 
 import pl.marcinmilkowski.word_sketch.utils.LogDiceUtils;
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 
 import org.jspecify.annotations.NonNull;
@@ -220,9 +221,9 @@ class CollocateQueryHelper {
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(index));
 
             Hits hits = index.find(query);
-            String headword = BcqlPatternUtils.extractHeadword(bcqlPattern);
+            String headword = CqlUtils.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
-            int collocatePos = BcqlPatternUtils.findLabelTokenIndex(bcqlPattern, 2);
+            int collocatePos = CqlUtils.findLabelTokenIndex(bcqlPattern, 2);
             int sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR); // safe: min ensures result ≤ maxResults * OVER_FETCH_FACTOR
 
             Map<String, Long> collocateFreqMap = new HashMap<>();

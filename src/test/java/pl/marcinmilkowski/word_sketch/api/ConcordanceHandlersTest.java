@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
@@ -33,11 +32,11 @@ class ConcordanceHandlersTest {
                 "http://localhost/api/concordance/examples?seed=house&collocate=big&relation=noun_adj_predicates");
         handlers.handleConcordanceExamples(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertEquals("house", body.getString("seed"));
-        assertEquals("big", body.getString("collocate"));
-        assertTrue(body.containsKey("examples"), "Response must contain 'examples' key");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertEquals("house", body.path("seed").asText());
+        assertEquals("big", body.path("collocate").asText());
+        assertTrue(body.has("examples"), "Response must contain 'examples' key");
     }
 
     @Test

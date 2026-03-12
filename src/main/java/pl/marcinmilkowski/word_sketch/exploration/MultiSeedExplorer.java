@@ -53,23 +53,10 @@ class MultiSeedExplorer {
         SeedCollocateData data = fetchCollocatesPerSeed(seeds, relationConfig, minLogDice, topCollocates);
         Set<String> commonCollocates = identifyCommonCollocates(data.collocateSharedCount(), minShared, seeds.size());
 
-        Map<String, Double> seedCollocScores = new LinkedHashMap<>();
-        Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
-        Map<String, Double> collocLogDiceSum = new HashMap<>();
-        Map<String, Integer> collocLogDiceCount = new HashMap<>();
-        for (List<QueryResults.WordSketchResult> collocs : data.seedCollocateMap().values()) {
-            for (QueryResults.WordSketchResult wsr : collocs) {
-                seedCollocScores.merge(wsr.lemma(), wsr.logDice(), Math::max);
-                seedCollocFreqs.merge(wsr.lemma(), wsr.frequency(), Long::sum);
-                collocLogDiceSum.merge(wsr.lemma(), wsr.logDice(), Double::sum);
-                collocLogDiceCount.merge(wsr.lemma(), 1, Integer::sum);
-            }
-        }
-        Map<String, Double> avgLogDiceMap = new HashMap<>();
-        collocLogDiceSum.forEach((lemma, sum) -> avgLogDiceMap.put(lemma, sum / collocLogDiceCount.get(lemma)));
+        AggregatedCollocateStats stats = aggregateCollocateStats(data.seedCollocateMap());
         List<DiscoveredNoun> discoveredNounsList = buildDiscoveredNouns(seeds, data.seedCollocateMap(), commonCollocates);
         List<CoreCollocate> coreCollocatesList = buildCoreCollocates(
-                commonCollocates, data.collocateSharedCount(), seedCollocScores, avgLogDiceMap, seeds.size());
+                commonCollocates, data.collocateSharedCount(), stats.maxLogDiceByLemma(), stats.avgLogDiceByLemma(), seeds.size());
 
         Map<String, Map<String, Double>> perSeedCollocates = new LinkedHashMap<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : data.seedCollocateMap().entrySet()) {
@@ -82,7 +69,7 @@ class MultiSeedExplorer {
 
         return new ExplorationResult(
             new java.util.ArrayList<>(seeds),
-            seedCollocScores, seedCollocFreqs,
+            stats.maxLogDiceByLemma(), stats.totalFreqByLemma(),
             discoveredNounsList, coreCollocatesList, perSeedCollocates);
     }
 
@@ -156,6 +143,35 @@ class MultiSeedExplorer {
         }
         return coreCollocatesList;
     }
+
+    /**
+     * Aggregates per-seed collocate lists into cross-seed statistics:
+     * the maximum logDice each collocate achieves across seeds, the sum of its
+     * frequencies, and the average of its logDice values.
+     */
+    private AggregatedCollocateStats aggregateCollocateStats(
+            Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap) {
+        Map<String, Double> maxLogDice = new LinkedHashMap<>();
+        Map<String, Long> totalFreq = new LinkedHashMap<>();
+        Map<String, Double> logDiceSum = new HashMap<>();
+        Map<String, Integer> logDiceCount = new HashMap<>();
+        for (List<QueryResults.WordSketchResult> collocs : seedCollocateMap.values()) {
+            for (QueryResults.WordSketchResult wsr : collocs) {
+                maxLogDice.merge(wsr.lemma(), wsr.logDice(), Math::max);
+                totalFreq.merge(wsr.lemma(), wsr.frequency(), Long::sum);
+                logDiceSum.merge(wsr.lemma(), wsr.logDice(), Double::sum);
+                logDiceCount.merge(wsr.lemma(), 1, Integer::sum);
+            }
+        }
+        Map<String, Double> avgLogDice = new HashMap<>();
+        logDiceSum.forEach((lemma, sum) -> avgLogDice.put(lemma, sum / logDiceCount.get(lemma)));
+        return new AggregatedCollocateStats(maxLogDice, totalFreq, avgLogDice);
+    }
+
+    private record AggregatedCollocateStats(
+            Map<String, Double> maxLogDiceByLemma,
+            Map<String, Long> totalFreqByLemma,
+            Map<String, Double> avgLogDiceByLemma) {}
 
     private record SeedCollocateData(
             Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap,

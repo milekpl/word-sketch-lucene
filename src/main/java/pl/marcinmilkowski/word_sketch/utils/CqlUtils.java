@@ -164,4 +164,57 @@ public final class CqlUtils {
         sb.append("]");
         return sb.toString();
     }
+    // BCQL pattern utilities (moved from BcqlPatternUtils in query package)
+
+    private static final java.util.regex.Pattern LEMMA_ATTR_RELAXED =
+            java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Extract the headword lemma from a BCQL pattern string.
+     * Finds the first {@code lemma="..."} or {@code lemma='...'} attribute and returns its value.
+     *
+     * @param bcqlPattern the BCQL pattern string
+     * @return the lemma value, or {@code null} if no lemma attribute is present
+     */
+    @org.jspecify.annotations.Nullable
+    public static String extractHeadword(String bcqlPattern) {
+        java.util.regex.Matcher m = LEMMA_ATTR_RELAXED.matcher(bcqlPattern);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return null;
+    }
+
+    /**
+     * Find the position of a labeled capture group (e.g., "2:") in a BCQL pattern.
+     * Returns the 1-based position of that token in the pattern.
+     *
+     * @param pattern the BCQL pattern string
+     * @param label   the numeric label to find (e.g., 2 for "2:")
+     * @return the 1-based token position, or -1 if the label is not found
+     */
+    public static int findLabelTokenIndex(String pattern, int label) {
+        if (pattern == null) {
+            return -1;
+        }
+        String labelStr = label + ":";
+        int labelIndex = pattern.indexOf(labelStr);
+        if (labelIndex < 0) {
+            return -1;
+        }
+        if (labelIndex + labelStr.length() < pattern.length() &&
+            pattern.charAt(labelIndex + labelStr.length()) == '[') {
+            int tokenPos = 0;
+            for (int i = 0; i < pattern.length(); i++) {
+                if (pattern.charAt(i) == '[') {
+                    tokenPos++;
+                    if (i == labelIndex + labelStr.length()) {
+                        return tokenPos;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
 }

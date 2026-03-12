@@ -1,0 +1,84 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 6,
+  "assessments": {"convention_outlier": 77.0},
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "All *Handlers classes in api package (ConcordanceHandlers, CorpusQueryHandlers, ExplorationHandlers, SketchHandlers, VisualizationHandlers) are package-private with no 'final' modifier — consistent.",
+        "Utility/assembler classes with only static methods (HttpApiUtils, ExploreResponseAssembler) use 'final class' — consistent internal sub-pattern.",
+        "WordSketchApiServer is the sole public entry point in the api package — correct.",
+        "RadialPlot is declared 'public class' with a 'public static class Item' nested type, yet it is only used by VisualizationHandlers inside the same api package. Every other non-entry-point in the api package is package-private.",
+        "CqlUtils lives in the 'utils' package and contains general CQL string primitives (splitCqlTokens, substituteAtPosition, escapeForRegex). BcqlPatternUtils lives in the 'query' package and contains BCQL-pattern introspection primitives (extractHeadword, findLabelTokenIndex). Both are static utility classes with similar naming and purpose; the split between packages is not documented or signposted in either class.",
+        "All packages have package-info.java files; no package is missing one.",
+        "model/exploration uses record for pure DTOs (CollocateProfile, CoreCollocate, DiscoveredNoun, Edge, ExplorationOptions, FetchExamplesOptions, SingleSeedExplorationOptions) and class for objects with derived views/construction logic (ComparisonResult, ExplorationResult) — documented rationale in model/package-info.java.",
+        "Suffix vocabulary across the codebase is consistent: *Loader, *Builder, *Serializer, *Utils, *Helper, *Assembler, *Comparator, *Explorer, *Executor, *Parser each appear in exactly one role.",
+        "Edge.java contains a redundant self-import: 'import pl.marcinmilkowski.word_sketch.model.exploration.RelationEdgeType' even though RelationEdgeType is in the same package."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Consistent package-private visibility across all non-entry-point api classes: every handler class follows the same pattern.",
+        "Uniform package-info.java coverage across all packages, providing clear navigation.",
+        "Clean suffix vocabulary: Loader, Builder, Utils, Helper, Assembler, Comparator each occupy a distinct non-overlapping role.",
+        "model package documents its record-vs-class strategy in package-info.java, preventing type-strategy drift from appearing arbitrary."
+      ],
+      "issue_character": "Two localized outliers break otherwise strong conventions: a public-visibility leak on RadialPlot inside a package-private api package, and a split of parallel CQL utility classes across two packages without documented rationale.",
+      "score_rationale": "The codebase has very strong naming and organizational discipline overall — Java camelCase is uniform, package structure is tidy, and the type-strategy choices in the model layer are explicitly documented. Two real issues prevent a higher score: RadialPlot is the only non-server public class in an otherwise package-private api package, creating an unexplained visibility island; and BcqlPatternUtils (in query) duplicates the conceptual role of CqlUtils (in utils) without any comment explaining why a second utility class was placed in a different package. Neither issue causes bugs, but both add cognitive friction for a developer navigating the codebase for the first time."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "radialplot_public_outlier",
+      "summary": "RadialPlot is the only public non-entry-point class in the api package, breaking the package-private convention observed everywhere else",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "RadialPlot is declared 'public class RadialPlot' with 'public static class Item' and two public constructors.",
+        "VisualizationHandlers (same package) is the only consumer of RadialPlot and RadialPlot.Item — there are no cross-package usages.",
+        "All other non-server classes in api are package-private: ConcordanceHandlers, CorpusQueryHandlers, ExplorationHandlers, ExploreResponseAssembler, HttpApiUtils, RequestEntityTooLargeException, SketchHandlers, VisualizationHandlers.",
+        "The test (RadialPlotTest.java) is in the same package (src/test/java/.../api/), so package-private visibility is sufficient for testing."
+      ],
+      "suggestion": "Make RadialPlot and its nested Item class package-private by removing the 'public' modifier. The test can still access it because it is in the same package. This closes the unintended public API surface and aligns with the visibility convention used by every other non-entry-point class in the api package.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "cql_utils_split_packages",
+      "summary": "CQL string utility logic is split across CqlUtils (utils package) and BcqlPatternUtils (query package) without documented rationale, creating a parallel utility island",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BcqlPatternUtils.java"
+      ],
+      "evidence": [
+        "CqlUtils (utils) provides: splitCqlTokens, substituteAtPosition, escapeForRegex, extractConstraintAttribute — all string-level CQL/BCQL pattern manipulation.",
+        "BcqlPatternUtils (query) provides: extractHeadword, findLabelTokenIndex — also string-level BCQL pattern introspection.",
+        "Both classes are final, non-instantiable, and contain only static methods — structurally identical roles.",
+        "BcqlPatternUtils is only consumed within the query package (BlackLabQueryExecutor, CollocateQueryHelper, BlackLabSnippetParser), but CqlUtils is also consumed from the query package (BlackLabQueryExecutor) alongside BcqlPatternUtils.",
+        "Neither class's Javadoc explains why the split exists or directs readers to the sibling class."
+      ],
+      "suggestion": "Either consolidate BcqlPatternUtils into CqlUtils (renaming to e.g. CqlPatternUtils to cover both CQL and BCQL) or add a package-level note to BcqlPatternUtils explaining the intentional split (e.g. 'BCQL-specific pattern introspection that belongs close to its consumers in the query package; general CQL primitives shared across packages live in CqlUtils'). The former reduces navigation friction more; the latter is lower-risk.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RadialPlot was likely made public during an earlier refactor (possibly when a viz/ package was considered, as referenced in CLAUDE.md) and the visibility was never tightened after the class was folded into the api package.",
+      "BcqlPatternUtils was extracted from BlackLabQueryExecutor as a focused helper and placed in the query package for proximity; the decision to not merge it into CqlUtils was not documented."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

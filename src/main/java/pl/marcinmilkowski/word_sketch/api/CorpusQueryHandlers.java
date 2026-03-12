@@ -1,8 +1,7 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
-import com.alibaba.fastjson2.JSONException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +12,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * HTTP handler for arbitrary corpus query endpoints.
@@ -61,13 +59,13 @@ class CorpusQueryHandlers {
      */
     private BcqlRequest parseBcqlRequest(HttpExchange exchange) throws IOException {
         String body = HttpApiUtils.readBodyWithSizeLimit(exchange, HttpApiUtils.MAX_REQUEST_BODY_BYTES);
-        JSONObject obj;
+        ObjectNode obj;
         try {
-            obj = JSON.parseObject(body);
-        } catch (JSONException e) {
+            obj = HttpApiUtils.MAPPER.readValue(body, ObjectNode.class);
+        } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Invalid JSON in request body: " + e.getMessage(), e);
         }
-        String bcqlQuery = obj.getString("query");
+        String bcqlQuery = obj.path("query").textValue();
         if (bcqlQuery == null || bcqlQuery.isBlank()) {
             throw new IllegalArgumentException("Missing required parameter: query");
         }
@@ -80,9 +78,10 @@ class CorpusQueryHandlers {
             throw new IllegalArgumentException(
                     "Pattern too complex: " + bracketCount + " token constraints (max " + MAX_BCQL_BRACKET_DEPTH + ")");
         }
-        int resolvedTop = Optional.ofNullable(obj.getInteger("top"))
-                .filter(v -> v > 0)
-                .orElse(10);
+        com.fasterxml.jackson.databind.JsonNode topNode = obj.path("top");
+        int resolvedTop = (!topNode.isMissingNode() && !topNode.isNull() && topNode.asInt() > 0)
+                ? topNode.asInt()
+                : 10;
         return new BcqlRequest(bcqlQuery, resolvedTop);
     }
 

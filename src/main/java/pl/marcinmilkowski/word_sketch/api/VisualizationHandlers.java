@@ -1,9 +1,9 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONException;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,30 +41,31 @@ class VisualizationHandlers {
     void handleVisualRadial(HttpExchange exchange) throws IOException {
         String body = HttpApiUtils.readBodyWithSizeLimit(exchange, HttpApiUtils.MAX_REQUEST_BODY_BYTES);
         logger.debug("Radial: body = {}", body);
-        JSONObject obj;
+        ObjectNode obj;
         try {
-            obj = JSON.parseObject(body);
-        } catch (JSONException e) {
+            obj = HttpApiUtils.MAPPER.readValue(body, ObjectNode.class);
+        } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Invalid JSON in request body: " + e.getMessage(), e);
         }
-        String center = obj.getString("center");
+        String center = obj.path("center").textValue();
         if (center == null) center = "";
         logger.debug("Radial: center = {}", center);
-        int width = obj.getIntValue("width", 840);
-        int height = obj.getIntValue("height", 520);
+        int width = obj.path("width").asInt(840);
+        int height = obj.path("height").asInt(520);
 
-        JSONArray itemsArr = obj.getJSONArray("items");
+        JsonNode itemsNode = obj.get("items");
         List<RadialPlot.Item> items = new ArrayList<>();
-        if (itemsArr != null) {
+        if (itemsNode != null && itemsNode.isArray()) {
+            ArrayNode itemsArr = (ArrayNode) itemsNode;
             int limit = Math.min(MAX_RADIAL_ITEMS, itemsArr.size());
             for (int i = 0; i < limit; i++) {
-                JSONObject it = itemsArr.getJSONObject(i);
-                String label = it.getString("label");
-                double score = it.getDoubleValue("score");
+                ObjectNode it = (ObjectNode) itemsArr.get(i);
+                String label = it.path("label").textValue();
+                double score = it.path("score").asDouble();
                 items.add(new RadialPlot.Item(label, score));
             }
         }
-        String mode = obj.getString("mode");
+        String mode = obj.path("mode").textValue();
         if (mode != null && !mode.isEmpty() && !RenderMode.isValid(mode)) {
             throw new IllegalArgumentException("Unknown mode: " + mode);
         }

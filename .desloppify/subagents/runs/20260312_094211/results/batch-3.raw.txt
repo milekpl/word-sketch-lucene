@@ -1,0 +1,72 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 3,
+  "assessments": {"low_level_elegance": 73.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "SemanticFieldExplorer splits single-seed exploration into four clearly-named phase helpers (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates), making the top-level algorithm read as an ordered prose narrative.",
+        "CollocateQueryHelper uses explicit two-phase pipeline (collectHits → scoreHits) with separate named records (HitRecord, CollocateSearch) and pre-fetches corpus frequencies once per unique collocate rather than once per hit — mutation is local and bounded to each phase.",
+        "Guard clauses are used consistently across hot-path methods: BlackLabQueryExecutor.executeCollocations and executeDependencyPattern both return early with debug logging when lemma/deprel is null or empty.",
+        "ExploreResponseAssembler is entirely stateless static methods with clear one-to-one mappings between model types and JSON projections — no hidden state accumulation.",
+        "fetchExamples in SemanticFieldExplorer deduplicate-then-limit via collectingAndThen(Collectors.toMap(..., (a,b)->a, LinkedHashMap::new), m -> m.values().stream().limit(...)) — the deduplication-by-sentence intent is buried in toMap merge-function ceremony and the limit is applied a second time after the initial executeBcqlQuery call already accepted maxExamples, making the filter/dedup/limit pipeline hard to read at a glance.",
+        "findCollocateIntersection in MultiSeedExplorer builds four parallel Maps (seedCollocScores, seedCollocFreqs, collocLogDiceSum, collocLogDiceCount) inside a nested loop with no extracted method name, then derives a fifth (avgLogDiceMap) via a forEach immediately after — five related accumulators with no scope boundary make the aggregate-stats computation dense and hard to audit.",
+        "GrammarConfigLoader.parseRelation is 40+ lines performing field extraction, fallback derivation, position validation, and record construction inline — it is at the top of acceptable extraction depth but still readable."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "Phase-based extraction in SemanticFieldExplorer (four named helper methods) makes the exploration algorithm read as a readable top-level narrative with no hidden control-flow jumps.",
+        "CollocateQueryHelper's two-phase pipeline (collect → score) keeps state mutation strictly local to each phase and uses named intermediate records (HitRecord, CollocateSearch) to eliminate implicit coupling between phases.",
+        "Guard clauses with early returns and debug logging are applied consistently across all hot-path query methods, avoiding deeply nested conditionals.",
+        "ExploreResponseAssembler is entirely stateless and maps one model type per static method, keeping presentation logic free of accumulation or side effects.",
+        "Helper extraction style is consistent across the api and exploration packages: handler classes stay at HTTP-concern level, algorithmic detail is pushed to dedicated helper classes or named private methods."
+      ],
+      "issue_character": "The two defects are isolated density problems: one complex stream chain obscures a simple deduplication intent, and one inline multi-map accumulation block in MultiSeedExplorer lacks an extracted method name — both are local and self-contained rather than symptoms of a structural pattern.",
+      "score_rationale": "The codebase scores solidly on low-level elegance: extraction level is well-calibrated, phase separation is explicit, guard clauses are consistent, and state mutation is bounded throughout. Two specific areas — the fetchExamples deduplication idiom and the five-map aggregation block in findCollocateIntersection — introduce local reading friction that prevents the score from reaching 80+. These are genuine but narrow defects in otherwise well-structured code; the global impression is of a codebase that has been deliberately shaped for clarity at the function level, placing it comfortably in the 70–80 'solid but uneven' range rather than below 60 where systemic drag would be felt."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "fetch_examples_dedup_stream",
+      "summary": "fetchExamples deduplication buries intent inside collectingAndThen/toMap ceremony",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Lines 335–346: .collect(Collectors.collectingAndThen(Collectors.toMap(CollocateResult::sentence, r -> r, (a, b) -> a, LinkedHashMap::new), m -> m.values().stream().limit(opts.maxExamples()).collect(Collectors.toList()))) performs filter + deduplicate-by-sentence + limit in a single chained expression; the (a,b)->a merge function as a deduplication signal is non-obvious.",
+        "The limit(opts.maxExamples()) applied inside the collector duplicates the maxExamples bound that executeBcqlQuery already enforced, adding implicit layering without explanation."
+      ],
+      "suggestion": "Replace with an explicit loop using a LinkedHashSet<String> seen set: iterate results, skip null/empty sentences and already-seen ones, add to output list until maxExamples is reached. This makes the deduplication intent visible as a named condition rather than a toMap merge-function side-effect.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "multi_seed_parallel_maps_inline",
+      "summary": "findCollocateIntersection builds five parallel accumulator maps inline without an extracted method",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"],
+      "evidence": [
+        "Lines 57–70: four Maps (seedCollocScores, seedCollocFreqs, collocLogDiceSum, collocLogDiceCount) are populated in a nested loop, then a fifth (avgLogDiceMap) is derived immediately after via a forEach, all in the body of findCollocateIntersection with no encapsulating method.",
+        "The distinction between seedCollocScores (max logDice per collocate across seeds) and collocLogDiceSum/Count/avgLogDiceMap (avg logDice) is a meaningful semantic difference that is not signalled by any method boundary or local comment, requiring the reader to hold all four accumulators simultaneously while reading the loop."
+      ],
+      "suggestion": "Extract the five-map aggregation into a private method aggregateCollocateStats(Map<String, List<WordSketchResult>> seedCollocateMap) returning a small record (e.g. CollocateStats(Map<String,Double> maxScores, Map<String,Long> totalFreqs, Map<String,Double> avgLogDice)). This gives the computation a name, scopes the temporary variables, and reduces findCollocateIntersection to a readable dispatch sequence.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Stream-chain idioms used for deduplication in fetchExamples trade explicitness for conciseness in a way that obscures intent when the chain grows beyond filter → map → collect.",
+      "findCollocateIntersection grew organically to handle max, sum, and count aggregations without a refactor pass to name the computation."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

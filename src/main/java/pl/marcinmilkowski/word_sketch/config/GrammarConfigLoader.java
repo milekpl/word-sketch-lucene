@@ -1,8 +1,9 @@
 package pl.marcinmilkowski.word_sketch.config;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
-import com.alibaba.fastjson2.JSONArray;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,7 @@ import java.util.Map;
  */
 public final class GrammarConfigLoader {
     private static final Logger logger = LoggerFactory.getLogger(GrammarConfigLoader.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private GrammarConfigLoader() {}
 
@@ -94,10 +96,10 @@ public final class GrammarConfigLoader {
     }
 
     private static GrammarConfig parse(String content, Path configPath) throws IOException {
-        JSONObject root;
+        ObjectNode root;
         try {
-            root = JSON.parseObject(content);
-        } catch (com.alibaba.fastjson2.JSONException e) {
+            root = MAPPER.readValue(content, ObjectNode.class);
+        } catch (JsonProcessingException e) {
             throw new IOException("Failed to parse grammar config" +
                 (configPath != null ? " at " + configPath : "") + ": " + e.getMessage(), e);
         }
@@ -112,8 +114,9 @@ public final class GrammarConfigLoader {
     }
 
     /** Extracts and validates the 'version' field from the root JSON object. */
-    private static String parseAndValidateVersion(JSONObject root) {
-        String parsedVersion = root.getString("version");
+    private static String parseAndValidateVersion(ObjectNode root) {
+        JsonNode versionNode = root.path("version");
+        String parsedVersion = versionNode.isNull() ? null : versionNode.textValue();
         if (parsedVersion == null || parsedVersion.isBlank()) {
             throw new IllegalArgumentException("Config error: Missing 'version' field in grammar config");
         }
@@ -121,23 +124,23 @@ public final class GrammarConfigLoader {
     }
 
     /** Rejects deprecated top-level keys that must not appear in the config. */
-    private static void validateNoLegacyKeys(JSONObject root) {
-        if (root.containsKey("copulas")) {
+    private static void validateNoLegacyKeys(ObjectNode root) {
+        if (root.has("copulas")) {
             throw new IllegalArgumentException("Config error: Grammar config must NOT contain 'copulas' key. " +
                 "Copulas must be embedded in CQL patterns using [lemma=\"be|appear|seem|...\"]. " +
                 "See noun_adj_predicates for example.");
         }
     }
 
-    private static void parseRelations(JSONObject root,
+    private static void parseRelations(ObjectNode root,
             List<RelationConfig> loadedRelations,
             Map<String, RelationConfig> loadedRelationsById) {
-        JSONArray relationsArray = root.getJSONArray("relations");
-        if (relationsArray == null || relationsArray.isEmpty()) {
+        JsonNode relationsNode = root.path("relations");
+        if (!relationsNode.isArray() || relationsNode.isEmpty()) {
             throw new IllegalArgumentException("Config error: Missing or empty 'relations' array in grammar config");
         }
-        for (int i = 0; i < relationsArray.size(); i++) {
-            RelationConfig config = parseRelation(relationsArray.getJSONObject(i), i);
+        for (int i = 0; i < relationsNode.size(); i++) {
+            RelationConfig config = parseRelation((ObjectNode) relationsNode.get(i), i);
             if (loadedRelationsById.containsKey(config.id())) {
                 throw new IllegalArgumentException("Config error: Duplicate relation id: " + config.id());
             }
@@ -146,41 +149,41 @@ public final class GrammarConfigLoader {
         }
     }
 
-    private static RelationConfig parseRelation(JSONObject relObj, int index) {
+    private static RelationConfig parseRelation(ObjectNode relObj, int index) {
         if (relObj == null) {
             throw new IllegalArgumentException("Config error: Invalid relation at index " + index);
         }
 
-        String id = relObj.getString("id");
+        String id = relObj.path("id").textValue();
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException("Config error: Missing 'id' field for relation at index " + index);
         }
 
         // Canonical field name is "pattern"; cql_pattern is no longer supported
-        String pattern = relObj.getString("pattern");
+        String pattern = relObj.path("pattern").textValue();
         if (pattern == null || pattern.isBlank()) {
             throw new IllegalArgumentException("Config error: Relation '" + id + "' has no 'pattern' field - every relation must have a BCQL pattern");
         }
 
-        int headPosition = relObj.containsKey("head_position")
-            ? relObj.getIntValue("head_position") : deriveHeadPositionFromPattern(pattern);
-        int collocatePosition = relObj.containsKey("collocate_position")
-            ? relObj.getIntValue("collocate_position") : deriveCollocatePositionFromPattern(pattern);
+        int headPosition = relObj.has("head_position")
+            ? relObj.path("head_position").asInt() : deriveHeadPositionFromPattern(pattern);
+        int collocatePosition = relObj.has("collocate_position")
+            ? relObj.path("collocate_position").asInt() : deriveCollocatePositionFromPattern(pattern);
 
-        boolean isDual = relObj.containsKey("dual") && relObj.getBoolean("dual");
+        boolean isDual = relObj.has("dual") && relObj.path("dual").asBoolean();
         validatePositions(id, pattern, headPosition, collocatePosition, isDual);
 
         return new RelationConfig(
             id,
-            relObj.getString("name"),
-            relObj.getString("description"),
+            relObj.path("name").textValue(),
+            relObj.path("description").textValue(),
             pattern,
             headPosition,
             collocatePosition,
             isDual,
-            relObj.getIntValue("default_slop", 10),
-            parseRelationType(relObj.getString("relation_type")),
-            relObj.getBooleanValue("exploration_enabled", false),
+            relObj.path("default_slop").asInt(10),
+            parseRelationType(relObj.path("relation_type").textValue()),
+            relObj.path("exploration_enabled").asBoolean(false),
             RelationPatternBuilder.computeCollocatePosGroup(pattern)
         );
     }

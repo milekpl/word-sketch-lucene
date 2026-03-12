@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -216,19 +217,19 @@ class BlackLabSnippetParserTest {
     @Test
     @DisplayName("extractHeadword: extracts lemma from double-quoted BCQL pattern")
     void extractHeadword_doubleQuotes() {
-        assertEquals("theory", BcqlPatternUtils.extractHeadword("[lemma=\"theory\"] [xpos=\"JJ.*\"]"));
+        assertEquals("theory", CqlUtils.extractHeadword("[lemma=\"theory\"] [xpos=\"JJ.*\"]"));
     }
 
     @Test
     @DisplayName("extractHeadword: extracts lemma from single-quoted pattern")
     void extractHeadword_singleQuotes() {
-        assertEquals("model", BcqlPatternUtils.extractHeadword("[lemma='model']"));
+        assertEquals("model", CqlUtils.extractHeadword("[lemma='model']"));
     }
 
     @Test
     @DisplayName("extractHeadword: no lemma attribute returns null")
     void extractHeadword_noLemmaReturnsNull() {
-        assertNull(BcqlPatternUtils.extractHeadword("[xpos=\"NN.*\"]"));
+        assertNull(CqlUtils.extractHeadword("[xpos=\"NN.*\"]"));
     }
 
     // ── findLabelTokenIndex ─────────────────────────────────────────────────────
@@ -237,20 +238,20 @@ class BlackLabSnippetParserTest {
     @DisplayName("findLabelTokenIndex: finds 1-based position of labeled token")
     void findLabelTokenIndex_correctPosition() {
         String pattern = "1:[xpos=\"NN.*\"] [lemma=\"be\"] 2:[xpos=\"JJ.*\"]";
-        assertEquals(1, BcqlPatternUtils.findLabelTokenIndex(pattern, 1));
-        assertEquals(3, BcqlPatternUtils.findLabelTokenIndex(pattern, 2));
+        assertEquals(1, CqlUtils.findLabelTokenIndex(pattern, 1));
+        assertEquals(3, CqlUtils.findLabelTokenIndex(pattern, 2));
     }
 
     @Test
     @DisplayName("findLabelTokenIndex: missing label returns -1")
     void findLabelTokenIndex_missingLabelReturnsNegOne() {
-        assertEquals(-1, BcqlPatternUtils.findLabelTokenIndex("[xpos=\"NN.*\"]", 2));
+        assertEquals(-1, CqlUtils.findLabelTokenIndex("[xpos=\"NN.*\"]", 2));
     }
 
     @Test
     @DisplayName("findLabelTokenIndex: null pattern returns -1")
     void findLabelTokenIndex_nullPatternReturnsNegOne() {
-        assertEquals(-1, BcqlPatternUtils.findLabelTokenIndex(null, 1));
+        assertEquals(-1, CqlUtils.findLabelTokenIndex(null, 1));
     }
 
     // ── extractCollocateFromXmlByPosition (positional) ───────────────────────

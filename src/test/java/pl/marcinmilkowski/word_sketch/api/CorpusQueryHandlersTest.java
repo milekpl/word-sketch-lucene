@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
@@ -41,9 +40,9 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"[lemma=\\\"theory\\\"]\", \"top\": 5}");
         handlersWithStub().handleCorpusQuery(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertTrue(body.containsKey("results"), "Response must contain 'results' key");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertTrue(body.has("results"), "Response must contain 'results' key");
     }
 
     @Test
@@ -59,8 +58,8 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("not-json");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertNotNull(body.getString("error"), "Error field must be present");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertNotNull(body.path("error").asText(), "Error field must be present");
     }
 
     @Test
@@ -68,8 +67,8 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"top\": 10}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertTrue(body.getString("error").contains("query"), "Error should mention 'query'");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertTrue(body.path("error").asText().contains("query"), "Error should mention 'query'");
     }
 
     @Test
@@ -86,7 +85,7 @@ class CorpusQueryHandlersTest {
         TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"" + deepPattern + "\"}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertTrue(body.getString("error").contains("complex"), "Error should mention pattern complexity");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertTrue(body.path("error").asText().contains("complex"), "Error should mention pattern complexity");
     }
 }

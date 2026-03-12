@@ -1,0 +1,100 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 8,
+  "assessments": {"api_surface_coherence": 71.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All public-facing handler methods follow the same signature: (HttpExchange exchange) throws IOException — no mixed sync/async, no variadic parameter shapes",
+        "Service-layer methods uniformly accept parameter-objects (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) rather than long flat parameter lists",
+        "ExplorationHandlers.buildCoreExploreResponse takes 6 parameters: (String relationType, int topCollocates, int minShared, double minLogDice, Map<String,Object> extraParams, Map<String,Object> variantFields)",
+        "ExplorationService.fetchExamples declares the second positional parameter as 'headword', while every call site and sibling endpoint uses 'seed' for the same concept — inconsistent vocabulary at the interface boundary",
+        "Two sibling endpoints — GET /api/semantic-field/examples and GET /api/concordance/examples — accept identical wire parameters (seed, collocate, relation, top) but route through different call paths (ExplorationService.fetchExamples vs QueryExecutor.executeBcqlQueryForRelation) and return different response shapes (the concordance endpoint adds 'bcql' and 'fallback' fields absent from the semantic-field examples endpoint); no documentation distinguishes when a caller should choose one over the other",
+        "QueryExecutor interface bundles six distinct methods (executeCollocations, executeCqlQuery, executeBcqlQuery, executeSurfacePattern, executeDependencyPattern, getTotalFrequency) — the interface Javadoc acknowledges this as a broad contract; it is flagged here as an issue for the API surface dimension even though it is marked as deferred technical debt"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Every public HTTP handler has an identical method shape — (HttpExchange) throws IOException — making the handler contract entirely predictable across all five handler classes",
+        "Service-layer call sites use parameter-object records (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) consistently, keeping method arities small and extensible without binary-incompatible changes",
+        "Error-handling is uniformly centralised in HttpApiUtils.wrapWithErrorHandling; every handler route passes through it, so the error contract is implicit but consistent and not scattered",
+        "HTTP parameter parsing helpers (requireParam, parseIntParam, parseDoubleParam) follow a single shape and are reused uniformly rather than re-implemented per handler"
+      ],
+      "issue_character": "Issues are small in number but non-trivial in the confusion they introduce: one redundant pair of sibling endpoints with undocumented divergence in response shape, one vocabulary drift between the interface and its callers, and one private helper method that slightly exceeds the clean-API arity ceiling — each a localized incoherence rather than a systemic breakdown.",
+      "score_rationale": "The API surface is broadly clean: handler signatures are uniform, parameter parsing is consistent, and the service layer uses parameter-object types correctly. What drags the score below 80 is a real incoherence at the examples-endpoint pair — two routes with identical wire APIs but different response shapes and call paths, with no consumer guidance on which to use — and a minor vocabulary inconsistency ('headword' vs 'seed') that surfaces exactly at the public interface boundary of ExplorationService. The 6-parameter private helper and the broad QueryExecutor (acknowledged as deferred) are minor contributors. This places the codebase in the 'solid but uneven' band — strong foundations with a few specific surfaces that would cause confusion to a new developer integrating the API."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "examples_endpoint_divergence",
+      "summary": "Two sibling endpoints share identical wire parameters but silently diverge in response shape and call path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "GET /api/semantic-field/examples and GET /api/concordance/examples both accept seed, collocate, relation, top",
+        "The concordance endpoint returns 'bcql' and 'fallback' fields; the semantic-field endpoint does not — no inline documentation explains this divergence",
+        "ExplorationHandlers calls semanticFieldExplorer.fetchExamples(collocate, seed, resolvedConfig, opts); ConcordanceHandlers calls executor.executeBcqlQueryForRelation(rel.get(), req.seed(), req.collocate(), req.top()) — two different layers for the same observable operation",
+        "A developer adding a feature that needs concordance examples must guess which endpoint to call; the wire API provides no signal"
+      ],
+      "suggestion": "Either merge these into a single endpoint (routing logic can remain internal) or document the contract difference explicitly in the endpoint Javadoc so callers understand when to use each. If both must remain, align their response shapes so the 'bcql' and 'fallback' fields are either present in both or absent from both.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "overlapping_endpoints"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "fetchexamples_headword_vs_seed",
+      "summary": "ExplorationService.fetchExamples names its second parameter 'headword' while every call site uses the term 'seed'",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationService declares: fetchExamples(@NonNull String collocate, @NonNull String headword, @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)",
+        "ExplorationHandlers calls: semanticFieldExplorer.fetchExamples(collocate, seed, resolvedConfig, new FetchExamplesOptions(maxExamples)) — 'seed' at call site, 'headword' in interface",
+        "All other methods in ExplorationService and every HTTP-layer parameter use 'seed' for this concept",
+        "The vocabulary mismatch sits exactly at the public interface boundary, maximising the chance of confusion when implementing a second service or writing tests"
+      ],
+      "suggestion": "Rename the 'headword' parameter to 'seed' in ExplorationService.fetchExamples and SemanticFieldExplorer.fetchExamples to align with the consistent vocabulary used throughout the rest of the interface and its callers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "naming_vocabulary_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "buildcoreexploreresponse_arity",
+      "summary": "buildCoreExploreResponse takes 6 parameters, exceeding the clean-API boundary of 5",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "private Map<String,Object> buildCoreExploreResponse(String relationType, int topCollocates, int minShared, double minLogDice, Map<String,Object> extraParams, Map<String,Object> variantFields) — 6 positional parameters",
+        "CommonExploreParams record already exists and holds topCollocates, minShared, minLogDice — passing it as one argument instead of three would bring arity to 4",
+        "The method is private but defines a private helper API that callers within the class must satisfy correctly"
+      ],
+      "suggestion": "Replace the three inline CommonExploreParams fields (topCollocates, minShared, minLogDice) with the already-existing CommonExploreParams record parameter, reducing arity to 4: buildCoreExploreResponse(String relationType, CommonExploreParams params, Map<String,Object> extraParams, Map<String,Object> variantFields).",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The examples functionality was implemented twice — once through the exploration layer and once through the concordance layer — without a consolidation step, leaving two endpoints with divergent response shapes for the same observable query",
+      "Vocabulary for the seed/headword concept was not canonicalised early in the domain model, leading to drift between the interface definition and call sites"
+    ],
+    "likely_symptoms": ["examples_endpoint_divergence"],
+    "possible_false_positives": []
+  }
+}

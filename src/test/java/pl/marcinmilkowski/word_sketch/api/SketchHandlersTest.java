@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
@@ -56,10 +55,10 @@ class SketchHandlersTest {
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/theory");
         handlers().routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertEquals("theory", body.getString("lemma"));
-        assertNotNull(body.getJSONObject("relations"), "Full sketch response should contain a relations map");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertEquals("theory", body.path("lemma").asText());
+        assertNotNull(body.get("relations"), "Full sketch response should contain a relations map");
     }
 
     @Test
@@ -74,12 +73,12 @@ class SketchHandlersTest {
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/theory/" + firstRelationId);
         new SketchHandlers(stubExecutor(), config).routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertEquals("theory", body.getString("lemma"));
-        assertNotNull(body.getJSONObject("relations"), "Single-relation sketch should contain a relations map");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertEquals("theory", body.path("lemma").asText());
+        assertNotNull(body.get("relations"), "Single-relation sketch should contain a relations map");
         // collocations are nested under the relation ID
-        assertNotNull(body.getJSONObject("relations").getJSONObject(firstRelationId),
+        assertNotNull(body.path("relations").get(firstRelationId),
             "Relations map should contain an entry for the requested relation");
     }
 
@@ -88,9 +87,9 @@ class SketchHandlersTest {
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/surface-relations");
         handlers().handleSurfaceRelations(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertNotNull(body.getJSONArray("relations"), "Surface-relations response should contain a relations array");
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertNotNull(body.get("relations"), "Surface-relations response should contain a relations array");
     }
 
     // ── Validation / negative-path tests (migrated from HandlersTest) ────────

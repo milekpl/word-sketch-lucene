@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
@@ -46,9 +45,9 @@ class ExplorationHandlersTest {
                 "http://localhost/api/semantic-field/explore?seed=house&relation=adj_predicate&top=5&min_shared=1");
         handlers().handleSemanticFieldExplore(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertEquals("house", body.getString("seed"));
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertEquals("house", body.path("seed").asText());
         assertNotNull(body.get("edges"), "Response should contain an edges key");
     }
 
@@ -58,10 +57,10 @@ class ExplorationHandlersTest {
                 "http://localhost/api/semantic-field/explore-multi?seeds=theory,model&relation=adj_predicate&top=5&min_shared=1");
         handlers().handleSemanticFieldExploreMulti(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertNotNull(body.getJSONArray("seeds"), "Response should contain a seeds array");
-        assertEquals(2, body.getIntValue("seed_count"));
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertNotNull(body.get("seeds"), "Response should contain a seeds array");
+        assertEquals(2, body.path("seed_count").asInt());
     }
 
     @Test
@@ -70,11 +69,11 @@ class ExplorationHandlersTest {
                 "http://localhost/api/semantic-field/compare?seeds=theory,model&min_logdice=0.0");
         handlers().handleSemanticFieldComparison(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertNotNull(body, "Response body should be valid JSON");
-        assertEquals("ok", body.getString("status"));
-        assertNotNull(body.getJSONArray("adjectives"), "Response should contain an adjectives array");
-        assertNotNull(body.getJSONArray("seeds"), "Response should contain a seeds/nouns array");
+        assertEquals("ok", body.path("status").asText());
+        assertNotNull(body.get("adjectives"), "Response should contain an adjectives array");
+        assertNotNull(body.get("seeds"), "Response should contain a seeds/nouns array");
         assertNotNull(body.get("adjectives_count"), "Response should contain adjectives_count");
         assertNotNull(body.get("seed_count"), "Response should contain seed_count");
     }
@@ -151,11 +150,11 @@ class ExplorationHandlersTest {
                 "http://localhost/api/semantic-field/examples?collocate=important&seed=theory&relation=noun_adj_predicates");
         handlers.handleSemanticFieldExamples(ex);
         assertEquals(200, ex.statusCode);
-        JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
-        assertEquals("ok", body.getString("status"));
-        assertTrue(body.containsKey("examples"), "Response must contain 'examples' key");
-        assertEquals("important", body.getString("collocate"));
-        assertEquals("theory", body.getString("seed"));
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertTrue(body.has("examples"), "Response must contain 'examples' key");
+        assertEquals("important", body.path("collocate").asText());
+        assertEquals("theory", body.path("seed").asText());
     }
 
     @Test

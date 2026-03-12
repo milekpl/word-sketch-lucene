@@ -15,7 +15,7 @@ import java.util.Locale;
  * - Collocate circles sized by score
  * - Labels with proper positioning
  */
-public class RadialPlot {
+class RadialPlot {
 
     // Baseline canvas size (px) used to derive all spiral/layout constants.
     // All pixel values are multiplied by scale = min(width, height) / BASELINE_CANVAS_SIZE.
@@ -52,10 +52,10 @@ public class RadialPlot {
     /**
      * Lightweight item representation for server-driven radials
      */
-    public static class Item {
-        public final String label;
-        public final double score;
-        public Item(String label, double score) {
+    static class Item {
+        final String label;
+        final double score;
+        Item(String label, double score) {
             this.label = label;
             this.score = score;
         }
@@ -84,11 +84,11 @@ public class RadialPlot {
         }
     }
 
-    public RadialPlot(String centerWord, List<Item> items, int width, int height) {
+    RadialPlot(String centerWord, List<Item> items, int width, int height) {
         this(centerWord, items, width, height, null);
     }
 
-    public RadialPlot(String centerWord, List<Item> items, int width, int height, String mode) {
+    RadialPlot(String centerWord, List<Item> items, int width, int height, String mode) {
         this.centerWord = centerWord;
         this.width = width;
         this.height = height;

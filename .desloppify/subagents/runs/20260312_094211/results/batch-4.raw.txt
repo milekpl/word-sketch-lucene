@@ -1,0 +1,106 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 4,
+  "assessments": {
+    "mid_level_elegance": 70.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler centralises all model-to-JSON translation for exploration results: ExplorationResult, ComparisonResult, CollocateProfile, Edge are all serialised here and nowhere else.",
+        "GrammarConfigSerializer is a dedicated serialiser that keeps GrammarConfig and RelationConfig free of any JSON-library dependency — a clean separation of a data boundary concern.",
+        "ExplorationService interface provides an explicit typed seam between HTTP handlers and the exploration domain; handlers never reach past it into SemanticFieldExplorer internals.",
+        "HttpApiUtils.wrapWithErrorHandling centralises error-to-HTTP translation; all handlers use it uniformly so IllegalArgumentException → 400 and IOException → 500 translations happen in one place.",
+        "QueryExecutor.executeBcqlQueryForRelation and executeSurfacePatternForRelation default methods keep pattern-construction logic out of HTTP handlers — the seam correctly owns this assembly.",
+        "Request parameters are parsed into typed records close to the boundary (ConcordanceExamplesRequest, BcqlRequest, CommonExploreParams), preventing raw Map<String,String> leakage into business logic.",
+        "ComparisonResult.summaryCounts() correctly delegates to CollocateProfile.sharingCategory(), but the three stream-filter siblings — fullyShared(), partiallyShared(), specific() — re-implement the categorisation predicates inline (e.g. 'a.presentInCount() == nouns.size()') bypassing the same logic.",
+        "ExplorationHandlers.buildCoreExploreResponse accepts two Map<String,Object> parameters (extraParams and variantFields) with opaque key sets; one is merged into a 'parameters' sub-map, the other is merged at the top level — caller must know the method body to understand where each key lands.",
+        "ExplorationHandlers.handleSemanticFieldExamples and ConcordanceHandlers.handleConcordanceExamples both serve concordance examples for a seed+collocate pair with identical URL parameter shapes, but route to different service layers (ExplorationService.fetchExamples vs QueryExecutor.executeBcqlQueryForRelation) with no documented reason for the split."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler is a single, consistent model-to-presentation translation boundary used by all exploration HTTP handlers — no in-handler field mapping.",
+        "GrammarConfigSerializer separates serialisation concerns from the value objects, keeping GrammarConfig and RelationConfig pure data carriers with no JSON dependencies.",
+        "ExplorationService interface provides a stable, explicit typed seam between the HTTP layer and exploration domain so handlers never reach past it into implementation details.",
+        "HttpApiUtils.wrapWithErrorHandling is a uniform error propagation boundary; every registered handler route passes through it, making the error-to-HTTP mapping a single, testable policy.",
+        "QueryExecutor default methods encapsulate pattern-construction at the right layer, keeping HTTP handlers free of BCQL assembly logic."
+      ],
+      "issue_character": "Issues are localised rather than systemic: one seam bypass in the model layer (ComparisonResult duplicating CollocateProfile categorisation predicates), one opaque boundary helper that leaks assembly details to callers (buildCoreExploreResponse), and one blurry seam where the same conceptual operation is served by two divergent service paths without a documented rationale.",
+      "score_rationale": "The codebase clearly invests in seam quality: dedicated assembler/serialiser classes, interface-backed exploration boundary, and uniform error-wrapping all demonstrate deliberate mid-level design. These patterns would place the codebase in the 75-80 range on their own. Two pulling-down factors prevent that: ComparisonResult bypasses CollocateProfile's own categorisation methods in its stream-filter helpers (data translation happening in two places at the model boundary), and the examples endpoint is split across two handlers backed by different service-layer paths with no documented asymmetry reason, creating an opaque integration seam. Together these drag the score to around 70 — solid but noticeably uneven at specific seams."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "comparison_result_categorisation_bypass",
+      "summary": "ComparisonResult stream-filter methods re-implement CollocateProfile categorisation predicates instead of delegating to sharingCategory()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java"
+      ],
+      "evidence": [
+        "ComparisonResult.fullyShared() filters with 'a.presentInCount() == nouns.size()'; CollocateProfile.isFullyShared() uses 'presentInCount == totalNouns' — two implementations of the same rule.",
+        "ComparisonResult.partiallyShared() filters with 'a.presentInCount() >= 2 && a.presentInCount() < nouns.size()' duplicating CollocateProfile.isPartiallyShared().",
+        "ComparisonResult.specific() filters with 'a.presentInCount() == 1' duplicating CollocateProfile.isSpecific().",
+        "ComparisonResult.summaryCounts() correctly uses c.sharingCategory() in a switch — demonstrating that delegation is known and feasible, yet the three filter methods bypass it."
+      ],
+      "suggestion": "Replace the inline predicates in fullyShared(), partiallyShared(), and specific() with delegation to CollocateProfile.isFullyShared(), isPartiallyShared(), isSpecific() (or sharingCategory()), so categorisation logic is owned entirely by CollocateProfile. The specificTo() method can replace 'a.presentInCount() == 1' with 'a.isSpecific()' for the same reason.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "build_core_explore_response_opaque_maps",
+      "summary": "buildCoreExploreResponse accepts two untyped Map parameters whose key-to-destination mapping is invisible at call sites",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Method signature: buildCoreExploreResponse(String, int, int, double, Map<String,Object> extraParams, Map<String,Object> variantFields) — both maps are untyped.",
+        "extraParams keys end up inside the 'parameters' sub-map; variantFields keys are merged at the response top level via response.putAll(variantFields).",
+        "handleSemanticFieldExplore passes Map.of('nouns_per', collocatesPerSeed) as extraParams and Map.of('seed', result.seed()) as variantFields — the destination of each key is not apparent from the call site.",
+        "handleSemanticFieldExploreMulti passes Map.of() as extraParams and a manually constructed variantFields with 'seeds' and 'seed_count' — identical ambiguity."
+      ],
+      "suggestion": "Replace the two Map parameters with a structured approach: either define a small ResponseEnvelope value type capturing the variant fields explicitly, or split the method into a base builder plus typed addSeedFields/addMultiSeedFields overloads. This makes the field-to-response-location mapping readable at each call site without consulting the method body.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "examples_endpoint_dual_service_path",
+      "summary": "Two handlers serve concordance examples for a seed+collocate pair via different service-layer paths with no documented asymmetry",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExamples (GET /api/semantic-field/examples) calls semanticFieldExplorer.fetchExamples(collocate, seed, resolvedConfig, opts).",
+        "ConcordanceHandlers.handleConcordanceExamples (GET /api/concordance/examples) calls executor.executeBcqlQueryForRelation(rel.get(), req.seed(), req.collocate(), req.top()) directly, bypassing ExplorationService.",
+        "Both endpoints accept identical HTTP parameters (seed, collocate, relation, top) and return structurally identical responses (examples list, total_results, status).",
+        "No comment or documentation explains why one goes through ExplorationService while the other reaches the executor directly, leaving the seam boundary ambiguous."
+      ],
+      "suggestion": "Route both handlers through the same service-layer method (ExplorationService.fetchExamples), or document explicitly why the concordance endpoint bypasses the exploration service. If the bypass is intentional (e.g., the concordance endpoint should not carry exploration overhead), name the seam in a comment and consider whether the two endpoints should be consolidated.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Model-layer objects were grown incrementally: CollocateProfile gained categorisation helpers, but ComparisonResult's stream-filter methods were not updated to delegate, creating a split ownership of the same rule.",
+      "buildCoreExploreResponse was extracted to reduce duplication across three handlers but the abstraction boundary was not typed tightly enough, leaving callers to construct ad-hoc maps."
+    ],
+    "likely_symptoms": [
+      "comparison_result_categorisation_bypass is a symptom of incremental growth on CollocateProfile without updating ComparisonResult's filters."
+    ],
+    "possible_false_positives": []
+  }
+}

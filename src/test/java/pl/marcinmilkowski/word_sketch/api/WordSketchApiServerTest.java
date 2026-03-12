@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -59,8 +58,8 @@ class WordSketchApiServerTest {
     void health_returns200() throws Exception {
         HttpResponse<String> response = get("/health");
         assertEquals(200, response.statusCode());
-        JSONObject body = JSON.parseObject(response.body());
-        assertEquals("ok", body.getString("status"));
+        ObjectNode body = HttpApiUtils.MAPPER.readValue(response.body(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
     }
 
     @Test

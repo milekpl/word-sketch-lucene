@@ -1,13 +1,14 @@
 package pl.marcinmilkowski.word_sketch.config;
 
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 
 /**
  * Converts {@link GrammarConfig} and {@link RelationConfig} value objects to
- * {@link JSONObject} representations for API responses and diagnostic output.
+ * {@link ObjectNode} representations for API responses and diagnostic output.
  *
  * <p>Serialization lives here rather than on the value objects so that
  * {@link GrammarConfig} and {@link RelationConfig} remain pure data carriers
@@ -15,23 +16,27 @@ import pl.marcinmilkowski.word_sketch.config.RelationConfig;
  */
 public final class GrammarConfigSerializer {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private GrammarConfigSerializer() {}
 
     /**
      * Serializes a {@link GrammarConfig} including its version, config path, and all relations.
      *
      * @param config the grammar config to serialize; must not be null
-     * @return a {@link JSONObject} suitable for embedding in an API response
+     * @return an {@link ObjectNode} suitable for embedding in an API response
      */
-    public static JSONObject toJson(GrammarConfig config) {
-        JSONObject root = new JSONObject();
+    public static ObjectNode toJson(GrammarConfig config) {
+        ObjectNode root = MAPPER.createObjectNode();
         root.put("version", config.version());
-        root.put("config_path", config.configPath() != null ? config.configPath().toString() : null);
-        JSONArray relationsArray = new JSONArray();
+        if (config.configPath() != null) {
+            root.put("config_path", config.configPath().toString());
+        }
+        ArrayNode relationsArray = MAPPER.createArrayNode();
         for (RelationConfig rel : config.relations()) {
             relationsArray.add(toJson(rel));
         }
-        root.put("relations", relationsArray);
+        root.set("relations", relationsArray);
         return root;
     }
 
@@ -39,10 +44,10 @@ public final class GrammarConfigSerializer {
      * Serializes a single {@link RelationConfig} to its JSON representation.
      *
      * @param rel the relation config to serialize; must not be null
-     * @return a {@link JSONObject} with all non-null fields populated
+     * @return an {@link ObjectNode} with all non-null fields populated
      */
-    public static JSONObject toJson(RelationConfig rel) {
-        JSONObject obj = new JSONObject();
+    public static ObjectNode toJson(RelationConfig rel) {
+        ObjectNode obj = MAPPER.createObjectNode();
         obj.put("id", rel.id());
         if (rel.name() != null) obj.put("name", rel.name());
         if (rel.description() != null) obj.put("description", rel.description());

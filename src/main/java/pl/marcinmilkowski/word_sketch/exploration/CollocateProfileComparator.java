@@ -27,19 +27,19 @@ class CollocateProfileComparator {
 
     private static final Logger logger = LoggerFactory.getLogger(CollocateProfileComparator.class);
 
-    private static final String FALLBACK_ADJECTIVE_PATTERN = "[xpos=\"JJ.*\"]";
+    private static final String FALLBACK_COLLOCATE_PATTERN = "[xpos=\"JJ.*\"]";
 
     private final QueryExecutor executor;
-    private final String adjectivePattern;
+    private final String collocatePattern;
 
     CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
         this.executor = executor;
-        this.adjectivePattern = deriveAdjectivePattern(grammarConfig);
+        this.collocatePattern = deriveCollocatePattern(grammarConfig);
     }
 
-    private static String deriveAdjectivePattern(GrammarConfig grammarConfig) {
+    private static String deriveCollocatePattern(GrammarConfig grammarConfig) {
         return RelationUtils.findBestCollocatePattern(
-            grammarConfig, PosGroup.ADJ, FALLBACK_ADJECTIVE_PATTERN);
+            grammarConfig, PosGroup.ADJ, FALLBACK_COLLOCATE_PATTERN);
     }
 
     /**
@@ -66,8 +66,8 @@ class CollocateProfileComparator {
         logger.debug("Nouns: {}", seedNouns);
         logger.debug("Min logDice: {}", minLogDice);
 
-        Map<String, Map<String, Double>> rawProfiles = buildRawAdjectiveProfiles(nounList, minLogDice, maxPerNoun);
-        List<CollocateProfile> profiles = buildAdjectiveProfileList(nounList, rawProfiles);
+        Map<String, Map<String, Double>> rawProfiles = buildRawCollocateProfiles(nounList, minLogDice, maxPerNoun);
+        List<CollocateProfile> profiles = buildCollocateProfileList(nounList, rawProfiles);
 
         // Sort by commonality score (most shared first)
         profiles.sort((a, b) -> Double.compare(b.commonalityScore(), a.commonalityScore()));
@@ -79,40 +79,40 @@ class CollocateProfileComparator {
     }
 
     /**
-     * Phase 1: Collect adjective collocates for each noun and index them by adjective.
+     * Phase 1: Collect collocates for each noun and index them by collocate.
      *
-     * @return Map of adjective → (noun → logDice score)
+     * @return Map of collocate → (noun → logDice score)
      */
-    private Map<String, Map<String, Double>> buildRawAdjectiveProfiles(
+    private Map<String, Map<String, Double>> buildRawCollocateProfiles(
             List<String> nounList, double minLogDice, int maxPerNoun) throws IOException {
 
-        Map<String, Map<String, Double>> adjectiveProfiles = new LinkedHashMap<>();
+        Map<String, Map<String, Double>> collocateProfiles = new LinkedHashMap<>();
         for (String noun : nounList) {
             List<QueryResults.WordSketchResult> adjectives = executor.executeCollocations(
-                noun, adjectivePattern, minLogDice, maxPerNoun);
+                noun, collocatePattern, minLogDice, maxPerNoun);
             logger.debug("Profiling {}: {} adjectives (top: {})", noun, adjectives.size(),
                 adjectives.subList(0, Math.min(5, adjectives.size())));
             for (QueryResults.WordSketchResult r : adjectives) {
-                adjectiveProfiles
+                collocateProfiles
                     .computeIfAbsent(r.lemma().toLowerCase(), k -> new LinkedHashMap<>())
                     .put(noun, r.logDice());
             }
         }
-        return adjectiveProfiles;
+        return collocateProfiles;
     }
 
     /**
-     * Phase 2: Build AdjectiveProfile objects from raw per-noun scores.
+     * Phase 2: Build CollocateProfile objects from raw per-noun scores.
      * Uses a single pass over scores to compute average, max, min, and variance together.
      */
-    private List<CollocateProfile> buildAdjectiveProfileList(
+    private List<CollocateProfile> buildCollocateProfileList(
             List<String> nounList,
-            Map<String, Map<String, Double>> adjectiveProfiles) {
+            Map<String, Map<String, Double>> collocateProfiles) {
 
         int nounCount = nounList.size();
         List<CollocateProfile> profiles = new ArrayList<>();
 
-        for (Map.Entry<String, Map<String, Double>> entry : adjectiveProfiles.entrySet()) {
+        for (Map.Entry<String, Map<String, Double>> entry : collocateProfiles.entrySet()) {
             String adj = entry.getKey();
             Map<String, Double> nounScores = entry.getValue();
 

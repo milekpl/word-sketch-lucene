@@ -3,7 +3,7 @@ package pl.marcinmilkowski.word_sketch.exploration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
-import pl.marcinmilkowski.word_sketch.query.BcqlPatternUtils;
+import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 import pl.marcinmilkowski.word_sketch.query.StubQueryExecutor;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
@@ -50,7 +50,7 @@ class SemanticFieldExplorerTest {
         public List<QueryResults.WordSketchResult> executeSurfacePattern(
                 String bcqlPattern,
                 double minLogDice, int maxResults) {
-            String lemma = BcqlPatternUtils.extractHeadword(bcqlPattern);
+            String lemma = CqlUtils.extractHeadword(bcqlPattern);
             if (lemma == null) lemma = "";
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }

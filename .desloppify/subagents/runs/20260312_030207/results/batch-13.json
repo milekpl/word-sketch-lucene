@@ -1,0 +1,77 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 13,
+  "assessments": {"logic_clarity": 78.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "Guard clauses are correctly placed before processing (e.g., null/empty lemma guards in executeCollocations and executeSurfacePattern return early before any computation)",
+        "Multi-phase algorithms (exploration, BCQL query) are decomposed into helper methods with single responsibilities, making control flow easy to follow and verify",
+        "In ExploreResponseAssembler.buildExplorationEdges, the outer loop iterates result.seedCollocates() which in multi-seed mode is the UNION of ALL seeds' collocates (merged via Math::max in MultiSeedExplorer.findCollocateIntersection), then the inner loop creates one SEED_ADJ edge per seed for every collocate — producing a full cross-product. Collocates belonging to only one seed generate spurious edges to all other seeds with incorrect max-logDice weights.",
+        "ExplorationHandlers.parseSeedSet is annotated @NonNull on its parameter, yet the method immediately checks `if (seedsParam == null || seedsParam.isEmpty())` — the null branch is unreachable under the declared contract, sending mixed signals to callers and readers about whether null is expected."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses are consistently placed before computation: null/empty lemma checks in executeCollocations, executeSurfacePattern, and executeDependencyPattern all return empty lists before touching the index",
+        "Boolean conditions are direct and non-redundant throughout — no identical if/else branches, no always-true conditions, no `if x return true else return false` patterns were found",
+        "The two-phase BCQL hit-collection pipeline (collectHits → scoreHits) separates concerns cleanly and each conditional inside (null concordance, null parts, empty collocate) has distinct semantics",
+        "Exception routing is logically consistent: IllegalArgumentException for client validation errors (caught as 400), IOException for index failures (caught as 500), with no overlapping catch blocks"
+      ],
+      "issue_character": "Issues are isolated rather than systemic: one semantic logic error in multi-seed edge construction (cross-product vs per-seed actual edges) and one minor annotation-versus-implementation inconsistency; they do not reflect a broad pattern of unclear or incorrect logic.",
+      "score_rationale": "The codebase handles control flow correctly and clearly across nearly all paths — guard clauses are well-placed, conditions are not redundant, and multi-step algorithms decompose into verifiable phases. The main substantive defect is in ExploreResponseAssembler.buildExplorationEdges where multi-seed mode produces SEED_ADJ edges connecting every seed to every collocate in the union set, regardless of actual per-seed association; this makes the multi-seed graph semantically incorrect (misrepresented edges with max-of-all-seeds logDice weights). The defect is confined to one method and one code path, but it silently produces wrong output for a featured use-case. This pulls the score below the 'solid but uneven' 80 mark while the otherwise clean logic holds it well above the 60 'significant drag' threshold."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "multi_seed_seed_adj_cross_product",
+      "summary": "buildExplorationEdges creates SEED_ADJ cross-product in multi-seed mode, connecting every seed to every collocate regardless of actual per-seed association",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.findCollocateIntersection builds seedCollocScores as a UNION of all seeds' collocates via `seedCollocScores.merge(wsr.lemma(), wsr.logDice(), Math::max)` — this map contains every collocate from any seed",
+        "ExploreResponseAssembler.buildExplorationEdges outer loop: `for (Map.Entry<String, Double> colloc : result.seedCollocates().entrySet())` — iterates all union collocates; inner loop: `for (String seed : seedList)` — creates one SEED_ADJ edge per (collocate, seed) pair",
+        "For seeds [theory, model, hypothesis]: if 'empirical' collocates only with 'theory', the loop still emits edges model→empirical and hypothesis→empirical with theory's max logDice weight",
+        "DISCOVERED_ADJ edges (from discoveredNouns) correctly scope to per-seed actual collocates via buildDiscoveredNouns, creating an inconsistency between SEED_ADJ and DISCOVERED_ADJ semantics in the same response"
+      ],
+      "suggestion": "In buildExplorationEdges, replace the cross-product loop with per-seed collocate data. For multi-seed mode ExplorationResult, the per-seed actual collocates are available in discoveredNouns (each seed is a DiscoveredNoun in multi-seed mode); emit SEED_ADJ edges from `noun.sharedCollocates()` for each discovered noun that is a seed. Alternatively, store a per-seed collocate map in ExplorationResult so buildExplorationEdges can iterate seed→its_actual_collocates without relying on the union map.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "parseseedset_nonnull_null_check",
+      "summary": "parseSeedSet annotates its parameter @NonNull but immediately checks for null, creating an unreachable branch that contradicts the declared contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Method signature: `private static Set<String> parseSeedSet(@NonNull String seedsParam)`",
+        "First line of body: `if (seedsParam == null || seedsParam.isEmpty()) return Set.of();` — the null branch cannot be reached under the @NonNull contract",
+        "All three call sites pass the result of HttpApiUtils.requireParam which already throws IllegalArgumentException on blank input, making the isEmpty() branch also unreachable at those call sites"
+      ],
+      "suggestion": "Remove the null check since the @NonNull annotation and all callers guarantee a non-null value; either keep the isEmpty() guard (with a comment if the method is meant to tolerate empty strings) or document that callers are responsible for non-empty input. If null tolerance is actually required, remove the @NonNull annotation.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The multi-seed SEED_ADJ cross-product likely originated when the single-seed edge-building loop (one seed × its collocates) was extended to multi-seed by adding an inner loop over seeds, without accounting for the fact that seedCollocates is now a union rather than a per-seed map"
+    ],
+    "likely_symptoms": [
+      "multi_seed_seed_adj_cross_product — the graph over-reports connections in multi-seed visualizations"
+    ],
+    "possible_false_positives": []
+  }
+}

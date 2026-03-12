@@ -1,0 +1,61 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 15,
+  "assessments": {"design_coherence": 80.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "ExploreResponseAssembler.populateComparisonResponse (lines 168-196) constructs the full response envelope — status, seeds, seed_count, and parameters — internally, while its sibling populateExploreResponse (lines 72-87) only appends domain-specific fields (seed_collocates, discovered_nouns, core_collocates, edges) to a response map that the handler already seeded via buildCoreExploreResponse. This gives the two 'populate*' methods inconsistent scopes within the same class.",
+        "The comparison handler (ExplorationHandlers.handleSemanticFieldComparison, lines 155-176) creates an empty HashMap and hands it entirely to populateComparisonResponse, which then writes status, seeds, parameters, adjectives, counts and edges. The explore/explore-multi handlers, by contrast, call buildCoreExploreResponse first, add seed-specific fields, then call populateExploreResponse only for domain data. The handler-assembler responsibility split differs between the two paths.",
+        "populateComparisonResponse accepts a `relation` parameter (line 169) that is always called with the string literal 'all' from the handler. The parameter looks like it could vary, but the comparison path has no legitimate variation: CollocateProfileComparator always aggregates across all relations. A caller who passes anything other than 'all' would produce misleading API responses with no failure signal."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "ExplorationParams record (ExplorationHandlers.java line 243) cleanly bundles the four HTTP parameters parsed from every explore request, eliminating four-arg passing chains across the handler methods.",
+        "SemanticFieldExplorer follows an explicit facade pattern: it owns the single-seed algorithm directly and delegates multi-seed and comparison to dedicated classes (MultiSeedExplorer, CollocateProfileComparator), giving each algorithm a focused owner.",
+        "The four phase-helper methods in SemanticFieldExplorer (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates) each have a single well-named responsibility and compose into a readable pipeline.",
+        "Handler methods in ExplorationHandlers are tightly scoped — each parses params, builds typed options, calls domain, assembles response, and sends — with no leaking of HTTP concerns into domain calls."
+      ],
+      "issue_character": "The single genuine design coherence issue is a bounded but real inconsistency in how ExploreResponseAssembler partitions responsibilities between the explore and comparison paths — the comparison assembler owns envelope construction that should belong to the handler, mirroring what the explore path already does correctly.",
+      "score_rationale": "The codebase shows clear, deliberate design thinking across most of its surface: focused handler methods, earned abstractions, the facade in SemanticFieldExplorer, and the ExplorationParams record all reflect consistent structural discipline. One path — the comparison response assembly — breaks the handler/assembler boundary that the rest of the code follows, putting envelope construction (status, seeds, parameters) inside the assembler and accepting a nominally variable `relation` parameter that is always 'all'. This is a real inconsistency, not a stylistic preference, and it will cause confusion for any developer extending the comparison path. Anchored against 'solid but uneven' at 80: the issue is confined but the boundary confusion is exactly the kind of friction the design_coherence dimension measures."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "comparison_assembler_mixed_scope",
+      "summary": "populateComparisonResponse owns response-envelope assembly that the handler should own, inconsistent with populateExploreResponse",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "populateExploreResponse (lines 72-87) only populates domain fields into a pre-built response map; the handler supplies status and parameters via buildCoreExploreResponse first.",
+        "populateComparisonResponse (lines 168-196) writes status, seeds, seed_count, and parameters itself — work that belongs in the handler — making it a full response builder rather than a domain-data populator.",
+        "The `relation` parameter of populateComparisonResponse is always called with the string literal 'all' (ExplorationHandlers line 173); if the method's job is to assemble a domain slice, it should not own the parameters sub-map at all — the handler should pass a pre-built parameters map as it does for the explore path."
+      ],
+      "suggestion": "Move envelope construction out of populateComparisonResponse: have handleSemanticFieldComparison call buildCoreExploreResponse (passing 'all' as the relationType directly) to create the base response, then let populateComparisonResponse only append adjectives, counts, and edges — matching how populateExploreResponse works. Remove the redundant `relation`, `topCollocates`, `minLogDice`, and `minShared` scalar parameters from populateComparisonResponse; the method should accept only `(Map<String, Object> response, ComparisonResult result)`.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "assembler_scope_inconsistency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The comparison path was likely added after the explore path without realising that buildCoreExploreResponse already owned the envelope-construction role. Because comparison has a different parameter profile (no single relation, different result type), it was easier to put everything in populateComparisonResponse than to thread buildCoreExploreResponse through the comparison handler."
+    ],
+    "likely_symptoms": [
+      "comparison_assembler_mixed_scope"
+    ],
+    "possible_false_positives": [
+      "The boilerplate_duplication signal between ExplorationHandlers.java:4 and CollocateProfileComparator.java:8 is a false positive — the 7-line window matches overlapping standard import blocks (Logger/LoggerFactory and java.util.*) which are inevitable and not extractable."
+    ]
+  }
+}

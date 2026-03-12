@@ -58,16 +58,17 @@ class SketchHandlers {
             if (specificDeprel != null) {
                 handleDependencyRelationQuery(exchange, lemma, specificDeprel);
             } else {
-                handleFullDependencySketch(exchange, lemma);
+                // Full dependency sketch — all DEP-type relations
+                handleDepSketch(exchange, lemma);
             }
             return;
         }
 
         String relation = parts.length > 1 ? parts[1] : null;
         if (relation != null && !relation.isEmpty()) {
-            handleRelationSketch(exchange, lemma, relation);
+            handleRelationQueryForPattern(exchange, lemma, relation, RelationType.SURFACE);
         } else {
-            handleFullSketch(exchange, lemma);
+            handleFullSketchForType(exchange, lemma, RelationType.SURFACE);
         }
     }
 
@@ -100,18 +101,6 @@ class SketchHandlers {
         response.put("status", "ok");
         response.put("relations", relationsArray);
         HttpApiUtils.sendJsonResponse(exchange, response);
-    }
-
-    private void handleFullSketch(HttpExchange exchange, String lemma) throws IOException {
-        handleFullSketchForType(exchange, lemma, RelationType.SURFACE);
-    }
-
-    private void handleRelationSketch(HttpExchange exchange, String lemma, String relation) throws IOException {
-        handleRelationQueryForPattern(exchange, lemma, relation, RelationType.SURFACE);
-    }
-
-    private void handleFullDependencySketch(HttpExchange exchange, String lemma) throws IOException {
-        handleDepSketch(exchange, lemma);
     }
 
     private void handleFullSketchForType(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {

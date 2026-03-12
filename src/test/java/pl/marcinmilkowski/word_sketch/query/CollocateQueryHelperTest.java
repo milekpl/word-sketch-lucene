@@ -17,7 +17,7 @@ class CollocateQueryHelperTest {
 
     /** Stub helper that returns known frequencies without a real BlackLabIndex. */
     private static CollocateQueryHelper stubHelper(Map<String, Long> frequencies) {
-        return new CollocateQueryHelper(null) {
+        return new CollocateQueryHelper() {
             @Override
             long getTotalFrequency(String lemma) throws IOException {
                 return frequencies.getOrDefault(lemma.toLowerCase(), 0L);
@@ -27,7 +27,7 @@ class CollocateQueryHelperTest {
 
     /** Default stub with "beautiful"=50000 and "important"=80000. */
     private static CollocateQueryHelper defaultStub() {
-        return new CollocateQueryHelper(null) {
+        return new CollocateQueryHelper() {
             @Override
             long getTotalFrequency(String lemma) throws IOException {
                 return switch (lemma.toLowerCase()) {

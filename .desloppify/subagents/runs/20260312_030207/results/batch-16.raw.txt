@@ -1,0 +1,99 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 16,
+  "assessments": {"cross_module_architecture": 72.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is cleanly layered: api → exploration → query → model, with no upward cycles detected in production code",
+        "QueryExecutor interface in query package acts as a proper seam: exploration and api both depend on the interface, not on BlackLabQueryExecutor directly",
+        "Handler classes in api package are package-private (class Foo vs public class Foo), correctly containing the api surface area",
+        "model package has zero cross-package imports — pure data layer with no upward dependencies",
+        "MultiSeedExplorer and CollocateProfileComparator are package-private within exploration, correctly narrowing the visible surface of that subsystem",
+        "GrammarConfigSerializer is public and lives in api but is imported by GrammarConfigLoaderTest in the config test package, creating an upward config-test → api-production boundary violation",
+        "MAX_REQUEST_BODY_BYTES = 65536 is independently defined in both CorpusQueryHandlers and VisualizationHandlers — the natural shared home (HttpApiUtils) already owns readBodyWithSizeLimit() but not the constant",
+        "Main.java uses the concrete BlackLabQueryExecutor type directly in handleBlackLabQueryCommand (try (BlackLabQueryExecutor executor = ...)) while handleBlackLabServerCommand correctly uses QueryExecutor executor = new BlackLabQueryExecutor(...)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Layered dependency direction (api → exploration → query → model) is clean with no production cycles detected",
+        "QueryExecutor interface provides a genuine architectural seam between the api/exploration subsystems and the BlackLab implementation, enabling independent testability",
+        "Handler classes are package-private throughout the api package — the boundary is enforced at the language level, not just by convention",
+        "model package is a clean leaf node with no cross-package dependencies, serving all higher layers without pulling anything back",
+        "MultiSeedExplorer and CollocateProfileComparator are package-private within exploration — internal collaborators are invisible to callers outside the subsystem"
+      ],
+      "issue_character": "Issues are concentrated at boundary edges rather than in the core dependency graph: a serializer misplaced in the wrong layer that forces a test in a lower layer to reach upward, a duplicated constant that should be centralised in the package utility class, and an inconsistency in the composition root between interface and concrete type usage.",
+      "score_rationale": "The primary dependency graph is well-structured — layers flow in one direction, interfaces are used as seams, and internal helpers are correctly scoped as package-private. What pulls the score below 80 is the GrammarConfigSerializer boundary violation: a config-layer test must import from the api layer to exercise config serialization, meaning the serializer is housed in the wrong layer and the boundary between config and api is partially inverted. The duplicated MAX_REQUEST_BODY_BYTES constant and the inconsistent concrete-vs-interface usage in Main.java are lesser issues but confirm that the api package's internal boundary discipline is uneven. On a 100-point scale this is solidly functional architecture (above 60) but with identifiable, fixable boundary drift rather than exemplary discipline (80+)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "serializer_wrong_layer",
+      "summary": "GrammarConfigSerializer lives in api but is depended on by config-layer tests, inverting the config→api boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/GrammarConfigSerializer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoaderTest.java"
+      ],
+      "evidence": [
+        "GrammarConfigSerializer.java is declared public final class in the api package and converts GrammarConfig/RelationConfig to JSONObject",
+        "GrammarConfigLoaderTest.java imports pl.marcinmilkowski.word_sketch.api.GrammarConfigSerializer — a config-layer test reaching up into the api layer to verify round-trip serialization of config objects",
+        "The class has no HTTP-specific logic; it converts config domain objects that are defined entirely in the config package"
+      ],
+      "suggestion": "Move GrammarConfigSerializer from api to config (or introduce a config.serialization sub-package). Update the one production caller in SketchHandlers to use the relocated class. This severs the upward test dependency and places serialization responsibility with the layer that owns the data.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "duplicated_body_size_constant",
+      "summary": "MAX_REQUEST_BODY_BYTES = 65536 independently duplicated in two api handler classes rather than centralised in HttpApiUtils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.java line 27: private static final int MAX_REQUEST_BODY_BYTES = 65536",
+        "VisualizationHandlers.java line 25: private static final int MAX_REQUEST_BODY_BYTES = 65536",
+        "Both pass this constant to HttpApiUtils.readBodyWithSizeLimit() — the utility that owns the body-reading logic already but not the governing limit"
+      ],
+      "suggestion": "Add static final int DEFAULT_MAX_REQUEST_BODY_BYTES = 65536 to HttpApiUtils and reference it from both handlers, or make readBodyWithSizeLimit() use this default when no override is needed. This eliminates the risk of the two values drifting and makes the shared boundary clear.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "main_concrete_type_inconsistency",
+      "summary": "Main.java uses the concrete BlackLabQueryExecutor type in one command handler while using the QueryExecutor interface in another, bypassing the architectural seam inconsistently",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "handleBlackLabQueryCommand: try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(indexPath)) — uses concrete class, bypassing the QueryExecutor interface contract",
+        "handleBlackLabServerCommand: QueryExecutor executor = new BlackLabQueryExecutor(indexPath) — correctly uses the interface, consistent with how api and exploration layers consume the executor",
+        "QueryExecutor extends Closeable, so the try-with-resources in handleBlackLabQueryCommand would work correctly via the interface type — there is no technical reason to use the concrete type"
+      ],
+      "suggestion": "Change the declaration in handleBlackLabQueryCommand to QueryExecutor executor = new BlackLabQueryExecutor(indexPath) to match the server path and consistently use the interface seam throughout Main.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "GrammarConfigSerializer was likely added in the api package because it was first needed for HTTP response serialization, but its scope naturally covers config verification tests — the boundary was not re-evaluated as test coverage grew",
+      "Handler classes split from a monolithic WordSketchApiServer each independently re-declared the body-size constant rather than extracting it to the utility class they already share"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

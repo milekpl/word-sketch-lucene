@@ -1,0 +1,132 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {"type_safety": 70.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify @Nullable/@NonNull annotations used on constructor parameters, return types, and method parameters throughout (e.g., CollocateQueryHelper(@Nullable BlackLabIndex), QueryExecutor.executeCollocations(@Nullable String lemma), BlackLabSnippetParser.extractLemmaFromMatch returns @Nullable String)",
+        "Sealed interface ConcordanceResult with permits SnippetResult, CollocateResult provides exhaustive subtype tracking at compile time",
+        "RelationType, PosGroup, SharingCategory, RelationEdgeType are proper enums used consistently for domain classification",
+        "Optional<RelationType> used for optional enum fields in RelationConfig with correct orElseThrow()/orElse() call sites",
+        "RelationConfig.name and RelationConfig.description record fields are unannotated (@Nullable absent) despite GrammarConfigSerializer guarding against null: 'if (rel.name() != null) obj.put(...)' — type contract not expressed at the field level",
+        "ExplorationHandlers calls .relationType().orElseThrow().name() to extract a raw String relationType which is then passed to buildCoreExploreResponse(String relationType, ...) — the enum is widened to String one method too early; the response-assembly helper accepts String instead of RelationType",
+        "VisualizationHandlers uses a raw String comparison 'mode.equals(\"signed\")' with no enum; the only valid non-null mode value implies a one-value domain that was never formalised as an enum or a validated type",
+        "parseSeedSet(@NonNull String seedsParam) immediately checks 'if (seedsParam == null || ...)' — the @NonNull annotation and the null guard contradict each other; the annotation signals callers not to pass null but the guard silently accepts it",
+        "56 occurrences of Map<String, Object> in the api package for response building — response shape is untyped and verified only at runtime by the JSON serialiser",
+        "CollocateQueryHelper constructor accepts @Nullable BlackLabIndex with a runtime Objects.requireNonNull guard — the Javadoc carves out a 'test subclass' exemption but the annotation widens the visible contract to all callers"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "JSpecify @Nullable/@NonNull annotations present on all major public API boundaries, giving callers nullability contracts for key methods",
+        "Sealed ConcordanceResult interface with permits clause gives the compiler exhaustive knowledge of all subtype variants",
+        "Domain concepts (RelationType, PosGroup, SharingCategory) modelled as enums throughout; no raw-string comparisons for enum-like state except the isolated mode case",
+        "Optional<RelationType> used correctly in RelationConfig to model the absent case, with disciplined orElseThrow()/orElse() call sites",
+        "Records used for DTOs (WordSketchResult, CollocateResult, SnippetResult, HitRecord, SeedCollocateData) eliminating mutable state and providing predictable field types"
+      ],
+      "issue_character": "The issues are mild and largely structural: enum values are widened to raw Strings one level before serialisation, a handful of record fields lack @Nullable despite defensive null guards at their use sites, and the HTTP response layer uniformly uses Map<String, Object> rather than typed response shapes — a pattern that is repeated across all six handler classes.",
+      "score_rationale": "The codebase scores well above average on Java type safety fundamentals: JSpecify is in use, enums are the norm, sealed types are exploited correctly, and Optional is used idiomatically. What pulls the score below 80 is a consistent pattern in the API layer where enum values are prematurely stringified (RelationType.name() passed as String through a method boundary), where Map<String, Object> provides no structural guarantee across 56 response-building call sites, and where several RelationConfig record fields carry no nullability annotation despite defensive null checks at serialisation time. These are all real but fixable type-discipline gaps, not deep design flaws — comparable to a codebase at 80=solid but uneven where the unevenness is concentrated in one layer."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "relation_type_enum_to_string_early",
+      "summary": "RelationType enum widened to raw String one method before serialisation in ExplorationHandlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Line 62: String relationType = relationConfig.relationType().orElseThrow().name();",
+        "Line 113: String relationType = resolvedConfig.relationType().orElseThrow().name();",
+        "Line 217: private Map<String, Object> buildCoreExploreResponse(String relationType, int topCollocates, ...) — accepts String instead of RelationType"
+      ],
+      "suggestion": "Change buildCoreExploreResponse to accept RelationType and call .name() only at the point where the value is put into the response map, keeping the enum type through the internal call chain",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "visualization_mode_raw_string",
+      "summary": "VisualizationHandlers validates mode as a raw String literal rather than a typed enum",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "Line 60: if (mode != null && !mode.isEmpty() && !mode.equals(\"signed\")) { throw new IllegalArgumentException(\"Unknown mode: \" + mode); }",
+        "The string \"signed\" is the only valid non-null value, implying a one-value domain that is validated only at runtime"
+      ],
+      "suggestion": "Introduce a RenderMode enum (SIGNED), parse the JSON string to the enum via a static fromString factory that throws IllegalArgumentException on unknown values, and pass the typed enum to RadialPlot.renderFromItems",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "relation_config_unannotated_nullable_fields",
+      "summary": "RelationConfig record fields name and description lack @Nullable despite defensive null guards at call sites",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/GrammarConfigSerializer.java"
+      ],
+      "evidence": [
+        "RelationConfig record: fields String name, String description, String pattern carry no @Nullable annotation",
+        "GrammarConfigSerializer line 47-49: if (rel.name() != null) obj.put(...); if (rel.description() != null) obj.put(...); if (rel.pattern() != null) obj.put(...) — the guards are needed but callers cannot see this from the record signature alone"
+      ],
+      "suggestion": "Annotate String name and String description as @Nullable on the RelationConfig record component list; annotate String pattern as @NonNull to match the validation enforced by GrammarConfigLoader.parseRelation which throws if it is blank",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "parse_seed_set_nonnull_contradiction",
+      "summary": "parseSeedSet is annotated @NonNull but immediately contains a null guard, contradicting the annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "private static Set<String> parseSeedSet(@NonNull String seedsParam) { if (seedsParam == null || seedsParam.isEmpty()) return Set.of(); ... }",
+        "@NonNull signals to callers they must not pass null, but the method silently handles null at runtime — the two contract expressions conflict"
+      ],
+      "suggestion": "Remove the null branch from parseSeedSet (trust the @NonNull contract and let the caller's requireParam enforce non-null before this point), or if null should be tolerated, replace @NonNull with @Nullable and document the null-returns-empty-set behaviour",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_query_helper_nullable_index_weakened_contract",
+      "summary": "CollocateQueryHelper constructor accepts @Nullable BlackLabIndex but all production paths require non-null, widening the visible contract unnecessarily",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper(@Nullable BlackLabIndex index) — the Javadoc says null is 'accepted only in test subclasses that override getTotalFrequency and executeCollocateSearchWithContent'",
+        "getTotalFrequency and executeCollocateSearchImpl both have Objects.requireNonNull(index, ...) guards that NPE immediately if index is null in production calls",
+        "The @Nullable annotation tells any static analyser that null is a valid argument; in practice it is not for any real caller"
+      ],
+      "suggestion": "Replace the @Nullable constructor with a @NonNull parameter for production use and provide a package-private static factory method (e.g. forTesting()) that returns a subclass with overridden methods, keeping null out of the primary constructor path",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "HTTP response assembly using Map<String, Object> rather than typed response objects is a systemic choice that defers all response-shape errors to runtime serialisation; this pattern propagates across all six handler classes",
+      "Enum-to-String widening at internal method boundaries suggests an inconsistent convention about when .name() conversion should occur — the rule 'convert only at the JSON serialisation boundary' is not uniformly applied"
+    ],
+    "likely_symptoms": [
+      "relation_type_enum_to_string_early is symptom-level: the root cause is the lack of a convention about where enum→String conversion belongs"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 8,
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler centralises all model-to-presentation translation for exploration results, keeping HTTP handler classes free of serialisation logic",
+        "HttpApiUtils.wrapWithErrorHandling provides a single, consistent error boundary across every registered endpoint, mapping IllegalArgumentException→400 and IOException→500 uniformly",
+        "Handler classes (ExplorationHandlers, SketchHandlers, ConcordanceHandlers) receive typed collaborators via constructor injection, making cross-layer dependencies explicit and testable",
+        "SemanticFieldExplorer acts as a stable facade that shields HTTP handlers from algorithm-level delegation changes (MultiSeedExplorer, CollocateProfileComparator)",
+        "GrammarConfigLoader separates file-IO from parsing with a fromReader factory, giving callers a clean testability seam independent of the file system"
+      ],
+      "issue_character": "Issues are concentrated at two specific translation seams: the model→graph edge-building seam (where per-seed attribution is lost during aggregation) and two places where boundary classification or parameter decomposition is duplicated rather than delegated to the owning type.",
+      "score_rationale": "The codebase achieves solid layering overall: handler/assembler/explorer/executor boundaries are explicit, error propagation is consistent, and the assembler pattern correctly removes serialisation from domain objects. The score is pulled down by one genuine data-accuracy defect at the model→presentation seam (multi-seed edge cross-product) and two smaller duplications of boundary logic that create divergence risk. These sit below the 80 'solid but uneven' anchor because the edge defect is not cosmetic — it silently inflates the graph with edges that were never observed. Overall quality sits around the low 70s: better than 'significant drag at 60' (the seams are well-structured and consistent) but not yet 'solid' because the primary translation seam has a correctness gap."
+    }
+  },
+  "assessments": {
+    "mid_level_elegance": 70.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler.buildExplorationEdges cross-products result.seeds() × result.seedCollocates() to produce SEED_ADJ edges (lines 40-45). In multi-seed mode, result.seedCollocates() is a merged map built by MultiSeedExplorer taking Math.max across all seeds, so a collocate found only for 'theory' also receives an edge from 'model'. The Javadoc comment claims edges 'correctly name their source' but the per-seed origin is lost at the merge step.",
+        "ComparisonResult.summaryCounts() re-implements the fully-shared/partially-shared/specific classification inline (p == total, p >= 2, else) instead of delegating to AdjectiveProfile.sharingCategory(). The same branching logic already lives in AdjectiveProfile.isFullyShared/isPartiallyShared/isSpecific. Two independent definitions of the same threshold.",
+        "ExplorationHandlers.populateComparisonResponse is called with (topCollocates, minLogDice, minShared) as three individual primitive arguments decomposed from exploreParams. The ExplorationOptions record is constructed earlier in the same method and carries exactly these three fields but is not passed to the assembler. populateExploreResponse, by contrast, operates on an ExplorationResult rather than receiving these primitives, making the two assembler entry-points structurally inconsistent.",
+        "ExplorationHandlers.resolveRelationConfig validates that relationType is non-empty and throws IllegalArgumentException if absent, but callers still call relationConfig.relationType().orElseThrow() immediately after the return (lines ~73 and ~106 in ExplorationHandlers). The comment 'Safe: resolveRelationConfig guarantees relationType is present' patches over the structural duplication of the unwrap."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "multi_seed_edge_cross_product",
+      "summary": "buildExplorationEdges cross-products all seeds × all merged collocates, producing SEED_ADJ edges for seed-collocate pairs that were never actually observed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ExplorationResult.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.findCollocateIntersection merges per-seed collocate maps into a single seedCollocScores map using Math.max (lines ~48-53), losing per-seed attribution in the process.",
+        "ExploreResponseAssembler.buildExplorationEdges iterates result.seedCollocates().entrySet() and for each entry emits an edge from EVERY seed in result.seeds() (nested loop, lines 40-45). A collocate found only for 'theory' gets an edge to 'model' as well.",
+        "The Javadoc on buildExplorationEdges states edges 'correctly name their source' — this is accurate in the single-seed case but silently incorrect in multi-seed mode."
+      ],
+      "suggestion": "Store per-seed collocate maps in ExplorationResult (e.g., Map<String, Map<String, Double>> seedCollocatesBySeed) populated during MultiSeedExplorer aggregation, and emit SEED_ADJ edges only for pairs present in the per-seed map rather than from the merged aggregate. Alternatively, emit a single aggregate-seed node for multi-seed results instead of fanning out to individual seeds.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "sharing_classification_duplicated_across_boundary",
+      "summary": "ComparisonResult.summaryCounts() re-implements the fully-shared/partially-shared/specific classification logic already owned by AdjectiveProfile.sharingCategory()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/AdjectiveProfile.java"
+      ],
+      "evidence": [
+        "ComparisonResult.summaryCounts() uses 'if (p == total) fullyShared++ else if (p >= 2) partiallyShared++ else specific++' — raw arithmetic that duplicates the semantics of AdjectiveProfile.isFullyShared/isPartiallyShared/isSpecific.",
+        "AdjectiveProfile already owns the canonical classification via sharingCategory() returning SharingCategory. summaryCounts() could delegate: switch(a.sharingCategory()) { case FULLY_SHARED -> fullyShared++; ... }.",
+        "If the partially-shared threshold changes from 2 to 3, ComparisonResult and AdjectiveProfile must both be updated independently."
+      ],
+      "suggestion": "Replace the inline branching in ComparisonResult.summaryCounts() with a switch on a.sharingCategory() to delegate classification to the owning type and eliminate the duplicated threshold.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "comparison_assembler_takes_primitives_not_options_record",
+      "summary": "populateComparisonResponse receives topCollocates/minLogDice/minShared as individual primitives rather than the ExplorationOptions record available at the call site, creating asymmetry with the explore path",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison constructs ExplorationOptions opts and then immediately unpacks it: populateComparisonResponse(response, result, exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared(), 'all').",
+        "populateComparisonResponse signature: (Map, ComparisonResult, int topCollocates, double minLogDice, int minShared, String relation) — four separate parameters for data already bundled in ExplorationOptions.",
+        "populateExploreResponse takes only (Map, ExplorationResult) and reads nothing from the caller's options, so there is no structural parity between the two assembler methods."
+      ],
+      "suggestion": "Replace the three primitive parameters in populateComparisonResponse with an ExplorationOptions parameter; pass opts directly from the handler. This aligns the comparison path with the explore path structurally and reduces the surface area of the assembler boundary.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationResult was designed primarily for single-seed use; its seedCollocates field was not updated to preserve per-seed attribution when multi-seed mode was added, leaving the assembler with insufficient data to build accurate edges.",
+      "The sharing-category classification was defined in AdjectiveProfile but not made the canonical delegation point when ComparisonResult.summaryCounts() was added later."
+    ],
+    "likely_symptoms": [
+      "multi_seed_edge_cross_product"
+    ],
+    "possible_false_positives": []
+  }
+}

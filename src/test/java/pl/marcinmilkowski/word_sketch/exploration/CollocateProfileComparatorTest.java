@@ -39,9 +39,10 @@ class CollocateProfileComparatorTest {
     }
 
     @Test
-    void compareCollocateProfiles_nullSeeds_throwsIllegalArgument() {
+    void compareCollocateProfiles_nullSeeds_throwsNullPointer() {
         CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(Collections.emptyMap()), null);
-        assertThrows(IllegalArgumentException.class,
+        //noinspection ConstantConditions — intentionally testing @NonNull violation
+        assertThrows(NullPointerException.class,
             () -> comparator.compareCollocateProfiles(null, 0.0, 10));
     }
 

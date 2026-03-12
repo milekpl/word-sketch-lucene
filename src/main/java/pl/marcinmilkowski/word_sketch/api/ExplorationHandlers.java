@@ -231,7 +231,7 @@ class ExplorationHandlers {
 
     /** Parses a comma-separated seeds parameter into a cleaned, lowercased ordered set. */
     private static Set<String> parseSeedSet(@NonNull String seedsParam) {
-        if (seedsParam == null || seedsParam.isEmpty()) return Set.of();
+        if (seedsParam.isEmpty()) return Set.of();
         Set<String> seeds = new LinkedHashSet<>();
         for (String s : seedsParam.split(",")) {
             String cleaned = s.trim().toLowerCase();

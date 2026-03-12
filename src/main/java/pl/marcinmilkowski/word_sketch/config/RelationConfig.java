@@ -1,5 +1,7 @@
 package pl.marcinmilkowski.word_sketch.config;
 
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
 
@@ -16,10 +18,10 @@ import java.util.regex.Pattern;
  * that is only called during construction and has no callers outside this class.</p>
  */
 public record RelationConfig(
-    String id,
-    String name,
-    String description,
-    String pattern,
+    @NonNull String id,
+    @Nullable String name,
+    @Nullable String description,
+    @NonNull String pattern,
     int headPosition,
     int collocatePosition,
     boolean dual,

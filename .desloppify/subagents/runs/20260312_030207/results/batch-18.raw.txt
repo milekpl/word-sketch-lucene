@@ -1,0 +1,103 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 72.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "36 test files cover all major handler, exploration, query helper, config, and utility classes via stub-based unit tests",
+        "StubQueryExecutor is a well-designed shared test double reused across 10+ test classes — no coupling to real BlackLab I/O",
+        "5 test files carry @Disabled at class or nested-class level: BlackLabConllUIndexerTest, BlackLabBcqlConcordanceTest, BlackLabQueryExecutorIntegrationTest, DependencySketchTest, and the LiveIndex nested class in BlackLabQueryExecutorTest",
+        "RelationPatternBuilder (used by SketchHandlers.routeSketchRequest and ConcordanceHandlers.handleConcordanceExamples) has no direct test; handler tests inject a StubQueryExecutor so the built BCQL pattern is never executed or inspected",
+        "No timing dependencies, no snapshot tests, no external-state fragility detected in any runnable test"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Comprehensive stub-based handler tests cover happy-path and all significant validation branches for every HTTP handler (ExplorationHandlers, SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers)",
+        "StubQueryExecutor is a clean, shared test double that decouples all unit tests from the real BlackLab index — no test fragility or ordering issues",
+        "SemanticFieldExplorer, MultiSeedExplorer, and CollocateProfileComparator each have dedicated unit tests exercising meaningful business logic with canned data",
+        "Live-index tests are disabled with clear documented runbook (CONCEPT_SKETCH_TEST_INDEX env var + remove @Disabled) rather than silently skipped or deleted",
+        "No snapshot overuse, no timing dependencies, no random seeds — the runnable test suite is deterministic and stable"
+      ],
+      "issue_character": "The gaps are concentrated at two boundaries: (1) the BCQL pattern-building layer (RelationPatternBuilder) is exercised by handler tests only through a stub that ignores the built pattern, and (2) the entire indexing pipeline and live-query execution path has zero CI-runnable tests, leaving a significant chunk of production code unvalidated by any automated run.",
+      "score_rationale": "The runnable test portfolio is solid and well-structured for a corpus-analysis tool that inherently depends on an external index: handler coverage, exploration logic, config loading, and utilities are all tested. This lifts the score above 60. The two structural gaps — RelationPatternBuilder's pattern substitution logic is never actually executed in tests, and the whole BlackLab I/O layer (indexer + executor) has no CI path — mean a developer making changes in those areas cannot rely on the test suite for feedback, which is the definition of the 70–80 band: 'a developer would worry about making changes in certain areas'."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "relation_pattern_builder_untested",
+      "summary": "RelationPatternBuilder has no direct tests; its lemma-substitution logic is bypassed by stub-based handler tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternBuilder.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "RelationPatternBuilder.buildFullPattern is called in SketchHandlers.routeSketchRequest and ConcordanceHandlers.handleConcordanceExamples to build the BCQL pattern passed to the executor",
+        "Handler tests use StubQueryExecutor which returns fixed results regardless of the pattern string — so a broken substitution (wrong position index, missing escape) would not be caught",
+        "No RelationPatternBuilderTest class exists in src/test/"
+      ],
+      "suggestion": "Add a RelationPatternBuilderTest that verifies buildFullPattern with a real RelationConfig: assert the substituted pattern contains the expected lemma at the correct bracket position, test null/blank headword passthrough, and test the three-arg overload (head + collocate substitution). These are pure string-function tests with no external dependencies.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "missing_unit_tests_for_pure_utility"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexing_pipeline_no_ci_coverage",
+      "summary": "BlackLabConllUIndexer is entirely @Disabled in CI — the full indexing pipeline has zero runnable automated tests",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "BlackLabConllUIndexerTest carries @Disabled at class level: 'Requires conllu-sentences.blf.yaml format config in the project root — not distributed with source'",
+        "ConlluConverterTest is the only runnable indexer test (134 lines), but it only covers CoNLL-U → WPL conversion, not the BlackLab indexing step",
+        "The full pipeline — CoNLL-U text → ConlluConverter → BlackLabConllUIndexer → on-disk index — has no CI validation"
+      ],
+      "suggestion": "Decouple the indexer test from the external YAML config by either: (a) bundling a minimal conllu-sentences.blf.yaml in src/test/resources so the test can self-configure, or (b) extracting the document-building logic from BlackLabConllUIndexer into a testable method that can be verified without a real BlackLab index (e.g., by asserting on the WPL token structure). Even a smoke test that verifies the indexer constructor creates the output directory without the full format config would provide CI signal.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "live_index_dependency_untestable_in_ci"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "blacklab_query_executor_no_ci_execution_path",
+      "summary": "All BlackLabQueryExecutor tests that exercise actual query execution are @Disabled; only static string-helper methods run in CI",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorIntegrationTest is @Disabled at class level; BlackLabBcqlConcordanceTest is @Disabled at class level; DependencySketchTest is @Disabled at class level",
+        "The LiveIndex nested class in BlackLabQueryExecutorTest is also @Disabled",
+        "Only the five static helper tests in BlackLabQueryExecutorTest (buildBcqlWithLemmaSubstitution variants) run in CI — none of executeCollocations, executeBcqlQuery, executeDependencyPattern, or getTotalFrequency are validated"
+      ],
+      "suggestion": "Consider adding an in-process BlackLab integration test using BlackLab's Searcher.openForWriting() API with a temporary directory and a programmatically-defined document format (no YAML file needed). Index two or three short sentences in the @BeforeAll, then assert that executeCollocations and executeBcqlQuery return the expected lemmas. This keeps the test self-contained and CI-runnable while covering the critical query-execution path.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "live_index_dependency_untestable_in_ci"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "live_index_dependency_untestable_in_ci: BlackLab requires an on-disk index and an external YAML format config; no effort has been made to create a minimal self-contained test fixture, so all executor and indexer tests are disabled",
+      "missing_unit_tests_for_pure_utility: RelationPatternBuilder is a pure static utility with no external dependencies, but it was extracted from RelationConfig without accompanying tests"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

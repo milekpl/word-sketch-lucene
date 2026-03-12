@@ -1,0 +1,82 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 10,
+  "assessments": {"incomplete_migration": 76.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "RelationType enum (model/RelationType.java) contains both new structural types (SURFACE, DEP) and four old semantic-specific types (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF). The grammar config (grammars/relations.json) assigns only SURFACE or DEP to every relation — none use the old semantic types.",
+        "CollocateProfileComparator passes RelationType.ADJ_MODIFIER and RelationType.ADJ_PREDICATE as primaryTypes to RelationUtils.findBestCollocatePattern; SemanticFieldExplorer passes RelationType.OBJECT_OF and RelationType.SUBJECT_OF. Because no grammar relation carries these types, the primary-filter stream always finds zero matches and silently falls through to the generic fallback.",
+        "WordSketchApiServer registers /api/semantic-field as a live GET handler, marked with a block comment: '/* @deprecated legacy alias for /api/semantic-field/compare; kept for backward compatibility. Use /api/semantic-field/compare instead.' No removal timeline or deprecation annotation is present.",
+        "GrammarConfigLoader.validateNoLegacyKeys actively rejects any grammar config that still contains a 'copulas' top-level key, demonstrating that a prior migration (embedding copula lemmas in CQL patterns rather than a separate list) was completed and enforced.",
+        "model.QueryResults is imported consistently by all callers (api, exploration, query packages) — a prior package migration from query.QueryResults to model.QueryResults appears fully complete."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The QueryResults type migration from the query package to the model package is fully complete: all production callers import pl.marcinmilkowski.word_sketch.model.QueryResults without a single stale reference.",
+        "GrammarConfigLoader actively enforces a completed migration by throwing on the old 'copulas' config key, preventing any regression to the prior configuration style.",
+        "The deprecated /api/semantic-field endpoint is clearly documented with a block comment naming the canonical replacement and logs a warn-level message on every invocation, giving operators visibility."
+      ],
+      "issue_character": "The incomplete migration issues are concentrated in one enum (RelationType) whose four old semantic-category constants are vestigial: they coexist with the current SURFACE/DEP taxonomy but are never populated by any grammar config, so any code that passes them as priority hints silently falls back to generic matching — a subtle behavioural gap rather than a crash.",
+      "score_rationale": "The codebase sits at roughly 76/100 for this dimension. Two completed migrations (QueryResults package move, copulas config removal) and one well-marked compatibility shim (legacy /api/semantic-field endpoint) push the score well above the 60 threshold. What holds it below 80 is the stale RelationType enum values: four dead constants are still passed as meaningful priority hints in CollocateProfileComparator and SemanticFieldExplorer, making the primary-type filter always fall through without any log or comment to explain this, which is a hidden behavioural inconsistency. The legacy endpoint also lacks any removal timeline, leaving it as open-ended debt."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "stale_relation_type_enum_values",
+      "summary": "Four old RelationType enum values (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) are never set in any grammar config but are still passed as priority hints, silently making the priority search always fall through",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java"
+      ],
+      "evidence": [
+        "RelationType.java declares: SURFACE, DEP, ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF",
+        "grammars/relations.json: every 'relation_type' value is either 'SURFACE' or 'DEP' — none use ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, or OBJECT_OF",
+        "CollocateProfileComparator line 43: RelationUtils.findBestCollocatePattern(grammarConfig, PosGroup.ADJ, FALLBACK_ADJECTIVE_PATTERN, RelationType.ADJ_MODIFIER, RelationType.ADJ_PREDICATE) — primaryTypes never match any loaded relation",
+        "SemanticFieldExplorer line 111: RelationUtils.findBestCollocatePattern(grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_CQL_CONSTRAINT, RelationType.OBJECT_OF, RelationType.SUBJECT_OF) — same problem",
+        "findBestCollocatePattern in RelationUtils always executes the orElseGet fallback branch because the primary filter stream is always empty"
+      ],
+      "suggestion": "Remove ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF from RelationType (or mark them @Deprecated). Update the two findBestCollocatePattern call sites to pass RelationType.SURFACE or a specific relation ID instead, so the priority search actually matches grammar config entries. If the old semantic types were intended to remain as a selection layer, the grammar config relations must be tagged with those types explicitly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "stale_legacy_relation_taxonomy"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy_semantic_field_endpoint_no_removal_plan",
+      "summary": "The deprecated /api/semantic-field endpoint has no removal timeline and no @Deprecated annotation, leaving it as indefinite open debt",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer line 96: '/* @deprecated legacy alias for /api/semantic-field/compare; kept for backward compatibility. Use /api/semantic-field/compare instead.' — block comment, not a Java @Deprecated annotation",
+        "No version or milestone tag indicating when the alias will be removed",
+        "The server is loopback-only with no external consumers documented, so there is no published-API justification for indefinitely keeping the alias"
+      ],
+      "suggestion": "Add a concrete removal milestone (e.g. 'remove in v2.0') to the comment. If there are no known external callers, schedule removal and delete the handler registration. If deferring removal, convert the comment to a formal TODO with a tracking reference so it surfaces in next queues.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stale_legacy_relation_taxonomy"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The original implementation hardcoded four semantic relation types (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) which were later superseded by a grammar-config-driven model using SURFACE and DEP. The enum was partially updated but the old constants were not removed, and call sites were not updated to use the new types."
+    ],
+    "likely_symptoms": [
+      "Priority-type filtering in findBestCollocatePattern is dead code — the primary branch always falls through to the generic fallback, meaning collocate pattern selection for exploration and comparison always uses whatever the first matching SURFACE/DEP relation is rather than the intended priority relation."
+    ],
+    "possible_false_positives": []
+  }
+}

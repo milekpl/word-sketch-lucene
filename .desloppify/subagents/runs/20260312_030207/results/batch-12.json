@@ -1,0 +1,93 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 12,
+  "assessments": {"contract_coherence": 79.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface documents each method's null/empty-input behaviour, return semantics, and exception contracts in detail — e.g., executeCollocations says 'returns an empty list silently if null or empty' and documents the cqlPattern format requirement with an IllegalArgumentException note.",
+        "HttpApiUtils.wrapWithErrorHandling documents exactly which exception types map to which HTTP status codes, and every public request-parsing method (requireParam, parseIntParam, parseDoubleParam) documents its error contract (throws IAE, caught by the wrapper).",
+        "@NonNull annotation on parseSeedSet(String) parameter contradicts the immediate null guard 'if (seedsParam == null || seedsParam.isEmpty())' inside the method body — one of the two is wrong.",
+        "SemanticFieldExplorer.compareCollocateProfiles takes @NonNull Set<String> seedNouns and validates only size<2; its delegate CollocateProfileComparator.compareCollocateProfiles (no @NonNull on the same param) additionally checks 'if (seedNouns == null...)' — the two layers express inconsistent nullability contracts for the same parameter.",
+        "ConlluConverter.convertConlluToWplChunks returns long[] with positional semantics conveyed only through comments in the caller ('counts[0], counts[1], counts[2]') and private class-level index constants (STATE_SENTENCES=0, etc.) invisible to callers — the return type does not encode its structure.",
+        "CollocateQueryHelper constructor Javadoc says null index 'is accepted only in test subclasses that override getTotalFrequency and executeCollocateSearchWithContent', but the enforcement is deferred to Objects.requireNonNull inside those methods rather than the constructor itself; the contract is accurate but relies on indirection.",
+        "GrammarConfig.relation(String id) returns Optional<RelationConfig> which accurately models the absent-relation case; all callers in the codebase handle both present and empty branches correctly."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface Javadoc specifies null/empty input handling, return semantics, and exception contracts for every method — a strong model for the rest of the codebase.",
+        "HttpApiUtils.wrapWithErrorHandling explicitly maps each exception type to an HTTP status code and is referenced by name in each method that relies on it, making the error contract traceable.",
+        "GrammarConfig.relation() returns Optional<RelationConfig> and is used consistently with orElse/orElseThrow throughout the API layer — no silent null propagation.",
+        "@NonNull/@Nullable annotations on method returns and parameters are applied consistently in the exploration and query layers, especially on public facade methods of SemanticFieldExplorer."
+      ],
+      "issue_character": "The issues are isolated annotation/guard inconsistencies at module boundaries rather than systemic contract failures; no method lies about its return type or silently swallows exceptions it claims to throw.",
+      "score_rationale": "The codebase scores solidly above the midpoint. Contracts are well-documented throughout the QueryExecutor interface and the HTTP utility layer, error propagation is consistent and traceable, and Optional is used correctly where absence is the normal case. What prevents a higher score is a small cluster of annotation-vs-implementation contradictions: the @NonNull param that has a redundant null guard, the split nullability contract between SemanticFieldExplorer and its delegate CollocateProfileComparator, and the untyped long[] return from ConlluConverter whose positional semantics are invisible to callers. These are isolated module-boundary issues, not deep structural problems, placing the score around 79 — solid but uneven at the edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "nonnull-parseseedset-null-guard",
+      "summary": "@NonNull annotation on parseSeedSet parameter contradicts the null guard inside the method body",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Line 233: private static Set<String> parseSeedSet(@NonNull String seedsParam)",
+        "Line 234: if (seedsParam == null || seedsParam.isEmpty()) return Set.of(); — the null branch is unreachable if the annotation is honoured, or the annotation is a lie if null can arrive"
+      ],
+      "suggestion": "Remove the @NonNull annotation if null is a valid input and the guard is intentional, or remove the null arm of the guard (leaving only the isEmpty check) if the annotation accurately reflects all callers' behaviour.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "split-nonnull-seednouns-contract",
+      "summary": "SemanticFieldExplorer declares seedNouns @NonNull but its delegate CollocateProfileComparator also checks null, expressing inconsistent nullability contracts for the same parameter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles line 316: @NonNull Set<String> seedNouns — the facade guarantees non-null",
+        "CollocateProfileComparator.compareCollocateProfiles line 58: if (seedNouns == null || seedNouns.size() < 2) — the delegate additionally guards against null, implying it cannot trust the facade's contract",
+        "The facade's Javadoc says '@throws IllegalArgumentException if fewer than 2 seed nouns are provided' but does not document a null case, while the delegate throws for null with a separate message"
+      ],
+      "suggestion": "Add @NonNull to CollocateProfileComparator.compareCollocateProfiles' seedNouns parameter and remove the null arm of its guard, aligning the delegatee's contract with the facade's guarantee. If CollocateProfileComparator must remain callable without the facade, document the null case explicitly in its Javadoc.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "untyped-long-array-return",
+      "summary": "ConlluConverter.convertConlluToWplChunks returns long[] with positional semantics invisible to callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "ConlluConverter.java: public static long[] convertConlluToWplChunks(...) — Javadoc describes return as 'long[]{sentenceCount, tokenCount, chunkCount}' but the type provides no enforcement",
+        "Main.java: long[] counts = ConlluConverter.convertConlluToWplChunks(...); long sentenceCount = counts[0]; long tokenCount = counts[1]; long chunkFileCount = counts[2]; — callers must know positional indices from prose documentation rather than type structure",
+        "The private STATE_SENTENCES=0, STATE_TOKENS=1, STATE_CHUNKS=2 constants that encode the semantics are private to ConlluConverter and not visible to callers"
+      ],
+      "suggestion": "Replace the long[] return type with a small record or named inner class (e.g. record ConversionStats(long sentences, long tokens, long chunks) {}) so callers access stats by name rather than position. This aligns the return type with the documented contract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Annotation drift: @NonNull annotations were added after the null guards were written (or vice versa) without reconciling both layers, producing annotation-vs-code contradictions at module boundaries.",
+      "Defensive programming at multiple layers: both the facade (SemanticFieldExplorer) and the delegate (CollocateProfileComparator) guard the same precondition independently, creating divergent contracts rather than a single authoritative check."
+    ],
+    "likely_symptoms": ["nonnull-parseseedset-null-guard", "split-nonnull-seednouns-contract"],
+    "possible_false_positives": []
+  }
+}

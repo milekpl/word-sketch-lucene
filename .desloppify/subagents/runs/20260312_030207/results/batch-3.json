@@ -1,0 +1,59 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 3,
+  "assessments": {"error_consistency": 83.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling maps IllegalArgumentException → 400, IOException → 500, RequestEntityTooLargeException → 413, and all other Throwable → 500; applied uniformly to every route in WordSketchApiServer",
+        "All handler methods (ExplorationHandlers, SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) declare throws IOException and throw IllegalArgumentException for client errors — no handler returns null or swallows exceptions",
+        "BlackLabSnippetParser uses @Nullable-annotated return-null for its parsing utilities (extractCollocateLemma, extractCollocateFromXmlByPosition, etc.) — an honest contract for a text parser where 'not found' is normal",
+        "GrammarConfigLoader has a documented two-tier contract: load(Path) throws IOException, createDefaultEnglish() wraps to IllegalStateException for startup/DI callers — intentional and commented",
+        "executeRelationQueries in SketchHandlers intentionally catches per-relation IOException, logs a warning, and accumulates into a response.errors field; partial-failure is surfaced to the client rather than swallowed",
+        "Main.java CLI uses bare Double.parseDouble / Integer.parseInt on --min-logdice and --port without catching NumberFormatException; they fall through to the top-level catch (Exception e) which prints a generic 'Application error' message rather than a user-friendly IAE-style message",
+        "CollocateQueryHelper.executeCollocateSearchImpl wraps InvalidQuery (BlackLab runtime) into IOException to give callers a consistent checked exception — consistent boundary conversion"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "wrapWithErrorHandling provides a single, uniform HTTP error boundary applied to every registered route — developers can predict exactly how any exception becomes an HTTP status code",
+        "Handler layer is exception-only with no null returns; IllegalArgumentException signals client errors, IOException signals server errors — clean two-exception model across the entire API surface",
+        "BlackLabSnippetParser's null-returning parse utilities are all annotated @Nullable, making the optional-result contract explicit and consistent across that class",
+        "InvalidQuery (a BlackLab RuntimeException) is systematically converted to IOException at the executor boundary so callers never need to know about library-internal exception types",
+        "Partial-failure in multi-relation sketch requests is handled deliberately: per-relation IOExceptions are caught, logged, and forwarded to the caller as a response.errors field rather than silently discarded"
+      ],
+      "issue_character": "The single inconsistency is narrow and local: CLI argument parsing in Main uses bare parseDouble/parseInt without NumberFormatException handling, producing a generic error message where the API layer would produce a clear IAE, but nothing is silently swallowed.",
+      "score_rationale": "The API layer has exemplary error consistency — a single well-tested boundary handler, uniform exception semantics across all handlers, and honest @Nullable contracts in parsing utilities. The codebase scores solidly above 80. The only friction is in the CLI path where two numeric argument parses (--port, --min-logdice) lack the NumberFormatException-to-IAE wrapping that the HTTP layer applies, leaving the user with a less actionable error message; this is a local, fixable gap that keeps the score from reaching 90."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "cli_numeric_parse_no_nfe_handling",
+      "summary": "CLI --port and --min-logdice args use bare parseInt/parseDouble with no NumberFormatException catch, producing generic errors unlike the API layer",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/Main.java"],
+      "evidence": [
+        "Line 182: `minLogDice = Double.parseDouble(requireNextArg(...))` — NumberFormatException propagates to the top-level `catch (Exception e)` which logs 'Application error' and prints e.getMessage()",
+        "Line 183: `limit = Integer.parseInt(requireNextArg(...))` — same path",
+        "Line 233: `port = Integer.parseInt(requireNextArg(...))` — same path",
+        "The API layer equivalent in HttpApiUtils.parseIntParam/parseDoubleParam wraps NumberFormatException into IllegalArgumentException with a message like: \"Invalid numeric parameter 'top': expected integer, got: 'abc'\""
+      ],
+      "suggestion": "Wrap each bare parse in a try/catch NumberFormatException and throw new IllegalArgumentException(\"--<flag> requires a valid number, got: '\" + raw + \"'\", e) — mirrors the existing parseIntParam/parseDoubleParam helpers and gives CLI users the same quality of error message as API users.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The API layer has a centralized error-handling abstraction (wrapWithErrorHandling + parseIntParam/parseDoubleParam) but the CLI path was implemented independently and did not reuse or mirror those helpers"
+    ],
+    "likely_symptoms": ["cli_numeric_parse_no_nfe_handling"],
+    "possible_false_positives": []
+  }
+}

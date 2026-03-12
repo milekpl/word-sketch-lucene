@@ -1,0 +1,94 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 5,
+  "assessments": {"abstraction_fitness": 74.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed (line 357-362) is a single-line delegation: `return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());` — its only work is unwrapping the ExplorationOptions record; no validation, no translation, no policy.",
+        "SemanticFieldExplorer.compareCollocateProfiles (line 316-322) is similarly a one-line delegation after a guard: `return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates());` — the ExplorationOptions wrapper is unpacked and discarded immediately.",
+        "SemanticFieldExplorer Javadoc explicitly labels the class 'a thin facade delegating to both this class and CollocateProfileComparator', confirming the pass-through design is intentional rather than incidental.",
+        "SketchHandlers.handleFullSketch (line 105-107) is a one-liner: `handleFullSketchForType(exchange, lemma, RelationType.SURFACE)` — a private naming alias for a hardcoded constant argument, adding a call depth with zero behavior.",
+        "SketchHandlers.handleFullDependencySketch (line 114-116) mirrors the same pattern: `handleDepSketch(exchange, lemma)` — a private rename wrapper.",
+        "QueryExecutor interface (query/QueryExecutor.java) has exactly one production implementation (BlackLabQueryExecutor). The interface Javadoc self-identifies this as a 'testability seam rather than an abstraction boundary', making it an honest single-impl interface.",
+        "The remaining abstractions — ExploreResponseAssembler (model-to-JSON translation), GrammarConfigSerializer (keeps JSON library out of config records), CollocateQueryHelper (encapsulates collocate scoring/ranking), RelationPatternBuilder (keeps RelationConfig a pure data carrier), HttpApiUtils (enforces CORS, method checking, size limits) — all carry real behavioral weight that justifies their existence.",
+        "Handler decomposition (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) is motivated by domain separation, not arbitrary splitting; each class has a coherent concern.",
+        "No util/helper dumping grounds, delegation-heavy classes, wide options bags, or facade/re-export modules were found in the codebase."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 80.0,
+        "indirection_cost": 68.0,
+        "interface_honesty": 72.0,
+        "delegation_density": 88.0,
+        "definition_directness": 76.0,
+        "type_discipline": 90.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "ExploreResponseAssembler is a genuine translation layer: it builds edge lists, formats collocate maps, and serialises model objects, giving callers a clean presentation contract without any logic leaking into handler classes.",
+        "RelationPatternBuilder and GrammarConfigSerializer successfully keep external library dependencies (BlackLab pattern syntax, fastjson2) out of core data records, a clear win for the config layer.",
+        "The HTTP handler decomposition (five distinct handler classes) is domain-driven, not arbitrary: each class owns a coherent slice of the API surface and has real independent logic.",
+        "HttpApiUtils carries genuine cross-cutting policy: CORS enforcement, request size limits, method checking, and error-to-HTTP-status mapping — it is not a mere static utility dump.",
+        "CollocateQueryHelper encapsulates non-trivial collocate ranking, over-fetch logic, and logDice scoring that would pollute BlackLabQueryExecutor if inlined."
+      ],
+      "issue_character": "Issues are isolated to one facade class (SemanticFieldExplorer) whose two delegation methods add a call-depth hop with no behavior, plus minor one-liner private aliases in SketchHandlers — a thin-facade pattern concentrated in the exploration subsystem rather than a systemic codebase problem.",
+      "score_rationale": "The codebase earns a solid foundation: most abstractions carry real behavioral weight, and the design comments show deliberate intent. Two identifiable pass-through patterns pull the score down from 'solid but uneven' (80): SemanticFieldExplorer.exploreMultiSeed and compareCollocateProfiles are self-admitted thin delegations that unpack an options record and immediately hand off, and the QueryExecutor interface has a single production implementation (acknowledged as a testability seam). These are real but bounded — they affect the exploration subsystem and one interface, not the full codebase. The score lands at 74: meaningfully above 'significant drag' (60) because most abstractions pay their way, but below 'solid' (80) due to the concentrated thin-facade pattern in a key subsystem."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "semantic_field_explorer_thin_facade",
+      "summary": "SemanticFieldExplorer.exploreMultiSeed and compareCollocateProfiles are pass-through one-liners that add a call layer without any behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "exploreMultiSeed (line 357-362): entire method body is `return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());` — no validation, no translation, only ExplorationOptions unpacking.",
+        "compareCollocateProfiles (line 316-322): entire body is a guard + `return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates());` — opts is unpacked and discarded immediately.",
+        "The class Javadoc acknowledges this explicitly: 'acts as a coordination facade for the remaining operations — delegating multi-seed exploration to MultiSeedExplorer and profile comparison to CollocateProfileComparator.'",
+        "ExplorationHandlers already holds the individual parameter values (opts.topCollocates(), opts.minLogDice(), opts.minShared()) before constructing ExplorationOptions; the round-trip through the options record and back adds overhead without benefit."
+      ],
+      "suggestion": "Either (a) have ExplorationHandlers call MultiSeedExplorer and CollocateProfileComparator directly (eliminating the coordination facade), or (b) give SemanticFieldExplorer real responsibilities in these methods — e.g., moving the options-validation guards currently scattered across callers into the facade to justify its existence. If the facade is retained for the HTTP layer's benefit, at minimum move the ExplorationOptions construction into the facade methods so callers pass raw parameters and the options object is an internal implementation detail.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "thin_facade_delegation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "sketch_handlers_one_liner_aliases",
+      "summary": "SketchHandlers.handleFullSketch and handleFullDependencySketch are private one-liner aliases that add a call level for naming only",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullSketch (line 105-107): `private void handleFullSketch(HttpExchange exchange, String lemma) throws IOException { handleFullSketchForType(exchange, lemma, RelationType.SURFACE); }` — the only work is providing a constant argument.",
+        "handleFullDependencySketch (line 114-116): `private void handleFullDependencySketch(HttpExchange exchange, String lemma) throws IOException { handleDepSketch(exchange, lemma); }` — a private rename with identical signature and body.",
+        "The call chain in routeSketchRequest reads: routeSketchRequest → handleFullSketch → handleFullSketchForType, adding an extra hop that a reader must trace."
+      ],
+      "suggestion": "Inline the one-liner aliases into their single caller (routeSketchRequest). Replace `handleFullSketch(exchange, lemma)` with the direct call `handleFullSketchForType(exchange, lemma, RelationType.SURFACE)`, and inline `handleFullDependencySketch` as `handleDepSketch(exchange, lemma)`. The naming value these aliases provided is better served by a code comment at the call site.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "thin_facade_delegation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The SemanticFieldExplorer facade was introduced when MultiSeedExplorer and CollocateProfileComparator were extracted from it, but the facade's public API was not updated to reflect that it no longer owns those algorithms — leaving behind pass-through delegation stubs.",
+      "Private one-liner wrapper methods appear to have been introduced during incremental refactoring (splitting SURFACE vs DEP handling) without a final cleanup pass to remove intermediate naming layers."
+    ],
+    "likely_symptoms": [
+      "semantic_field_explorer_thin_facade"
+    ],
+    "possible_false_positives": []
+  }
+}

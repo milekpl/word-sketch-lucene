@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
@@ -53,14 +54,13 @@ class CollocateProfileComparator {
      * @return ComparisonResult with graded adjective profiles
      */
     public ComparisonResult compareCollocateProfiles(
-            Set<String> seedNouns,
+            @NonNull Set<String> seedNouns,
             double minLogDice,
             int maxPerNoun) throws IOException {
 
-        if (seedNouns == null || seedNouns.size() < 2) {
+        if (seedNouns.size() < 2) {
             throw new IllegalArgumentException(
-                "compareCollocateProfiles requires at least 2 seed nouns; got: "
-                    + (seedNouns == null ? "null" : seedNouns.size()));
+                "compareCollocateProfiles requires at least 2 seed nouns; got: " + seedNouns.size());
         }
 
         List<String> nounList = new ArrayList<>(seedNouns);

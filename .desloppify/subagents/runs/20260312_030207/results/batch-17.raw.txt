@@ -1,0 +1,65 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {
+    "initialization_coupling": 88.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "No static initializer blocks anywhere in the production code; all state is instance-level.",
+        "BlackLabQueryExecutor opens the index in its constructor but declares `throws IOException`, includes a Javadoc rationale, and is explicitly constructed by callers — not lazily or via a hidden singleton.",
+        "WordSketchApiServer separates construction from port binding: handler objects are wired in the constructor, the TCP socket is only bound when `start()` is called, and the Javadoc documents this as an intentional design choice.",
+        "HttpApiUtils.setCorsHeader reads `cors.allow.origin` via `System.getProperty` at request-handler call time (not at class load time), explicitly to allow per-test overrides — documented in the Javadoc.",
+        "GrammarConfigLoader.createDefaultEnglish() reads `System.getProperty(\"grammar.config\", \"grammars/relations.json\")` at call time; tests in RelationsValidationTest and HybridAlgorithmTest call it directly, creating an implicit dependency on the working directory being the project root.",
+        "Main.java reads `System.getProperty(\"grammar.config\", ...)` inline in the command handler and is not affected by `createDefaultEnglish()` — the two call-sites are independent and consistent.",
+        "AtomicReference<WordSketchApiServer> is used in the shutdown hook to safely bridge the gap between hook registration and server construction — a deliberate, correct treatment of the init race."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "No static mutable global state or singletons anywhere — all shared objects are constructed explicitly and passed via constructors.",
+        "No import-time or class-load-time side effects: there are no static initializer blocks, no eager DB/file/network operations at class load.",
+        "Constructor I/O in BlackLabQueryExecutor is honest (declared `throws IOException`, documented with rationale) rather than hidden behind a lazy-init singleton.",
+        "Port binding is cleanly separated from object construction in WordSketchApiServer, with a clear Javadoc note explaining why, avoiding surprise side effects on construction.",
+        "CORS system-property is read per-request rather than cached at class load, explicitly designed to allow test overrides."
+      ],
+      "issue_character": "The single identifiable fragility is localized to one factory method (`createDefaultEnglish`) that silently depends on a working-directory-relative file path resolved at call time via a system property; test code calls it directly without any parameter injection, coupling tests to the project-root file layout.",
+      "score_rationale": "The codebase is largely exemplary on this dimension: explicit construction, no hidden singletons, no static mutable state, and documented design decisions around constructor I/O and deferred port binding. The one real concern — `createDefaultEnglish()` reading a system property and being called directly in tests — is a mild fragility that would cause subtle failures if tests ran from a different working directory, but the default is sensible and the override mechanism is documented. This places the codebase solidly in the 85-90 range: strong discipline with one low-severity, localized issue."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "create_default_english_cwd_coupling",
+      "summary": "`GrammarConfigLoader.createDefaultEnglish()` implicitly depends on working directory and is called directly in tests without path injection",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/config/RelationsValidationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/HybridAlgorithmTest.java"
+      ],
+      "evidence": [
+        "`createDefaultEnglish()` resolves the config path as `Path.of(System.getProperty(\"grammar.config\", \"grammars/relations.json\"))` — a relative path evaluated against the JVM working directory at call time.",
+        "RelationsValidationTest and HybridAlgorithmTest call `createDefaultEnglish()` directly with no setup, so they silently require the test runner's working directory to be the project root containing `grammars/relations.json`.",
+        "There is no test-scoped override via `@BeforeEach` / `@BeforeAll` to set `grammar.config` to a known classpath resource, making the coupling invisible until tests run from a different directory."
+      ],
+      "suggestion": "Add a `GrammarConfigLoader.loadFromClasspath(String resource)` overload (or use `fromReader` with a classloader resource stream) and replace `createDefaultEnglish()` calls in tests with it, e.g. `GrammarConfigLoader.fromReader(new InputStreamReader(Objects.requireNonNull(getClass().getResourceAsStream(\"/grammars/relations.json\"))))`. This removes the working-directory dependency from tests while leaving the production `createDefaultEnglish()` path unchanged.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "environment_coupling"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The `createDefaultEnglish` factory method was designed as a DI-container convenience but is also used in tests, conflating two different needs (startup convenience vs. test isolation) in a single entry point that reads a mutable environment variable."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {"high_level_elegance": 74.0},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package layout (api, config, exploration, indexer, model, query, utils, viz) maps each folder to a named domain capability with no historical-accident names visible.",
+        "model/package-info.java explicitly documents the package boundary, the two allowed type categories (DTOs vs model objects with derived accessors), and prohibits I/O concerns.",
+        "GrammarConfig (data) and GrammarConfigLoader (I/O) are split into separate classes; the javadoc of each explains the separation intent.",
+        "API handler decomposition into SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers each owns one coherent HTTP concern.",
+        "Options-object pattern (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) applied consistently for extensible parameter passing.",
+        "RelationType enum (SURFACE, DEP, ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) conflates two orthogonal concepts: dispatch strategy (SURFACE/DEP used in SketchHandlers for routing) and semantic role labels (ADJ_PREDICATE etc. used in CollocateProfileComparator and SemanticFieldExplorer for filtering). A new engineer reading the enum cannot tell which values are routing tags and which are semantic category filters.",
+        "RelationConfig javadoc states deriveDeprel() 'is only called during construction and has no callers outside this class' but SketchHandlers calls it in three places (lines 94, 148, 274), contradicting the documented ownership contract.",
+        "RelationConfig javadoc references GrammarConfig#getRelation but the actual method is named GrammarConfig#relation(String), a documentation-to-reality mismatch for a cross-reference specifically meant to explain API design rationale."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package decomposition maps one-to-one to named domain capabilities (api, config, exploration, model, query, utils, viz, indexer) with no folder whose existence would puzzle a newcomer.",
+        "GrammarConfig / GrammarConfigLoader split cleanly separates the immutable data object from the file-I/O machinery, and both types document the rationale for the split.",
+        "model/package-info.java provides an explicit boundary contract stating which type categories belong here and forbidding I/O concerns — a rare and valuable ownership anchor.",
+        "API handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers) each own one coherent HTTP concern and are wired together only at the top-level WordSketchApiServer.",
+        "Options-object types (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) apply a single consistent pattern across all entry points for extensible parameter passing."
+      ],
+      "issue_character": "The issues are localised to one enum type and two stale javadoc cross-references: not a systemic structural failure, but the RelationType enum conflation is a real ownership blurring that a new engineer would notice immediately when tracing how exploration and sketching routes use the same enum for different purposes.",
+      "score_rationale": "The package structure, module separation, and documented boundaries are well above average — this codebase would score near 85 if the architecture fully matched its stated contracts. Two concrete mismatch points pull the score down: the RelationType enum conflates dispatch strategy with semantic role labels (blurring why SURFACE/DEP exist alongside ADJ_PREDICATE etc.), and RelationConfig's javadoc falsely claims deriveDeprel() has no outside callers while SketchHandlers calls it in three places. These are real trust-eroding documentation-to-reality gaps, not mere style nits, bringing the score to the 70-75 range — solid decomposition, mostly trustworthy docs, but with a notable enum ownership confusion and two explicit doc/reality mismatches."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_type_enum_conflation",
+      "summary": "RelationType enum conflates dispatch-strategy values (SURFACE, DEP) with semantic-role labels (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF), blurring the ownership boundary between the sketch routing and exploration subsystems",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "SketchHandlers uses RelationType.SURFACE and RelationType.DEP exclusively as routing discriminators (e.g. 'if (relationType == RelationType.DEP)') with no semantic meaning.",
+        "CollocateProfileComparator and SemanticFieldExplorer use RelationType.ADJ_MODIFIER, ADJ_PREDICATE, SUBJECT_OF, OBJECT_OF exclusively as semantic category filters with no routing meaning.",
+        "The enum's javadoc ('Relation matching strategy: surface token sequence vs. dependency annotation') only documents the SURFACE/DEP axis, leaving ADJ_PREDICATE etc. unexplained in context.",
+        "A new engineer encountering the enum cannot determine which values are routing tags and which are semantic categories, because the two sets serve completely different call sites with no shared logic."
+      ],
+      "suggestion": "Split RelationType into two types: a MatchingStrategy enum (SURFACE, DEP) used by SketchHandlers and RelationConfig for dispatch, and a SemanticRole enum (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) used by exploration and comparison code for filtering. RelationConfig can then carry both — optional MatchingStrategy for sketch routing, optional SemanticRole for exploration — making each axis independently clear. Alternatively, add a javadoc comment to the enum explicitly documenting the dual-axis design and which values belong to which axis as an intermediate step.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "enum_dual_concern"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_config_derive_deprel_stale_ownership_claim",
+      "summary": "RelationConfig javadoc falsely claims deriveDeprel() 'has no callers outside this class' while SketchHandlers calls it in three places, making the documented ownership contract untrustworthy",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "RelationConfig.java lines 14-16: 'The sole remaining method (deriveDeprel()) is retained here because it is a simple derivation from pattern() and id() that is only called during construction and has no callers outside this class.'",
+        "SketchHandlers.java line 94: rel.deriveDeprel() called for serializing deprel into response JSON.",
+        "SketchHandlers.java line 148: rel.deriveDeprel() used as a filter predicate in executeRelationQueries.",
+        "SketchHandlers.java line 274: rel.deriveDeprel() called again during response building."
+      ],
+      "suggestion": "Update the RelationConfig javadoc to accurately state that deriveDeprel() is part of the public API of RelationConfig and is used by SketchHandlers. If the original design intent was to keep it internal, move the deprel-derivation logic to RelationPatternBuilder (which already owns all other RelationConfig-derived computations) and update callers accordingly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stale_docs"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "grammar_config_get_relation_stale_xref",
+      "summary": "RelationConfig javadoc cross-references GrammarConfig#getRelation but the actual method is named GrammarConfig#relation(String), making the doc-to-runtime contract unverifiable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java"
+      ],
+      "evidence": [
+        "RelationConfig.java line 43: '{@link pl.marcinmilkowski.word_sketch.config.GrammarConfig#getRelation}' in the deriveDeprel() nullability design note.",
+        "GrammarConfig.java exposes 'public Optional<RelationConfig> relation(String id)' — no method named getRelation exists."
+      ],
+      "suggestion": "Change the {@link} reference in RelationConfig.java line 43 from 'GrammarConfig#getRelation' to 'GrammarConfig#relation(String)' to match the actual API.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "stale_docs"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RelationType grew organically as new capabilities (exploration, comparison) were added without revisiting whether the existing enum values formed a coherent concept.",
+      "Ownership claims in javadoc comments were accurate at the time of writing but became stale as SketchHandlers was extended to call deriveDeprel() externally."
+    ],
+    "likely_symptoms": [
+      "relation_config_derive_deprel_stale_ownership_claim and grammar_config_get_relation_stale_xref are likely symptoms of the same stale-docs pattern rather than independent root causes."
+    ],
+    "possible_false_positives": []
+  }
+}

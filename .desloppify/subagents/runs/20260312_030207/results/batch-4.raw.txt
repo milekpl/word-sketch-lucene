@@ -1,0 +1,117 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 4,
+  "assessments": {"naming_quality": 78.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Class names are domain-precise throughout: SemanticFieldExplorer, CollocateProfileComparator, MultiSeedExplorer, BlackLabSnippetParser, RelationPatternBuilder, CollocateQueryHelper — each communicates its role without ambiguity.",
+        "Handler method names follow a consistent handle<Domain><Concept> convention: handleSemanticFieldExplore, handleSemanticFieldComparison, handleConcordanceExamples, handleFullDependencySketch.",
+        "In SemanticFieldExplorer.identifyCoreCollocates() and filterByMinShared(), local variables use the 'colloc' abbreviation (collocFrequency, collocTotalScore, collocScores) while the rest of the codebase consistently uses 'collocate' (collocateLemma, collocateFreq, collocateTotal, collocatePos).",
+        "ConcordanceHandlers.ConcordanceExamplesRequest record renames HTTP params seed->noun and collocate->adjective in its fields. 'seed' and 'collocate' are the system-wide vocabulary; 'adjective' is a more specific POS term that doesn't reflect the relation-agnostic nature of the endpoint.",
+        "SketchHandlers contains thin one-liner wrapper methods with distinct names: handleFullDependencySketch() solely calls handleDepSketch(); handleFullSketch() solely calls handleFullSketchForType() with SURFACE; handleRelationSketch() solely calls handleRelationQueryForPattern() with SURFACE. Each adds a name-change hop with no new information.",
+        "In SemanticFieldExplorer.buildCollocateToNounsMap, the return variable is named 'nounProfiles' (Map<String, Map<String, Double>> keyed by noun) while the method is named 'buildCollocateToNounsMap', implying a collocate-keyed direction. The two names encode opposite traversal directions for the same map.",
+        "Constants are self-documenting: DEFAULT_SKETCH_RESULTS, SINGLE_RELATION_RESULTS, OVER_FETCH_FACTOR, MAX_PARAM_LENGTH, DEFAULT_CORS_ALLOW_ORIGIN."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "Class and interface names are domain-precise and immediately communicate role: SemanticFieldExplorer, CollocateProfileComparator, MultiSeedExplorer, BlackLabSnippetParser each name the exact operation performed.",
+        "Handler method names form a coherent handle<Domain><Concept> convention, making it straightforward to locate a handler from an endpoint path.",
+        "Constants are fully self-documenting (DEFAULT_SKETCH_RESULTS, SINGLE_RELATION_RESULTS, OVER_FETCH_FACTOR) — no magic numbers in the scoring or result-limiting logic.",
+        "Parameter names across the API and domain layers consistently use corpus-linguistics vocabulary: seed, collocate, lemma, minLogDice, topCollocates, relationType.",
+        "Private records used as parameter bundles (ExplorationParams, ExecutedSketch, CollocateSearch, HitRecord) all name their purpose precisely and avoid generic containers."
+      ],
+      "issue_character": "The issues are isolated pockets of abbreviation drift and vocabulary mismatch rather than a systemic pattern: a handful of 'colloc' shorthands against a 'collocate' norm, one record that renames 'seed'/'collocate' to 'noun'/'adjective', and a cluster of thin wrapper methods in SketchHandlers whose name-change indirection adds navigational friction without expressing any new distinction.",
+      "score_rationale": "The codebase sits clearly above the 'significant drag' threshold (60): class names, constants, and public API surfaces are domain-aligned and precise, making the codebase easy to navigate at a high level. What pulls it below 'solid but uneven' (80) is the small but genuine vocabulary inconsistency around 'colloc' vs 'collocate', the noun/adjective renaming in ConcordanceExamplesRequest that diverges from system-wide terms, and the thin-wrapper naming pattern in SketchHandlers that forces unnecessary name-change hops. These are real friction points for developers tracing execution, but they are bounded to a few files and methods rather than reflecting a codebase-wide naming philosophy problem."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "colloc_abbrev_drift",
+      "summary": "'colloc' abbreviation in SemanticFieldExplorer diverges from the 'collocate' norm used everywhere else",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "identifyCoreCollocates() declares 'Map<String, Integer> collocFrequency' and 'Map<String, Double> collocTotalScore'",
+        "filterByMinShared() uses 'Map<String, Double> collocScores'",
+        "ExploreResponseAssembler loop variables are named 'colloc' (for (Map.Entry<String, Double> colloc : result.seedCollocates().entrySet()))",
+        "Everywhere else: collocateLemma, collocateFreq, collocateTotal, collocatePos, collocateCorpusFreqs, collocateFreqMap — the full word is the consistent standard"
+      ],
+      "suggestion": "Rename colloc→collocate prefix in the affected local variables: collocFrequency→collocateFrequency, collocTotalScore→collocateTotalScore, collocScores→collocateScores; rename the ExploreResponseAssembler loop variable 'colloc' to 'collocateEntry' or 'collocate'.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "concordance_request_field_rename",
+      "summary": "ConcordanceExamplesRequest renames 'seed'/'collocate' to 'noun'/'adjective', diverging from system-wide vocabulary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "Record declared as: private record ConcordanceExamplesRequest(String noun, String adjective, String relation, int top)",
+        "parseConcordanceExamplesRequest maps HTTP param 'seed' → noun and 'collocate' → adjective",
+        "Throughout the rest of the codebase the terms 'seed' and 'collocate' are used uniformly in both API layer and model layer",
+        "'adjective' is a POS-specific term that does not match the relation-agnostic endpoint (the relation parameter can be object_of or subject_of, not only adjective relations)"
+      ],
+      "suggestion": "Rename the record fields to match codebase vocabulary: String seed, String collocate. The renaming in parseConcordanceExamplesRequest can simply be dropped: 'String seed = HttpApiUtils.requireParam(params, \"seed\"); String collocate = HttpApiUtils.requireParam(params, \"collocate\");'",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "thin_wrapper_name_mismatch",
+      "summary": "SketchHandlers has one-liner wrapper methods whose name-change hop adds navigational friction with no new information",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "handleFullDependencySketch(exchange, lemma) is a one-liner body: handleDepSketch(exchange, lemma)",
+        "handleFullSketch(exchange, lemma) is a one-liner: handleFullSketchForType(exchange, lemma, RelationType.SURFACE)",
+        "handleRelationSketch(exchange, lemma, relation) is a one-liner: handleRelationQueryForPattern(exchange, lemma, relation, RelationType.SURFACE)",
+        "Each wrapper renames its target (Full+Dependency→Dep, FullSketch→FullSketchForType, RelationSketch→RelationQueryForPattern), forcing a name-change lookup without conveying any additional distinction"
+      ],
+      "suggestion": "Collapse each wrapper into its private implementation: rename handleDepSketch to handleFullDependencySketch (or remove the public wrapper and inline the private), and similarly for the other pairs. Where the private method adds a RelationType parameter, the routing in routeSketchRequest can pass the type directly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nounprofiles_direction_mismatch",
+      "summary": "Variable 'nounProfiles' and method 'buildCollocateToNounsMap' encode opposite traversal directions for the same map",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Method is named buildCollocateToNounsMap, implying a collocate-keyed outer map",
+        "The return variable is named 'nounProfiles' (Map<String, Map<String, Double>>), where the outer key is the noun and the inner key is the collocate",
+        "The method name suggests collocate→nouns while the variable name suggests noun→(collocate profile), creating ambiguity about which entity is the primary key"
+      ],
+      "suggestion": "Align the method name with the actual structure: rename buildCollocateToNounsMap to buildNounCollocateProfiles (or buildNounToCollocatesMap), and keep the variable named nounProfiles. Alternatively, keep the method name and rename the return variable to collocateToNounsMap.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Abbreviation drift (colloc vs collocate) likely reflects incremental growth — early code used shorthand that was never normalised as the codebase established 'collocate' as the standard term.",
+      "The ConcordanceExamplesRequest renaming may stem from a domain-model perspective (noun/adjective as linguistic categories) overriding the API-layer vocabulary (seed/collocate as query roles), suggesting a mild impedance mismatch between how different contributors thought about the same parameters.",
+      "The thin wrapper pattern in SketchHandlers likely reflects a refactoring step that extracted private implementations but left public shims whose names were never unified with their targets."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

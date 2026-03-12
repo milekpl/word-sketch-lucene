@@ -30,6 +30,7 @@ import nl.inl.blacklab.searches.SearchHits;
 import pl.marcinmilkowski.word_sketch.utils.LogDiceUtils;
 
 
+import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
@@ -57,14 +58,21 @@ class CollocateQueryHelper {
 
     /**
      * Creates a helper bound to the given BlackLab index.
+     * All production callers must supply a non-null index.
      *
-     * @param index the BlackLab index; {@code null} is accepted only in test subclasses that
-     *              override {@link #getTotalFrequency} and
-     *              {@link #executeCollocateSearchWithContent(String, String)} — all
-     *              production callers must supply a non-null index.
+     * @param index the BlackLab index to query
      */
-    CollocateQueryHelper(@Nullable BlackLabIndex index) {
+    CollocateQueryHelper(@NonNull BlackLabIndex index) {
         this.index = index;
+    }
+
+    /**
+     * No-index constructor for test subclasses that override all I/O methods
+     * ({@link #getTotalFrequency} and {@link #executeCollocateSearchWithContent}).
+     * Not for production use.
+     */
+    CollocateQueryHelper() {
+        this.index = null;
     }
 
     // -------------------------------------------------------------------------

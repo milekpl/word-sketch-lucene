@@ -1,0 +1,60 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {
+    "authorization_consistency": 88.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer Javadoc explicitly documents the security model: loopback-only bind (127.0.0.1), all endpoints unauthenticated, access control delegated to host firewall.",
+        "All 14 routes are registered through the same registerGetHandler/registerPostHandler helpers — no sibling receives different auth treatment.",
+        "CORS is applied uniformly via setCorsHeader() called by every response-sending method (sendJsonResponse, sendError, sendBinaryResponse, sendOptionsResponse).",
+        "HttpApiUtils.requireParam enforces MAX_PARAM_LENGTH (200 chars) on all GET query parameters uniformly; CorpusQueryHandlers additionally enforces body size (65 536 bytes) and pattern complexity (20 bracket tokens) for the POST /api/bcql endpoint — appropriate per request type.",
+        "The cors.allow.origin=* case logs a warning but does not prevent the widened trust boundary from being applied silently at startup.",
+        "No permission strings, no roles, no auth decorators exist anywhere in the codebase — consistent with the documented all-public design."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The CORS wildcard (cors.allow.origin=*) is accepted at runtime with only a log warning — no startup failure or hard guard prevents accidentally widening the browser trust boundary across all endpoints in a containerised deployment. A single startup check would close this gap."
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Security model is explicitly documented at the class level (WordSketchApiServer Javadoc): loopback-only bind, intentionally unauthenticated, with a concrete warning about what must accompany any bind-address change.",
+        "All route registrations go through a single shared helper (registerHandler), making it structurally impossible for one route to silently acquire different method-enforcement or CORS behaviour than its siblings.",
+        "CORS header injection is centralised in setCorsHeader() and called by every response method, eliminating per-handler drift.",
+        "Input validation (size limits, parameter validation) is uniformly applied via shared utilities (requireParam, parseIntParam, readBodyWithSizeLimit) — no sibling endpoint skips validation while others apply it."
+      ],
+      "issue_character": "The single issue is a missing startup guard: the CORS wildcard path is a latent trust-boundary widening that activates silently via a JVM property with only a log warning, rather than a fail-fast check.",
+      "score_rationale": "The codebase fully satisfies the core of the authorization_consistency rubric: the auth posture (intentionally unauthenticated, loopback-only) is uniform across all routes, documented, and structurally enforced through shared registration helpers. This places it comfortably above the 80 anchor ('solid but uneven'). The gap from 90+ is the cors.allow.origin=* path, which can silently widen the browser trust boundary across every endpoint at startup without any hard guardrail — a developer reviewing security cannot fully trust coverage once the server is deployed outside the default loopback configuration."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_wildcard_no_hard_guard",
+      "summary": "cors.allow.origin=* silently widens browser trust boundary across all endpoints with only a log warning",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.setCorsHeader() reads cors.allow.origin at call time and sets Access-Control-Allow-Origin=* when the property equals '*', emitting only a logger.warn() — no startup validation prevents this from reaching production silently.",
+        "The warning fires per-response (on every setCorsHeader call) rather than once at startup, producing log noise without preventing the misconfiguration."
+      ],
+      "suggestion": "Add a startup check in WordSketchApiServer.start() that reads cors.allow.origin and calls logger.error + System.exit(1) (or throws IllegalStateException) when the value is '*', unless a separate -Dcors.allow.origin.allow_wildcard=true opt-in flag is set. Remove the per-response warn in setCorsHeader once the startup guard exists.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The server is a local-only corpus exploration tool; the auth model is intentionally minimal. The CORS wildcard gap is the only place where a runtime misconfiguration can silently override the documented security boundary."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

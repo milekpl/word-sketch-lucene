@@ -1,0 +1,104 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 7,
+  "assessments": {"low_level_elegance": 73.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreByPattern decomposes cleanly into four named phase methods: fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates — each focused and appropriately sized",
+        "CollocateQueryHelper uses a two-phase BCQL pipeline (collectHits → scoreHits) with explicit state boundaries and pre-fetch of unique collocate frequencies to avoid redundant calls",
+        "BlackLabSnippetParser.extractHeadword and findLabelTokenIndex operate on raw BCQL pattern strings (not XML snippets), mixing two distinct concerns inside a class named for XML snippet parsing",
+        "ConlluConverter uses a long[] state array with int-constant indices (STATE_SENTENCES, STATE_TOKENS, STATE_CHUNKS) as a mutable accumulator passed across method boundaries — readable with constants but more fragile than an encapsulated mutable state object",
+        "rotateChunkIfNeeded signals whether rotation occurred by returning null vs. new long[]{newChunkCount}, forcing the caller to null-check and manually reset writer and sentencesInChunk — intent is obscured",
+        "ExplorationHandlers.parseSeedSet is annotated @NonNull yet opens with `if (seedsParam == null || seedsParam.isEmpty())` — a defensive null guard that contradicts the contract annotation",
+        "SketchHandlers.executeRelationQueries uses a BiFunction<RelationConfig, ExecutedSketch, Map<String,Object>> callback but has only two call sites with non-trivial lambda bodies, making control flow harder to trace than two focused loops would be",
+        "Guard clauses are used consistently across all API handler methods (null/empty lemma checks before query dispatch, parameter length guards before processing)",
+        "Helper extraction is consistent: CollocateQueryHelper owns collocate ranking, RelationPatternBuilder owns pattern construction, ExploreResponseAssembler owns model-to-JSON translation — no method does two jobs"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "Phase-structured algorithms in SemanticFieldExplorer and CollocateQueryHelper: each phase has its own method with a clear single responsibility, making the multi-step algorithms readable",
+        "Consistent guard-clause style across all API and query methods — early returns on null/empty inputs prevent deep nesting",
+        "Regex patterns in BlackLabSnippetParser are pre-compiled at class level, not allocated per call — a deliberate, correct performance decision",
+        "Helper extraction is coherent and consistent: CollocateQueryHelper, RelationPatternBuilder, ExploreResponseAssembler each own exactly one concern without leaking into each other",
+        "ConlluConverter cleanly separates chunk-rotation (rotateChunkIfNeeded) from line-processing (processLines), with documented invariants"
+      ],
+      "issue_character": "Issues are localized to three independent spots: a responsibility mismatch in BlackLabSnippetParser, a primitive mutable-accumulator pattern in ConlluConverter, and a minor annotation/guard contradiction in ExplorationHandlers — none of these are systemic patterns that pervade the codebase.",
+      "score_rationale": "The codebase is well above the 60 threshold: control flow is direct, extraction level is balanced, and helper extraction is consistent across the main subsystems. What pulls the score below 80 are the BlackLabSnippetParser responsibility leak (BCQL pattern analysis sitting in an XML-parsing class), the ConlluConverter state-array idiom that requires the caller to interpret null returns and manually reset local variables, and the callback-heavy executeRelationQueries design that obscures flow for limited benefit. These are real readability costs for a developer navigating the code, but they are isolated rather than forming a pattern, placing this firmly in the 70–75 range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "snippet_parser_bcql_responsibility_leak",
+      "summary": "BlackLabSnippetParser hosts BCQL pattern-parsing methods unrelated to XML snippet processing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "extractHeadword(String bcqlPattern) parses a BCQL query string for a lemma= attribute — not an XML snippet",
+        "findLabelTokenIndex(String pattern, int label) counts bracket tokens in a BCQL pattern to derive a labeled position — not an XML snippet",
+        "Both methods are called from CollocateQueryHelper.executeBcqlQuery and BlackLabQueryExecutor.executeSurfacePattern, not from any snippet-display code path",
+        "The class Javadoc reads 'Utility methods for parsing BlackLab XML snippets' — both methods violate that stated scope"
+      ],
+      "suggestion": "Extract extractHeadword and findLabelTokenIndex into a new package-private class BcqlPatternUtils (or into CqlUtils if it already handles CQL parsing). This gives each class a single clear concern and makes it obvious where to look for BCQL pattern logic vs. XML snippet logic.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_converter_null_return_signal",
+      "summary": "rotateChunkIfNeeded returns null vs. long[] to signal whether rotation happened, obscuring intent in the caller",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "rotateChunkIfNeeded returns null when no rotation is needed, or new long[]{chunks+1} when rotation occurs",
+        "The caller in processLines must null-check the return, then manually set writer = null, state[STATE_CHUNKS] = rotated[0], and sentencesInChunk = 0 — three separate steps triggered by one null check",
+        "The intent 'did we rotate?' is buried in the null-vs-array signal rather than expressed as a boolean or clear return type",
+        "The long[] state array passed across method calls as a mutable accumulator compounds this: state[STATE_CHUNKS] is mutated in processLines but its updated value is also embedded in the return of rotateChunkIfNeeded, creating two sources of truth for the chunk count"
+      ],
+      "suggestion": "Replace the null-return signal with a boolean: have rotateChunkIfNeeded(BufferedWriter, Path, long, int, int) return boolean (true = rotated), perform the writer.close() inside the method, and increment state[STATE_CHUNKS] at the call site unconditionally when it returns true. This collapses the three-step caller dance into a single conditional and makes the intent self-documenting.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "exploration_handlers_null_guard_vs_nonnull",
+      "summary": "parseSeedSet opens with a null guard on a @NonNull parameter, creating a contradictory contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "parseSeedSet is declared private static Set<String> parseSeedSet(@NonNull String seedsParam)",
+        "The method body opens with: if (seedsParam == null || seedsParam.isEmpty()) return Set.of();",
+        "The @NonNull annotation signals to callers and static analysis tools that null is not a valid input, but the null branch silently returns an empty set instead of failing fast",
+        "The contradiction means neither the annotation nor the guard can be fully trusted by a reader"
+      ],
+      "suggestion": "Remove the null branch: replace `if (seedsParam == null || seedsParam.isEmpty()) return Set.of();` with `if (seedsParam.isEmpty()) return Set.of();`. The @NonNull annotation is the contract; if null arrives it should throw NullPointerException immediately, which is what the annotation promises. Alternatively, if null input is a valid case, remove @NonNull.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLabSnippetParser grew by accretion: BCQL pattern methods were added as convenient static utilities alongside the XML methods rather than in a dedicated home",
+      "ConlluConverter's long[] state-accumulator pattern may reflect an attempt to avoid a mutable state class in a file with otherwise clean functional style"
+    ],
+    "likely_symptoms": [
+      "snippet_parser_bcql_responsibility_leak is a symptom of the BlackLabSnippetParser catch-all growth pattern"
+    ],
+    "possible_false_positives": []
+  }
+}

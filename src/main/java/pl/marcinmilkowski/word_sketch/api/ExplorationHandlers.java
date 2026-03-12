@@ -197,7 +197,9 @@ class ExplorationHandlers {
                 seed, collocate, resolvedConfig, new FetchExamplesOptions(top));
 
         ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
-                seed, collocate, resolvedConfig.id(), fetched.bcqlPattern(), top, null, fetched.examples());
+                new ExploreResponseAssembler.ExamplesContext(
+                        seed, collocate, resolvedConfig.id(), fetched.bcqlPattern(), top, null),
+                fetched.examples());
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }

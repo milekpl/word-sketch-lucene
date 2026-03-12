@@ -160,15 +160,4 @@ class ExploreResponseAssemblerTest {
         assertEquals(0.0, MathUtils.round2dp(0.0), 0.001);
         assertEquals(14.0, MathUtils.round2dp(14.0), 0.001);
     }
-
-    @Test
-    void edgeToMap_includesAllFields() {
-        Edge edge = new Edge("theory", "abstract", 8.567, RelationEdgeType.SEED_ADJ);
-        Map<String, Object> m = ExploreResponseAssembler.edgeToMap(edge);
-
-        assertEquals("theory", m.get("source"));
-        assertEquals("abstract", m.get("target"));
-        assertEquals(8.57, (double) m.get("log_dice"), 0.001);
-        assertEquals("seed_adj", m.get("type"));
-    }
 }

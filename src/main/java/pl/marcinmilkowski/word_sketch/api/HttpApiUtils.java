@@ -213,12 +213,9 @@ final class HttpApiUtils {
             if (keyValue.length == 2) {
                 try {
                     params.put(
-                        java.net.URLDecoder.decode(keyValue[0], "UTF-8"),
-                        java.net.URLDecoder.decode(keyValue[1], "UTF-8")
+                        java.net.URLDecoder.decode(keyValue[0], java.nio.charset.StandardCharsets.UTF_8),
+                        java.net.URLDecoder.decode(keyValue[1], java.nio.charset.StandardCharsets.UTF_8)
                     );
-                } catch (java.io.UnsupportedEncodingException e) {
-                    // UTF-8 is always supported; this branch is unreachable in practice.
-                    throw new IllegalArgumentException("Unsupported encoding decoding parameter '" + keyValue[0] + "'", e);
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException("Malformed URL encoding in parameter '" + keyValue[0] + "': " + e.getMessage(), e);
                 }

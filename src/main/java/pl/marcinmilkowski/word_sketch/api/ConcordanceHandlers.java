@@ -63,8 +63,10 @@ class ConcordanceHandlers {
         List<CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, req.top());
 
         ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
-                req.seed(), req.collocate(), req.relation(), bcqlQuery,
-                req.top(), fallback ? true : null, results);
+                new ExploreResponseAssembler.ExamplesContext(
+                        req.seed(), req.collocate(), req.relation(), bcqlQuery,
+                        req.top(), fallback ? true : null),
+                results);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }

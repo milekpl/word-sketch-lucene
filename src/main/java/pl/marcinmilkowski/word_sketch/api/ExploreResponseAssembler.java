@@ -314,6 +314,29 @@ final class ExploreResponseAssembler {
     }
 
     /**
+     * Request context for example-concordance responses.
+     *
+     * <p>Bundles the metadata fields that describe <em>what was requested</em> — as opposed to
+     * the raw {@link CollocateResult} list that describes <em>what was found</em>.  Passing a
+     * single context object keeps {@link #buildExamplesResponse} to a manageable arity and makes
+     * call sites self-documenting.</p>
+     *
+     * @param seed      headword lemma
+     * @param collocate collocate word form
+     * @param relation  resolved relation identifier
+     * @param bcql      the BCQL pattern that was executed
+     * @param top       requested maximum result count
+     * @param fallback  {@code true} if a proximity fallback was used; {@code null} for normal responses
+     */
+    record ExamplesContext(
+            @NonNull String seed,
+            @NonNull String collocate,
+            @NonNull String relation,
+            @NonNull String bcql,
+            int top,
+            @Nullable Boolean fallback) {}
+
+    /**
      * Converts a {@link CollocateResult} to a typed {@link ExamplesResponse.ExampleEntry}.
      */
     static ExamplesResponse.ExampleEntry collocateResultToExampleEntry(CollocateResult r) {
@@ -323,60 +346,17 @@ final class ExploreResponseAssembler {
     /**
      * Builds a typed {@link ExamplesResponse} for the concordance-examples endpoints.
      *
-     * <p>The {@code fallback} flag is set to {@code true} in the response when the named relation
-     * was not resolved and a proximity fallback pattern was used; pass {@code null} for normal
-     * (non-fallback) responses, in which case the field is omitted from JSON output.</p>
-     *
-     * @param seed      headword
-     * @param collocate collocate word form
-     * @param relation  resolved relation identifier
-     * @param bcql      the BCQL pattern that was executed
-     * @param top       requested maximum result count
-     * @param fallback  {@code true} if a fallback pattern was used; {@code null} otherwise
-     * @param results   raw query results to convert into example entries
+     * @param ctx     request context (headword, collocate, relation, pattern, top, fallback flag)
+     * @param results raw query results to convert into example entries
      * @return fully populated {@link ExamplesResponse}
      */
     static @NonNull ExamplesResponse buildExamplesResponse(
-            @NonNull String seed, @NonNull String collocate,
-            @NonNull String relation, @NonNull String bcql,
-            int top, @Nullable Boolean fallback,
+            @NonNull ExamplesContext ctx,
             @NonNull List<CollocateResult> results) {
         List<ExamplesResponse.ExampleEntry> entries = results.stream()
                 .map(ExploreResponseAssembler::collocateResultToExampleEntry)
                 .toList();
-        return new ExamplesResponse("ok", seed, collocate, relation, bcql, top, entries.size(), fallback, entries);
-    }
-
-    /**
-     * Serialises a {@link CollocateResult} to the full projection: all scored
-     * fields including {@code match_start}, {@code match_end}, {@code collocate_lemma},
-     * {@code frequency}, and {@code log_dice}. Use for endpoints that expose full scoring data
-     * (e.g., the BCQL query endpoint).
-     */
-    static @NonNull Map<String, Object> collocateResultToFullMap(CollocateResult r) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("sentence", r.sentence());
-        m.put("raw", r.rawXml() != null ? r.rawXml() : "");
-        m.put("match_start", r.startOffset());
-        m.put("match_end", r.endOffset());
-        m.put("collocate_lemma", r.collocateLemma() != null ? r.collocateLemma() : "");
-        m.put("frequency", r.frequency());
-        m.put("log_dice", r.logDice());
-        return m;
-    }
-
-    /**
-     * Serialises an {@link Edge} to a plain map for JSON output.
-     * The {@code log_dice} field is rounded to two decimal places.
-     *
-     * @return mutable map with keys {@code source}, {@code target}, {@code log_dice}, {@code type}
-     */
-    static @NonNull Map<String, Object> edgeToMap(@NonNull Edge edge) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("source", edge.source());
-        m.put("target", edge.target());
-        m.put("log_dice", MathUtils.round2dp(edge.weight()));
-        m.put("type", edge.type().label());
-        return m;
+        return new ExamplesResponse("ok", ctx.seed(), ctx.collocate(), ctx.relation(),
+                ctx.bcql(), ctx.top(), entries.size(), ctx.fallback(), entries);
     }
 }

@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for grammar config with new format.
  */
-class HybridAlgorithmTest {
+class GrammarConfigLoaderTest {
 
     @Test
     @DisplayName("Grammar config loads with new format")

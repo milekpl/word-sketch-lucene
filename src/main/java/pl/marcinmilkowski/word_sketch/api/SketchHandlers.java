@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.api;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.sun.net.httpserver.HttpExchange;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
@@ -34,12 +35,12 @@ class SketchHandlers {
     private final QueryExecutor executor;
     private final GrammarConfig grammarConfig;
 
-    SketchHandlers(QueryExecutor executor, GrammarConfig grammarConfig) {
+    SketchHandlers(QueryExecutor executor, @NonNull GrammarConfig grammarConfig) {
         this.executor = executor;
         this.grammarConfig = grammarConfig;
     }
 
-    void handleSketchRequest(HttpExchange exchange) throws IOException {
+    void routeSketchRequest(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String[] parts = path.substring("/api/sketch/".length()).split("/");
 

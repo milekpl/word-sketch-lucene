@@ -60,7 +60,7 @@ class CollocateQueryHelper {
      *
      * @param index the BlackLab index; {@code null} is accepted only in test subclasses that
      *              override {@link #getTotalFrequency} and
-     *              {@link #executeCollocateSearchWithStoredHits(String, String)} — all
+     *              {@link #executeCollocateSearchWithContent(String, String)} — all
      *              production callers must supply a non-null index.
      */
     CollocateQueryHelper(@Nullable BlackLabIndex index) {
@@ -108,7 +108,7 @@ class CollocateQueryHelper {
      * @param lemma       the headword lemma used to fetch total corpus frequency
      * @param bcqlPattern the BCQL pattern to search
      */
-    CollocateSearch executeCollocateSearchWithStoredHits(String lemma, String bcqlPattern)
+    CollocateSearch executeCollocateSearchWithContent(String lemma, String bcqlPattern)
             throws IOException {
         return executeCollocateSearchImpl(lemma, bcqlPattern, true);
     }
@@ -287,7 +287,7 @@ class CollocateQueryHelper {
         }
 
         List<QueryResults.CollocateResult> results = new ArrayList<>();
-        int limit = records.size();
+        int limit = Math.min(records.size(), maxResults);
 
         for (int i = 0; i < limit; i++) {
             HitRecord rec = records.get(i);

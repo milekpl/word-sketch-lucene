@@ -71,11 +71,12 @@ public class WordSketchApiServer {
     }
 
     private void registerRoutes() {
-        registerGetHandler(server, "/health", exchange ->
-            HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")));
+        registerGetHandler(server, "/health",
+            HttpApiUtils.wrapWithErrorHandling(exchange ->
+                HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap("status", "ok")), "Health check"));
 
         registerGetHandler(server, "/api/sketch/",
-            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleSketchRequest, "Sketch request"));
+            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::routeSketchRequest, "Sketch request"));
 
         registerGetHandler(server, "/api/relations",
             HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleSurfaceRelations, "Surface relations"));

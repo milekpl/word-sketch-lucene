@@ -1,0 +1,60 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 2,
+  "assessments": {
+    "error_consistency": 88.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling provides a single, uniform error boundary across all 12 registered routes: IllegalArgumentException→400, RequestEntityTooLargeException→413, IOException→500, Exception→500",
+        "All handler methods (ExplorationHandlers, SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers) throw IllegalArgumentException for bad inputs and IOException for infrastructure failures — no mixing with null returns or Result types at the API layer",
+        "Exception wrapping preserves cause chains throughout: BlackLabQueryExecutor wraps ErrorOpeningIndex and InvalidQuery with context messages and the original cause; GrammarConfigLoader wraps IOException at the boundary to IllegalStateException with actionable message",
+        "The per-relation error accumulation in SketchHandlers.executeRelationQueries catches IOException per relation, logs at WARN, and surfaces errors in the response body under an 'errors' key — not silent swallowing",
+        "The /health endpoint (WordSketchApiServer.registerRoutes) is registered without wrapWithErrorHandling, unlike all other 11 routes; any IOException from sendJsonResponse would propagate unhandled to the JDK HttpServer internals",
+        "GrammarConfigLoader.createDefaultEnglish() explicitly documents its IOException→IllegalStateException translation contract, distinguishing FileNotFoundException from other I/O errors"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The /health endpoint is registered without wrapWithErrorHandling, creating a minor inconsistency with the uniform error-boundary pattern applied to every other route. While the endpoint is trivial and failures are vanishingly unlikely, the asymmetry is visible to any developer reading registerRoutes."
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "HttpApiUtils.wrapWithErrorHandling provides a single error-translation boundary applied uniformly to all substantive routes, making failure modes predictable and testable in isolation",
+        "The IAE-throws-for-bad-inputs / IOException-for-infrastructure split is applied consistently across every handler class with no drift",
+        "Exception causes are faithfully preserved at all wrapping boundaries — no catch-and-rethrow without the original cause",
+        "Per-relation partial failure in SketchHandlers is handled explicitly: errors are collected into a list and surfaced in the response body rather than silently dropped or allowed to abort the entire request"
+      ],
+      "issue_character": "Issues are isolated and cosmetic — a single omission (unwrapped health endpoint) rather than a systemic pattern of mixed or inconsistent error strategies.",
+      "score_rationale": "The error strategy is coherent and predictable throughout: one central error translator, a consistent two-exception vocabulary (IAE for client errors, IOException for infrastructure), and context-preserving wrapping at every boundary. This places it firmly at the 90-anchor ('mostly coherent with occasional inconsistencies that don't cause real confusion'). The single omission — the /health endpoint bypassing wrapWithErrorHandling — is minor but is a genuine deviation from an otherwise uniform pattern, pulling the score just below 90."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "health_no_error_wrapper",
+      "summary": "/health endpoint registered without wrapWithErrorHandling, unlike all other 11 routes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "registerGetHandler(server, \"/health\", exchange -> HttpApiUtils.sendJsonResponse(exchange, ...)) — no wrapWithErrorHandling call, while every other route (sketch, exploration, concordance, radial, bcql) is wrapped",
+        "sendJsonResponse declares throws IOException; any unexpected failure would propagate uncaught to the JDK HttpServer rather than returning a JSON error body"
+      ],
+      "suggestion": "Wrap the health handler consistently: registerGetHandler(server, \"/health\", HttpApiUtils.wrapWithErrorHandling(exchange -> HttpApiUtils.sendJsonResponse(exchange, Collections.singletonMap(\"status\", \"ok\")), \"Health check\"));",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The health endpoint was likely added as a one-liner before the wrapWithErrorHandling pattern was established and was never retrofitted"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

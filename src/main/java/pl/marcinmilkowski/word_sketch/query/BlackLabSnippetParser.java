@@ -214,7 +214,10 @@ class BlackLabSnippetParser {
                     }
                 }
             }
+            // label syntax found but no '[' at expected position in loop (shouldn't happen)
         }
+        // -1 covers two cases: label absent (caught above) OR label present but not
+        // immediately followed by '[' (e.g. "2:foo" — not a labelled token bracket)
         return -1;
     }
 

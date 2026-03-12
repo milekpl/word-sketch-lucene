@@ -1,0 +1,91 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 7,
+  "assessments": {
+    "test_strategy": 68.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "34 test files covering api, config, exploration, indexer, query, utils, and viz packages",
+        "Consistent stub QueryExecutor pattern used in ExplorationHandlersTest, SketchHandlersTest, MultiSeedExplorerTest, SemanticFieldExplorerInternalTest — cleanly decouples handlers from live index",
+        "BlackLabConllUIndexerTest is @Disabled unconditionally at class level, leaving the full CoNLL-U indexing pipeline with zero CI-runnable coverage",
+        "ConcordanceHandlers has 3 tests (all error paths: missing seed, missing collocate, missing both) — no test exercises the happy path where executor.executeBcqlQuery is called and results serialized to JSON",
+        "CorpusQueryHandlers has 5 tests (all error paths: oversized body, invalid JSON, missing query, blank query, excessive bracket depth) — no test covers successful query execution and response serialization",
+        "Four test classes are @Disabled due to live index dependency: BlackLabQueryExecutorIntegrationTest, DependencySketchTest, BlackLabBcqlConcordanceTest, BlackLabQueryExecutorTest.LiveIndex — all appropriately document how to enable them",
+        "BlackLabQueryExecutor does have CI-runnable static helper tests (buildBcqlWithLemmaSubstitution covering normal path, lowercasing, backslash escaping, and invalid-pattern guard)",
+        "SemanticFieldExplorer is tested from two angles: package-internal SemanticFieldExplorerInternalTest (pattern-capture via RecordingExecutor) and public-API SemanticFieldExplorerTest, providing good logic coverage without a live index",
+        "ConlluConverter (CoNLL-U parsing + WPL conversion) has solid CI-runnable tests covering counts, sentence markers, chunking, and field mapping"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Consistent stub QueryExecutor pattern across handler and exploration tests enables CI coverage of all major query-dispatch paths without a live corpus index",
+        "SemanticFieldExplorer and MultiSeedExplorer both have thorough unit tests with canned-result stubs, covering shared-collocate logic, empty-executor edge cases, and minShared thresholds",
+        "Live-index tests are cleanly structured: @Disabled with clear documentation, Assumptions.assumeTrue guards, and env-var/system-property configuration — they can be enabled in environments where an index is available",
+        "ConlluConverter (the pure conversion logic) is well-covered with CI-runnable tests despite the BlackLabConllUIndexer integration test being disabled",
+        "WordSketchApiServer has lifecycle and routing tests using a real in-process HTTP server on an ephemeral port, providing integration-level confidence in route wiring"
+      ],
+      "issue_character": "The gaps are concentrated in two patterns: handler happy-paths that only test input validation but leave query execution and response serialization untested (ConcordanceHandlers, CorpusQueryHandlers), and an unconditionally-disabled integration test for the indexer that could be partially replaced by stub-based unit tests.",
+      "score_rationale": "The test strategy is clearly intentional and structurally sound — stubs for CI, @Disabled for live-index paths — and the most complex business logic (semantic field exploration, collocate ranking, CQL pattern building) has good coverage. However, two handler classes (ConcordanceHandlers, CorpusQueryHandlers) leave their query-execution-and-serialization path completely untested in CI, and the entire BlackLabConllUIndexer pipeline has no runnable test at all. These are not trivial paths: ConcordanceHandlers and CorpusQueryHandlers are the primary query-result endpoints, and their missing happy-path tests mean a regression in result serialization would be invisible in CI. Placing this at 68: better than a 60 (significant drag) because the exploration and config layers are well-covered and the disabled tests show intent, but not a 75-80 because the handler blind spots are in high-traffic code paths."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "handler_happy_paths_untested",
+      "summary": "ConcordanceHandlers and CorpusQueryHandlers have only error-path tests; the query-execution and response-serialization paths are untested in CI",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlersTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlersTest has exactly 3 @Test methods, all asserting 400 responses for missing parameters; no test calls the handler with valid parameters and a stub executor",
+        "CorpusQueryHandlersTest has 5 @Test methods, all asserting 4xx responses for malformed input; line 51 of CorpusQueryHandlers (`executor.executeBcqlQuery(req.query(), req.top())`) and the JSON serialization block (line 91) are never exercised in CI",
+        "ConcordanceHandlers.handleConcordanceExamples at line 70 calls executor.executeBcqlQuery and then serializes results — this path is not covered by any test"
+      ],
+      "suggestion": "Add happy-path tests to both test classes using a stub QueryExecutor that returns a canned non-empty List<CollocateResult>. Assert that the response is 200, the JSON body contains the expected fields, and the results list is non-empty. This requires no live index and mirrors the existing pattern in ExplorationHandlersTest and SketchHandlersTest.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "handler_test_completeness"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexer_integration_unconditionally_disabled",
+      "summary": "BlackLabConllUIndexerTest is @Disabled at class level, leaving the full indexing pipeline with no CI-runnable test",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "BlackLabConllUIndexerTest line 27 applies @Disabled unconditionally at class level with the reason that `conllu-sentences.blf.yaml` is not distributed with source",
+        "The test itself uses @TempDir and a minimal CONLLU_SENTENCES string constant — the full indexing logic is self-contained if the format config were available",
+        "ConlluConverter (the parsing/conversion step) is separately tested, but the BlackLab document-writing, field-mapping, and index-commit steps in BlackLabConllUIndexer have no coverage"
+      ],
+      "suggestion": "Extract the BlackLab-independent parts of the indexer (WPL line assembly, field mapping, metadata construction) into a testable unit separate from the BlackLab DocumentIndexer wiring. Alternatively, ship a minimal `conllu-sentences.blf.yaml` as a test resource so `@BeforeAll` can use `Assumptions.assumeTrue` instead of a class-level `@Disabled`, allowing the test to run in environments where BlackLab format registration works.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "handler_test_completeness"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Handler test classes were written to cover input validation (the defensive guard clauses) but the follow-through to test the execution and serialization path was not completed, possibly because those paths require wiring a stub executor into the handler constructor",
+      "The BlackLabConllUIndexer test was added with @Disabled as a placeholder for when the format config becomes available, but no effort was made to split the testable (format-agnostic) logic from the BlackLab-dependent wiring"
+    ],
+    "likely_symptoms": [
+      "handler_happy_paths_untested",
+      "indexer_integration_unconditionally_disabled"
+    ],
+    "possible_false_positives": []
+  }
+}

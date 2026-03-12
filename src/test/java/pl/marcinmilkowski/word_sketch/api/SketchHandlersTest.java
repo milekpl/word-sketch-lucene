@@ -55,7 +55,7 @@ class SketchHandlersTest {
     @Test
     void handleSketchRequest_fullSketch_returns200WithRelationsMap() throws Exception {
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/theory");
-        handlers().handleSketchRequest(ex);
+        handlers().routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
         JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
         assertEquals("ok", body.getString("status"));
@@ -73,7 +73,7 @@ class SketchHandlersTest {
                 .map(pl.marcinmilkowski.word_sketch.config.RelationConfig::id)
                 .orElse("adj_predicate");
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/theory/" + firstRelationId);
-        new SketchHandlers(stubExecutor(), config).handleSketchRequest(ex);
+        new SketchHandlers(stubExecutor(), config).routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
         JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
         assertEquals("ok", body.getString("status"));
@@ -100,7 +100,7 @@ class SketchHandlersTest {
     void handleSketchRequest_missingLemma_returns400() throws Exception {
         SketchHandlers handlers = new SketchHandlers(null, null);
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/");
-        HttpApiUtils.wrapWithErrorHandling(handlers::handleSketchRequest, "test").handle(ex);
+        HttpApiUtils.wrapWithErrorHandling(handlers::routeSketchRequest, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
 
@@ -109,7 +109,7 @@ class SketchHandlersTest {
         SketchHandlers handlers = new SketchHandlers(stubExecutor(), GrammarConfigHelper.requireTestConfig());
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
                 "http://localhost/api/sketch/house/no_such_relation");
-        HttpApiUtils.wrapWithErrorHandling(handlers::handleSketchRequest, "test").handle(ex);
+        HttpApiUtils.wrapWithErrorHandling(handlers::routeSketchRequest, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
 
@@ -121,7 +121,7 @@ class SketchHandlersTest {
         SketchHandlers handlers = new SketchHandlers(executor, GrammarConfigHelper.requireTestConfig());
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
                 "http://localhost/api/sketch/theory?lemma=theory");
-        handlers.handleSketchRequest(ex);
+        handlers.routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
     }
 

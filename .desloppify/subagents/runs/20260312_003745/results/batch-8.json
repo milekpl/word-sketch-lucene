@@ -1,0 +1,130 @@
+{
+  "batch": "stale_migration",
+  "batch_index": 8,
+  "assessments": {"stale_migration": 66.0},
+  "dimension_notes": {
+    "stale_migration": {
+      "evidence": [
+        "grammars/relations.json and src/test/resources/grammars/relations.json both contain a top-level '\"bcql\": true' field that GrammarConfigLoader never reads and never rejects — it is silently dropped on load",
+        "GrammarConfigLoader.validateNoLegacyKeys() only checks for 'copulas'; 'bcql' is a second deprecated top-level key that survived migration but has no guard",
+        "GrammarConfigLoader.validatePositions() (line 189) contains a live code path that skips validation for patterns containing '{head}' or '{deprel}' placeholders, but grammar-schema.json explicitly forbids {head} patterns and no grammar file contains them — this branch is dead code from a prior design",
+        "grammar-schema.json declares head_position and collocate_position as 'required' fields in the Relation definition, but the production grammar (grammars/relations.json) omits both on every relation (relying on label-derived defaults) — schema and reality are inconsistent",
+        "grammar-schema.json has 'additionalProperties: false' on the root object but does not list 'bcql' as an allowed property, meaning the production grammar would fail schema validation if it were ever enforced",
+        "GrammarConfigLoader line 153 comments 'cql_pattern is no longer supported' but does not throw on a config that contains cql_pattern — unlike 'copulas' which produces a clear error. A config with only cql_pattern (no pattern) will produce a confusing 'missing pattern' error rather than a migration hint",
+        "The legacy '/api/semantic-field' endpoint is intentionally kept for backward compatibility and logs a deprecation warning — this is documented and managed, not stale"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 75.0,
+        "indirection_cost": 80.0,
+        "interface_honesty": 60.0,
+        "delegation_density": 85.0,
+        "definition_directness": 70.0,
+        "type_discipline": 75.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "stale_migration": {
+      "strengths": [
+        "The 'copulas' deprecated key is actively rejected at load time with a clear, actionable error message pointing to the migration path",
+        "The legacy '/api/semantic-field' route is explicitly documented as deprecated in both the class Javadoc and a code comment, and emits a runtime warning on every call",
+        "Renamed HTTP parameters (formerly word1/word2, now seed/collocate) are documented with 'formerly' notes in Javadoc, making the migration history traceable"
+      ],
+      "issue_character": "Migration artifacts are clustered in the grammar configuration layer: a silently-tolerated stale JSON key ('bcql'), a dead code branch for placeholder patterns that have been forbidden, and a JSON schema file that describes a format the loader no longer produces or validates — together indicating an incomplete cleanup of the grammar config migration.",
+      "score_rationale": "The codebase has done the hard migration work (renamed routes, removed copulas, moved to labeled-position patterns) and documents the changes clearly. However, the grammar config layer carries three specific migration remnants: a stale 'bcql' top-level key silently ignored on load, dead placeholder-handling code in validatePositions(), and a grammar-schema.json that is out-of-sync with both the production grammar files and the loader's actual validation rules. These are not blockers but they create a gap between documented contract and actual behaviour, and the 'bcql' key specifically creates a false impression that the field has meaning. Calibrated against the 80=solid-but-uneven anchor: the codebase is cleaner than 60 (no dead API paths, no abandoned code), but the schema/config inconsistency cluster is concrete enough to pull the score below 70."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "stale_migration",
+      "identifier": "stale_bcql_key",
+      "summary": "'bcql': true field in grammar JSON files is silently ignored by GrammarConfigLoader, leaving a stale migration artifact in both production and test configs",
+      "related_files": [
+        "grammars/relations.json",
+        "src/test/resources/grammars/relations.json",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "grammars/relations.json line 4: '\"bcql\": true' — top-level field present in production grammar",
+        "src/test/resources/grammars/relations.json line 4: '\"bcql\": true' — same field in test fixture",
+        "GrammarConfigLoader.validateNoLegacyKeys() only checks for 'copulas' and ignores 'bcql' entirely — no read, no rejection, no warning"
+      ],
+      "suggestion": "Either (a) add 'bcql' to validateNoLegacyKeys() so a config containing it throws with a migration message (matching the treatment of 'copulas'), or (b) remove the 'bcql' field from both grammars/relations.json and src/test/resources/grammars/relations.json since it no longer carries meaning",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "grammar_config_migration_residue"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "dead_placeholder_validation",
+      "summary": "GrammarConfigLoader.validatePositions() contains a live branch for '{head}'/'{deprel}' placeholder patterns that are now forbidden by schema and absent from all grammar files",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "grammars/grammar-schema.json"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.java line 189: 'boolean hasPlaceholder = pattern.contains(\"{head}\") || pattern.indexOf(\"{deprel\") >= 0;' — branch skips position validation for placeholder patterns",
+        "grammar-schema.json line 47: 'Must NOT contain {head} placeholder.' — schema explicitly forbids these patterns",
+        "No grammar file in the repository contains '{head}' or '{deprel}' — the branch is never exercised in production"
+      ],
+      "suggestion": "Remove the 'hasPlaceholder' check from validatePositions() and its associated if-guard. If placeholder support is genuinely needed in future, it should be re-introduced with tests; as dead code it only obscures the validation logic and contradicts the schema contract.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "grammar_config_migration_residue"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "schema_out_of_sync",
+      "summary": "grammar-schema.json declares head_position and collocate_position as required fields, but the production grammar omits both on every relation; the schema is not enforced anywhere",
+      "related_files": [
+        "grammars/grammar-schema.json",
+        "grammars/relations.json"
+      ],
+      "evidence": [
+        "grammar-schema.json lines 31-32: '\"required\": [\"id\", \"pattern\", \"head_position\", \"collocate_position\"]'",
+        "grammars/relations.json: all relations omit head_position and collocate_position, using label-derived defaults",
+        "GrammarConfigLoader never validates against grammar-schema.json — the schema file is documentation only, not enforced",
+        "grammar-schema.json also has 'additionalProperties: false' on the root but does not list 'bcql' as a valid property, so the production config would fail schema validation"
+      ],
+      "suggestion": "Update grammar-schema.json to reflect the current actual contract: (1) make head_position and collocate_position optional (they are derived from labeled positions when absent), (2) either add 'bcql' as a recognized property or remove it from production grammars, (3) add 'exploration_enabled' and 'relation_type' which the loader does read but the schema omits. Alternatively, if the schema is purely historical documentation with no enforcement path, add a comment to that effect.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "grammar_config_migration_residue"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "cql_pattern_silent_ignore",
+      "summary": "'cql_pattern' is documented as no longer supported but silently ignored rather than rejected, producing a confusing downstream error instead of a migration hint",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "GrammarConfigLoader.java line 153: '// Canonical field name is \"pattern\"; cql_pattern is no longer supported' — documents the field is deprecated but takes no action",
+        "A config with 'cql_pattern' but no 'pattern' will reach line 155 and throw 'Relation X has no pattern field' — a confusing error with no migration hint",
+        "By contrast, the 'copulas' key throws immediately with an explicit migration message pointing to the correct approach"
+      ],
+      "suggestion": "Add 'cql_pattern' to validateNoLegacyKeys() (or a per-relation equivalent) so that a config containing it throws: 'Config error: \"cql_pattern\" is no longer supported — rename to \"pattern\"'. This aligns it with the 'copulas' treatment and makes the migration path actionable.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "grammar_config_migration_residue"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The grammar config migration (from copulas+cql_pattern format to labeled-position pattern format) was partially cleaned up: the 'copulas' key was guarded, but the 'bcql' top-level flag and the {head} placeholder code path were left behind",
+      "grammar-schema.json was not updated as the grammar format evolved, creating a gap between the schema (used as documentation) and the actual loader contract"
+    ],
+    "likely_symptoms": [
+      "stale_bcql_key",
+      "schema_out_of_sync"
+    ],
+    "possible_false_positives": []
+  }
+}

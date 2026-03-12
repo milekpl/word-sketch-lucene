@@ -1,0 +1,92 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 4,
+  "assessments": {
+    "logic_clarity": 74.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "CollocateQueryHelper.scoreHits (line 282) declares int maxResults but never uses it — int limit = records.size() (line 290) ignores the parameter entirely; actual truncation happens in the caller after sort",
+        "BlackLabQueryExecutor.executeCqlQuery (lines 117-119) calls conc.parts() without a null check on conc or parts, whereas the analogous collectHits method in the same class guards both (conc == null, parts == null || parts.length < 3)",
+        "BlackLabSnippetParser.findLabelTokenIndex (lines 206-218): when the label IS found but is NOT followed by '[', control falls through silently to the final return -1, the same return reached when the label is absent entirely; no comment distinguishes the two failure paths",
+        "Guard clauses used consistently across all handler and exploration methods — null/empty arguments rejected early before any side-effecting logic",
+        "CollocateQueryHelper.collectHits handles null concordances and short parts arrays with explicit continues rather than relying on NullPointerException",
+        "MultiSeedExplorer.identifyCommonCollocates correctly caps threshold with Math.min(minShared, seedCount) so the requirement cannot exceed the number of available seeds",
+        "ConlluConverter state tracking uses an indexed long[] with named constants (STATE_SENTENCES, STATE_TOKENS, STATE_CHUNKS) that makes the dual-purpose array legible"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses are applied consistently across all HTTP handlers and exploration methods — invalid inputs (null lemma, empty seed, too-few seeds) are rejected with IllegalArgumentException before any side-effecting logic runs",
+        "CollocateQueryHelper.collectHits carefully guards against null concordances and short parts arrays with explicit early-continue branches, preventing silent NPE propagation",
+        "MultiSeedExplorer.identifyCommonCollocates correctly prevents the threshold from exceeding the actual seed count with Math.min, so the required-shared condition is always satisfiable",
+        "Control flow in ConlluConverter is cleanly partitioned between CoNLL-U parsing and chunk rotation, with named constants making the shared state array readable"
+      ],
+      "issue_character": "Issues are isolated to a handful of specific methods — a dead parameter that misrepresents a method's contract, an inconsistent null guard between two sibling methods, and an ambiguous fall-through in a utility parser — rather than a systemic pattern.",
+      "score_rationale": "The codebase generally has direct, well-guarded control flow and no egregious always-true conditions or dead code paths. The clearest violation is the unused maxResults parameter in scoreHits, which misleads callers about the method's responsibility and creates a gap between the method signature and its actual behaviour. The absent null guard in executeCqlQuery is a secondary concern — the analogous method handles it correctly, so the inconsistency stands out. These are real but localized defects. The overall control flow quality is solid, placing the codebase above the 'significant drag' threshold (60) but short of 'solid with only minor unevenness' (80), landing around 74."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_maxresults_param_score_hits",
+      "summary": "scoreHits accepts maxResults parameter but ignores it, using records.size() instead",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "Method signature at line 282: private List<QueryResults.CollocateResult> scoreHits(List<HitRecord> records, Map<String, Long> collocateFreqMap, long headwordFreq, int maxResults)",
+        "Line 290: int limit = records.size(); — maxResults is never referenced anywhere in the method body",
+        "The caller (executeBcqlQuery) passes maxResults to scoreHits and then re-applies .limit(maxResults) after a sort, making the parameter in scoreHits a no-op that implies a contract the method does not fulfil"
+      ],
+      "suggestion": "Remove the maxResults parameter from scoreHits entirely and update the Javadoc to make clear that all records are scored and that truncation is the caller's responsibility after ranking. Alternatively, if pre-sort truncation is desired here, add a .limit(maxResults) to the results list before returning.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "missing_null_guard_execute_cql_query",
+      "summary": "executeCqlQuery dereferences concordances.get(hit) and parts[] without null guards, unlike the analogous collectHits",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "Lines 117-119: Concordance conc = concordances.get(hit); String[] parts = conc.parts(); String snippet = parts[0] + parts[1] + parts[2]; — no null check on conc or parts",
+        "CollocateQueryHelper.collectHits (the sibling method in the same package) explicitly handles both: if (conc == null) { ... continue; } and if (parts == null || parts.length < 3) { ... continue; }",
+        "The asymmetry between the two methods creates a logic inconsistency: one path handles missing concordance data gracefully, the other throws NullPointerException"
+      ],
+      "suggestion": "Add the same null guards present in collectHits: check conc != null and parts != null && parts.length >= 3 before constructing the snippet, and skip or log-and-continue when either condition fails.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "ambiguous_fallthrough_find_label_token_index",
+      "summary": "findLabelTokenIndex silently falls through to return -1 for two distinct failure modes without distinguishing them",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": [
+        "Lines 206-218: the outer if-block returns tokenPos on success; when the label is found but not followed by '[' the condition is false and control falls to return -1 at line 218",
+        "The same return -1 at line 218 is also theoretically reached if the token-scan loop completes without matching (which should be impossible given the earlier labelIndex guard, but is not obviously so from reading the code)",
+        "No comment documents that return -1 from line 218 means 'label found but not in expected position format', making the two returns (-1 at line 204 and -1 at line 218) look equivalent when they represent different semantic cases"
+      ],
+      "suggestion": "Add an else branch or comment after the if-block to explicitly document the 'label found but not followed by [' case, e.g. // label present but not in '2:[' form — not a labeled capture group. This distinguishes the two -1 paths and prevents future maintainers from merging or misreading them.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The scoreHits dead parameter likely originated when result truncation was moved from inside scoreHits to the caller but the method signature was not updated",
+      "The null guard inconsistency between executeCqlQuery and collectHits suggests the two methods were written or reviewed independently without cross-checking defensive patterns"
+    ],
+    "likely_symptoms": [
+      "dead_maxresults_param_score_hits"
+    ],
+    "possible_false_positives": []
+  }
+}

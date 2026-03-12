@@ -83,7 +83,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         String bcql = buildBcqlWithLemmaSubstitution(cqlPattern, lemma);
 
-        CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearchWithStoredHits(lemma, bcql);
+        CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearchWithContent(lemma, bcql);
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
@@ -115,8 +115,16 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             for (int i = 0; i < Math.min(hits.size(), maxResults); i++) {
                 Hit hit = hits.get(i);
                 Concordance conc = concordances.get(hit);
+                if (conc == null) {
+                    continue;
+                }
                 String[] parts = conc.parts();
-                String snippet = parts[0] + parts[1] + parts[2];
+                if (parts == null || parts.length < 3) {
+                    continue;
+                }
+                String snippet = (parts[0] != null ? parts[0] : "")
+                    + (parts[1] != null ? parts[1] : "")
+                    + (parts[2] != null ? parts[2] : "");
 
                 results.add(new QueryResults.SnippetResult(
                     snippet, hit.start(), hit.end(), String.valueOf(hit.doc())));
@@ -185,7 +193,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
     private List<QueryResults.WordSketchResult> queryAndRankDepCollocates(
             String bcql, String lemma, double minLogDice, int maxResults) throws IOException {
-        CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearchWithStoredHits(lemma, bcql);
+        CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearchWithContent(lemma, bcql);
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 

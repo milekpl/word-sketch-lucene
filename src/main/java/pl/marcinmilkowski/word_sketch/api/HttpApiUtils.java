@@ -29,7 +29,7 @@ import java.util.Map;
  * friction without architectural benefit. The class is package-private, so this design decision
  * does not affect the public API surface.</p>
  */
-class HttpApiUtils {
+final class HttpApiUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
 
@@ -77,6 +77,9 @@ class HttpApiUtils {
      */
     private static void setCorsHeader(HttpExchange exchange) {
         String origin = System.getProperty("cors.allow.origin", DEFAULT_CORS_ALLOW_ORIGIN);
+        if ("*".equals(origin)) {
+            logger.warn("cors.allow.origin is set to '*' — this widens the browser trust boundary across all endpoints");
+        }
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
     }
 

@@ -1,0 +1,63 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 5,
+  "assessments": {
+    "authorization_consistency": 85.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer.java binds exclusively to InetAddress.getLoopbackAddress() (127.0.0.1) and documents the security model explicitly in class Javadoc with a warning about what must accompany any change to the bind address.",
+        "Class Javadoc states 'All endpoints are unauthenticated — access control is provided by the host firewall and the loopback-only bind', making every route explicitly and consistently public by design.",
+        "HttpApiUtils.setCorsHeader() is called by every response-sending method (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse), ensuring consistent CORS header application across all endpoints.",
+        "All GET handlers use HttpApiUtils.requireParam() with MAX_PARAM_LENGTH=200 and parseIntParam/parseDoubleParam helpers — the same validation contract is applied uniformly across SketchHandlers, ExplorationHandlers, ConcordanceHandlers.",
+        "POST endpoints use readBodyWithSizeLimit(MAX_REQUEST_BODY_BYTES=65536) consistently; CorpusQueryHandlers adds extra guards (MAX_BCQL_PATTERN_LENGTH=1024, MAX_BCQL_BRACKET_DEPTH=20) appropriate to the more powerful BCQL query surface.",
+        "The cors.allow.origin system property in HttpApiUtils has no validation: any value including '*' is accepted and forwarded verbatim as the Access-Control-Allow-Origin header. If misconfigured, this would allow cross-origin requests from any browser origin on the same host, undermining the loopback-only trust boundary in CSRF scenarios."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "The security model (loopback-only bind, all endpoints unauthenticated by design) is explicitly documented in the WordSketchApiServer class Javadoc with a clear warning about what changes are required if the bind address is widened.",
+        "CORS headers are applied consistently on every response via a single private setCorsHeader() helper in HttpApiUtils — there is no handler where CORS is silently omitted.",
+        "Input validation is uniform across all GET handlers: requireParam with MAX_PARAM_LENGTH, parseIntParam, and parseDoubleParam are used the same way in SketchHandlers, ExplorationHandlers, ConcordanceHandlers, and ConcordanceExamples.",
+        "The POST /api/bcql endpoint, which exposes the widest attack surface (arbitrary corpus query patterns), carries the most guards: body size cap, pattern length cap, and bracket-depth complexity limit — proportional hardening for the most powerful endpoint."
+      ],
+      "issue_character": "The single meaningful issue is a configuration-time trust boundary gap in CORS origin handling: the cors.allow.origin system property accepts any value without validation, meaning a wildcard or wrong origin can be injected at startup without any safeguard.",
+      "score_rationale": "The codebase scores well above the 80 'solid but uneven' anchor because the security model is uniform, deliberate, and documented rather than accidental. All routes are explicitly public by design, input validation helpers are shared and applied consistently, and there are no endpoints that receive auth while siblings do not. The score is held below 90 by the unvalidated cors.allow.origin system property, which is a single-point configuration risk that can silently widen the browser trust boundary to '*', partially defeating the loopback-only model in CSRF scenarios without any runtime warning."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_origin_unvalidated",
+      "summary": "cors.allow.origin system property accepts any value including '*' without validation, silently widening the browser trust boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.setCorsHeader() line 79: String origin = System.getProperty(\"cors.allow.origin\", DEFAULT_CORS_ALLOW_ORIGIN); — no validation before forwarding to Access-Control-Allow-Origin.",
+        "Default is 'http://localhost:3000' (safe), but any value such as '*' is accepted verbatim at startup with no warning or rejection.",
+        "Called from every response method (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse), so a misconfigured value propagates uniformly to all endpoints."
+      ],
+      "suggestion": "Add validation in setCorsHeader() (or at server startup) that rejects or warns when cors.allow.origin is set to '*' or an obviously unsafe value. A minimal fix: if (\"*\".equals(origin)) { logger.warn(\"cors.allow.origin is set to '*' — this allows all browser origins and weakens the loopback-only trust boundary\"); }. A stricter fix would throw IllegalStateException at startup if the value is '*'.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "cors_trust_boundary"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The application is a single-user local tool, so auth was intentionally omitted — consistent non-auth is the design. The only real risk is configuration-time misconfiguration rather than code-level inconsistency."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "Lack of authentication on /api/bcql — this is explicitly documented as intentional for a loopback-only tool and should not be flagged as an inconsistency."
+    ]
+  }
+}

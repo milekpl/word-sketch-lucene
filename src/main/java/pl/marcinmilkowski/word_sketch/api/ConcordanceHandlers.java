@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.api;
 
 import com.sun.net.httpserver.HttpExchange;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
@@ -26,7 +27,7 @@ class ConcordanceHandlers {
     private final QueryExecutor executor;
     private final GrammarConfig grammarConfig;
 
-    ConcordanceHandlers(QueryExecutor executor, GrammarConfig grammarConfig) {
+    ConcordanceHandlers(QueryExecutor executor, @NonNull GrammarConfig grammarConfig) {
         this.executor = executor;
         this.grammarConfig = grammarConfig;
     }

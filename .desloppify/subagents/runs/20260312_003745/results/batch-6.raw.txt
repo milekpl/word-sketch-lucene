@@ -1,0 +1,103 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 6,
+  "assessments": {
+    "api_surface_coherence": 72.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "/api/semantic-field/examples uses ?adjective=good&noun=theory while /api/concordance/examples uses ?seed=theory&collocate=good — same semantic role (headword + collocate) expressed with incompatible parameter names across sibling endpoints",
+        "ExplorationHandlers.java line 189-190: requireParam(params, 'adjective') and requireParam(params, 'noun'); ConcordanceHandlers.java line 105-106: requireParam(params, 'seed') mapped to noun, requireParam(params, 'collocate') mapped to adjective",
+        "/api/semantic-field/compare accepts min_shared via parseExplorationParams but populateComparisonResponse only includes 'top' and 'min_logdice' in the echoed 'parameters' map — compare siblings /api/semantic-field/explore and /api/semantic-field/explore-multi which include min_shared",
+        "QueryExecutor has two nearly-identical overloads: executeDependencyPattern(lemma, deprel, minLogDice, maxResults) and executeDependencyPatternWithPos(lemma, deprel, minLogDice, maxResults, headPosConstraint) — one is a specialisation of the other",
+        "executeSurfacePattern takes (lemma, bcqlPattern, minLogDice, maxResults) where lemma is already substituted into bcqlPattern — caller must supply the same value twice for different purposes; documented but unusual contract",
+        "Response envelope is consistent across all endpoints: {status:'ok', ...}; all GET endpoints enforce 405 on non-GET; all error cases go through wrapWithErrorHandling with uniform IAE→400 and IOException→500 mapping"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "All endpoints share a consistent {status:'ok'} response envelope and callers can rely on it uniformly",
+        "Error contracts are predictable: wrapWithErrorHandling maps IllegalArgumentException→400 and IOException→500 uniformly across all handlers, with no silent swallowing",
+        "HTTP method enforcement is consistent — every route explicitly declares GET or POST and rejects other methods with 405",
+        "Handler classes are cleanly split by concern (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) so a developer can locate the right handler for any endpoint",
+        "All endpoints are documented with their full HTTP path, parameters, and cardinality constraints in Javadoc"
+      ],
+      "issue_character": "Issues are localised and recurring: parameter naming drift between sibling endpoints (two endpoints for the same collocate-lookup task use incompatible names for identical roles), and minor response-shape inconsistency where one endpoint silently drops a parameter that its siblings echo back.",
+      "score_rationale": "The API backbone is solid — consistent envelope, uniform error handling, and well-separated handler classes give a developer reliable mental models for the majority of the surface. However, a developer learning the exploration endpoints and then reaching for /api/concordance/examples would find the headword and collocate parameters named entirely differently (noun/adjective vs seed/collocate), and the /api/semantic-field/compare endpoint silently omits min_shared from its echoed parameters while its siblings include it. These are real 'why is this different?' moments that place this squarely in the 70-75 range rather than the 80+ solid-but-uneven band."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "param_name_drift_examples_endpoints",
+      "summary": "Sibling example endpoints use inconsistent parameter names for identical headword/collocate roles",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java line 189: requireParam(params, 'adjective') and line 190: requireParam(params, 'noun') — headword is 'noun', collocate is 'adjective'",
+        "ConcordanceHandlers.java line 105: requireParam(params, 'seed') for the headword, line 106: requireParam(params, 'collocate') for the collocate",
+        "Both /api/semantic-field/examples and /api/concordance/examples serve the same conceptual role (fetch concordance lines for a headword+collocate pair) but a developer cannot transfer knowledge of one endpoint's parameters to the other"
+      ],
+      "suggestion": "Align both endpoints on a single parameter vocabulary. The exploration context makes 'noun'+'adjective' natural for /api/semantic-field/examples, but /api/concordance/examples is a general-purpose endpoint and 'seed'+'collocate' is more appropriate. Migrate /api/semantic-field/examples to accept 'seed' and 'collocate' (matching /api/concordance/examples), keeping 'noun'/'adjective' as undocumented aliases with a deprecation log warning during a transition window. Update Javadoc on both handlers to cross-reference the unified naming.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "param_naming_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "compare_drops_min_shared_from_response",
+      "summary": "/api/semantic-field/compare silently omits min_shared from its echoed parameters while both sibling endpoints include it",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.java line 171-172: populateComparisonResponse puts only 'top' and 'min_logdice' into the 'parameters' response map",
+        "ExplorationHandlers.java line 168: handleSemanticFieldComparison passes minShared to ExplorationOptions but it is never reflected in the response",
+        "Contrast with buildCoreExploreResponse (line 214-226): includes 'relation', 'top', 'min_shared', and 'min_logdice' — a developer inspecting the response of compare cannot see which min_shared value was applied"
+      ],
+      "suggestion": "In populateComparisonResponse (ExploreResponseAssembler.java), add minShared as a third parameter and include it in the paramsUsed map: paramsUsed.put(\"min_shared\", minShared). Update the two call sites in ExplorationHandlers.handleSemanticFieldComparison to pass exploreParams.minShared().",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "param_naming_drift"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dependency_pattern_overload_asymmetry",
+      "summary": "QueryExecutor exposes two near-identical executeDependencyPattern overloads that differ only by one optional parameter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java line 118: executeDependencyPattern(lemma, deprel, minLogDice, maxResults)",
+        "QueryExecutor.java line 133: executeDependencyPatternWithPos(lemma, deprel, minLogDice, maxResults, @NonNull String headPosConstraint)",
+        "The 'WithPos' variant is a specialisation of the plain variant — the plain variant is essentially the same call with headPosConstraint=null or equivalent. A developer reading the interface must understand the distinction to choose correctly and cannot default to the simpler overload safely."
+      ],
+      "suggestion": "Collapse to a single method with a @Nullable headPosConstraint parameter: executeDependencyPattern(String lemma, String deprel, double minLogDice, int maxResults, @Nullable String headPosConstraint). Null means 'no POS constraint'. Update both implementations and all callers. The Javadoc on the existing pair makes the relationship clear enough that this merge is low-risk.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Parameter naming drift: the exploration and concordance subsystems evolved independently, each using domain-local vocabulary (noun/adjective vs seed/collocate) without a cross-cutting naming convention",
+      "Response assembly delegation: because populateComparisonResponse is a static helper in ExploreResponseAssembler, the minShared parameter had to be threaded through explicitly and was missed"
+    ],
+    "likely_symptoms": [
+      "param_name_drift_examples_endpoints",
+      "compare_drops_min_shared_from_response"
+    ],
+    "possible_false_positives": []
+  }
+}

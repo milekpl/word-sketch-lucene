@@ -162,7 +162,7 @@ final class ExploreResponseAssembler {
      * {@code specific_count}, {@code edges}, and {@code edges_count}.
      */
     public static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result,
-            int topCollocates, double minLogDice) {
+            int topCollocates, double minLogDice, int minShared) {
         response.put("status", "ok");
         response.put("seeds", new java.util.ArrayList<>(result.nouns()));
         response.put("seed_count", result.nouns().size());
@@ -170,6 +170,7 @@ final class ExploreResponseAssembler {
         Map<String, Object> paramsUsed = new HashMap<>();
         paramsUsed.put("top", topCollocates);
         paramsUsed.put("min_logdice", minLogDice);
+        paramsUsed.put("min_shared", minShared);
         response.put("parameters", paramsUsed);
 
         java.util.List<Map<String, Object>> adjectives = new java.util.ArrayList<>();

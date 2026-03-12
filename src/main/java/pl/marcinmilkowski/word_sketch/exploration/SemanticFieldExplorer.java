@@ -358,7 +358,7 @@ public class SemanticFieldExplorer {
             @NonNull Set<String> seeds,
             @NonNull RelationConfig relationConfig,
             @NonNull ExplorationOptions opts) throws IOException {
-        return multiSeedExplorer.buildMultiSeedExplorationResult(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());
+        return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());
     }
 
 }

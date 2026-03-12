@@ -56,20 +56,20 @@ class ExplorationHandlers {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
         String seed = HttpApiUtils.requireParam(params, "seed");
         RelationConfig relationConfig = resolveRelationConfig(params);
-        ExplorationParams exploreParams = parseExplorationParams(params);
+        CommonExploreParams commonParams = parseCommonExploreParams(params);
+        int collocatesPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
 
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(
-            new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared()),
-            exploreParams.collocatesPerSeed());
+            new ExplorationOptions(commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared()),
+            collocatesPerSeed);
 
         ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, relationConfig, opts);
 
         Map<String, Object> extraParams = new HashMap<>();
-        extraParams.put("nouns_per", exploreParams.collocatesPerSeed());
+        extraParams.put("nouns_per", collocatesPerSeed);
         Map<String, Object> response = buildCoreExploreResponse(
-            relationConfig.id(), exploreParams.topCollocates(), exploreParams.minShared(),
-            exploreParams.minLogDice(), extraParams);
-        response.put("seed", result.seed());
+            relationConfig.id(), commonParams.topCollocates(), commonParams.minShared(),
+            commonParams.minLogDice(), extraParams, Map.of("seed", result.seed()));
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
@@ -89,7 +89,6 @@ class ExplorationHandlers {
      *                 relation is unknown
      */
     void handleSemanticFieldExploreMulti(HttpExchange exchange) throws IOException {
-        // Parse once and reuse for both the nouns_per pre-flight and request building.
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
         if (params.containsKey("nouns_per")) {
             throw new IllegalArgumentException("nouns_per is not supported for multi-seed exploration");
@@ -97,7 +96,7 @@ class ExplorationHandlers {
 
         String seedsParam = HttpApiUtils.requireParam(params, "seeds");
         RelationConfig resolvedConfig = resolveRelationConfig(params);
-        ExplorationParams exploreParams = parseExplorationParams(params);
+        CommonExploreParams commonParams = parseCommonExploreParams(params);
 
         Set<String> seeds = parseSeedSet(seedsParam);
 
@@ -107,15 +106,15 @@ class ExplorationHandlers {
         }
 
         ExplorationOptions opts = new ExplorationOptions(
-            exploreParams.topCollocates(), exploreParams.minLogDice(),
-            exploreParams.minShared());
+            commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
         ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
 
+        Map<String, Object> variantFields = new HashMap<>();
+        variantFields.put("seeds", new ArrayList<>(seeds));
+        variantFields.put("seed_count", seeds.size());
         Map<String, Object> response = buildCoreExploreResponse(
-            resolvedConfig.id(), exploreParams.topCollocates(), exploreParams.minShared(),
-            exploreParams.minLogDice(), Map.of());
-        response.put("seeds", new ArrayList<>(seeds));
-        response.put("seed_count", seeds.size());
+            resolvedConfig.id(), commonParams.topCollocates(), commonParams.minShared(),
+            commonParams.minLogDice(), Map.of(), variantFields);
 
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
@@ -139,7 +138,7 @@ class ExplorationHandlers {
      * seed/relation parsing preamble used by the other two because comparison is cross-relational —
      * it aggregates collocates across all relations rather than routing to a specific one.
      * The shared base-parameter extraction ({@code top}, {@code min_shared}, {@code min_logdice})
-     * is still performed via {@link #parseExplorationParams}.</p>
+     * is still performed via {@link #parseCommonExploreParams}.</p>
      *
      * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing or has
      *                 fewer than 2 values
@@ -154,16 +153,18 @@ class ExplorationHandlers {
                 "Comparison requires at least 2 seed nouns; received " + seeds.size());
         }
 
-        ExplorationParams exploreParams = parseExplorationParams(params);
+        CommonExploreParams commonParams = parseCommonExploreParams(params);
 
         ExplorationOptions opts = new ExplorationOptions(
-            exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared());
+            commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
         ComparisonResult result = semanticFieldExplorer.compareCollocateProfiles(seeds, opts);
 
+        Map<String, Object> variantFields = new HashMap<>();
+        variantFields.put("seeds", new ArrayList<>(result.nouns()));
+        variantFields.put("seed_count", result.nouns().size());
         Map<String, Object> response = buildCoreExploreResponse(
-            "all", opts.topCollocates(), opts.minShared(), opts.minLogDice(), Map.of());
-        response.put("seeds", new ArrayList<>(result.nouns()));
-        response.put("seed_count", result.nouns().size());
+            "all", commonParams.topCollocates(), commonParams.minShared(),
+            commonParams.minLogDice(), Map.of(), variantFields);
         ExploreResponseAssembler.populateComparisonResponse(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
@@ -205,13 +206,18 @@ class ExplorationHandlers {
     }
 
     /**
-     * Builds the shared core of an explore response: {@code status}, {@code relation_type},
-     * and a {@code parameters} sub-map containing the four common explore parameters plus
-     * any {@code extraParams} (e.g., {@code nouns_per} for single-seed exploration).
+     * Builds the shared core of an explore response: {@code status}, a {@code parameters}
+     * sub-map containing the four common explore parameters plus any {@code extraParams}
+     * (e.g., {@code nouns_per} for single-seed exploration), and any top-level
+     * {@code variantFields} (e.g., {@code seed}, {@code seeds}, {@code seed_count}).
+     *
+     * <p>Callers pass all variant-specific top-level fields via {@code variantFields} so the
+     * full envelope is assembled in a single call rather than spread across multiple
+     * {@code response.put()} calls at each callsite.</p>
      */
     private Map<String, Object> buildCoreExploreResponse(
             String relationType, int topCollocates, int minShared, double minLogDice,
-            Map<String, Object> extraParams) {
+            Map<String, Object> extraParams, Map<String, Object> variantFields) {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
 
@@ -222,6 +228,8 @@ class ExplorationHandlers {
         paramsUsed.put("min_logdice", minLogDice);
         paramsUsed.putAll(extraParams);
         response.put("parameters", paramsUsed);
+
+        response.putAll(variantFields);
         return response;
     }
 
@@ -235,7 +243,12 @@ class ExplorationHandlers {
         return seeds;
     }
 
-    private record ExplorationParams(int topCollocates, int minShared, double minLogDice, int collocatesPerSeed) {}
+    /**
+     * Parameters common to all three exploration handlers: {@code top}, {@code min_shared},
+     * and {@code min_logdice}. Handler-specific parameters (e.g., {@code nouns_per} for
+     * single-seed, rejected {@code nouns_per} for multi-seed) are parsed inline per handler.
+     */
+    private record CommonExploreParams(int topCollocates, int minShared, double minLogDice) {}
 
     /**
      * Resolves and validates the relation parameter from request params.
@@ -258,11 +271,10 @@ class ExplorationHandlers {
         return relationConfig.get();
     }
 
-    private ExplorationParams parseExplorationParams(Map<String, String> params) {
+    private CommonExploreParams parseCommonExploreParams(Map<String, String> params) {
         int top = HttpApiUtils.parseIntParam(params, "top", 10);
         int minShared = HttpApiUtils.parseIntParam(params, "min_shared", 2);
         double minLogDice = HttpApiUtils.parseDoubleParam(params, "min_logdice", 3.0);
-        int collocatesPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
-        return new ExplorationParams(top, minShared, minLogDice, collocatesPerSeed);
+        return new CommonExploreParams(top, minShared, minLogDice);
     }
 }

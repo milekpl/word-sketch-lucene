@@ -85,10 +85,7 @@ class ConcordanceHandlers {
     private record ConcordanceExamplesRequest(String seed, String collocate, String relation, int top) {}
 
     private static Map<String, Object> toResultMap(QueryResults.CollocateResult r) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("sentence", r.sentence());
-        m.put("raw", r.rawXml() != null ? r.rawXml() : "");
-        return m;
+        return ExploreResponseAssembler.collocateToExampleMap(r);
     }
 
     private ConcordanceExamplesRequest parseConcordanceExamplesRequest(Map<String, String> params) {

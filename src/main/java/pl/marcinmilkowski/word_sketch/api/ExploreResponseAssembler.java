@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.utils.MathUtils;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
@@ -180,6 +181,36 @@ final class ExploreResponseAssembler {
         List<Edge> edges = buildComparisonEdges(result);
         response.put("edges", edges.stream().map(ExploreResponseAssembler::serializeEdge).toList());
         response.put("edges_count", edges.size());
+    }
+
+    /**
+     * Serialises a {@link QueryResults.CollocateResult} to the compact "examples" projection:
+     * {@code sentence} and {@code raw} only. Use this when the caller needs concordance context
+     * but not scoring metadata (e.g., the concordance-examples endpoint).
+     */
+    public static @NonNull Map<String, Object> collocateToExampleMap(QueryResults.CollocateResult r) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("sentence", r.sentence());
+        m.put("raw", r.rawXml() != null ? r.rawXml() : "");
+        return m;
+    }
+
+    /**
+     * Serialises a {@link QueryResults.CollocateResult} to the full projection: all scored
+     * fields including {@code match_start}, {@code match_end}, {@code collocate_lemma},
+     * {@code frequency}, and {@code log_dice}. Use for endpoints that expose full scoring data
+     * (e.g., the BCQL query endpoint).
+     */
+    public static @NonNull Map<String, Object> collocateToFullResultMap(QueryResults.CollocateResult r) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("sentence", r.sentence());
+        m.put("raw", r.rawXml() != null ? r.rawXml() : "");
+        m.put("match_start", r.startOffset());
+        m.put("match_end", r.endOffset());
+        m.put("collocate_lemma", r.collocateLemma() != null ? r.collocateLemma() : "");
+        m.put("frequency", r.frequency());
+        m.put("log_dice", r.logDice());
+        return m;
     }
 
     /**

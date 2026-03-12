@@ -10,7 +10,6 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,20 +93,7 @@ class CorpusQueryHandlers {
         response.put("query", req.query());
         response.put("total_results", results.size());
         response.put("top", req.top());
-
-        List<Map<String, Object>> resultsList = new ArrayList<>();
-        for (QueryResults.CollocateResult r : results) {
-            Map<String, Object> resultMap = new HashMap<>();
-            resultMap.put("sentence", r.sentence());
-            resultMap.put("raw", r.rawXml() != null ? r.rawXml() : "");
-            resultMap.put("match_start", r.startOffset());
-            resultMap.put("match_end", r.endOffset());
-            resultMap.put("collocate_lemma", r.collocateLemma() != null ? r.collocateLemma() : "");
-            resultMap.put("frequency", r.frequency());
-            resultMap.put("log_dice", r.logDice());
-            resultsList.add(resultMap);
-        }
-        response.put("results", resultsList);
+        response.put("results", results.stream().map(ExploreResponseAssembler::collocateToFullResultMap).toList());
         return response;
     }
 }

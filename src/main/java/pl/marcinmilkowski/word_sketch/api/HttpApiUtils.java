@@ -143,14 +143,22 @@ class HttpApiUtils {
         return true;
     }
 
+    /** Maximum allowed length for a single query parameter value (200 characters). */
+    public static final int MAX_PARAM_LENGTH = 200;
+
     /**
-     * Returns the parameter value, or throws {@link IllegalArgumentException} if missing or empty.
+     * Returns the parameter value, or throws {@link IllegalArgumentException} if missing, empty,
+     * or exceeds {@link #MAX_PARAM_LENGTH} characters.
      * {@link #wrapWithErrorHandling} catches IAE and maps it to a 400 Bad Request response.
      */
     public static @NonNull String requireParam(@NonNull Map<String, String> params, @NonNull String name) {
         String v = params.getOrDefault(name, "").trim();
         if (v.isEmpty()) {
             throw new IllegalArgumentException("Missing required parameter: " + name);
+        }
+        if (v.length() > MAX_PARAM_LENGTH) {
+            throw new IllegalArgumentException(
+                "Parameter '" + name + "' exceeds maximum length of " + MAX_PARAM_LENGTH + " characters");
         }
         return v;
     }

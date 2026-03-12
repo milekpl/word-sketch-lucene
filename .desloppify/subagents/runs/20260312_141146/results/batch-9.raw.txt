@@ -1,0 +1,84 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 9,
+  "assessments": {
+    "contract_coherence": 78.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor.executeSurfacePattern Javadoc states 'The headword lemma must be embedded in bcqlPattern' as a caller contract, but BlackLabQueryExecutor.executeSurfacePattern silently returns Collections.emptyList() (line 229-233) when CqlUtils.extractHeadword returns null/empty, instead of throwing IllegalArgumentException. This creates a precondition-vs-silent-empty mismatch.",
+        "RelationPatternUtils.buildFullPattern(RelationConfig, @Nullable String headword, String collocateLemma): the second String parameter collocateLemma is not annotated @Nullable but the implementation at line 37 defensively handles null/blank with 'if (collocateLemma == null || collocateLemma.isBlank()) return withHead'. Contract annotation and implementation diverge.",
+        "executeCqlQuery in BlackLabQueryExecutor (lines 109-140) creates SnippetResult with raw XML concatenation (parts[0]+parts[1]+parts[2]) stored in the 'sentence' field. The ConcordanceResult.sentence() accessor contract is ambiguous — callers expecting plain text would be surprised. The method is declared in the public QueryExecutor interface but is never called from any handler, limiting practical impact.",
+        "QueryExecutor interface documentation is unusually thorough: each method distinguishes BCQL vs CQL parsers, fallback semantics, @Nullable annotations, and logDice behaviour. Exception contracts (IOException wrapping, IllegalArgumentException -> 400) are consistent across all 5 method signatures.",
+        "GrammarConfigLoader.createDefaultEnglish() clearly documents the two-tier exception wrapping pattern (checked IOException wrapped into unchecked IllegalStateException), including the rationale. Both overloads share the same documented contract.",
+        "HttpApiUtils methods uniformly document their throws contracts and cross-reference wrapWithErrorHandling, creating a coherent error-handling contract chain across the API layer.",
+        "SemanticFieldExplorer.fetchSeedCollocates and MultiSeedExplorer.fetchCollocatesPerSeed document in-code why the fallback is intentionally absent in multi-seed mode — this is explicit contract reasoning at the call-site level.",
+        "RelationPatternUtils.buildCollocateReversePattern documents @throws IllegalStateException for both absent relationType and unknown POS group, and the implementation faithfully throws in both cases."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface Javadoc is exceptionally detailed: each method documents its parser variant (CQL vs BCQL), fallback strategy, @Nullable/@NonNull parameter semantics, and IOException wrapping contract, giving implementors and callers a precise behavioral specification.",
+        "The wrapWithErrorHandling / IAE-to-400 error contract chain is documented consistently across HttpApiUtils, all handler classes, and the parseBcqlRequest method, so the expected exception-to-HTTP-status mapping is unambiguous.",
+        "GrammarConfigLoader documents the two-tier exception contract (checked IOException -> unchecked IllegalStateException) with rationale in both createDefaultEnglish() overloads, enabling callers to choose the appropriate variant for their context.",
+        "RelationPatternUtils.buildCollocateReversePattern has a precise @throws contract that matches the implementation exactly, with no unhandled switch arms silently returning wrong values.",
+        "SemanticFieldExplorer explicitly documents the intentional absence of a fallback in MultiSeedExplorer.fetchCollocatesPerSeed with a cross-reference, turning a potential confusion into a documented design decision."
+      ],
+      "issue_character": "The contract issues are isolated rather than systemic: two specific method-level divergences (a precondition documented as caller responsibility but silently swallowed in the implementation, and a missing @Nullable annotation) plus one unused interface method whose implementation would produce surprising output if called.",
+      "score_rationale": "The codebase operates at a high level of contract coherence — interfaces are richly documented, exception contracts are consistent, and side-effect-free vs. exception-throwing paths are clearly separated. The main drag is a single meaningful precondition/implementation mismatch in executeSurfacePattern (the interface establishes a caller obligation but the implementation silently absorbs violations) and a @Nullable annotation gap that misleads readers of the signature. These are genuine but isolated issues in an otherwise well-contracted codebase, placing it solidly above the 'significant drag' threshold (60) but short of 'consistently excellent' (85+)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "surface_pattern_precondition_swallowed",
+      "summary": "executeSurfacePattern documents lemma-in-pattern as a caller precondition but silently returns empty list on violation instead of throwing",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeSurfacePattern Javadoc (line 96): 'The headword lemma must be embedded in bcqlPattern (typically by the caller via RelationPatternUtils#buildFullPattern)'  — framed as a caller contract.",
+        "BlackLabQueryExecutor.executeSurfacePattern lines 229-233: 'String lemma = CqlUtils.extractHeadword(bcqlPattern); if (lemma == null || lemma.isEmpty()) { logger.debug(...); return Collections.emptyList(); }' — precondition violation silently becomes empty result.",
+        "This hides bugs: a caller who passes a pattern without a lemma= attribute gets an empty list indistinguishable from 'no corpus matches', with only a DEBUG-level log."
+      ],
+      "suggestion": "Either (a) throw IllegalArgumentException when extractHeadword returns null/empty and update the @throws Javadoc on the interface accordingly, or (b) change the interface Javadoc to explicitly document the silent-empty contract so callers know not to treat empty-list as evidence of corpus absence.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "buildFullPattern_collocate_nullable_gap",
+      "summary": "buildFullPattern(RelationConfig, String, String) accepts null collocateLemma but the parameter is not annotated @Nullable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternUtils.java"
+      ],
+      "evidence": [
+        "Line 35: 'public static String buildFullPattern(RelationConfig config, @Nullable String headword, String collocateLemma)' — collocateLemma has no @Nullable annotation.",
+        "Line 37: 'if (collocateLemma == null || collocateLemma.isBlank()) return withHead;' — implementation silently handles null, producing head-only pattern.",
+        "Callers who read the signature see a non-null contract and may pass null expecting an exception or may be surprised by the head-only fallback behavior."
+      ],
+      "suggestion": "Add @Nullable to the collocateLemma parameter and update the Javadoc to document that null/blank collocateLemma returns the head-substituted pattern without collocate substitution.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The 'precondition documented on interface, silent fallback in implementation' pattern likely originates from iterative defensive hardening: the silent empty-list was added to prevent NPEs, but the interface contract was not updated to match.",
+      "The @Nullable gap on collocateLemma is a typical annotation-after-the-fact problem — the defensive null check existed before the @Nullable annotation discipline was introduced."
+    ],
+    "likely_symptoms": [
+      "surface_pattern_precondition_swallowed — the silent empty return makes debug sessions harder when patterns are misconfigured"
+    ],
+    "possible_false_positives": []
+  }
+}

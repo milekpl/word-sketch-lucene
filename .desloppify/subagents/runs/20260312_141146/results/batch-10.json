@@ -1,0 +1,61 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 10,
+  "assessments": {"logic_clarity": 80.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "BlackLabSnippetParser.detokenize() returns null only when its argument is null. In trimToSentence(), `assembled` is built from string concatenation (never null), so `detokenize(assembled)` never returns null; the fallback branch `detokenized != null ? detokenized : assembled` at line 88 is dead code.",
+        "Same pattern at line 130 in extractPlainTextFromXml(): `text` is the result of chained .replaceAll().replaceAll().trim() on a guarded non-null string, so the fallback `detokenized != null ? detokenized : text` is never taken.",
+        "Main.java uses `System.exit(1); throw new AssertionError(\"unreachable\");` in parseIntParam and parseDoubleParam — the AssertionError throw is dead code, but it is a documented compiler-satisfaction idiom and labelled 'unreachable', so it is intentional.",
+        "HttpApiUtils.parseQueryParams catches UnsupportedEncodingException with a comment 'UTF-8 is always supported; this branch is unreachable in practice' — intentional dead code with explanatory comment.",
+        "Guard clauses throughout the codebase (null/empty checks before processing) are used consistently and correctly in BlackLabQueryExecutor, CollocateQueryHelper, BlackLabSnippetParser, and the exploration layer.",
+        "No identical if/else branches found. Boolean logic is direct throughout; no `if x: return true else: return false` anti-patterns observed.",
+        "Control flow in BlackLabQueryExecutor.executeCqlQuery, executeDependencyPattern, and executeCollocations is straightforward with clean early-return paths when lemma or deprel is absent.",
+        "VisualizationHandlers switch over RenderMode uses null-case and SIGNED explicitly, which is exhaustive and correct for the current single-enum-value definition."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses used consistently across all query executor and exploration methods — null/empty checks placed at the entry point of every public method before any logic runs.",
+        "Control flow in the collocate-ranking pipeline (CollocateQueryHelper) is linear and explicit: collect hits, pre-fetch frequencies, score, sort, limit — no hidden branching or unclear short-circuits.",
+        "No identical if/else branches or always-true/false conditions observed in any of the 23 reviewed files.",
+        "Boolean expressions are direct and unambiguous throughout; every conditional produces or guards a meaningful side effect rather than wrapping a trivial boolean return."
+      ],
+      "issue_character": "The issues are isolated to a single method (detokenize) and its two call sites in BlackLabSnippetParser: the @Nullable return annotation creates an unreachable null-fallback branch that is dead code in both callers, because both callers always pass a non-null string.",
+      "score_rationale": "The codebase is largely solid for logic_clarity: guards are correct and consistent, control flow across the 23 reviewed files is predictable, and no structural confusers (identical branches, always-true conditions, async-wrapping-sync) were found. One real finding pulls the score down from the high-80s: the redundant dead-fallback in detokenize callers indicates that the @Nullable contract of detokenize is misleading at its call sites, creating silent dead code in two places. The intentional unreachable patterns (AssertionError after System.exit, unreachable UTF-8 catch) are documented and should not be penalised. Placing this at 80 — solid but with a small, concrete logic clarity gap in one utility class."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_detokenize_fallback",
+      "summary": "Null-fallback after detokenize() is dead code at both call sites",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "detokenize(String text) returns null only when its argument is null (line 140: `if (text == null || text.isEmpty()) return text;` — the null return path requires null input).",
+        "In trimToSentence() at line 88: `assembled` is produced by string concatenation of non-null prefix/suffix literals and `match`; even if `match` is null, Java string concat yields the literal string 'null', so `assembled` is never null. `detokenize(assembled)` therefore never returns null, and the fallback `? ... : assembled` is never executed.",
+        "In extractPlainTextFromXml() at line 130: `text` is the result of `.replaceAll(...).replaceAll(...).trim()` on a non-null `xmlSnippet` (already guarded at line 125). `detokenize(text)` never returns null, so the fallback `? ... : text` is never executed.",
+        "The @Nullable annotation on detokenize's return type correctly documents the null-input contract, but since no caller ever passes null, both null-checks are unreachable."
+      ],
+      "suggestion": "Either change detokenize to @NonNull (removing the null-input path and replacing `return text` with `return \"\"`), or change the two callers to use the result directly without the ternary: `return detokenize(assembled);` and `return detokenize(text);`. The simpler fix is to remove the null-input case from detokenize since all callers guard against null before calling it.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The @Nullable return annotation on detokenize was added defensively but the method is only called after null-guards, so the null-return branch and its downstream ternary fallbacks became dead code without a compiler warning."
+    ],
+    "likely_symptoms": ["dead_detokenize_fallback"],
+    "possible_false_positives": []
+  }
+}

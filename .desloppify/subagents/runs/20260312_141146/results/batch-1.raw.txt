@@ -1,0 +1,105 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {
+    "high_level_elegance": 74.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages (api, config, exploration, indexer, model, query, utils) map cleanly onto domain capabilities — a new engineer can immediately explain what each package owns.",
+        "api/ is decomposed into SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers — each owning one HTTP domain area; WordSketchApiServer purely wires routes.",
+        "config/ cleanly separates GrammarConfig (value object), GrammarConfigLoader (file I/O), GrammarConfigSerializer (JSON output) — three distinct responsibilities with no overlap.",
+        "ExplorationService interface in exploration/ provides a stable boundary between the HTTP layer and algorithm classes; api/ depends on the interface, not on SemanticFieldExplorer directly.",
+        "All packages have package-info.java explaining purpose; model/package-info.java explicitly documents the two-tier design (pure DTOs vs model objects with derived accessors) and what belongs.",
+        "Edge and RelationEdgeType live in model/exploration despite being visualization response primitives (graph edges for D3.js force graphs). The model package-info.java states 'No persistence, I/O, or HTTP concerns belong in this package' — these are presentation/HTTP response concerns, not domain model types.",
+        "RadialPlot.java lives in api/ but is purely a visualization data builder (SVG generator with layout constants) — it handles no HttpExchange and has no HTTP concerns. It belongs in a viz/ or api/visualization/ sub-package rather than the flat api/ package.",
+        "ExplorationOptions Javadoc states 'Single-seed exploration uses SingleSeedExplorationOptions, which adds the reverseExpansionLimit parameter' but SingleSeedExplorationOptions does not exist anywhere in the codebase. The parameter is passed as a bare int. This is a stale documentation-reality mismatch."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Top-level package decomposition is domain-aligned: api, config, exploration, indexer, model, query, utils each own a coherent capability with no namespace confusion.",
+        "HTTP handler splitting in api/ (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers) gives each domain area predictable ownership; WordSketchApiServer is a thin router.",
+        "config/ cleanly separates loading (GrammarConfigLoader), data (GrammarConfig/RelationConfig), serialization (GrammarConfigSerializer) and utility (RelationPatternUtils, RelationUtils) by responsibility.",
+        "ExplorationService interface provides a stable public boundary between the HTTP layer and algorithm internals, insulating api/ from changes to SemanticFieldExplorer, MultiSeedExplorer, and CollocateProfileComparator.",
+        "Package-info.java docs exist on all packages and explain ownership rationale; model/package-info.java explicitly documents design decisions (why classes instead of records, sub-package structure)."
+      ],
+      "issue_character": "The issues are contained boundary leaks rather than systemic ownership confusion: visualization-specific types (Edge, RelationEdgeType, RadialPlot) have been placed in domain model and API packages without a coherent 'where do visualization concerns live?' answer, and one stale Javadoc reference creates a documentation mismatch. These do not undermine the overall decomposition but do create predictable confusion at the model/presentation boundary.",
+      "score_rationale": "The overall package architecture is clean and domain-aligned — a new engineer can explain why each top-level package exists and its stated responsibility is trustworthy. What pulls the score below 80 is that visualization response types (Edge, RelationEdgeType) are housed in the domain model package despite the model package-info.java explicitly excluding presentation concerns, and RadialPlot (an SVG builder) sits in the flat api/ package without a dedicated visualization home. Together these create a 'where do I put visualization types?' inconsistency that a new engineer would struggle to resolve from the existing structure alone. The stale SingleSeedExplorationOptions Javadoc reference is a minor additional documentation-reality gap. Placing this at 74 reflects solid ownership with a recurring but contained boundary blur — above 70 because the decomposition is genuinely useful and trustworthy at the subsystem level, below 80 because the model/presentation boundary has visible leaks."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "visualization_types_in_domain_model",
+      "summary": "Edge and RelationEdgeType are visualization response primitives housed in model/exploration despite the model package explicitly excluding presentation concerns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/RelationEdgeType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "Edge.java is a record with fields source, target, weight, and RelationEdgeType — purely a graph serialization DTO created by ExploreResponseAssembler for API JSON responses.",
+        "RelationEdgeType labels ('seed_adj', 'discovered_adj', 'modifier') are stable JSON serialization keys used by the API — serialization keys are a presentation concern, not a domain model concern.",
+        "model/package-info.java states explicitly: 'No persistence, I/O, or HTTP concerns belong in this package.' API response DTOs are HTTP concerns.",
+        "ExploreResponseAssembler (an api/ class) constructs all Edge instances from domain data — the only producer of Edge objects is the API layer, confirming Edge belongs there."
+      ],
+      "suggestion": "Move Edge and RelationEdgeType from model/exploration/ into api/ (or a new api/graph/ sub-package if RadialPlot is also moved there). Update ExploreResponseAssembler and any test imports accordingly. This makes the model package truthfully contain only domain types and keeps presentation primitives alongside the code that creates and serializes them.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "visualization_boundary_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "radial_plot_misplaced_in_api",
+      "summary": "RadialPlot (SVG visualization builder) lives in api/ alongside HTTP handlers, making the 'where do visualization concerns live?' question unanswerable from package structure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "RadialPlot.java contains only layout geometry (SPIRAL_START_RADIUS, GUIDE_STROKE_WIDTH, SVG generation) — it has no HttpExchange parameter, no HTTP imports, and no routing logic.",
+        "It is in api/ alongside ConcordanceHandlers, SketchHandlers, ExplorationHandlers — classes whose defining characteristic is handling HTTP exchanges. RadialPlot does not share this characteristic.",
+        "The CLAUDE.md project documentation references 'viz/RadialPlot.java' as the historical location, indicating it was intentionally in a visualization package before being moved to api/ without a clear rationale."
+      ],
+      "suggestion": "Move RadialPlot to a new api/visualization/ sub-package (keeping it package-private to api if VisualizationHandlers is the only caller), or to a top-level viz/ package if visualization concerns are expected to grow. If Edge and RelationEdgeType are also moved (per the companion issue), a shared api/graph/ home would consolidate all visualization primitives.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "visualization_boundary_blur"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "stale_singleSeedExplorationOptions_javadoc",
+      "summary": "ExplorationOptions Javadoc references non-existent SingleSeedExplorationOptions, creating a documentation-reality mismatch for the options pattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "ExplorationOptions Javadoc: 'Single-seed exploration uses SingleSeedExplorationOptions, which adds the reverseExpansionLimit parameter specific to the reverse-lookup phase.'",
+        "No class named SingleSeedExplorationOptions exists anywhere in the codebase — grep across src/ finds zero matches.",
+        "ExplorationService.exploreByPattern accepts reverseExpansionLimit as a bare int parameter, not via an options subtype. The described pattern was never implemented or was removed."
+      ],
+      "suggestion": "Either remove the SingleSeedExplorationOptions reference and update the Javadoc to reflect the current design (bare int parameter for reverseExpansionLimit), or implement SingleSeedExplorationOptions extending ExplorationOptions with the additional field and update exploreByPattern's signature to use it. The former is the minimal fix; the latter would improve the API surface.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "visualization_boundary_blur: Edge, RelationEdgeType, and RadialPlot were likely placed pragmatically during feature development without enforcing the model package's stated boundary rule — a recurring symptom of incremental growth without a dedicated visualization home.",
+      "options_pattern_incompleteness: SingleSeedExplorationOptions appears to be a planned but never-implemented refactor where the reverseExpansionLimit would have been wrapped in an options type; the Javadoc was written ahead of implementation and never cleaned up."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

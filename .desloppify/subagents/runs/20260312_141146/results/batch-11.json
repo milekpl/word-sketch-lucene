@@ -1,0 +1,101 @@
+{
+  "batch": "type_safety",
+  "batch_index": 11,
+  "assessments": {"type_safety": 72.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify @Nullable/@NonNull annotations are used consistently on public API surfaces: QueryExecutor interface, HttpApiUtils, ExplorationHandlers, MultiSeedExplorer, ExploreResponseAssembler, SemanticFieldExplorer — forming a solid annotated core.",
+        "BlackLabSnippetParser.extractLastLemma() returns String but Javadoc says 'or null' and the implementation does return null; no @Nullable annotation present (line 211). All sibling methods in the same class that return null are correctly annotated @Nullable.",
+        "BlackLabSnippetParser.extractPosFromMatch(String matchText) accepts null at runtime (body has 'if (matchText == null || matchText.isEmpty()) return null') but the parameter is typed String with no @Nullable.",
+        "RelationPatternUtils.computeCollocatePosGroup(String pattern): parameter accepts null (body: 'if (pattern == null) return PosGroup.OTHER') but lacks @Nullable. Private helpers extractLabelContent and resolvePosGroupFromPrefix return null without @Nullable on their return types.",
+        "CollocateQueryHelper protected no-arg constructor explicitly sets 'this.index = null' while the field is typed BlackLabIndex with no @Nullable annotation. The class Javadoc explains this is a test seam, but the field type contradicts the runtime-null state.",
+        "Main.getParam(Map<String,String>, String...) Javadoc: 'Returns the first non-null value for any of the given keys, or null.' Return type is bare String without @Nullable.",
+        "VisualizationHandlers.RenderMode.parse(String value) returns RenderMode but can return null when value is null/blank; no @Nullable annotation on the return type."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "JSpecify @Nullable/@NonNull annotations are applied consistently across the main public API surface: all QueryExecutor parameters, HttpApiUtils method signatures, ExplorationHandlers, MultiSeedExplorer, and ExploreResponseAssembler are fully annotated.",
+        "BlackLabSnippetParser uses @Nullable on most nullable-returning methods (extractLemmaFromMatch, extractPosFromMatch return, extractCollocateFromXmlByPosition, extractPlainTextTokenAt, safeParts, detokenize) — demonstrating clear intent and partial discipline.",
+        "GrammarConfigLoader.parseRelationType is correctly annotated @Nullable on its return type, and RelationPatternUtils.buildFullPattern uses @Nullable for the headword parameter where null is explicitly allowed.",
+        "Java generics are used correctly throughout — no raw types or unchecked casts observed in the reviewed files; records and sealed interfaces are used appropriately."
+      ],
+      "issue_character": "The issues are annotation omissions in utility classes — methods that defensively handle null at runtime but whose type signatures do not advertise that fact — rather than structural unsafety or missing annotations on the main API surface.",
+      "score_rationale": "The codebase scores well above average because the public API boundary is carefully annotated and the core query/exploration/HTTP layers use @Nullable/@NonNull consistently. What pulls the score down is a cluster of annotation gaps concentrated in parsing utilities (BlackLabSnippetParser, RelationPatternUtils, Main.getParam, RenderMode.parse) and the test-seam null field in CollocateQueryHelper: these are cases where the declared type says non-null but runtime behaviour is nullable, which is precisely what annotation-based type safety is meant to prevent. The issues are localized (all in helper/utility code, not the API contracts) and mechanical to fix, placing the codebase in the 70–75 range — solid but with an identified cluster of annotation gaps that a type checker would flag."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "snippet_parser_extractlastlemma_nullable",
+      "summary": "BlackLabSnippetParser.extractLastLemma returns nullable String without @Nullable annotation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": ["Line 211: 'static String extractLastLemma(String xml)' — Javadoc says 'or null', code sets 'last = null' as default and returns it; all sibling nullable-returning methods in the same file carry @Nullable but this one does not."],
+      "suggestion": "Add @Nullable to the return type: 'static @Nullable String extractLastLemma(String xml)'. Also consider annotating the parameter @Nullable since the body already guards 'if (xml == null || xml.isEmpty())'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "snippet_parser_extractpos_param_nullable",
+      "summary": "BlackLabSnippetParser.extractPosFromMatch accepts null parameter but parameter is typed String without @Nullable",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"],
+      "evidence": ["extractPosFromMatch(String matchText): body has 'if (matchText == null || matchText.isEmpty()) { return null; }' — the implementation explicitly handles null input, so the parameter contract allows null, but the type does not say so."],
+      "suggestion": "Annotate the parameter: 'static @Nullable String extractPosFromMatch(@Nullable String matchText)'. This makes the null-safety contract visible to callers and type checkers.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_query_helper_null_index_field",
+      "summary": "CollocateQueryHelper.index field is set to null in protected test-seam constructor but has no @Nullable annotation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": ["'protected CollocateQueryHelper() { this.index = null; }' — the field is declared 'private final BlackLabIndex index' with no nullability annotation; the @NonNull annotation on the production constructor parameter does not cover the field itself. Any caller of production methods (getTotalFrequency, performCollocateSearch) on a test-seam instance will hit NPE unless they override those methods."],
+      "suggestion": "Annotate the field '@Nullable' and add a null-guard or assertion at the start of each method that uses 'index': 'assert index != null : \"index is null — test subclass must override this method\"'. Alternatively, annotate the field @Nullable and have the real methods throw IllegalStateException when index is null.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "relation_pattern_utils_nullable_params",
+      "summary": "RelationPatternUtils.computeCollocatePosGroup accepts null but parameter lacks @Nullable; private helpers return null without annotation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternUtils.java"],
+      "evidence": ["computeCollocatePosGroup(String pattern): 'if (pattern == null) return PosGroup.OTHER' — null is a valid input but the parameter is typed String without @Nullable. Private methods extractLabelContent and resolvePosGroupFromPrefix both return null without @Nullable on their return type."],
+      "suggestion": "Add '@Nullable' to the 'pattern' parameter of computeCollocatePosGroup and to the return types of extractLabelContent and resolvePosGroupFromPrefix.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "render_mode_parse_nullable_return",
+      "summary": "VisualizationHandlers.RenderMode.parse can return null but return type is not annotated @Nullable",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"],
+      "evidence": ["'static RenderMode parse(String value)' with body 'if (value == null || value.isBlank()) return null;' — caller handles null via switch-case null arm, but the declared return type does not communicate this."],
+      "suggestion": "Change return type to '@Nullable RenderMode' to align the declaration with runtime behaviour.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Annotation discipline was applied top-down from public API boundaries inward, so utility/helper classes at the leaves of the call graph received less consistent coverage.",
+      "Test-seam design (protected null-field constructor) creates a genuine runtime-nullable field that the type system cannot enforce without explicit @Nullable on the field declaration."
+    ],
+    "likely_symptoms": [
+      "snippet_parser_extractlastlemma_nullable",
+      "snippet_parser_extractpos_param_nullable"
+    ],
+    "possible_false_positives": []
+  }
+}

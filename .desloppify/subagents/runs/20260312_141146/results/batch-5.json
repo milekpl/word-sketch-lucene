@@ -1,0 +1,97 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 5,
+  "assessments": {
+    "mid_level_elegance": 73.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler is a dedicated, stateless translator at the API seam: it owns all model-to-presentation conversion for ExplorationResult and ComparisonResult, keeping handler classes free of mapping concerns.",
+        "GrammarConfig/GrammarConfigLoader/GrammarConfigSerializer are cleanly separated into data holder, IO+parsing, and serialization — each carries only the concern its name implies.",
+        "HttpApiUtils.wrapWithErrorHandling provides a consistent, centralized mapping from IllegalArgumentException/IOException to HTTP 400/500 across all handlers, so error propagation across the HTTP boundary is predictable.",
+        "ExplorationHandlers extracts shared parsing into parseCommonExploreParams, resolveRelationConfig, and parseSeedSet, preventing duplication across three related handlers while keeping per-handler variation inline.",
+        "Handler inputs are typed as records (ConcordanceExamplesRequest, BcqlRequest, CommonExploreParams) so the HTTP-to-domain translation step is explicit and self-documenting.",
+        "ConcordanceHandlers.handleConcordanceExamples calls RelationPatternUtils.buildFullPattern twice (lines 61-62): once as the query argument passed to executor.executeBcqlQuery and once to assign bcqlQuery for the response. The result is computed, discarded, and recomputed with identical arguments — a seam where a temporary variable should have been used.",
+        "buildExploreResponseEnvelope accepts two generic Map<String,Object> parameters — paramExtras and variantFields — that are structurally distinct (paramExtras is merged into the nested 'parameters' sub-map; variantFields is merged at the top level), but the method signature gives no indication of this difference. Callers must know which map ends up where through documentation rather than type.",
+        "ComparisonResult is a mutable-style class exposing fullyShared(), partiallyShared(), specific(), and specificTo() all as re-streaming methods over the same backing list, alongside the single-pass summaryCounts(). The parallel presence of both access paths at the seam encourages callers to stream the list multiple times without obvious reason to prefer summaryCounts().",
+        "GrammarConfigLoader and GrammarConfigSerializer each instantiate a private static ObjectMapper, while HttpApiUtils has a third. Three separate ObjectMapper instances cross the config/API layer boundary; not a correctness defect but a mild seam inconsistency."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler cleanly centralises all model-to-presentation translation at the API seam, so ExplorationResult and ComparisonResult carry no HTTP or JSON concerns.",
+        "GrammarConfig/GrammarConfigLoader/GrammarConfigSerializer follow a clean three-way separation: data, IO+parsing, serialization — boundaries are explicit and each class carries exactly one concern.",
+        "wrapWithErrorHandling provides a single, consistent error-propagation seam for all HTTP handlers, making the mapping from domain exceptions to HTTP status codes predictable across the whole API layer.",
+        "Handler request parameters are packaged as typed records (ConcordanceExamplesRequest, BcqlRequest, CommonExploreParams), making the HTTP-to-domain handoff explicit rather than a raw Map pass-through.",
+        "ExplorationHandlers shares parsing utilities (parseCommonExploreParams, resolveRelationConfig, parseSeedSet) across three related handlers without over-generalising into a tangled base class."
+      ],
+      "issue_character": "Issues are isolated seam-level infelicities — a redundant double-call at one boundary, an untyped two-map method signature whose structural contract is conveyed only by documentation, and a parallel re-streaming API on a result object — rather than systemic glue-code entropy or tangled cross-cutting back-and-forth between layers.",
+      "score_rationale": "The codebase sits comfortably above the 60 'significant drag' threshold: the integration seams are well-structured, translation is centralised, error propagation is consistent, and the handler decomposition is clean. What holds it below 80 ('solid but uneven') is a small set of recurring signature/contract honesty issues at the handoff points — the buildExploreResponseEnvelope map-pair convention, the double-call in ConcordanceHandlers, and ComparisonResult's redundant re-streaming surface — that collectively make certain seams less self-explanatory than the rest. The overall pattern is strong with a handful of isolated rough edges, landing at 73."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "concordance_double_pattern_build",
+      "summary": "RelationPatternUtils.buildFullPattern called twice with identical arguments in handleConcordanceExamples",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "Lines 61-62: executor.executeBcqlQuery(RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()), req.top()) is followed immediately by bcqlQuery = RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()), computing the same string twice instead of assigning it once and reusing the variable."
+      ],
+      "suggestion": "Assign the pattern to a local variable before the executeBcqlQuery call: String bcqlQuery = RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()); then pass bcqlQuery to executeBcqlQuery. This eliminates the redundant computation and makes the intent at the seam unambiguous.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_envelope_untyped_map_params",
+      "summary": "buildExploreResponseEnvelope accepts two structurally different Maps typed identically, hiding where each lands",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildExploreResponseEnvelope(String relationType, CommonExploreParams params, Map<String,Object> paramExtras, Map<String,Object> variantFields): paramExtras is merged into the nested 'parameters' sub-map via paramsUsed.putAll(paramExtras), while variantFields is merged at the top level via response.putAll(variantFields). Both are typed Map<String,Object> — a caller reading only the signature cannot determine which map goes where without reading the body or the Javadoc."
+      ],
+      "suggestion": "Introduce a small typed carrier or distinct named parameters to make the contract explicit. One option: replace the two maps with a record BuildEnvelopeOptions(Map<String,Object> extraParams, Map<String,Object> topLevelFields) with a clearly named factory, or inline the envelope-building logic into each handler (the three handlers diverge enough that a shared helper adds more indirection than it saves). At minimum, rename the parameters to embedInParameters and hoistToTopLevel.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "comparison_result_parallel_streaming_surface",
+      "summary": "ComparisonResult exposes both single-pass summaryCounts() and three redundant re-streaming filter methods at the seam",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java"
+      ],
+      "evidence": [
+        "ComparisonResult exposes fullyShared(), partiallyShared(), and specific() as separate stream passes alongside summaryCounts() (single-pass). ExploreResponseAssembler calls summaryCounts() for counts but nothing currently uses the three filter methods; their presence invites callers at the seam to re-stream the list rather than use the efficient path.",
+        "specificTo(noun) is another re-stream that sorts by descending logDice — a useful convenience, but its asymmetric presence (no equivalent topSharedBy, no caching) makes the seam surface uneven."
+      ],
+      "suggestion": "Remove or internalize fullyShared(), partiallyShared(), and specific() if they are not needed outside the model layer, or annotate them clearly as internal-use only. If they must remain public, consider computing them lazily and caching to avoid repeated traversal. The main goal is to give callers at the seam one obvious, efficient access path (summaryCounts + the collocates list) rather than multiple overlapping ones.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental extraction — handlers were split from a larger class and the shared envelope helper accumulated a two-map convention that made sense at extraction time but is now opaque to new readers.",
+      "Convenience method accumulation on result objects without a clear policy on which access paths are primary at the seam."
+    ],
+    "likely_symptoms": [
+      "concordance_double_pattern_build is a symptom of the handler being extracted while the fallback/non-fallback branching was still being worked out.",
+      "comparison_result_parallel_streaming_surface may be a symptom of the exploration layer accumulating result-shaping logic that could belong in the assembler."
+    ],
+    "possible_false_positives": []
+  }
+}

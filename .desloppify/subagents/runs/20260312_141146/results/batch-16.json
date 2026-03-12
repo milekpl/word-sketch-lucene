@@ -1,0 +1,100 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 16,
+  "assessments": {"convention_outlier": 77.0},
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "All five handler classes (ConcordanceHandlers, CorpusQueryHandlers, ExplorationHandlers, SketchHandlers, VisualizationHandlers) follow an identical structural pattern: package-private class, no public interface, single-field-per-dependency constructor, SLF4J logger, void handle* methods — perfectly consistent across the api package",
+        "All static-method utility classes (RelationPatternUtils, RelationUtils, CqlUtils, LogDiceUtils, MathUtils, GrammarConfigSerializer, ExploreResponseAssembler) follow the same idiom: public final class, private no-arg constructor, pure static methods — no drift between config, utils, and api packages",
+        "All four enum types with JSON labels (RelationEdgeType, SharingCategory, PosGroup, RelationType) consistently use a label field, a label() accessor, and a toString() override — same pattern repeated without exception",
+        "Every package in the tree has a package-info.java file: api, config, exploration, indexer/blacklab, model, model/exploration, query, utils — no package is undocumented",
+        "RadialPlot.java sits in the api package alongside HTTP handlers; the api package-info says 'HTTP request handlers, routing utilities, and response assembly' — RadialPlot is a pure SVG rendering class with no HTTP concerns, formerly in a viz/ package (per CLAUDE.md). No rationale documents why it was moved into api rather than a dedicated rendering package",
+        "ComparisonResult uses a public constructor (new ComparisonResult(nouns, collocates)) while sibling ExplorationResult uses a private-field approach with no private constructor annotation and a static factory empty(). The model/package-info explains why both are classes rather than records, but does not address the construction-pattern asymmetry between them",
+        "ExplorationOptions Javadoc line 8 reads 'Single-seed exploration uses SingleSeedExplorationOptions, which adds the reverseExpansionLimit parameter specific to the reverse-lookup phase' — no such class exists in the codebase; exploreByPattern takes reverseExpansionLimit as a plain int parameter. This is stale documentation left over from a planned but unimplemented extraction"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Handler class structure is uniform across all five api handlers: same visibility, same constructor shape, same logging idiom, no deviations",
+        "Static utility classes follow an identical final-class-with-private-constructor pattern in every package that has them",
+        "Enum-with-label pattern (label field + label() accessor + toString() override) applied uniformly to all four domain enums",
+        "Every package has a package-info.java, providing consistent discoverability and documentation coverage",
+        "Model type strategy (record vs class) is consciously documented in model/package-info.java, even if the rationale does not extend to construction-pattern consistency"
+      ],
+      "issue_character": "The issues are isolated outliers from otherwise strong, codebase-wide patterns rather than systemic drift: a misplaced rendering class, an undocumented asymmetry in construction style between two sibling model classes, and a single stale Javadoc cross-reference.",
+      "score_rationale": "The codebase demonstrates exemplary convention discipline in its most-used patterns — handler shape, utility class shape, enum idiom, and package documentation are all applied without a single deviation. What prevents a higher score is a small cluster of localized outliers: RadialPlot belongs to the api package despite being a rendering utility with no HTTP concerns (a style island relative to the rest of api), ComparisonResult and ExplorationResult diverge on construction convention without explanation, and one Javadoc references a class that was never implemented. These issues would momentarily mislead a developer exploring the api package or comparing the two result types, placing the codebase solidly in the 'solid but uneven' band rather than exemplary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "radial_plot_in_api_pkg",
+      "summary": "RadialPlot (SVG renderer) colocated with HTTP handlers in the api package — style island with no documented rationale",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/package-info.java"
+      ],
+      "evidence": [
+        "api/package-info.java describes the package as 'HTTP request handlers, routing utilities, and response assembly'",
+        "RadialPlot contains no HTTP code — it is a pure SVG layout algorithm (spiral math, guide circles, label positioning) with no dependency on HttpExchange or any http class",
+        "CLAUDE.md records the class was formerly at viz/RadialPlot.java, indicating a prior package existed and was dissolved without a documented rationale for the new location",
+        "All other api package classes are either handlers (ConcordanceHandlers et al.), routing infrastructure (WordSketchApiServer, HttpApiUtils), or response assembly utilities (ExploreResponseAssembler) — RadialPlot fits none of these roles"
+      ],
+      "suggestion": "Move RadialPlot to a dedicated rendering or visualization package (e.g. pl.marcinmilkowski.word_sketch.viz or pl.marcinmilkowski.word_sketch.api.render) and update api/package-info.java to note that visualization rendering lives in the viz sub-package. Update the import in VisualizationHandlers accordingly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "comparison_result_construction_asymmetry",
+      "summary": "ComparisonResult uses a public constructor while sibling ExplorationResult uses factory methods — undocumented construction-pattern asymmetry within the same model sub-package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult has a public constructor but also a static factory empty(String seed) and is documented as favouring the factory for the empty-sentinel case; the class Javadoc emphasises 'factory keeps the construction logic encapsulated'",
+        "ComparisonResult also has a public constructor AND a static factory empty(), matching the same dual-pattern, but neither class makes explicit that the factory is preferred over the constructor",
+        "model/package-info.java explains why both are classes rather than records, but does not address which construction entry-point callers should prefer, leaving both constructors public and both factories present with no clear contract"
+      ],
+      "suggestion": "Align construction convention: either make both constructors package-private (factory-only access) or document in model/package-info.java that public constructors are intentional for both types and the factory methods cover only the empty-sentinel case. The former is more consistent with the stated encapsulation intent in ExplorationResult's Javadoc.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "stale_single_seed_options_javadoc",
+      "summary": "ExplorationOptions Javadoc references non-existent class SingleSeedExplorationOptions — stale cross-reference from an unimplemented extraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "ExplorationOptions.java line 8: 'Single-seed exploration uses {@link SingleSeedExplorationOptions}, which adds the reverseExpansionLimit parameter'",
+        "No class named SingleSeedExplorationOptions exists anywhere in the repository",
+        "ExplorationService.exploreByPattern takes reverseExpansionLimit as a plain int parameter, not via a specialised options class — the extraction described in the Javadoc was never carried out"
+      ],
+      "suggestion": "Remove the {@link SingleSeedExplorationOptions} reference from ExplorationOptions Javadoc and replace with an accurate description: e.g. 'Single-seed exploration passes the additional reverseExpansionLimit parameter directly to ExplorationService.exploreByPattern rather than via a subtype of this record.'",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RadialPlot migration from viz/ to api/ was done for convenience (it is only used by VisualizationHandlers) without establishing a principled placement policy, and no documentation records the decision",
+      "The model type strategy documentation in package-info.java was written to justify record-vs-class choice but was not extended to cover construction conventions, leaving two classes in the same package with subtly different idioms",
+      "ExplorationOptions Javadoc was written prospectively during a refactor that planned to extract a SingleSeedExplorationOptions subtype; when the extraction was abandoned the Javadoc was not updated"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

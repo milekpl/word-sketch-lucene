@@ -1,0 +1,102 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 14,
+  "assessments": {
+    "cross_module_architecture": 72.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency graph is a clean DAG: model ← utils/config/query ← exploration ← api. No runtime import cycles detected.",
+        "ExplorationService (exploration package) is a proper interface boundary between api and the exploration implementation, correctly preventing api from depending on SemanticFieldExplorer, MultiSeedExplorer, or CollocateProfileComparator directly.",
+        "model package imports nothing from the project; indexer package imports nothing from the project — both are fully isolated leaf/root packages.",
+        "SketchHandlers, ConcordanceHandlers, and CorpusQueryHandlers in the api package hold a direct dependency on QueryExecutor (query package) and contain significant non-HTTP business logic: buildSketch(), executeRelationQueries(), formatWordSketchResult(), buildSurfaceRelationEntry() etc. — business logic that the parallel ExplorationService boundary shields for the exploration subsystem.",
+        "RadialPlot (SVG renderer, 242 lines, no HTTP dependencies) is physically located in the api package, blurring the api boundary with a presentational utility that has no HTTP concerns.",
+        "RelationConfig.java line 18 Javadoc contains {@link pl.marcinmilkowski.word_sketch.api.SketchHandlers} — an upward documentation reference from the config layer to the api layer, signalling that the config author reasoned about its callers rather than just its own role."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Fully acyclic runtime dependency graph: no package cycle exists anywhere in the codebase.",
+        "ExplorationService interface cleanly interposes a boundary between the api layer and the exploration implementation, keeping ExplorationHandlers free of exploration internals.",
+        "model and indexer packages are genuinely isolated — model has zero project imports, indexer imports nothing from the rest of the application.",
+        "Package-info files are present for all major packages with succinct, accurate scope descriptions.",
+        "Main.java acts as the sole composition root — all wiring is explicit and in one place, avoiding hidden static initialization or import-time side effects."
+      ],
+      "issue_character": "The issues stem from a single structural asymmetry: the exploration subsystem has a proper service-layer interface (ExplorationService) while the sketch and concordance subsystems lack any equivalent, causing the api layer to absorb query-layer concerns and non-trivial business logic; the secondary issues (RadialPlot misplacement, Javadoc upward reference) are symptoms of the same boundary-thinking gap.",
+      "score_rationale": "The dependency direction is sound and there are no cycles, which places this codebase well above the 60-range. However, the lack of a service abstraction for the sketch and concordance subsystems means SketchHandlers does double duty as both HTTP handler and domain logic coordinator, creating a high blast radius for any change to sketch query behavior and violating the architectural contract established by the exploration subsystem's cleaner layering. The RadialPlot misplacement and the Javadoc upward reference from config to api are minor but reinforce that boundary discipline is applied unevenly. These gaps collectively prevent a score above 80, landing the codebase around 72: strong skeleton, uneven follow-through."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "sketch_missing_service_layer",
+      "summary": "Sketch and concordance API handlers bypass a service layer and embed business logic directly in the api package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "SketchHandlers imports QueryExecutor directly from the query layer and implements buildSketch(), executeRelationQueries(), formatWordSketchResult(), buildSurfaceRelationEntry() — all domain-level operations, not HTTP concerns.",
+        "ConcordanceHandlers and CorpusQueryHandlers also hold direct QueryExecutor fields and call executor.executeBcqlQuery() without any service intermediary.",
+        "By contrast, ExplorationHandlers holds only ExplorationService (an interface in the exploration package) — never a QueryExecutor — demonstrating the intended pattern for the sketch subsystem is absent."
+      ],
+      "suggestion": "Introduce a SketchService interface in the exploration or a new 'sketch' package that encapsulates buildSketch logic and returns a SketchResult model object. Have SketchHandlers depend only on SketchService, mirroring how ExplorationHandlers depends on ExplorationService. This isolates HTTP marshalling from query orchestration and matches the architecture already established for the exploration subsystem.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "asymmetric_service_abstraction"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "radialplot_in_api_package",
+      "summary": "RadialPlot (pure SVG renderer) is housed in the api package despite having no HTTP concerns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "RadialPlot.java (242 lines) contains only SVG geometry logic: spiral layout, guide circles, connector lines, center circle rendering. It has no imports from com.sun.net.httpserver or any HTTP library.",
+        "Its only consumer is VisualizationHandlers, which is itself in the api package; but RadialPlot has no logical coupling to HTTP — it could equally serve a CLI or test harness.",
+        "The api package-info says 'HTTP request handlers, routing utilities, and response assembly'; a standalone SVG renderer does not fit this contract."
+      ],
+      "suggestion": "Move RadialPlot to a new pl.marcinmilkowski.word_sketch.viz (or utils) package and update VisualizationHandlers' import. This keeps the api package boundary honest: only HTTP-tier classes live there.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "asymmetric_service_abstraction"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "config_javadoc_upward_reference",
+      "summary": "RelationConfig Javadoc contains an upward @link to api.SketchHandlers, violating the config→api dependency direction in documentation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "RelationConfig.java line 18: 'it is part of the public API and is called externally from {@link pl.marcinmilkowski.word_sketch.api.SketchHandlers}' — a Javadoc link from a config-layer class pointing up to the api layer.",
+        "No runtime import exists, but the comment indicates the config author reasoned about its callers rather than just its own contract, a sign that the boundary is understood inconsistently."
+      ],
+      "suggestion": "Remove the @link reference to SketchHandlers from RelationConfig Javadoc. The config class should document its own contract; callers do not belong in its documentation. If a cross-reference is needed, place it in SketchHandlers' Javadoc instead (the caller documents its dependency, not the callee).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "asymmetric_service_abstraction"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration subsystem was built later with cleaner architecture in mind (ExplorationService interface, model separation), but the original sketch/concordance subsystem was never refactored to the same standard, leaving a permanent asymmetry in service-layer discipline.",
+      "RadialPlot was likely co-located with VisualizationHandlers during an initial implementation pass and never relocated; the absence of a 'viz' or presentation-utility package meant there was no obvious home for it."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

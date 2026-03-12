@@ -1,0 +1,72 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 4,
+  "assessments": {
+    "low_level_elegance": 83.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "Phase-decomposed helpers in SemanticFieldExplorer (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) and MultiSeedExplorer (fetchCollocatesPerSeed, identifyCommonCollocates, buildDiscoveredNouns, buildCoreCollocates, aggregateCollocateStats) use consistent private-method extraction style across related classes",
+        "Guard clauses applied uniformly: null/empty lemma guards in BlackLabQueryExecutor.executeCollocations and executeDependencyPattern, sampleSize==0 early return in CollocateQueryHelper.collectHits, seed blank check in SemanticFieldExplorer.exploreByPattern",
+        "Java records used appropriately for internal data holders throughout (CollocateSearch, HitRecord, AggregatedCollocateStats, SeedCollocateData, ExecutedSketch, BcqlRequest, CommonExploreParams) — keeps local state explicit and bounded",
+        "ConcordanceHandlers.handleConcordanceExamples calls RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()) twice in the non-fallback branch (lines 61 and 62) to execute the query and then to capture the pattern string — a redundant computation that should be hoisted to a local variable",
+        "Main.parseIntParam and Main.parseDoubleParam are structurally identical (null-check, parse, System.exit(1) on failure, throw AssertionError unreachable) differing only in parse method and error message noun — minor structural duplication within a single class"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "Phase-decomposition style is systematic and consistent across all exploration classes — each multi-step algorithm is split into named private helpers at the same granularity, making the calling flow read as a readable recipe",
+        "Guard clauses are applied early and uniformly across all query-dispatch methods, keeping happy-path logic unindented and intention-clear",
+        "Internal data carriers use Java records throughout (CollocateSearch, HitRecord, SeedCollocateData, AggregatedCollocateStats, etc.), keeping state mutation explicit, local, and non-shared",
+        "CollocateQueryHelper.collectHits and scoreHits separate I/O-heavy hit iteration from pure scoring in two clearly-named phases with matching Javadoc rationale — proportionate extraction that pays for itself"
+      ],
+      "issue_character": "Issues are isolated redundancies (a double method call, near-identical CLI helpers) rather than systemic local complexity — they represent small missed simplifications rather than a recurring design problem.",
+      "score_rationale": "The codebase performs strongly at the local level: function internals are concise, extraction is balanced, guard patterns are systematic, and internal data-carrier records are used consistently and appropriately. The two identified issues (double buildFullPattern call in ConcordanceHandlers and duplicate parseIntParam/parseDoubleParam structure in Main) are both small and local, without cascading impact. Against the global anchor of 80 ('developer regularly encounters local complexity that makes functions harder to follow'), this codebase sits above that threshold — friction is infrequent and non-pervasive. The score lands at 83: solid but not exemplary, held back by a handful of missed simplifications rather than structural problems."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "concordance_double_pattern_build",
+      "summary": "buildFullPattern called twice with identical args in ConcordanceHandlers non-fallback branch",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "Lines 60-62: results = executor.executeBcqlQuery(RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()), req.top()); followed immediately by bcqlQuery = RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()); — identical arguments, no memoization"
+      ],
+      "suggestion": "Hoist the pattern to a local variable before the if/else: `String bcqlQuery; if (!fallback) { bcqlQuery = RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate()); results = executor.executeBcqlQuery(bcqlQuery, req.top()); } else { ... }` — eliminates the redundant call and makes the assignment structure symmetric with the fallback branch.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "main_cli_parser_duplication",
+      "summary": "parseIntParam and parseDoubleParam in Main are structurally identical helpers differing only in parse method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "parseIntParam (lines ~255-265) and parseDoubleParam (lines ~267-277) share identical structure: null-guard returning defaultValue, try-parse, catch NumberFormatException printing to stderr + System.exit(1), and throw AssertionError — the only differences are Integer.parseInt vs Double.parseDouble and the word 'integer' vs 'number' in the error message"
+      ],
+      "suggestion": "Extract a single generic helper `parseParam(Map<String,String> params, String option, String typeName, java.util.function.Function<String,?> parser, T defaultValue)` and call it from both, or inline the error message into a shared `failWithMessage(String option, String val, String typeName)` helper to eliminate the structural repetition. If keeping both methods, at minimum factor out the error-and-exit behaviour into a private `exitWithParseError(String option, String val, String typeName)` method.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The two issues are independent one-off oversights rather than symptoms of a shared root cause — no structural root cause hypothesis needed"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

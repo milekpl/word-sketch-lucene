@@ -1,0 +1,82 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 18,
+  "assessments": {"api_surface_coherence": 68.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "CorpusQueryHandlers.handleCorpusQuery catches `InvalidQuery | IllegalArgumentException` inline at line 50 and calls HttpApiUtils.sendError(400) directly, bypassing the wrapWithErrorHandling contract used by every other handler. This means RuntimeException and unhandled IOException paths in that handler silently escape to the JDK HTTP server's unchecked handler rather than returning a JSON error body.",
+        "ExplorationService.exploreByPattern takes 4 positional params: (String seed, RelationConfig, ExplorationOptions, int reverseExpansionLimit), while exploreMultiSeed takes 3: (Set<String> seeds, RelationConfig, ExplorationOptions). The extra positional int breaks the symmetry of the service interface — reverseExpansionLimit is semantically an option and could live in ExplorationOptions alongside topCollocates/minLogDice/minShared.",
+        "ExplorationOptions.java Javadoc (line 8) explicitly references a SingleSeedExplorationOptions type that does not exist in the codebase. The actual code passes reverseExpansionLimit as a positional parameter, so the documented design intent and the implemented API are misaligned.",
+        "All five handler constructors accept their dependencies in consistent order (service/executor first, GrammarConfig second) and all public handler methods follow the same `void handle*(HttpExchange) throws IOException` signature — uniform pattern across SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, and VisualizationHandlers.",
+        "HttpApiUtils.requireParam, parseIntParam, and parseDoubleParam provide consistent parameter extraction with a shared validation and error-throwing contract; all query-string parsing across all handlers flows through these helpers.",
+        "buildExploreResponseEnvelope in ExplorationHandlers centralises response structure for the three exploration endpoints (explore, explore-multi, compare), giving them consistent status/parameters/seeds envelope shapes.",
+        "QueryExecutor.executeCollocations embeds the lemma as a separate first parameter while executeSurfacePattern embeds the lemma inside the bcqlPattern string itself — the two collocate-lookup methods follow different calling conventions, requiring callers to understand which convention applies to each."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Handler separation by concern (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) gives the HTTP layer a flat, predictable shape — each handler class is responsible for a single endpoint group.",
+        "wrapWithErrorHandling establishes a clear, uniform error contract for the vast majority of endpoints: IAE → 400, IOException → 500, RequestEntityTooLargeException → 413, all returning JSON bodies.",
+        "Shared HttpApiUtils.requireParam / parseIntParam / parseDoubleParam helpers enforce a single validation-and-error convention across all query-string parameter extraction.",
+        "buildExploreResponseEnvelope centralises the response envelope (status, parameters sub-map, variant fields) across three related exploration endpoints, keeping their response shapes consistent.",
+        "ExplorationService, QueryExecutor, and GrammarConfig are injected through constructor parameters in all handlers; no hidden service locator or global state in the public API surface."
+      ],
+      "issue_character": "The issues are not widespread but are structurally significant at the service-interface boundary: one handler breaks the uniform error contract by catching exceptions inline, and the single-seed exploration API has an asymmetric positional parameter that the codebase's own documentation flagged as a planned refactor (SingleSeedExplorationOptions) that was never completed.",
+      "score_rationale": "The HTTP API layer is well-structured with consistent handler patterns, shared utilities, and documented error contracts — this pushes the score toward the 70s. Two concrete gaps pull it back: CorpusQueryHandlers.handleCorpusQuery silently bypasses wrapWithErrorHandling for InvalidQuery exceptions, creating a hole in the error contract for the /api/bcql endpoint; and ExplorationService.exploreByPattern's positional int reverseExpansionLimit breaks the symmetry with the multi-seed and comparison methods that bundle all options in ExplorationOptions. The ExplorationOptions Javadoc even references SingleSeedExplorationOptions as the intended fix, making this a known incomplete refactor at the public service boundary. These two issues are localised but affect the reliability and developer-comprehension of the API contract at meaningful boundaries, warranting a score in the upper-60s rather than the low-80s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "corpus_query_inline_catch_bypasses_error_contract",
+      "summary": "CorpusQueryHandlers.handleCorpusQuery catches InvalidQuery inline instead of delegating to wrapWithErrorHandling, breaking the uniform error contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "Lines 48-52: `try { ... } catch (InvalidQuery | IllegalArgumentException e) { HttpApiUtils.sendError(exchange, 400, ...); }` — handler catches and responds directly",
+        "All other handlers (SketchHandlers, ExplorationHandlers, ConcordanceHandlers) throw IllegalArgumentException and let the wrapWithErrorHandling wrapper in WordSketchApiServer produce the JSON error body",
+        "The inline catch means unhandled RuntimeException subtypes and unexpected IOException paths in handleCorpusQuery will surface as unformatted JDK HTTP server errors rather than JSON 500 responses, diverging from every other endpoint's behaviour"
+      ],
+      "suggestion": "Remove the try/catch from handleCorpusQuery; let BlackLab's InvalidQuery propagate. In wrapWithErrorHandling in HttpApiUtils add `InvalidQuery` (which extends RuntimeException) to the existing catch hierarchy, or re-throw it as an IllegalArgumentException in the executor. This restores the uniform error contract across all endpoints.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_by_pattern_positional_int_breaks_service_symmetry",
+      "summary": "ExplorationService.exploreByPattern takes a positional int reverseExpansionLimit while multi-seed and comparison methods use only ExplorationOptions, leaving an asymmetric and incomplete public service interface",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationService.java line 38: `int reverseExpansionLimit` is a 4th positional parameter to exploreByPattern, absent from exploreMultiSeed and compareCollocateProfiles signatures",
+        "ExplorationOptions.java lines 8-9: Javadoc explicitly notes 'Single-seed exploration uses SingleSeedExplorationOptions, which adds the reverseExpansionLimit parameter' — but no such class exists in the codebase",
+        "ExplorationHandlers.java line 67: `semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts, nounsPerSeed)` — the HTTP layer must pass this as a raw int, requiring it to know about the single-seed vs multi-seed distinction at call-site"
+      ],
+      "suggestion": "Create the SingleSeedExplorationOptions record (extending or wrapping ExplorationOptions with reverseExpansionLimit) that the Javadoc already describes, and update ExplorationService.exploreByPattern to accept it. This aligns the implemented API with the stated design intent and makes all three service methods accept their options through a typed options object.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The inline catch in CorpusQueryHandlers appears to have been added when the BCQL endpoint was introduced, without re-checking the established wrapWithErrorHandling pattern already in use.",
+      "SingleSeedExplorationOptions was planned (documented in ExplorationOptions) but never implemented, leaving a known inconsistency at the ExplorationService boundary."
+    ],
+    "likely_symptoms": [
+      "explore_by_pattern_positional_int_breaks_service_symmetry"
+    ],
+    "possible_false_positives": []
+  }
+}

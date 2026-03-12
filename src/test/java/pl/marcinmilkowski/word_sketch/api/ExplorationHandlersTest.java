@@ -7,7 +7,7 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
 import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
-import pl.marcinmilkowski.word_sketch.model.exploration.Edge;
+import pl.marcinmilkowski.word_sketch.viz.Edge;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;

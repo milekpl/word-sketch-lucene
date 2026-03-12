@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.api.RadialPlot;
+import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 
 import java.io.IOException;

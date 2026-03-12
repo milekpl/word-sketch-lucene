@@ -1,0 +1,77 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 19,
+  "assessments": {"authorization_consistency": 76.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer Javadoc explicitly documents the security model: 'the server binds exclusively to the loopback address (127.0.0.1) so it is never exposed on any external network interface. All endpoints are unauthenticated — access control is provided by the host firewall and the loopback-only bind.'",
+        "HttpApiUtils.setCorsHeader() is called in every response-sending method (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse), ensuring consistent CORS policy across all endpoints.",
+        "The cors.allow.origin system property can be overridden to '*' at runtime — a warning is logged but the widened trust boundary is applied uniformly to all endpoints with no per-endpoint guard.",
+        "Input validation (requireParam, parseIntParam, parseDoubleParam, MAX_PARAM_LENGTH) is applied consistently across all handler classes: ConcordanceHandlers, CorpusQueryHandlers, ExplorationHandlers, SketchHandlers.",
+        "The /api/bcql POST endpoint accepts arbitrary BCQL corpus queries (up to MAX_BCQL_PATTERN_LENGTH=1024 chars and MAX_BCQL_BRACKET_DEPTH=20 token constraints) — this is the most privileged endpoint but receives the same trust level (none) as read-only sketch endpoints. No rate limiting or additional scrutiny is applied.",
+        "No auth middleware, decorators, permission constants, or role checks exist anywhere in the codebase — the design is uniformly open within the loopback trust boundary."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "The security model is explicitly and accurately documented in the WordSketchApiServer Javadoc, including a clear warning that any change to the bind address requires an added auth layer.",
+        "CORS policy is uniformly applied via a single setCorsHeader() helper called inside every response-sending method — there is no sibling endpoint that escapes the CORS gate.",
+        "Input validation helpers (requireParam, parseIntParam, MAX_PARAM_LENGTH, readBodyWithSizeLimit) are used consistently across all five handler classes, so no endpoint accepts user input without length/type checks.",
+        "Loopback-only binding (InetAddress.getLoopbackAddress()) is enforced in start() with no configuration path to override it from outside the codebase."
+      ],
+      "issue_character": "The issues are not inconsistency within an existing auth scheme but rather an absence of differentiation between read-only and mutating/privileged endpoints, plus a runtime trust-boundary expansion path via the cors.allow.origin system property that is applied uniformly (consistently) but without per-endpoint safeguards.",
+      "score_rationale": "The codebase scores above a mid-range baseline because the authorization posture is fully intentional and uniformly applied: every endpoint is unauthenticated, the loopback binding is enforced, and this design is clearly documented. Against the global anchor of 80 (solid but uneven), this falls slightly below because the /api/bcql endpoint — which executes arbitrary corpus queries against the index — receives identical trust treatment as read-only sketch endpoints, and the cors.allow.origin='*' override path has no per-endpoint mitigation. These are not inconsistencies in a multi-tier auth scheme (the skip rules cover that), but they are missed opportunities to add minimal differentiation at the lowest-cost tier (localhost-scoped query caps or CORS origin validation at startup rather than per-request warn-and-continue). The score of 76 reflects a coherent, documented, and consistently applied security model that lacks depth of defence at the points of highest exposure."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_wildcard_runtime_override",
+      "summary": "cors.allow.origin system property can be set to '*' at runtime, widening the browser trust boundary across all endpoints with only a logged warning and no startup validation",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "setCorsHeader() reads System.getProperty(\"cors.allow.origin\", DEFAULT_CORS_ALLOW_ORIGIN) on every call",
+        "When the value is \"*\", it only logs a warning: 'cors.allow.origin is set to \"*\" — this widens the browser trust boundary across all endpoints'",
+        "The warning is emitted on every response, not once at startup, so it appears in logs continuously rather than as a one-time misconfiguration alert",
+        "No validation or rejection of the '*' value occurs at server start, so a misconfigured deployment silently widens CORS to all origins for all endpoints including /api/bcql"
+      ],
+      "suggestion": "Validate the cors.allow.origin property once in WordSketchApiServer.start() or a static initializer in HttpApiUtils; throw IllegalStateException or log a single WARN with a 5-second startup delay when the value is '*'. This turns a silent per-request log noise into a one-time, hard-to-miss misconfiguration signal.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "bcql_no_rate_or_complexity_differentiation",
+      "summary": "The /api/bcql endpoint, which executes arbitrary index queries, has the same access controls as read-only sketch endpoints despite being the highest-risk path in the API",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "registerPostHandler(server, \"/api/bcql\", ...) in WordSketchApiServer applies the same wrapWithErrorHandling wrapper as all GET endpoints — no additional gate",
+        "parseBcqlRequest validates pattern length (MAX_BCQL_PATTERN_LENGTH=1024) and bracket depth (MAX_BCQL_BRACKET_DEPTH=20) but these limits are significantly larger than what any built-in endpoint needs",
+        "There is no request logging, audit trail, or IP-source check that would distinguish /api/bcql calls from /health calls in production logs",
+        "Sketch endpoints construct queries internally from validated lemma/relation inputs; /api/bcql passes user-supplied pattern strings directly to executor.executeBcqlQuery after only syntactic length checks"
+      ],
+      "suggestion": "Add a structured audit log entry for every /api/bcql invocation (at INFO level, logging the pattern and request source) and consider tightening MAX_BCQL_PATTERN_LENGTH/MAX_BCQL_BRACKET_DEPTH to values matching actual UI use cases. For any future non-loopback deployment, mark /api/bcql as requiring an explicit opt-in flag (e.g., --enable-bcql-endpoint) to prevent accidental exposure.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The server is a personal research tool designed for single-user localhost use; authorization was consciously omitted rather than overlooked, which leads to consistent but shallow defence.",
+      "The CORS and trust-boundary decisions are made at the utility layer (HttpApiUtils) rather than at registration time (WordSketchApiServer), so per-endpoint differentiation requires reaching across the abstraction boundary."
+    ],
+    "likely_symptoms": ["cors_wildcard_runtime_override"],
+    "possible_false_positives": []
+  }
+}

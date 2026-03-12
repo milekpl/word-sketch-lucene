@@ -1,0 +1,89 @@
+{
+  "batch": "ai_generated_debt",
+  "batch_index": 6,
+  "assessments": {"ai_generated_debt": 78.0},
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "SketchHandlers.handleSurfaceRelations and handleDepRelations are single-line pass-through wrappers: each does nothing but forward (exchange, RelationType.X) to handleRelationsForType — no auth, logging, or transformation added",
+        "GrammarConfigLoader.createDefaultEnglish() duplicates the exact try/catch/IllegalStateException pattern from createDefaultEnglish(String configPath) instead of delegating to it; zero-arg overload could be a one-liner calling the string overload",
+        "VisualizationHandlers.handleVisualRadial logs the full request body at debug level: logger.debug(\"Radial: body = {}\", body) — body can be several kilobytes of JSON; this is a nosy object-dump pattern, even if benign at debug level",
+        "GrammarConfigLoader.fromReader Javadoc includes a trivial usage example (try (Reader r = new StringReader(jsonContent)) { GrammarConfigLoader.fromReader(r); }) that restates the method signature without adding information — the method purpose is self-evident from the signature"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "ai_generated_debt": {
+      "strengths": [
+        "Javadoc comments throughout explain design decisions and WHY, not just WHAT — e.g. HttpApiUtils class-level Javadoc explains why response and parameter concerns coexist in one class rather than restating what the methods do",
+        "Method names are consistently domain-specific: executeDependencyPattern, exploreByPattern, resolveRelationAlias, deriveTokenPosition — no generic handleData or processItem placeholders in domain code",
+        "Error handling is centralised in wrapWithErrorHandling rather than copy-pasted into every route handler — the codebase resists the boilerplate-duplication pattern",
+        "No entry/exit logging on methods; logging is present only where state changes or warnings are meaningful (e.g. skipping a malformed relation, CORS wildcard warning)",
+        "SemanticFieldExplorer class Javadoc provides a worked algorithm example with concrete output — this is domain explanation, not code restatement"
+      ],
+      "issue_character": "Issues are isolated and structural rather than pervasive: a pair of trivially thin pass-through wrappers, one case of duplicated exception handling that could delegate, and one nosy debug log dumping a full request body — the pattern is 'AI-generated convenience skeletons left unfactored' rather than systemic commentary bloat or defensive overengineering.",
+      "score_rationale": "The codebase mostly avoids the canonical AI-debt hallmarks: comments explain reasoning rather than restating code, names are domain-anchored, and there is no defensive null-checking of typed values or copy-pasted error handling across the whole codebase. The deductions come from three localised issues: two literal one-line pass-through wrappers (handleSurfaceRelations/handleDepRelations), one case of duplicated try/catch boilerplate between the two createDefaultEnglish overloads that should have been a delegation, and one full-body debug dump. These are real but narrow problems confined to a single handler class and one loader method. The overall quality sits solidly in the 'solid but uneven' band — strong in most places, with a handful of unfactored conveniences that match typical LLM-generated skeleton patterns."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "passthrough_relation_wrappers",
+      "summary": "handleSurfaceRelations and handleDepRelations are pure pass-through wrappers with no added logic",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "handleSurfaceRelations(HttpExchange) is a single-line method that calls handleRelationsForType(exchange, RelationType.SURFACE) with no other logic",
+        "handleDepRelations(HttpExchange) is a single-line method that calls handleRelationsForType(exchange, RelationType.DEP) with no other logic",
+        "Neither wrapper adds auth, logging, transformation, or any contract beyond forwarding arguments — they exist solely as named aliases for the type constant"
+      ],
+      "suggestion": "Eliminate the wrappers: in WordSketchApiServer route registration, pass lambdas directly — e.g. exchange -> sketchHandlers.handleRelationsForType(exchange, RelationType.SURFACE) — or make handleRelationsForType package-accessible and route to it directly. If caller-visible stable method names are needed for testability, document that explicitly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "duplicate_exception_handling_default_english",
+      "summary": "createDefaultEnglish() duplicates the try/catch/IllegalStateException pattern from createDefaultEnglish(String) instead of delegating",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "createDefaultEnglish(String configPath) at line 223 has a try block catching FileNotFoundException and IOException, wrapping both in IllegalStateException",
+        "createDefaultEnglish() at line 252 contains an identical try/catch structure with the same exception types and the same wrapping strategy, differing only in appending 'Set -Dgrammar.config=<path> to override.' to the messages",
+        "The zero-arg overload resolves a system property then could simply call createDefaultEnglish(resolvedPath) with the suffix appended in the message — duplicating the entire catch block is unnecessary"
+      ],
+      "suggestion": "Refactor the zero-arg overload to delegate: resolve the system property, then call createDefaultEnglish(path), catching IllegalStateException to append the -Dgrammar.config override hint. Or add a private helper that performs the load-and-wrap with a caller-supplied hint string, eliminating the duplication.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "nosy_debug_body_dump",
+      "summary": "VisualizationHandlers dumps the full request body at debug level on every radial request",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"],
+      "evidence": [
+        "Line 55: logger.debug(\"Radial: body = {}\", body) — body is the complete JSON request body, potentially several kilobytes",
+        "Line 64: logger.debug(\"Radial: center = {}\", center) — a second debug log immediately after for a single extracted field, redundant given the body is already logged",
+        "No other HTTP handlers in the package log the full request body; this is an isolated remnant of exploratory debugging"
+      ],
+      "suggestion": "Remove both debug log statements. If body-level tracing is needed during development, replace with a size-bounded summary: logger.debug(\"Radial: body size={} bytes, center={}\", body.length(), center) to avoid dumping arbitrary user data into logs.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Convenience skeleton generation: pass-through wrappers and duplicated try/catch blocks are typical artifacts of LLM-generated scaffolding that was not subsequently refactored into proper delegation",
+      "Debug instrumentation left in place: the radial body dump reads like exploratory printf-debugging that was never removed after the endpoint was verified working"
+    ],
+    "likely_symptoms": [
+      "passthrough_relation_wrappers",
+      "nosy_debug_body_dump"
+    ],
+    "possible_false_positives": []
+  }
+}

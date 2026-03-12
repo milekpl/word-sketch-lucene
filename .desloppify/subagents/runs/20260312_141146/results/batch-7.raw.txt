@@ -1,0 +1,55 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 7,
+  "assessments": {"incomplete_migration": 88.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "GrammarConfigLoader.java:127-135 has a `validateNoLegacyKeys` guard that explicitly rejects the old 'copulas' key with a helpful migration message, showing completed cleanup of one old API pattern.",
+        "GrammarConfigLoader.java:164: comment '// Canonical field name is \"pattern\"; cql_pattern is no longer supported' documents a completed field rename, but unlike 'copulas' there is no guard that catches someone accidentally using 'cql_pattern' — they receive the opaque error 'has no pattern field' instead of a helpful redirect.",
+        "WordSketchApiServer.java:53: '// TODO: migrate to Undertow or Jetty if a multi-module build or custom classloader is needed' — the TODO is explicitly gated on a future need that has not arisen; the adjacent comment explains the current choice is intentional ('Used intentionally for zero external runtime deps').",
+        "GrammarConfigLoader.java exposes two `createDefaultEnglish` overloads: the zero-arg variant uses a hidden system-property lookup (`-Dgrammar.config`) and the Javadoc for the String-arg overload says it 'avoids the hidden system-property dependency of createDefaultEnglish()'. Both remain public; Main.java still calls the zero-arg version — not a migration blockage but a mild API surface tension.",
+        "No @deprecated annotations exist anywhere in production source; no mixed JS/TS files; no moment/dayjs, axios/fetch, or class/functional component coexistence patterns."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The 'copulas' key migration is fully complete and guarded: `validateNoLegacyKeys` rejects configs containing the old key with a clear, actionable message pointing to the new pattern.",
+        "No deprecated symbols are actively called: there are no @deprecated annotations anywhere in production code and no evidence of old APIs being invoked by active paths.",
+        "The codebase is uniformly pure Java — no mixed JS/TS files, no competing HTTP-client or date-library generations, no class vs functional component split.",
+        "The 'cql_pattern → pattern' field rename is complete in all production config and code; the comment on GrammarConfigLoader:164 documents the completed rename cleanly."
+      ],
+      "issue_character": "The single substantive issue is a minor asymmetry in legacy-key guarding: the 'copulas' migration has a catch-and-redirect guard while the 'cql_pattern' rename does not, producing a confusing error for any operator who migrates a config file from an old format. Everything else is benign: a conditional TODO that is explicitly gated on a future need and two coexisting overloads of `createDefaultEnglish` where both remain valid but one is now preferred.",
+      "score_rationale": "This codebase scores well on the incomplete_migration dimension because there are no genuinely coexisting old-and-new API surfaces, no deprecated-but-called symbols, and no stale migration shims. The main deduction is the missing guard for `cql_pattern` in GrammarConfigLoader — the migration away from that field name is complete, but a user arriving with an old config file will get a confusing 'no pattern field' error rather than 'cql_pattern is no longer supported'. That is a minor diagnostic gap, not an incomplete migration. The conditional TODO in WordSketchApiServer and the two `createDefaultEnglish` overloads are design notes rather than migration debt. Placing the score at 88 rather than 90+ reflects the single missing guard and the mild `createDefaultEnglish` API surface tension."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "missing_cql_pattern_guard",
+      "summary": "Completed 'cql_pattern → pattern' field rename has no guard, giving a confusing error when old config key is used",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Line 164: '// Canonical field name is \"pattern\"; cql_pattern is no longer supported' — documents a completed rename but provides no rejection guard.",
+        "Lines 165-168: if `pattern` is null/blank, the error thrown is 'has no \"pattern\" field — every relation must have a BCQL pattern', which gives no hint that the caller may have used the old `cql_pattern` key.",
+        "By contrast, lines 127-134 demonstrate the expected pattern: `validateNoLegacyKeys` explicitly checks for the old 'copulas' key and throws a message that names the old key and explains the migration path."
+      ],
+      "suggestion": "Add `cql_pattern` to `validateNoLegacyKeys` (or add a sibling check inside `parseRelation`) that detects a `cql_pattern` field and throws an `IllegalArgumentException` with a message explaining the rename, e.g. 'Relation \\'%s\\' uses the old key \"cql_pattern\" — rename it to \"pattern\".' This mirrors the existing 'copulas' guard pattern.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Migrations appear to have been executed incrementally and the 'copulas' guard was added as a later hardening step; the 'cql_pattern' rename predated that practice and was never back-filled with a guard."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

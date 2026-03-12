@@ -1,0 +1,124 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 20,
+  "assessments": {"design_coherence": 75.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "Layer separation is explicit and consistent: api/ owns HTTP concerns, exploration/ owns algorithms, query/ owns corpus access, config/ owns grammar data, model/ owns DTOs — no layer bleeds into another.",
+        "ExploreResponseAssembler is a focused translation class with no state: all model-to-JSON conversion lives here, keeping ExplorationHandlers and ExplorationResult free of presentation concerns.",
+        "RelationPatternUtils is extracted from RelationConfig so the record stays a plain data carrier — a textbook separation of data and computation.",
+        "SemanticFieldExplorer has a documented dual role: it owns the single-seed algorithm directly AND acts as a coordination facade for MultiSeedExplorer and CollocateProfileComparator. This makes it larger than the consistently-scoped algorithm classes beside it.",
+        "buildExploreResponseEnvelope in ExplorationHandlers takes two Map<String,Object> parameters (paramExtras, variantFields) that differ only in where their entries land (inside 'parameters' sub-map vs top-level). The distinction is non-obvious from the signature and the Javadoc comment is required to understand the contract.",
+        "handleSemanticFieldExamples builds its own response map with 8 manual put() calls rather than delegating to buildExploreResponseEnvelope, while the other three handlers in the same class use the shared envelope builder — an asymmetry with no documented rationale.",
+        "GrammarConfigLoader exposes four loading methods with two different exception contracts: load(Path) and fromReader(Reader) throw checked IOException; createDefaultEnglish(String) and createDefaultEnglish() wrap IOException in RuntimeException. Callers must check which variant they hold to know what to catch.",
+        "CollocateQueryHelper is package-private and cleanly scoped to the query package, with a no-arg protected constructor as an explicit testing seam — good design hygiene.",
+        "SketchHandlers.routeSketchRequest dispatches on path parts by splitting a string and checking array indices. This is brittle if the URL structure changes, but it is contained in one method and the routing table is small.",
+        "ExplorationService interface bundles four operations (single-seed explore, multi-seed explore, compare, fetch examples) with a shared Javadoc rationale explaining why they are co-located. The grouping is deliberate and explained."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Layer boundaries are sharp and consistently enforced: HTTP concerns, algorithm logic, corpus access, grammar config, and DTOs each live in their own package with no cross-cutting leakage.",
+        "Data/computation separation is applied correctly in the config package: RelationConfig is a pure record, RelationPatternUtils owns all pattern-building logic, GrammarConfig owns all config queries — no mixing.",
+        "Response-assembly concerns are centralised in ExploreResponseAssembler, keeping handler classes free of serialization logic and making response shape changes single-site.",
+        "CollocateQueryHelper and MultiSeedExplorer are well-scoped extractions: each owns exactly one algorithmic concern and is not asked to do more.",
+        "ExplorationService's interface boundary is stable and its rationale is documented — the HTTP layer depends on the interface, not the implementation, enabling the implementation split across SemanticFieldExplorer/MultiSeedExplorer/CollocateProfileComparator."
+      ],
+      "issue_character": "Issues are isolated and localized: no systemic layer violation or global structural problem, but a small cluster of incoherences in one handler class (asymmetric response building, awkward two-map parameter) and one configuration class (mixed exception contracts across loading methods), plus one class with a documented but unresolved dual-role tension.",
+      "score_rationale": "The architecture is fundamentally sound — the layer separation, data/logic split, and extraction of focused helpers all demonstrate deliberate design thinking that a developer would notice and appreciate. The incoherences that exist (SemanticFieldExplorer's dual role, the envelope parameter ambiguity, GrammarConfigLoader's mixed exception contract, handleSemanticFieldExamples's inline response building) are real but all localised to specific classes rather than indicative of a structural pattern problem. This places the codebase above the 60 'significant drag' anchor and close to the 80 'solid but uneven' anchor, docking a few points for the cluster of coherence issues in the exploration layer API surface."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "semantic_field_explorer_dual_role",
+      "summary": "SemanticFieldExplorer is both an algorithm owner and a coordination facade, breaking the pattern established by MultiSeedExplorer and CollocateProfileComparator",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer owns the full single-seed exploration algorithm (exploreByPattern with helpers fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) while simultaneously delegating multi-seed to MultiSeedExplorer and comparison to CollocateProfileComparator.",
+        "The class Javadoc explicitly labels this 'coordination facade for the HTTP exploration layer' while also describing it as the owner of the single-seed algorithm — two responsibilities named in one sentence.",
+        "MultiSeedExplorer and CollocateProfileComparator each have a single focused responsibility; extracting a SingleSeedExplorer (parallel to MultiSeedExplorer) would make SemanticFieldExplorer a pure facade and restore consistency."
+      ],
+      "suggestion": "Extract the single-seed algorithm (exploreByPattern and its helpers fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) into a new package-private SingleSeedExplorer class, mirroring MultiSeedExplorer. SemanticFieldExplorer then becomes a thin facade that wires and delegates to all three algorithm classes.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incremental_extraction"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "explore_envelope_two_map_params",
+      "summary": "buildExploreResponseEnvelope takes two Map<String,Object> parameters whose difference (inner vs top-level placement) is not evident from the signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Method signature: buildExploreResponseEnvelope(String relationType, CommonExploreParams params, Map<String,Object> paramExtras, Map<String,Object> variantFields) — paramExtras go inside the 'parameters' sub-map; variantFields go at the top level. This placement difference is invisible at the call site.",
+        "All three callers pass Map.of() literals inline, making the intent hard to read: e.g. Map.of(\"nouns_per\", nounsPerSeed) vs Map.of(\"seed\", result.seed()) with no structural cue distinguishing them.",
+        "The Javadoc explains the difference but a developer reading a call site cannot determine which map goes where without tracing into the method."
+      ],
+      "suggestion": "Replace the two-map parameter pair with a simple record or builder: record ExploreEnvelopeSpec(Map<String,Object> innerParams, Map<String,Object> topLevelFields). Alternatively, move the caller-specific fields into named parameters (e.g. a nullable String seedParam, a nullable List<String> seedsParam) so the method signature encodes the placement intent explicitly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "parameter_list_smell"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "examples_handler_inline_response",
+      "summary": "handleSemanticFieldExamples builds its response map with 8 inline put() calls while the other three handlers in the same class use buildExploreResponseEnvelope",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore, handleSemanticFieldExploreMulti, and handleSemanticFieldComparison all call buildExploreResponseEnvelope to construct the response skeleton.",
+        "handleSemanticFieldExamples instead creates a new HashMap and manually calls response.put() 8 times (status, collocate, seed, relation, bcql, top, examples, total_results) with no shared helper.",
+        "The examples response structure is genuinely different (no 'parameters' sub-map, different fields), but the asymmetry is not documented and violates the pattern a developer would expect when reading the class."
+      ],
+      "suggestion": "Either document in the method Javadoc why this handler intentionally does not use buildExploreResponseEnvelope (the different response shape), or extract a lightweight buildExamplesResponseEnvelope helper to make the divergence explicit rather than silently inconsistent.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "incremental_extraction"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "grammar_config_loader_mixed_exception_contract",
+      "summary": "GrammarConfigLoader exposes four loading methods with two incompatible exception contracts: two throw checked IOException, two wrap it in RuntimeException",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "load(Path) and fromReader(Reader) both declare throws IOException — callers must handle the checked exception.",
+        "createDefaultEnglish(String) and createDefaultEnglish() both catch IOException and rethrow as IllegalStateException — callers get a runtime exception with no checked-exception obligation.",
+        "The Javadoc explains this as a 'two-tier exception contract' but a developer discovering the class for the first time must read all four method signatures to understand which contract applies when. The class name gives no hint that two of its methods behave fundamentally differently from the other two."
+      ],
+      "suggestion": "Consolidate to one contract per class: keep load(Path) and fromReader(Reader) as the canonical checked-exception API, and move createDefaultEnglish() variants to a separate GrammarConfigFactory or make them static factories on a distinct startup-utilities class. This gives each class a uniform, predictable exception contract.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "mixed_api_contract"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental extraction: MultiSeedExplorer and CollocateProfileComparator were extracted from SemanticFieldExplorer as the codebase grew, but the extraction was not completed — leaving SemanticFieldExplorer as a hybrid rather than a pure facade.",
+      "Exception wrapping added for convenience at call sites without a policy decision about where in the class hierarchy the wrapping boundary should live, resulting in GrammarConfigLoader providing both checked and unchecked variants."
+    ],
+    "likely_symptoms": [
+      "semantic_field_explorer_dual_role — the class is large but the root cause is dual responsibility, not incidental growth.",
+      "examples_handler_inline_response — a symptom of the handler growing a new endpoint without refactoring the shared helper to cover it."
+    ],
+    "possible_false_positives": []
+  }
+}

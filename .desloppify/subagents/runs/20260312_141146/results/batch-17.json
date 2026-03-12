@@ -1,0 +1,88 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 17,
+  "assessments": {"test_strategy": 68.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "274 @Test methods across 36 test files covering api, exploration, query, config, indexer, utils, and viz packages",
+        "StubQueryExecutor (shared base stub), TestExchangeFactory.MockExchange, and GrammarConfigHelper are dedicated test-infrastructure classes used consistently across tests — no ad-hoc duplication",
+        "BlackLabQueryExecutorTest and BlackLabQueryExecutorIntegrationTest both carry @Disabled on their live-index nested class/test; the real Lucene query path is never exercised in CI",
+        "BlackLabIntegrationTest is a CI-compatible integration test that exercises XML parsing → collocate extraction → logDice ranking using a StubCollocateHelper subclass — a well-designed substitute, but it bypasses BlackLabQueryExecutor entirely",
+        "WordSketchApiServerTest starts a real HTTP server on port 18080 and verifies route routing, but always uses the empty StubQueryExecutor, so no non-trivial data flow through the full pipeline is ever verified",
+        "ExplorationHandlersTest and SketchHandlersTest cover both 200 happy-path and 400 error-path for all major endpoints",
+        "SemanticFieldExplorerInternalTest.RecordingExecutor captures CQL pattern strings and asserts that they contain 'NN' — minor coupling to internal pattern construction details",
+        "No Mockito or mock-framework usage anywhere; hand-rolled stubs are decoupled from internal implementation",
+        "No snapshot tests, no timing-dependent assertions, no test-ordering annotations — no fragility patterns"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Shared test infrastructure (StubQueryExecutor, TestExchangeFactory, GrammarConfigHelper) is factored into dedicated classes and reused consistently across all test packages, keeping setup concise",
+        "API handler tests cover both happy-path (200) and all major validation failure (400) cases for every handler class",
+        "BlackLabIntegrationTest exercises the full collocate pipeline (XML snippet parsing → frequency accumulation → logDice ranking) in a CI-safe way without a live index",
+        "No mock-framework coupling; hand-rolled stubs expose only the interface surface and are stable across refactors",
+        "No snapshot tests, no timing dependencies, no test-ordering annotations — the suite has no fragility patterns"
+      ],
+      "issue_character": "The gap is concentrated at one critical layer: the real BlackLabQueryExecutor (Lucene index queries) is permanently @Disabled in CI, so the actual data-retrieval path is never verified outside of a manually configured environment.",
+      "score_rationale": "The test suite is well-organised, uses sound patterns, and achieves good coverage of business logic at the exploration, API, and utility layers — this pushes the score above 60. However, the permanently disabled live-index tests mean the most critical production path (Lucene corpus queries) has zero CI coverage, and the live-server test (WordSketchApiServerTest) only exercises the routing layer with an empty stub, providing no cross-module verification of real data flow. By the rubric, 'critical paths with zero test coverage' is a primary indicator; one such path here is the entire data-retrieval layer, which is a subsystem-level gap that keeps the score from reaching solid territory (80+). A score of 68 reflects a strong unit-testing culture with one significant structural hole."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "disabled_blacklab_integration",
+      "summary": "BlackLabQueryExecutor live-index tests are permanently @Disabled, leaving the core Lucene query path untested in CI",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorTest has a nested @Disabled @DisplayName(\"LiveIndex\") class containing all real-query tests; only the static BCQL-string-building helpers run in CI",
+        "BlackLabQueryExecutorIntegrationTest is a top-level @Disabled class with Assumptions.assumeTrue guards — never runs in standard CI",
+        "BlackLabIntegrationTest is a useful CI-safe substitute but exercises CollocateQueryHelper directly, bypassing BlackLabQueryExecutor and the Lucene open/search lifecycle"
+      ],
+      "suggestion": "Create a lightweight in-memory Lucene index fixture (indexed in @BeforeAll from a small embedded CoNLL-U corpus) to exercise BlackLabQueryExecutor.executeSurfacePattern and executeCollocations without external infrastructure. Remove @Disabled once the fixture is in place; keep Assumptions.assumeTrue only for the real on-disk index path.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_integration_coverage"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "api_server_stub_only",
+      "summary": "WordSketchApiServerTest exercises routing with an empty stub executor — no cross-module integration test verifies real data flows from HTTP request to JSON response",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "STUB_EXECUTOR is a bare StubQueryExecutor returning empty lists/zero for all operations",
+        "All assertions verify only HTTP status codes and top-level JSON keys (status, seed, edges) — no assertion ever checks that non-trivial collocate data is correctly serialised",
+        "No test in the suite wires a non-empty StubQueryExecutor through the full HTTP → handler → exploration → response chain to verify semantic correctness"
+      ],
+      "suggestion": "Add a parametrised integration test that injects a StubQueryExecutor with canned collocate data (e.g., empirical/scientific for seed=theory) and asserts the response body contains the expected collocates, logDice scores, and edge weights — verifying the full serialisation path without a live index.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "missing_integration_coverage"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The live-index dependency for BlackLabQueryExecutor was treated as an all-or-nothing constraint; no embedded-index fixture was introduced to bridge the gap between fully-stubbed unit tests and the disabled real-index tests",
+      "API server tests were written to verify routing/wiring concerns and never extended to cover data-flow correctness, leaving a gap between handler-level unit tests and end-to-end verification"
+    ],
+    "likely_symptoms": [
+      "disabled_blacklab_integration",
+      "api_server_stub_only"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 15,
+  "assessments": {
+    "initialization_coupling": 88.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty(\"grammar.config\", ...) at call time, not at class-load time — fragile-in-testing pattern is explicitly avoided.",
+        "HttpApiUtils.setCorsHeader() reads System.getProperty(\"cors.allow.origin\", ...) at per-request time, not at field initialisation — again correctly deferred.",
+        "No System.getenv() calls anywhere in the codebase — no environment-variable reads at class load time.",
+        "All subsystem dependencies in Main.handleBlackLabServerCommand are wired via explicit constructor injection in a clear, documented order: BlackLabQueryExecutor → GrammarConfig → CollocateProfileComparator → MultiSeedExplorer → SemanticFieldExplorer → WordSketchApiServer.",
+        "Shutdown hook uses AtomicReference<WordSketchApiServer> registered before server construction so the hook always has a consistent reference even if construction throws partway through.",
+        "Three separate static final ObjectMapper instances exist across the codebase: HttpApiUtils.MAPPER (package-private), GrammarConfigLoader.MAPPER (private), GrammarConfigSerializer.MAPPER (private). All are initialised at class-load time. ObjectMapper() construction is pure Java allocation (no I/O, no network), so the side-effect is benign, but the three instances could silently diverge if Jackson module registration or feature flags are ever needed.",
+        "HttpApiUtils.MAPPER is package-private (no private modifier), making it accessible to all classes in the api package and creating an implicit shared-singleton dependency within that package.",
+        "No circular initialisation dependencies found; no lazy/conditional imports masking circular state."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "System property reads (grammar.config, cors.allow.origin) are deferred to call/request time — not baked into class-load-time field initialisers — making them safe to override in tests.",
+        "No environment-variable reads at module scope anywhere in the codebase.",
+        "All inter-service dependencies are wired through explicit constructor injection with no hidden global registries or singletons whose creation order could cause boot-order failures.",
+        "The shutdown hook in Main uses AtomicReference to correctly separate hook registration from server construction, avoiding the race where a partially-constructed graph leaks resources.",
+        "Port binding is explicitly deferred from the WordSketchApiServer constructor to start(), clearly separating object construction from I/O side effects."
+      ],
+      "issue_character": "The only issues present are mild class-load-time allocations (three separate ObjectMapper instances) and one package-private static field; these are not boot-order or import-time coupling problems but rather a duplication / encapsulation concern with limited blast radius.",
+      "score_rationale": "This codebase avoids every pattern the initialization_coupling dimension warns against: no import-time I/O, no env reads at field initialisation, no hidden global singletons, no circular lazy imports. The explicit constructor-injection style throughout Main and the API server makes the boot order obvious and auditable. The only blemish is three separate ObjectMapper statics that are harmless today but could diverge if Jackson configuration is ever customised, and one package-private static that leaks the mapper across the api package. These are minor concerns well below the threshold of a scoring penalty, placing the codebase firmly in the 85–90 band — solid with only superficial rough edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "duplicate_objectmapper_statics",
+      "summary": "Three separate static ObjectMapper instances risk silent serialisation divergence if Jackson is ever configured",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigSerializer.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.java:36: static final ObjectMapper MAPPER = new ObjectMapper();",
+        "GrammarConfigLoader.java:52: private static final ObjectMapper MAPPER = new ObjectMapper();",
+        "GrammarConfigSerializer.java:17: private static final ObjectMapper MAPPER = new ObjectMapper();"
+      ],
+      "suggestion": "Introduce a single shared ObjectMapper in a utility class (e.g. JacksonConfig) and reference it from all three sites. This ensures any future module registration or feature flag is applied consistently and removes the hidden coupling between what looks like independent initialisations.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The three ObjectMapper instances likely grew organically as each subsystem was authored independently with no shared JSON utility layer."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

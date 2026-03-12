@@ -1,0 +1,85 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 13,
+  "assessments": {
+    "error_consistency": 77.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling() provides a uniform top-level boundary for all HTTP handlers: IAE→400, RequestEntityTooLargeException→413, IOException→500, Exception→500.",
+        "CollocateQueryHelper.executeBcqlQuery() and performCollocateSearch() wrap InvalidQuery (a user-input validation failure) as IOException, which wrapWithErrorHandling maps to HTTP 500 instead of 400.",
+        "CorpusQueryHandlers.handleCorpusQuery() contains catch (InvalidQuery | IllegalArgumentException e) → sendError 400, but executor.executeBcqlQuery() always wraps InvalidQuery into IOException before it returns, making the InvalidQuery branch of that catch dead code.",
+        "GrammarConfigLoader uses a documented two-tier contract: throws IOException for I/O, throws IllegalStateException for startup-context callers — clearly intentional and consistent.",
+        "BlackLabSnippetParser null-returning methods are annotated @Nullable throughout; null semantics are explicit and documented.",
+        "RuntimeException in CollocateQueryHelper.getTotalFrequency() is wrapped as IOException to keep the executor interface uniform — intentional but obscures the underlying cause type.",
+        "SketchHandlers.executeRelationQueries() catches IOException per-relation and adds to a relationErrors list rather than aborting — intentional partial-failure pattern, explicitly documented."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "Centralised HTTP error boundary in HttpApiUtils.wrapWithErrorHandling() is applied uniformly to every registered handler, giving predictable HTTP status codes for IAE, IOException, and unexpected exceptions.",
+        "Error context is preserved at every catch-and-rethrow site: all IOException wrappers pass the original exception as cause, maintaining full stack traces.",
+        "GrammarConfigLoader's two-tier contract (IOException for file I/O callers, IllegalStateException for startup/DI callers) is explicitly documented and consistently applied.",
+        "@Nullable annotations on all null-returning parser utilities (BlackLabSnippetParser, CqlUtils) make the absence-vs-error contract explicit and predictable."
+      ],
+      "issue_character": "The core issue is a single structural misclassification: user-supplied BCQL parse failures (InvalidQuery) are wrapped as IOException at the executor boundary, causing client validation errors to surface as HTTP 500 rather than 400 — and producing dead catch code where the API layer tried to correct for it.",
+      "score_rationale": "The codebase has a genuinely well-designed error architecture: a uniform HTTP boundary, consistent cause preservation, and documented multi-tier contracts. A developer navigating error paths would find the top-level and config layers clear and predictable. However, the InvalidQuery→IOException misclassification means that malformed BCQL patterns submitted by clients return 500, and the dead catch in CorpusQueryHandlers shows the inconsistency was noticed but not fully resolved. This places the codebase at the 'solid but uneven' range (80), pulled slightly lower by the concrete downstream impact: callers cannot distinguish server faults from input errors for the BCQL path."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "invalid_query_wrapped_as_ioexception",
+      "summary": "InvalidQuery (user input error) wrapped as IOException causes BCQL parse failures to return HTTP 500 instead of 400",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.executeBcqlQuery() line 243: catch (InvalidQuery e) { throw new IOException(\"BCQL parse error: \" + e.getMessage(), e); }",
+        "CollocateQueryHelper.performCollocateSearch() line 148: same pattern wraps InvalidQuery as IOException",
+        "BlackLabQueryExecutor.executeCqlQuery() line 137: catch (InvalidQuery e) { throw new IOException(\"CQL parse error: \" + e.getMessage(), e); }",
+        "HttpApiUtils.wrapWithErrorHandling() maps IOException → HTTP 500, so any InvalidQuery from user-supplied patterns surfaces as a server error to the client"
+      ],
+      "suggestion": "Distinguish client-error parse failures from server I/O failures at the executor boundary. Either (a) wrap InvalidQuery as IllegalArgumentException (which wrapWithErrorHandling already maps to 400) instead of IOException, or (b) introduce a checked QueryParseException that wrapWithErrorHandling explicitly catches and maps to 400. Option (a) is the minimal change: in CollocateQueryHelper.executeBcqlQuery(), performCollocateSearch(), and BlackLabQueryExecutor.executeCqlQuery(), replace 'throw new IOException(\"...parse error...\", e)' with 'throw new IllegalArgumentException(\"...parse error...\", e)'.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "invalid_query_misclassification"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "dead_invalid_query_catch_in_corpus_handler",
+      "summary": "catch (InvalidQuery | ...) in CorpusQueryHandlers.handleCorpusQuery is dead code — executor always wraps InvalidQuery before returning",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.handleCorpusQuery() line 50: catch (InvalidQuery | IllegalArgumentException e) { sendError(exchange, 400, ...) }",
+        "executor.executeBcqlQuery() → CollocateQueryHelper.executeBcqlQuery() always wraps InvalidQuery into IOException before returning; InvalidQuery never propagates past the executor",
+        "The IOException from the executor (containing wrapped InvalidQuery) is not caught in handleCorpusQuery, so it reaches wrapWithErrorHandling and produces HTTP 500 — the opposite of what the dead catch intended"
+      ],
+      "suggestion": "Remove the InvalidQuery branch from the catch in handleCorpusQuery (or remove the entire try/catch if IAE is also handled by wrapWithErrorHandling). The real fix is the companion issue (invalid_query_wrapped_as_ioexception): once InvalidQuery is re-classified as IAE at the executor boundary, wrapWithErrorHandling will correctly return 400 for all paths, and this local catch becomes unnecessary.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "invalid_query_misclassification"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The QueryExecutor interface declares only throws IOException to keep the contract simple; this forced InvalidQuery (a client-error signal) to be wrapped as IOException at the boundary, erasing the client-vs-server error distinction.",
+      "The api layer tried to compensate with a local InvalidQuery catch, but the wrapping had already happened below, leaving the catch dead."
+    ],
+    "likely_symptoms": ["dead_invalid_query_catch_in_corpus_handler"],
+    "possible_false_positives": []
+  }
+}

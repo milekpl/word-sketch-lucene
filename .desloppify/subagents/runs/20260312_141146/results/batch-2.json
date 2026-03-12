@@ -1,0 +1,76 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {"abstraction_fitness": 74.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has one production implementation (BlackLabQueryExecutor) and one test stub (StubQueryExecutor). The Javadoc explicitly acknowledges this as a 'testability seam rather than an abstraction boundary' and defers a possible split to 'a second implementation or clearer isolation need' — honest and documented.",
+        "ExplorationService interface similarly has one production implementation (SemanticFieldExplorer). Its Javadoc justifies bundling three exploration modes because they 'share the same underlying corpus-query infrastructure and are presented as one coherent feature surface to the HTTP layer' — again explicitly acknowledged.",
+        "SemanticFieldExplorer.exploreMultiSeed (line 434) is a single-line delegation: `return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts)`. SemanticFieldExplorer.compareCollocateProfiles is similarly `return comparator.compareCollocateProfiles(seeds, opts)`. Two of four ExplorationService methods are pure pass-throughs to collaborator objects, creating an extra indirection hop without transformation. The Javadoc calls this a 'coordination facade' but the coordination cost for these two methods is zero.",
+        "Handler decomposition (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) is genuine: each class performs real HTTP parameter parsing, domain validation, and response building specific to its endpoint group — not pass-through routing.",
+        "HttpApiUtils bundles response-writing and request-parsing in one package-private class. The Javadoc explicitly justifies this co-location ('both sets of methods serve a single concern — handling the HTTP layer') and notes the class is package-private to prevent public API surface pollution. The combined responsibilities are cohesive and every method is non-trivial.",
+        "ExploreResponseAssembler is a genuine translation layer: it builds typed Edge lists from ExplorationResult/ComparisonResult model objects, provides two distinct projection methods (collocateResultToExampleMap vs collocateResultToFullMap), and rounds floating-point values. Not a pass-through.",
+        "RelationPatternUtils, GrammarConfigSerializer, and GrammarConfigLoader are correctly separated from their associated data carriers (RelationConfig, GrammarConfig) to keep value objects free of IO and JSON-library dependencies — a legitimate abstraction that prevents layering violations.",
+        "SketchHandlers.executeRelationQueries uses a BiFunction<RelationConfig, ExecutedSketch, Map<String, Object>> builder callback, deduplicating the relation-iteration loop between handleFullSketchForType and handleDepSketch — the abstraction is used in exactly two callers and pays for itself in reduced duplication.",
+        "Mechanical scan reports 0 delegation-heavy classes, 0 facade modules, 0 typed-dict violations. The 51 indirection hotspots are Java method-chain counts that reflect normal fluent API usage (e.g., `RelationPatternUtils.buildFullPattern(rel, lemma)` chained into executor calls), not deep abstraction stacks."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 82.0,
+        "indirection_cost": 78.0,
+        "interface_honesty": 72.0,
+        "delegation_density": 88.0,
+        "definition_directness": 90.0,
+        "type_discipline": 96.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "Every production interface (QueryExecutor, ExplorationService) carries explicit Javadoc rationale for the single-implementation design, distinguishing testability seams from architectural boundaries — a level of self-awareness that prevents accidental over-engineering.",
+        "Handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, etc.) add genuine value at each layer: HTTP parameter parsing, domain validation, fallback logic, and response shaping — they are not thin routing wrappers.",
+        "ExploreResponseAssembler cleanly isolates model-to-JSON translation so that ExplorationResult and ComparisonResult stay free of presentation concerns; two distinct projection methods (example-only vs full-scored) reflect real caller differences.",
+        "RelationPatternUtils and GrammarConfigSerializer are correctly extracted from their data carriers, preventing JSON-library and pattern-building concerns from leaking into value objects.",
+        "The model package (Edge, ExplorationResult, DiscoveredNoun, etc.) contains zero HTTP, IO, or persistence concerns — model integrity is maintained across the entire codebase."
+      ],
+      "issue_character": "The one notable structural pattern is a coordination facade (SemanticFieldExplorer) that directly owns only one of the four ExplorationService methods while passing the other two through to collaborator objects unchanged — a mild redundancy that adds an indirection hop without providing translation, policy, or isolation benefit.",
+      "score_rationale": "The codebase sits comfortably above the 'significant drag' threshold (60): abstractions are documented, earn their place, and the model layer is clean. The main pull-down is the ExplorationService/SemanticFieldExplorer arrangement where two of four interface methods are pure one-line delegations to inner collaborators, and the two single-implementation interfaces (though justified) represent overhead that a future developer must understand before concluding the indirection is worthwhile. This pushes the score below the 'solid but uneven' band (80), landing at 74 — the codebase is thoughtfully designed with honest documentation of trade-offs, but stops short of exemplary because the coordination facade adds modest redundancy that the current scale does not require."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "exploration_service_pass_through_delegation",
+      "summary": "ExplorationService interface bundles three algorithms but SemanticFieldExplorer owns only one directly, making two of four methods pure pass-through delegations",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed (line 434) is: `return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts);` — a one-line delegation with no transformation, policy, or adaptation.",
+        "SemanticFieldExplorer.compareCollocateProfiles is: `return comparator.compareCollocateProfiles(seeds, opts);` — again a one-line delegation.",
+        "ExplorationHandlers calls all four ExplorationService methods by name, so the unified interface does not simplify the caller — it uses whichever method the HTTP endpoint semantics require, gaining no abstraction benefit from the bundling.",
+        "The class Javadoc describes SemanticFieldExplorer as 'a coordination facade' but the two delegated methods perform no coordination — MultiSeedExplorer and CollocateProfileComparator are fully autonomous and could be injected directly into ExplorationHandlers."
+      ],
+      "suggestion": "Either collapse the two delegating methods back into SemanticFieldExplorer (if the algorithms are small enough) or split ExplorationService into narrower ports: SingleSeedExplorationService (owned by SemanticFieldExplorer), MultiSeedExplorationService (owned by MultiSeedExplorer), and CollocateComparisonService (owned by CollocateProfileComparator). ExplorationHandlers would then accept the relevant port(s) it actually needs rather than a bundled facade. If the single stable-API-surface rationale is strong, consider adding at minimum a non-trivial coordination step (e.g., shared caching, logging, or metric recording) so the facade layer earns its place.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "one_impl_interfaces"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The one-implementation interface pattern (QueryExecutor, ExplorationService) and the coordination facade (SemanticFieldExplorer) both trace to the same root: abstractions were introduced for testability and future extensibility before a second use case materialised, which is reasonable but leaves mild overhead visible to developers reading the code.",
+      "The ExplorationService bundling decision was made at a point where all three exploration modes were conceived as one feature surface for the HTTP layer; as the algorithms diverged into separate classes, the interface was not revisited to check whether the unified surface still paid for itself."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

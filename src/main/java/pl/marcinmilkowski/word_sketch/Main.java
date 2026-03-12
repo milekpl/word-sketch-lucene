@@ -202,7 +202,7 @@ public class Main {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(indexPath)) {
             var results = deprel != null
-                ? executor.executeDependencyPattern(lemma, deprel, minLogDice, limit)
+                ? executor.executeDependencyPattern(lemma, deprel, minLogDice, limit, null)
                 : executor.executeCollocations(lemma, "[]", minLogDice, limit);
 
             if (results.isEmpty()) {

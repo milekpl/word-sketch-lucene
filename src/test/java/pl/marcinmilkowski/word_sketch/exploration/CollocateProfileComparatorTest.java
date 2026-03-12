@@ -29,8 +29,6 @@ class CollocateProfileComparatorTest {
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
                     String lemma, String pattern, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
-                    String lemma, String deprel, double minLogDice, int maxResults) { return List.of(); }
-            @Override public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
                     String lemma, String deprel,
                     double minLogDice, int maxResults, String headPosConstraint) { return List.of(); }
             @Override public void close() {}

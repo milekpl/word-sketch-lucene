@@ -176,18 +176,21 @@ class ExplorationHandlers {
     }
 
     /**
-     * Fetches concordance lines showing a specific adjective-noun pair in context.
+     * Fetches concordance lines showing a specific collocate-seed pair in context.
      *
-     * <p>GET /api/semantic-field/examples?adjective=good&amp;noun=theory&amp;top=10&amp;relation=adj_predicate</p>
+     * <p>GET /api/semantic-field/examples?seed=theory&amp;collocate=good&amp;top=10&amp;relation=adj_predicate</p>
      *
-     * @param exchange the HTTP exchange; receives a 400 if {@code adjective} or {@code noun}
+     * <p>Parameter names {@code seed} and {@code collocate} mirror those used by the sibling
+     * {@code /api/concordance/examples} endpoint.</p>
+     *
+     * @param exchange the HTTP exchange; receives a 400 if {@code seed} or {@code collocate}
      *                 is missing or the relation is unknown
      */
     void handleSemanticFieldExamples(HttpExchange exchange) throws IOException {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
-        String adjective = HttpApiUtils.requireParam(params, "adjective");
-        String noun = HttpApiUtils.requireParam(params, "noun");
+        String adjective = HttpApiUtils.requireParam(params, "collocate");
+        String noun = HttpApiUtils.requireParam(params, "seed");
 
         int maxExamples = HttpApiUtils.parseIntParam(params, "top", 10);
 
@@ -197,8 +200,8 @@ class ExplorationHandlers {
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("adjective", adjective);
-        response.put("noun", noun);
+        response.put("collocate", adjective);
+        response.put("seed", noun);
         response.put("examples", examples);
         response.put("total_results", examples.size());
 

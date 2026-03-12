@@ -31,7 +31,7 @@ public class DependencySketchTest {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
             List<QueryResults.WordSketchResult> results = executor.executeDependencyPattern(
-                "theory", "nsubj", 0.0, 20
+                "theory", "nsubj", 0.0, 20, null
             );
 
             assertNotNull(results);
@@ -45,7 +45,7 @@ public class DependencySketchTest {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
             List<QueryResults.WordSketchResult> results = executor.executeDependencyPattern(
-                "theory", "amod", 0.0, 20
+                "theory", "amod", 0.0, 20, null
             );
 
             assertNotNull(results);
@@ -59,7 +59,7 @@ public class DependencySketchTest {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
             List<QueryResults.WordSketchResult> results = executor.executeDependencyPattern(
-                "explain", "obj", 0.0, 20
+                "explain", "obj", 0.0, 20, null
             );
 
             assertNotNull(results);
@@ -72,7 +72,7 @@ public class DependencySketchTest {
         Assumptions.assumeTrue(indexDir != null && indexDir.exists(), "Skipping: index not found at " + INDEX_PATH);
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
-            List<QueryResults.WordSketchResult> results = executor.executeDependencyPatternWithPos(
+            List<QueryResults.WordSketchResult> results = executor.executeDependencyPattern(
                 "theory", "nsubj", 0.0, 20, "NN.*"
             );
 
@@ -87,7 +87,7 @@ public class DependencySketchTest {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
             List<QueryResults.WordSketchResult> results = executor.executeDependencyPattern(
-                "", "nsubj", 0.0, 20
+                "", "nsubj", 0.0, 20, null
             );
 
             assertTrue(results.isEmpty(), "Empty lemma should return empty results");
@@ -101,7 +101,7 @@ public class DependencySketchTest {
 
         try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
             List<QueryResults.WordSketchResult> results = executor.executeDependencyPattern(
-                "theory", null, 0.0, 20
+                "theory", null, 0.0, 20, null
             );
 
             assertTrue(results.isEmpty(), "Null deprel should return empty results");

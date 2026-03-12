@@ -33,8 +33,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
+
+import org.jspecify.annotations.Nullable;
 
 /**
  * Query executor using BlackLab for CoNLL-U dependency tree indexing and querying.
@@ -149,45 +150,28 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     }
 
     /**
-     * Execute a dependency relation query without a head POS constraint.
-     * Uses BCQL dependency syntax: "headword" -deprel-> _
+     * Execute a dependency relation query, optionally with a head POS constraint.
+     *
+     * <p>If {@code headPosConstraint} is null, matches any POS using plain lemma syntax.
+     * Otherwise, restricts the head token to the given POS regex.</p>
      */
     @Override
     public List<QueryResults.WordSketchResult> executeDependencyPattern(
             String lemma,
             String deprel,
             double minLogDice,
-            int maxResults) throws IOException {
+            int maxResults,
+            @Nullable String headPosConstraint) throws IOException {
 
         if (lemma == null || lemma.isEmpty() || deprel == null) {
             logger.debug("executeDependencyPattern: skipping query — lemma or deprel is null/empty");
             return Collections.emptyList();
         }
 
-        String bcql = String.format("\"%s\" -%s-> _", CqlUtils.escapeForRegex(lemma.toLowerCase()), deprel);
-        return queryAndRankDepCollocates(bcql, lemma, minLogDice, maxResults);
-    }
-
-    /**
-     * Execute a dependency relation query with a head POS constraint.
-     * Uses BCQL dependency syntax: [lemma="headword" & xpos="POS"] -deprel-> _
-     */
-    @Override
-    public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
-            String lemma,
-            String deprel,
-            double minLogDice,
-            int maxResults,
-            String headPosConstraint) throws IOException {
-
-        if (lemma == null || lemma.isEmpty() || deprel == null) {
-            logger.debug("executeDependencyPatternWithPos: skipping query — lemma or deprel is null/empty");
-            return Collections.emptyList();
-        }
-        Objects.requireNonNull(headPosConstraint, "headPosConstraint must not be null");
-
-        String bcql = String.format("[lemma=\"%s\" & xpos=\"%s\"] -%s-> _",
-                                    CqlUtils.escapeForRegex(lemma.toLowerCase()), headPosConstraint, deprel);
+        String bcql = headPosConstraint != null
+            ? String.format("[lemma=\"%s\" & xpos=\"%s\"] -%s-> _",
+                            CqlUtils.escapeForRegex(lemma.toLowerCase()), headPosConstraint, deprel)
+            : String.format("\"%s\" -%s-> _", CqlUtils.escapeForRegex(lemma.toLowerCase()), deprel);
         return queryAndRankDepCollocates(bcql, lemma, minLogDice, maxResults);
     }
 

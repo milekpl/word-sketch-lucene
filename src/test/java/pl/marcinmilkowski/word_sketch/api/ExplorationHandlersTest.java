@@ -38,8 +38,6 @@ class ExplorationHandlersTest {
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
                     String lemma, String pattern, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
-                    String lemma, String deprel, double minLogDice, int maxResults) { return List.of(); }
-            @Override public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
                     String lemma, String deprel, double minLogDice, int maxResults,
                     String headPosConstraint) { return List.of(); }
             @Override public void close() {}
@@ -160,14 +158,14 @@ class ExplorationHandlersTest {
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(emptyExecutor(), null);
         ExplorationHandlers handlers = new ExplorationHandlers(GrammarConfigHelper.requireTestConfig(), explorer);
         TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
-                "http://localhost/api/semantic-field/examples?adjective=important&noun=theory&relation=noun_adj_predicates");
+                "http://localhost/api/semantic-field/examples?collocate=important&seed=theory&relation=noun_adj_predicates");
         handlers.handleSemanticFieldExamples(ex);
         assertEquals(200, ex.statusCode);
         JSONObject body = JSON.parseObject(ex.getResponseBodyAsString());
         assertEquals("ok", body.getString("status"));
         assertTrue(body.containsKey("examples"), "Response must contain 'examples' key");
-        assertEquals("important", body.getString("adjective"));
-        assertEquals("theory", body.getString("noun"));
+        assertEquals("important", body.getString("collocate"));
+        assertEquals("theory", body.getString("seed"));
     }
 
     @Test
@@ -233,8 +231,6 @@ class ExplorationHandlersTest {
                 return map.getOrDefault(lemma.toLowerCase(), List.of());
             }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
-                    String lemma, String deprel, double minLogDice, int maxResults) { return List.of(); }
-            @Override public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
                     String lemma, String deprel, double minLogDice, int maxResults,
                     String headPosConstraint) { return List.of(); }
             @Override public void close() {}

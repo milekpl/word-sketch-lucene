@@ -4,7 +4,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 
-import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 
@@ -108,31 +107,19 @@ public interface QueryExecutor extends Closeable {
     /**
      * Execute a dependency-pattern query without a head POS constraint.
      *
-     * @param lemma      The head lemma to search for
-     * @param deprel     The dependency relation label (e.g., "nsubj", "obj")
-     * @param minLogDice Minimum logDice score threshold (0 for no minimum)
-     * @param maxResults Maximum number of results to return
+     * @param lemma              The head lemma to search for
+     * @param deprel             The dependency relation label (e.g., "nsubj", "obj")
+     * @param minLogDice         Minimum logDice score threshold (0 for no minimum)
+     * @param maxResults         Maximum number of results to return
+     * @param headPosConstraint  Optional POS regex for the head token (e.g., "VB.*"); pass null
+     *                           to skip the constraint and match any POS
      * @return Collocate results ranked by logDice descending
      * @throws IOException if index access fails
      */
     List<QueryResults.WordSketchResult> executeDependencyPattern(
             String lemma, String deprel,
-            double minLogDice, int maxResults) throws IOException;
-
-    /**
-     * Execute a dependency-pattern query with a head POS constraint.
-     *
-     * @param lemma              The head lemma to search for
-     * @param deprel             The dependency relation label (e.g., "nsubj", "obj")
-     * @param minLogDice         Minimum logDice score threshold (0 for no minimum)
-     * @param maxResults         Maximum number of results to return
-     * @param headPosConstraint  POS regex for the head token (e.g., "VB.*"); must not be null
-     * @return Collocate results ranked by logDice descending
-     * @throws IOException if index access fails
-     */
-    List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
-            String lemma, String deprel,
-            double minLogDice, int maxResults, @NonNull String headPosConstraint) throws IOException;
+            double minLogDice, int maxResults,
+            @Nullable String headPosConstraint) throws IOException;
 
     /**
      * Get the type of this executor for logging/debugging.

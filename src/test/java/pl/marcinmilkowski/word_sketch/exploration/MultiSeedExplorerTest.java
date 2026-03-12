@@ -30,8 +30,6 @@ class MultiSeedExplorerTest {
                 return data.getOrDefault(lemma, List.of());
             }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
-                    String l, String d, double m, int max) { return List.of(); }
-            @Override public List<QueryResults.WordSketchResult> executeDependencyPatternWithPos(
                     String l, String d, double m, int max, String pos) { return List.of(); }
             @Override public void close() {}
         };

@@ -98,7 +98,7 @@ class SketchHandlers {
         List<String> relationErrors = new ArrayList<>();
 
         executeRelationQueries(relationType, rel -> true, lemma, byRelation, relationErrors, (rel, sketch) ->
-            buildSurfaceRelationEntry(rel, sketch.collocations(),
+            SketchResponseAssembler.buildSurfaceRelationEntry(rel, sketch.collocations(),
                 sketch.results().stream().mapToLong(QueryResults.WordSketchResult::frequency).sum()));
 
         Map<String, Object> response = new HashMap<>();
@@ -122,7 +122,7 @@ class SketchHandlers {
         List<String> relationErrors = new ArrayList<>();
 
         executeRelationQueries(RelationType.DEP, rel -> rel.deriveDeprel() != null, lemma, byRelation, relationErrors,
-            (rel, sketch) -> buildRelationResponse(rel, sketch.results(), sketch.collocations()));
+            (rel, sketch) -> SketchResponseAssembler.buildDepRelationEntry(rel, sketch.results(), sketch.collocations()));
 
         Map<String, Object> response = new HashMap<>();
         response.put("lemma", lemma);
@@ -195,11 +195,11 @@ class SketchHandlers {
 
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
-            collocations.add(formatWordSketchResult(result));
+            collocations.add(SketchResponseAssembler.formatWordSketchResult(result));
         }
 
         long totalMatches = results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum();
-        Map<String, Object> relData = buildSurfaceRelationEntry(rel, collocations, totalMatches);
+        Map<String, Object> relData = SketchResponseAssembler.buildSurfaceRelationEntry(rel, collocations, totalMatches);
 
         Map<String, Object> relationsMap = new HashMap<>();
         relationsMap.put(rel.id(), relData);
@@ -223,7 +223,7 @@ class SketchHandlers {
         if (results.isEmpty()) return Optional.empty();
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {
-            collocations.add(formatWordSketchResult(result));
+            collocations.add(SketchResponseAssembler.formatWordSketchResult(result));
         }
         return Optional.of(new ExecutedSketch(results, collocations));
     }
@@ -231,53 +231,4 @@ class SketchHandlers {
     private record ExecutedSketch(
             List<QueryResults.WordSketchResult> results,
             List<Map<String, Object>> collocations) {}
-
-    /**
-     * Builds the common surface-relation response map shared by the full-sketch and
-     * single-relation handlers: {@code {id, name, pattern, collocate_pos_group, total_matches, collocations}}.
-     */
-    private static Map<String, Object> buildSurfaceRelationEntry(
-            pl.marcinmilkowski.word_sketch.config.RelationConfig rel,
-            List<Map<String, Object>> collocations,
-            long totalMatches) {
-        Map<String, Object> relData = new HashMap<>();
-        relData.put("id", rel.id());
-        relData.put("name", rel.name());
-        relData.put("pattern", rel.pattern());
-        relData.put("relation_type", "SURFACE");
-        relData.put("collocate_pos_group", rel.collocatePosGroup().label());
-        relData.put("total_matches", totalMatches);
-        relData.put("collocations", collocations);
-        return relData;
-    }
-
-    /**
-     * Builds the response map for a single dependency relation entry.
-     * Extracted from the {@code isDep} branch of {@code handleFullSketchForType}.
-     */
-    private static Map<String, Object> buildRelationResponse(
-            pl.marcinmilkowski.word_sketch.config.RelationConfig rel,
-            List<QueryResults.WordSketchResult> results,
-            List<Map<String, Object>> collocations) {
-        Map<String, Object> relData = new HashMap<>();
-        relData.put("id", rel.id());
-        relData.put("name", rel.name());
-        relData.put("description", rel.description());
-        relData.put("relation_type", "DEP");
-        relData.put("deprel", rel.deriveDeprel());
-        relData.put("pattern", rel.pattern());
-        relData.put("collocate_pos_group", rel.collocatePosGroup().label());
-        relData.put("total_matches", results.stream().mapToLong(QueryResults.WordSketchResult::frequency).sum());
-        relData.put("collocations", collocations);
-        return relData;
-    }
-
-    private static Map<String, Object> formatWordSketchResult(QueryResults.WordSketchResult result) {
-        Map<String, Object> word = new HashMap<>();
-        word.put("lemma", result.lemma());
-        word.put("frequency", result.frequency());
-        word.put("log_dice", result.logDice());
-        word.put("pos", result.pos());
-        return word;
-    }
 }

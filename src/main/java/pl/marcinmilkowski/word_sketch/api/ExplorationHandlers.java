@@ -70,7 +70,7 @@ class ExplorationHandlers {
 
         Map<String, Object> response = buildExploreResponseEnvelope(
             resolvedConfig.id(), commonParams,
-            new EnvelopeExtras(Map.of("nouns_per", nounsPerSeed), Map.of("seed", result.seed())));
+            Map.of("nouns_per", nounsPerSeed), Map.of("seed", result.seed()));
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
@@ -112,7 +112,7 @@ class ExplorationHandlers {
 
         Map<String, Object> response = buildExploreResponseEnvelope(
             resolvedConfig.id(), commonParams,
-            new EnvelopeExtras(Map.of(), Map.of("seeds", result.seeds(), "seed_count", result.seeds().size())));
+            Map.of(), Map.of("seeds", result.seeds(), "seed_count", result.seeds().size()));
 
         ExploreResponseAssembler.populateExploreResponse(response, result);
 
@@ -159,7 +159,7 @@ class ExplorationHandlers {
 
         Map<String, Object> response = buildExploreResponseEnvelope(
             CROSS_RELATIONAL, commonParams,
-            new EnvelopeExtras(Map.of(), Map.of("seeds", new ArrayList<>(result.nouns()), "seed_count", result.nouns().size())));
+            Map.of(), Map.of("seeds", new ArrayList<>(result.nouns()), "seed_count", result.nouns().size()));
         ExploreResponseAssembler.populateComparisonResponse(response, result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
@@ -210,12 +210,12 @@ class ExplorationHandlers {
      * (e.g., {@code nouns_per} for single-seed exploration), and the top-level
      * variant fields (e.g., {@code seed}, {@code seeds}, {@code seed_count}).
      *
-     * <p>{@code extras.paramFields()} entries land inside the {@code parameters} sub-map;
-     * {@code extras.topLevelFields()} entries land at the top level of the response envelope.</p>
+     * <p>{@code extraParamFields} entries land inside the {@code parameters} sub-map;
+     * {@code topLevelFields} entries land at the top level of the response envelope.</p>
      */
     private Map<String, Object> buildExploreResponseEnvelope(
             String relationType, SharedExploreParams params,
-            EnvelopeExtras extras) {
+            Map<String, Object> extraParamFields, Map<String, Object> topLevelFields) {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
 
@@ -224,20 +224,12 @@ class ExplorationHandlers {
         paramsUsed.put("top", params.topCollocates());
         paramsUsed.put("min_shared", params.minShared());
         paramsUsed.put("min_logdice", params.minLogDice());
-        paramsUsed.putAll(extras.paramFields());
+        paramsUsed.putAll(extraParamFields);
         response.put("parameters", paramsUsed);
 
-        response.putAll(extras.topLevelFields());
+        response.putAll(topLevelFields);
         return response;
     }
-
-    /**
-     * Holds the two distinct extension points for {@link #buildExploreResponseEnvelope}:
-     * fields that go inside the {@code parameters} sub-map and fields that go at the top
-     * level of the response envelope. Using a named record makes the semantic difference
-     * visible at every call site.
-     */
-    private record EnvelopeExtras(Map<String, Object> paramFields, Map<String, Object> topLevelFields) {}
 
     /** Parses a comma-separated seeds parameter into a cleaned, lowercased ordered set. */
     private static Set<String> parseSeedSet(@NonNull String seedsParam) {

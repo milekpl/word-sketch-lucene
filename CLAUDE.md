@@ -121,8 +121,10 @@ src/main/java/pl/marcinmilkowski/word_sketch/
 │   └── RelationUtils.java              # Utility: relation type checks
 ├── exploration/
 │   ├── CollocateProfileComparator.java # Compares adjective profiles across seed nouns
+│   ├── ExplorationService.java         # Facade: routes requests to single/multi-seed explorers
 │   ├── MultiSeedExplorer.java          # Multi-seed semantic field exploration
-│   └── SemanticFieldExplorer.java      # Coordination facade for SEF (single + multi seed)
+│   ├── SemanticFieldExplorer.java      # Coordination facade for SEF (single + multi seed)
+│   └── SingleSeedExplorer.java         # Core single-seed exploration algorithm
 ├── indexer/
 │   └── blacklab/
 │       ├── BlackLabConllUIndexer.java  # CoNLL-U corpus indexer for BlackLab
@@ -137,10 +139,9 @@ src/main/java/pl/marcinmilkowski/word_sketch/
 │       ├── ComparisonResult.java       # Result DTO for compareCollocateProfiles()
 │       ├── CoreCollocate.java          # High-coverage shared collocate
 │       ├── DiscoveredNoun.java         # Noun discovered via shared adjectives
-│       ├── Edge.java                   # Graph edge for D3.js visualization
 │       ├── ExplorationOptions.java     # Base options for SEF exploration
 │       ├── ExplorationResult.java      # Top-level result DTO for SEF exploration
-│       ├── RelationEdgeType.java       # Enum for edge types in exploration graphs
+│       ├── FetchExamplesResult.java    # Result DTO for fetchExamples()
 │       ├── SharingCategory.java        # Enum: FULLY_SHARED, PARTIALLY_SHARED, SPECIFIC
 │       └── SingleSeedExplorationOptions.java  # Options for single-seed exploration
 ├── query/
@@ -153,7 +154,9 @@ src/main/java/pl/marcinmilkowski/word_sketch/
 │   ├── LogDiceUtils.java               # logDice scoring
 │   └── MathUtils.java                  # Math utilities: round2dp
 └── viz/
-    └── RadialPlot.java                 # Radial plot data builder
+    ├── Edge.java                       # Graph edge for D3.js visualization
+    ├── RadialPlot.java                 # Radial plot data builder
+    └── RelationEdgeType.java           # Enum for edge types in exploration graphs
 ```
 
 ---

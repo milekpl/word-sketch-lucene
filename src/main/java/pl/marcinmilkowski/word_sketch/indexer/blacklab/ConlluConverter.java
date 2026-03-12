@@ -29,11 +29,9 @@ public class ConlluConverter {
 
     private static final Pattern MWT_OR_EMPTY = Pattern.compile("^\\d+-\\d+\t|^\\d+\\.\\d+\t");
 
-    /** Index into the {@code state} long-array for the total sentence count. */
+    // state[] indices: 0=sentences, 1=tokens, 2=chunks
     private static final int STATE_SENTENCES = 0;
-    /** Index into the {@code state} long-array for the total token count. */
     private static final int STATE_TOKENS = 1;
-    /** Index into the {@code state} long-array for the total chunk-file count. */
     private static final int STATE_CHUNKS = 2;
 
     /** Counts returned from {@link #convertConlluToWplChunks}. */

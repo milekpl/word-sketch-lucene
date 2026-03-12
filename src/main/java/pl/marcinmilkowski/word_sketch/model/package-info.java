@@ -10,7 +10,7 @@
  *       {@link pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile},
  *       {@link pl.marcinmilkowski.word_sketch.model.exploration.CoreCollocate},
  *       {@link pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun},
- *       {@link pl.marcinmilkowski.word_sketch.model.exploration.Edge}, etc.</li>
+ *       {@link pl.marcinmilkowski.word_sketch.viz.Edge}, etc.</li>
  *   <li><strong>Model objects with derived accessors</strong> — immutable classes that expose
  *       computed views and factory methods alongside their fields:
  *       {@link pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult},

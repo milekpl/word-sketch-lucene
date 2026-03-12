@@ -46,11 +46,12 @@ class SingleSeedExplorer {
     /**
      * Explore semantic field using pre-resolved BCQL pattern strings.
      *
-     * <p><strong>Package-private testing seam.</strong> Production code should call
-     * {@link SemanticFieldExplorer#exploreByPattern(String, pl.marcinmilkowski.word_sketch.config.RelationConfig, SingleSeedExplorationOptions)},
-     * which resolves pattern strings from a {@link pl.marcinmilkowski.word_sketch.config.RelationConfig}.
-     * This overload exists to enable unit tests with programmatically constructed patterns
-     * without requiring a full grammar config.</p>
+     * <p><strong>Package-private algorithm entry point.</strong>
+     * {@link SemanticFieldExplorer#exploreByPattern(String, pl.marcinmilkowski.word_sketch.config.RelationConfig, SingleSeedExplorationOptions)}
+     * is the preferred public API — it resolves pattern strings from a
+     * {@link pl.marcinmilkowski.word_sketch.config.RelationConfig} before delegating here.
+     * This overload accepts pre-resolved BCQL strings directly, which also allows unit
+     * tests to supply programmatically constructed patterns without a full grammar config.</p>
      *
      * @param seed          the seed noun to explore from
      * @param relationName  human-readable relation name for logging
@@ -107,7 +108,7 @@ class SingleSeedExplorer {
         logger.debug("Exploration complete for '{}': {} nouns discovered, {} core collocates",
                 normalizedSeed, discoveredNouns.size(), coreCollocates.size());
 
-        return new ExplorationResult(List.of(normalizedSeed), seedCollocateScores, seedCollocateFrequencies,
+        return ExplorationResult.of(List.of(normalizedSeed), seedCollocateScores, seedCollocateFrequencies,
                 discoveredNouns, coreCollocates, Map.of(normalizedSeed, seedCollocateScores));
     }
 

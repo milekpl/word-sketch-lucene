@@ -118,7 +118,7 @@ public final class GrammarConfigLoader {
     /** Extracts and validates the 'version' field from the root JSON object. */
     private static String parseAndValidateVersion(ObjectNode root) {
         JsonNode versionNode = root.path("version");
-        String parsedVersion = versionNode.isNull() ? null : versionNode.textValue();
+        String parsedVersion = versionNode.textValue();
         if (parsedVersion == null || parsedVersion.isBlank()) {
             throw new IllegalArgumentException("Config error: Missing 'version' field in grammar config");
         }
@@ -177,7 +177,7 @@ public final class GrammarConfigLoader {
         int collocatePosition = relObj.has("collocate_position")
             ? relObj.path("collocate_position").asInt() : deriveCollocatePositionFromPattern(pattern);
 
-        boolean isDual = relObj.has("dual") && relObj.path("dual").asBoolean();
+        boolean isDual = relObj.path("dual").asBoolean(false);
         validatePositions(id, pattern, headPosition, collocatePosition, isDual);
 
         return new RelationConfig(

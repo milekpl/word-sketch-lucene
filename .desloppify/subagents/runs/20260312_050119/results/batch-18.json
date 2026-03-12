@@ -1,0 +1,79 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 18,
+  "assessments": {
+    "api_surface_coherence": 80.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All GET handlers use the same HttpApiUtils.parseQueryParams + requireParam/parseIntParam/parseDoubleParam parsing idiom — a developer can predict exactly how parameters are validated in any handler.",
+        "Every route is wrapped with HttpApiUtils.wrapWithErrorHandling, uniformly mapping IllegalArgumentException → 400 and IOException → 500 with no exceptions.",
+        "The explore and compare endpoints both produce a {status, parameters:{relation, top, min_logdice, min_shared}, seeds/seed, <data>} envelope, making the semantic-field family consistent for those two endpoints.",
+        "handleSemanticFieldExamples (ExplorationHandlers.java:191) returns a flat {status, collocate, seed, examples, total_results} with no 'parameters' sub-object and no 'relation' echo, breaking the envelope convention the other three semantic-field siblings follow.",
+        "QueryExecutor.executeSurfacePattern takes (bcqlPattern, minLogDice, maxResults) — the headword is embedded in the pattern string — while executeCollocations takes (lemma, cqlPattern, minLogDice, maxResults) and executeDependencyPattern takes (lemma, deprel, minLogDice, maxResults, headPosConstraint). Two methods put lemma first; one buries it in the pattern with no explicit argument."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Uniform parameter parsing pattern across all handlers: every handler calls HttpApiUtils.parseQueryParams, requireParam, parseIntParam, parseDoubleParam — a developer can predict the validation contract without reading each handler.",
+        "Consistent error-handling contract: wrapWithErrorHandling is applied to every route without exception, producing predictable 400/500 responses codebase-wide.",
+        "Parameter vocabulary is consistent across the semantic-field family: seed, collocate, relation, top, min_logdice, min_shared appear with the same names and default values in all related endpoints.",
+        "Handler decomposition is focused: SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, and VisualizationHandlers each address a single HTTP concern, keeping individual handler methods short and predictable.",
+        "The explore and compare endpoints share the same {status, parameters:{...}, seeds, <data>} response envelope, giving the semantic-field family a consistent shape for its two primary data endpoints."
+      ],
+      "issue_character": "The issues are isolated rather than systemic: one response envelope omission in the examples endpoint breaks the semantic-field family's otherwise consistent pattern, and one QueryExecutor method diverges from its siblings' lemma-passing convention — both are single-point irregularities rather than a repeated structural problem.",
+      "score_rationale": "The HTTP-facing API layer is solid and well-disciplined: parameter parsing, error mapping, CORS handling, and method routing all follow uniform patterns that a developer can learn once and trust everywhere. The main friction points are the missing 'parameters' envelope in the examples endpoint (a developer reasoning from the explore/compare siblings would be surprised) and the lemma-embedding convention in executeSurfacePattern (a developer implementing a new QueryExecutor would get inconsistent guidance). These are the 'why is this different?' moments that characterise an 80 — mostly coherent with a couple of recurring irregularities that undermine full predictability."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "examples_missing_parameters_envelope",
+      "summary": "handleSemanticFieldExamples response omits the 'parameters' sub-object used by every other semantic-field endpoint",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore (line 67-73) and handleSemanticFieldComparison (line 165-175) both emit a 'parameters' sub-object echoing relation, top, min_logdice, min_shared.",
+        "handleSemanticFieldExamples (line 202-210) returns a flat map {status, collocate, seed, examples, total_results} — no 'parameters' block, and the resolved 'relation' is never echoed back to the caller even though it was resolved and used."
+      ],
+      "suggestion": "Add a 'parameters' sub-object to handleSemanticFieldExamples' response map that includes at minimum the resolved 'relation' and 'top' values, mirroring the convention of its siblings: response.put(\"parameters\", Map.of(\"relation\", resolvedConfig.id(), \"top\", maxExamples));",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "semantic_field_envelope_inconsistency"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "queryexecutor_lemma_passing_inconsistency",
+      "summary": "QueryExecutor.executeSurfacePattern buries the headword lemma inside the pattern string, diverging from sibling methods that take lemma as the first explicit argument",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "executeCollocations signature: (String lemma, String cqlPattern, double minLogDice, int maxResults) — lemma is the first explicit parameter.",
+        "executeDependencyPattern signature: (String lemma, String deprel, double minLogDice, int maxResults, String headPosConstraint) — lemma is the first explicit parameter.",
+        "executeSurfacePattern signature: (String bcqlPattern, double minLogDice, int maxResults) — no explicit lemma; the headword must be embedded inside bcqlPattern and is extracted internally from a 'lemma=\"...\"' attribute. A developer implementing the interface encounters an undocumented extraction contract rather than a typed parameter."
+      ],
+      "suggestion": "Add an explicit String headLemma first parameter to executeSurfacePattern — (String headLemma, String bcqlPattern, double minLogDice, int maxResults) — and have the implementation look up head frequency by headLemma directly rather than parsing it from the pattern. This aligns the method with executeCollocations and executeDependencyPattern and makes the interface contract self-documenting.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "queryexecutor_interface_inconsistency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The examples endpoint was likely added after the explore/compare pair and did not inherit the envelope convention established by its siblings.",
+      "executeSurfacePattern's lemma-embedding convention may have been introduced to keep the interface free of a redundant parameter when the lemma was always already present in the pattern — a pragmatic shortcut that created a convention break."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

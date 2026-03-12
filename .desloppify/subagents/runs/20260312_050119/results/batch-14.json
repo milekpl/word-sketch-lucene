@@ -1,0 +1,83 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 14,
+  "assessments": {"cross_module_architecture": 72.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is clean: api imports from exploration/query/config/model; exploration imports from query/config/model; query imports from model; config imports from model. No reverse imports found in any direction.",
+        "No import cycles: the dependency graph is a strict DAG.",
+        "SemanticFieldExplorer is public; MultiSeedExplorer and CollocateProfileComparator are package-private, correctly hiding internal collaborators from the api layer.",
+        "api.SketchHandlers calls RelationPatternBuilder.buildFullPattern() at lines 206 and 239, then calls executor.executeSurfacePattern() directly — the api handler both constructs domain objects (BCQL patterns) and executes queries, acting as a domain service for the sketch path.",
+        "api.ConcordanceHandlers also calls RelationPatternBuilder.buildFullPattern() (line 59), bypassing any domain-layer intermediary for concordance queries.",
+        "By contrast, the exploration path (ExplorationHandlers) correctly delegates all domain logic to SemanticFieldExplorer — creating an inconsistency in how the two halves of the api layer are structured.",
+        "RadialPlot.java lives in api/ (src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java) rather than a viz/ or utils/ package. It is an SVG rendering utility with no HTTP concerns, so its placement in api blurs that package boundary.",
+        "WordSketchApiServer convenience constructor instantiates SemanticFieldExplorer directly — the api layer knows the concrete exploration-layer class by name. The full constructor allows injection, but production startup always uses the convenience form."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The sketch and concordance paths in the api layer directly build BCQL patterns and execute queries themselves rather than delegating to a domain service, creating a structural asymmetry with the exploration path. This means changes to pattern-building logic or query execution have two contact points in the api layer rather than one domain-layer owner."
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Dependency direction is enforced consistently: api → exploration → query → model, with no upward references anywhere in the codebase.",
+        "SemanticFieldExplorer correctly hides MultiSeedExplorer and CollocateProfileComparator as package-private, giving the api layer a single stable entry point for the exploration subsystem.",
+        "QueryExecutor is an interface that acts as a clean architectural boundary between the api/exploration layers and the BlackLab implementation, enabling test isolation.",
+        "The model package is genuinely clean: no persistence, HTTP, or I/O concerns appear in it, and this is enforced by all callers importing model types only as data."
+      ],
+      "issue_character": "The issues are localized asymmetries rather than systemic violations: the sketch and concordance paths in the api layer act as domain services (building patterns, executing queries) while the exploration path delegates to a proper domain service, creating an inconsistency of design pattern within the same package; and RadialPlot is misplaced in api rather than a utility package.",
+      "score_rationale": "The codebase has a well-understood layered architecture with no cycles and no upward references — characteristics of a solid (80-range) design. What pulls it below 80 is the consistent asymmetry in how the api layer handles its two main query paths: exploration queries flow through a proper domain facade, but sketch and concordance queries have the api handler doing pattern construction and direct query execution, mixing HTTP and domain concerns in a repeated pattern across SketchHandlers and ConcordanceHandlers. This is a real structural issue but not a deep blast-radius problem since it is contained within two handler files. The RadialPlot misplacement is a minor boundary blurring. Taken together these put the codebase at 72 — better than 60 (which would indicate significant drag) but short of 80 (which would require more consistent boundary discipline)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_handler_as_domain_service",
+      "summary": "SketchHandlers and ConcordanceHandlers do domain work (pattern building + query execution) that should live in a domain service",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "SketchHandlers.java lines 206-207: calls RelationPatternBuilder.buildFullPattern(rel, lemma) then executor.executeSurfacePattern(...) directly inside the HTTP handler method.",
+        "SketchHandlers.java lines 239-240: same pattern repeated for the full-sketch case.",
+        "ConcordanceHandlers.java line 59: calls RelationPatternBuilder.buildFullPattern(rel.get(), req.seed()) directly in the handler.",
+        "By contrast, ExplorationHandlers delegates all domain logic to SemanticFieldExplorer, keeping the handler free of domain object construction."
+      ],
+      "suggestion": "Extract a SketchQueryService (or WordSketchService) in the exploration or query package that owns the pattern-build + execute-surface-pattern coordination for sketch and concordance queries. SketchHandlers and ConcordanceHandlers would then delegate to this service in the same way ExplorationHandlers delegates to SemanticFieldExplorer, eliminating the asymmetry and giving pattern-building logic a single domain-layer owner.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_domain_leakage"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "radialplot_in_api_package",
+      "summary": "RadialPlot SVG rendering utility is placed in the api package instead of a dedicated rendering or utils package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java"
+      ],
+      "evidence": [
+        "RadialPlot.java lives at api/RadialPlot.java and contains SVG string-building logic with no HTTP-specific concerns.",
+        "The CLAUDE.md documentation records the intended location as viz/RadialPlot.java, confirming the placement is not deliberate.",
+        "The api package's stated role (HTTP handlers, routing, response assembly) does not include rendering utilities."
+      ],
+      "suggestion": "Move RadialPlot to a new viz/ package (matching the documented intent in CLAUDE.md) or to utils/ if a full viz package is not warranted. Update VisualizationHandlers to import it from the new location.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "api_domain_leakage"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration feature was built with a proper domain facade (SemanticFieldExplorer) from the start, but the earlier sketch/concordance query paths were implemented directly in handlers before the facade pattern was established, leaving them unrestructured.",
+      "Package boundaries are expressed as directory conventions rather than enforced by module-level visibility (e.g., Java modules), so placing RadialPlot in api has no compile-time consequence."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

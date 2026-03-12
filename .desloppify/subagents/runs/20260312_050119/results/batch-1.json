@@ -1,0 +1,108 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {
+    "high_level_elegance": 77.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Package topology maps cleanly to domain capabilities: api, config, exploration, model, query, indexer, utils — each owns one concern and the boundaries are non-overlapping.",
+        "Handler decomposition in the api package is consistent: SketchHandlers, ConcordanceHandlers, ExplorationHandlers, CorpusQueryHandlers, VisualizationHandlers each own one API facet; WordSketchApiServer is strictly a router.",
+        "config package demonstrates single-responsibility at the file level: GrammarConfig (data), GrammarConfigLoader (file I/O + parsing), GrammarConfigSerializer (JSON output) — three distinct concerns in three files.",
+        "Package-info files exist for every package and contain accurate, useful orientation text — README/structure alignment is trustworthy.",
+        "model.exploration types (AdjectiveProfile, ComparisonResult, CoreCollocate) are named after adjectives despite the exploration system supporting four grammatical relations (adj_predicate, adj_modifier, subject_of, object_of) — the model vocabulary does not match the stated generality of the feature.",
+        "SemanticFieldExplorer is a concrete class, not an interface; QueryExecutor is correctly abstracted but the exploration layer's primary entry point is not, creating an asymmetry at the api/exploration boundary.",
+        "WordSketchApiServer registers /api/semantic-field as a deprecated alias that logs a warning on every server startup and on every invocation — dead-weight surface that inflates the public API contract and adds startup noise.",
+        "ExplorationHandlers three handler methods have structurally different parameter flows: handleSemanticFieldExplore and handleSemanticFieldExploreMulti share resolveRelationConfig, while handleSemanticFieldComparison is cross-relational and does not — this asymmetry is documented but adds conceptual overhead for a developer adding a fourth handler."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package topology is domain-aligned and non-overlapping: api, config, exploration, model, query, indexer, utils each own one domain concern without overlap.",
+        "Handler decomposition in the api package is consistent and predictable — a new engineer can explain why each handler file exists.",
+        "The config package cleanly separates data (GrammarConfig), loading (GrammarConfigLoader), and serialization (GrammarConfigSerializer) into dedicated files.",
+        "Every package has a package-info.java with accurate orientation text; the model package even documents the DTO vs. model-with-derived-accessors split.",
+        "Main.java is a thin CLI router that delegates immediately to typed handlers — entry point surface is minimal and predictable."
+      ],
+      "issue_character": "Issues are localized misalignments rather than structural ownership failures: the model layer uses adjective-specific names for what is architecturally a generic collocate-profile system, one concrete class violates the abstraction pattern established elsewhere, and a deprecated endpoint inflates the API surface without removal.",
+      "score_rationale": "The codebase sits comfortably above the 'solid but uneven' range because its top-level decomposition is genuinely clean: packages map to domain capabilities, the handler split is predictable, and config concerns are well-separated. The score is pulled down from the high-80s by two cross-cutting issues: the exploration model layer names types after adjectives (AdjectiveProfile, ComparisonResult.allAdjectives) in a system that explicitly supports non-adjective relations, creating a vocabulary mismatch between config and model; and SemanticFieldExplorer is a concrete class where QueryExecutor is an interface, breaking the abstraction pattern. Neither issue is structural enough to drop below 75, but together they reflect a partial gap between the codebase's stated generality and its model-layer ownership."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "adjective_specific_model_names",
+      "summary": "Exploration model layer uses adjective-specific names (AdjectiveProfile, allAdjectives) in a system that supports four grammatical relations",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/AdjectiveProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CoreCollocate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "AdjectiveProfile.java is the result type for compareCollocateProfiles, but the system supports subject_of and object_of relations that return verbs, not adjectives.",
+        "ComparisonResult.allAdjectives() and fullyShared()/partiallyShared()/specific() return List<AdjectiveProfile> — the word 'adjective' appears throughout a type that conceptually holds any collocate profile.",
+        "The config layer uses the neutral term RelationType (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) and RelationConfig.collocatePosGroup(), but the model layer that stores results uses adjective vocabulary regardless of which relation was used."
+      ],
+      "suggestion": "Rename AdjectiveProfile to CollocateProfile (and its field/method references accordingly), and rename ComparisonResult.allAdjectives() to allCollocates(). This aligns the model vocabulary with the config vocabulary and removes the false constraint that comparison is adjective-only.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "model_naming_generalization_lag"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semantic_field_explorer_not_abstracted",
+      "summary": "SemanticFieldExplorer is a concrete class where QueryExecutor is an interface, creating an inconsistent abstraction boundary at the api/exploration boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers accepts SemanticFieldExplorer as a concrete type parameter — there is no SemanticFieldExplorer interface.",
+        "WordSketchApiServer has a convenience constructor that calls new SemanticFieldExplorer(executor, grammarConfig) directly.",
+        "QueryExecutor is an interface and BlackLabQueryExecutor is its implementation — the query layer correctly establishes the abstraction, but the exploration layer does not mirror it."
+      ],
+      "suggestion": "Extract a SemanticFieldExplorer interface (methods: exploreByPattern, exploreMultiSeed, compareCollocateProfiles, fetchExamples), rename the current class to DefaultSemanticFieldExplorer or BlackLabSemanticFieldExplorer, and update ExplorationHandlers and WordSketchApiServer to depend on the interface. This makes the abstraction pattern consistent across both major boundary layers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "abstraction_boundary_inconsistency"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "deprecated_legacy_endpoint_on_api_surface",
+      "summary": "Deprecated /api/semantic-field alias remains on the public API surface, logging startup warnings and polluting the route registry",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer.registerRoutes() calls logger.warn at startup: 'Registering deprecated endpoint /api/semantic-field — use /api/semantic-field/compare instead. Will be removed in v2.0.'",
+        "The handler also logs a warn on every individual request to the deprecated path.",
+        "The endpoint is documented in the class Javadoc alongside the canonical endpoints, making the API surface appear larger than it is."
+      ],
+      "suggestion": "Remove the /api/semantic-field alias route and its registration entirely. If backward compatibility is required for a specific release window, return HTTP 301/308 to /api/semantic-field/compare rather than registering a full handler — this makes the intent explicit without polluting the runtime log or the documented API surface.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "deferred_deprecation_cleanup"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration feature was likely designed initially for adjective-only relations and then generalised to support verb relations without updating the model layer naming.",
+      "The abstraction inconsistency between QueryExecutor (interface) and SemanticFieldExplorer (class) suggests the exploration layer was added after the query layer and did not inherit the same interface discipline.",
+      "The deprecated endpoint reflects a common pattern of deferred cleanup — the canonical path exists and is documented, but the old path was never removed."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

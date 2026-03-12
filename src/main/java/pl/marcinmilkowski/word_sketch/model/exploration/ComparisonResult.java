@@ -2,7 +2,6 @@ package pl.marcinmilkowski.word_sketch.model.exploration;
 
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -14,9 +13,9 @@ import java.util.stream.Collectors;
  */
 public class ComparisonResult {
     private final List<String> nouns;
-    private final List<AdjectiveProfile> adjectives;
+    private final List<CollocateProfile> adjectives;
 
-    public ComparisonResult(List<String> nouns, List<AdjectiveProfile> adjectives) {
+    public ComparisonResult(List<String> nouns, List<CollocateProfile> adjectives) {
         this.nouns = nouns;
         this.adjectives = adjectives;
     }
@@ -28,8 +27,8 @@ public class ComparisonResult {
     /** @return the seed nouns this comparison was built from; never null, may be empty */
     public List<String> nouns() { return nouns; }
 
-    /** @return all adjective profiles regardless of sharing category; never null, may be empty */
-    public List<AdjectiveProfile> allAdjectives() { return adjectives; }
+    /** @return all collocate profiles regardless of sharing category; never null, may be empty */
+    public List<CollocateProfile> collocates() { return adjectives; }
 
     /**
      * Single-pass counts of all three sharing categories to avoid 3 separate stream iterations.
@@ -41,7 +40,7 @@ public class ComparisonResult {
      */
     public SummaryCounts summaryCounts() {
         int fullyShared = 0, partiallyShared = 0, specific = 0;
-        for (AdjectiveProfile a : adjectives) {
+        for (CollocateProfile a : adjectives) {
             switch (a.sharingCategory()) {
                 case FULLY_SHARED    -> fullyShared++;
                 case PARTIALLY_SHARED -> partiallyShared++;
@@ -51,22 +50,22 @@ public class ComparisonResult {
         return new SummaryCounts(fullyShared, partiallyShared, specific);
     }
 
-    /** @return adjectives present in every seed noun's collocate profile */
-    public List<AdjectiveProfile> fullyShared() {
+    /** @return collocates present in every seed noun's collocate profile */
+    public List<CollocateProfile> fullyShared() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == nouns.size())
             .collect(Collectors.toList());
     }
 
-    /** @return adjectives shared by at least 2 nouns but not all */
-    public List<AdjectiveProfile> partiallyShared() {
+    /** @return collocates shared by at least 2 nouns but not all */
+    public List<CollocateProfile> partiallyShared() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() >= 2 && a.presentInCount() < nouns.size())
             .collect(Collectors.toList());
     }
 
-    /** @return adjectives that occur in the collocate profile of exactly one seed noun */
-    public List<AdjectiveProfile> specific() {
+    /** @return collocates that occur in the collocate profile of exactly one seed noun */
+    public List<CollocateProfile> specific() {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == 1)
             .collect(Collectors.toList());
@@ -78,7 +77,7 @@ public class ComparisonResult {
      *
      * @param noun one of the seed nouns from {@link #nouns()}; returns an empty list for unknown nouns
      */
-    public List<AdjectiveProfile> specificTo(String noun) {
+    public List<CollocateProfile> specificTo(String noun) {
         return adjectives.stream()
             .filter(a -> a.presentInCount() == 1 && a.nounScores().getOrDefault(noun, 0.0) > 0)
             .sorted((x, y) -> Double.compare(y.maxLogDice(), x.maxLogDice()))

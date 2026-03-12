@@ -7,7 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import pl.marcinmilkowski.word_sketch.model.exploration.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.utils.MathUtils;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.CoreCollocate;
@@ -62,10 +62,10 @@ final class ExploreResponseAssembler {
         return edges;
     }
 
-    /** Builds {@link RelationEdgeType#MODIFIER} edges for adjective-noun pairs with positive logDice scores. */
+    /** Builds {@link RelationEdgeType#MODIFIER} edges for collocate-noun pairs with positive logDice scores. */
     public static @NonNull List<Edge> buildComparisonEdges(@NonNull ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
-        for (AdjectiveProfile adj : result.allAdjectives()) {
+        for (CollocateProfile adj : result.collocates()) {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
                 if (entry.getValue() > 0) {
                     edges.add(new Edge(adj.adjective(), entry.getKey(), entry.getValue(), RelationEdgeType.MODIFIER));
@@ -138,10 +138,10 @@ final class ExploreResponseAssembler {
     }
 
     /**
-     * Serialises a single {@link AdjectiveProfile} into the JSON-compatible map that the
-     * {@code /api/semantic-field} endpoint returns for each adjective entry.
+     * Serialises a single {@link CollocateProfile} into the JSON-compatible map that the
+     * {@code /api/semantic-field} endpoint returns for each collocate entry.
      */
-    public static @NonNull Map<String, Object> formatAdjectiveProfile(@NonNull AdjectiveProfile adj) {
+    public static @NonNull Map<String, Object> formatCollocateProfile(@NonNull CollocateProfile adj) {
         Map<String, Object> adjMap = new HashMap<>();
         adjMap.put("word", adj.adjective());
         adjMap.put("present_in", adj.presentInCount());
@@ -177,11 +177,11 @@ final class ExploreResponseAssembler {
      */
     public static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result) {
         java.util.List<Map<String, Object>> adjectives = new java.util.ArrayList<>();
-        for (AdjectiveProfile adj : result.allAdjectives()) {
-            adjectives.add(formatAdjectiveProfile(adj));
+        for (CollocateProfile adj : result.collocates()) {
+            adjectives.add(formatCollocateProfile(adj));
         }
         response.put("adjectives", adjectives);
-        response.put("adjectives_count", result.allAdjectives().size());
+        response.put("adjectives_count", result.collocates().size());
 
         ComparisonResult.SummaryCounts counts = result.summaryCounts();
         response.put("fully_shared_count", counts.fullyShared());

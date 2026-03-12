@@ -1,0 +1,67 @@
+{
+  "batch": "package_organization",
+  "batch_index": 8,
+  "assessments": {
+    "package_organization": 76.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "api/ holds 11 production files (at the >10 threshold): 5 handler classes, WordSketchApiServer, HttpApiUtils, ExploreResponseAssembler, RadialPlot, RequestEntityTooLargeException, package-info — all with HTTP handler or HTTP-utility roles except RadialPlot",
+        "RadialPlot.java (api/) contains pure SVG-generation logic with no HttpExchange or HTTP dependency — its concern is rendering, not HTTP; its test lives in src/test/.../viz/RadialPlotTest.java, a different namespace that reveals the intended (or past) home",
+        "exploration/ (logic: SemanticFieldExplorer, MultiSeedExplorer, CollocateProfileComparator) and model/exploration/ (10 DTOs/value-objects) correctly split behavior from data, but navigating exploration requires visiting two directories",
+        "config/ (7 files: GrammarConfig, GrammarConfigLoader, GrammarConfigSerializer, RelationConfig, RelationPatternBuilder, RelationUtils) is cohesive: all files own grammar configuration data or its IO/serialization",
+        "All packages carry a package-info.java, indicating deliberate ownership documentation",
+        "No straggler root files: Main.java is the sole root-level file and it is the CLI entry point with high fan-in semantics",
+        "Directory names (api, config, exploration, indexer, model, query, utils) directly reflect contained responsibilities with no ambiguity"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "Packages are named for their concern, not their implementation type: exploration/, config/, query/ each tell a developer what domain they are entering",
+        "model/exploration/ sub-package correctly isolates exploration DTOs (AdjectiveProfile, ComparisonResult, CoreCollocate, Edge, ExplorationResult, etc.) from exploration logic in the sibling exploration/ package — a clean model/behavior split",
+        "config/ is highly cohesive: grammar data (GrammarConfig, RelationConfig), its loader, serializer, pattern builder, and utilities live together with no unrelated residents",
+        "No straggler root-level files: Main.java is the sole root file and legitimately owns CLI entry-point responsibility",
+        "All packages include package-info.java, signaling deliberate ownership boundaries"
+      ],
+      "issue_character": "A single misplaced class (RadialPlot in api/ when its concern is SVG rendering and its test lives in viz/) is the only concrete placement anomaly; the pattern is isolated, not systemic.",
+      "score_rationale": "The package layout is clearly intentional and navigable: concern-named directories, a clean model/logic split, cohesive config package, and no root stragglers. The one concrete gap is RadialPlot living in api/ while having no HTTP dependency and a test in viz/ — a quiet ownership mismatch that adds a small navigation tax. The rest of the structure sits at roughly 80 (solid but uneven); the RadialPlot placement pulls it down a few points because it leaves a cross-zone namespace inconsistency between production and test, and would mislead a developer looking for rendering utilities in the api package."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "radial_plot_api_misplacement",
+      "summary": "RadialPlot (pure SVG rendering) lives in api/ but its test is in viz/ — a cross-namespace ownership mismatch",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/viz/RadialPlotTest.java"
+      ],
+      "evidence": [
+        "RadialPlot.java has no import of com.sun.net.httpserver or any HTTP type — its only dependency is java.util.ArrayList, java.util.List, and java.util.Locale",
+        "Its test lives in src/test/java/pl/marcinmilkowski/word_sketch/viz/RadialPlotTest.java (viz package), while the production class is in api/ — a split that breaks the conventional mirroring of production and test namespaces",
+        "VisualizationHandlers.java (in api/) is the sole caller of RadialPlot in production code; the reference is intra-package but the rendering responsibility is distinct from HTTP dispatching",
+        "api/ already has 11 files; extracting RadialPlot reduces it to 10 and aligns the class with its test namespace"
+      ],
+      "suggestion": "Move RadialPlot to a dedicated viz package following these steps: (1) Create src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java — change the package declaration to pl.marcinmilkowski.word_sketch.viz and make the class public. (2) Add import pl.marcinmilkowski.word_sketch.viz.RadialPlot; in VisualizationHandlers.java. (3) Verify the test in src/test/.../viz/RadialPlotTest.java already uses the correct package — if it imports the old api package, update it to viz. (4) Run mvn test to confirm all RadialPlot tests pass. (5) Confirm no other callers exist: grep -r 'RadialPlot' src/main --include='*.java'. This aligns the production namespace with the existing test namespace and removes a rendering concern from the HTTP layer.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RadialPlot was likely created alongside VisualizationHandlers during a focused HTTP layer sprint and placed in api/ for convenience; the test was written (or moved) to viz/ but the production class was never migrated to match"
+    ],
+    "likely_symptoms": [
+      "radial_plot_api_misplacement"
+    ],
+    "possible_false_positives": []
+  }
+}

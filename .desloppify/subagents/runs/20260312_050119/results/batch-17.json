@@ -1,0 +1,103 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 17,
+  "assessments": {"test_strategy": 68.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "StubQueryExecutor provides a clean, shared test double used consistently across all handler and exploration tests",
+        "TestExchangeFactory.MockExchange enables handler-level HTTP testing without a live server in all handler test classes",
+        "WordSketchApiServerTest starts a real embedded server on an ephemeral port and verifies route registration and lifecycle — a genuine cross-module integration check",
+        "BlackLabConllUIndexerTest is @Disabled with detailed justification (missing YAML config not distributed with source); zero runnable automated coverage for the indexing critical path",
+        "Multiple test stubs (MultiSeedExplorerTest, SemanticFieldExplorerInternalTest, ExplorationHandlersTest, SketchHandlersTest) parse CQL strings via hardcoded regex lemma=[\"']([^\"']+)[\"'] to route stub responses — if the CQL lemma quoting style changes, all these stubs silently return empty results",
+        "BlackLabQueryExecutorIntegrationTest and the nested BlackLabQueryExecutorTest.LiveIndex are both @Disabled, leaving the full collocation scoring pipeline (executeCollocations → logDice → ranking) with no runnable end-to-end test",
+        "MainTest only checks that usage text is printed for no-args and help; the three CLI commands (blacklab-index, blacklab-query, server) are not exercised with real argument parsing"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "StubQueryExecutor is a well-designed, shared test double that correctly defaults all methods to empty/zero and is extended via anonymous subclasses — this avoids test coupling to mock frameworks",
+        "Every HTTP handler class has a corresponding test file covering both the happy path and validation/error cases (400 responses), with TestExchangeFactory.MockExchange providing lightweight HTTP simulation",
+        "WordSketchApiServerTest spins up a real embedded HTTP server and exercises actual route registration, confirming that the server lifecycle and routing glue work end-to-end",
+        "Properly guarded live-index tests use both @Disabled and Assumptions.assumeTrue so they fail safely in CI without an index, with clear inline documentation explaining why and how to enable them"
+      ],
+      "issue_character": "The issues are concentrated at the infrastructure boundaries: the indexing pipeline has no runnable tests at all, the live query executor is doubly disabled, and multiple test stubs carry implicit coupling to the CQL lemma-quoting format via hardcoded regex — a latent fragility that is easy to overlook because tests still compile and pass.",
+      "score_rationale": "The codebase demonstrates genuine testing discipline — handler coverage is broad, exploration logic has dedicated unit tests across multiple files, and a shared stub infrastructure keeps tests decoupled from the real index. However the indexing critical path (BlackLabConllUIndexer) has zero runnable automated coverage due to a missing config file, and the live executor integration tests are fully disabled, meaning the core logDice scoring and CQL-to-BlackLab pipeline has no automated end-to-end verification. The CQL string regex coupling in multiple test stubs is a fragility pattern that could cause silent test failures if the internal pattern format changes. These gaps are meaningful for a corpus search tool where the query and indexing pipelines are the primary value. At the 60-80 anchor range, this sits above 60 (tests exist and cover most handler/model logic well) but below 80 (the indexing and full-query critical paths lack runnable coverage)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexer_zero_runnable_coverage",
+      "summary": "BlackLabConllUIndexer has no runnable automated tests — indexing pipeline critical path is entirely untested in CI",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "BlackLabConllUIndexerTest is annotated @Disabled at class level; every test inside it is unreachable in any standard CI run",
+        "The justification is that the YAML format config (conllu-sentences.blf.yaml) is not distributed with source, but this means the whole indexing pipeline — the core data ingestion path — has no automated test coverage",
+        "ConlluConverterTest does run and covers the CoNLL-U→WPL conversion step, but the BlackLab indexing step that consumes its output is untested"
+      ],
+      "suggestion": "Extract a testable seam at the point where ConlluConverter output is handed to BlackLab. A unit test that mocks or stubs the BlackLab DocumentFormat/Indexer boundary can verify the indexer's logic (batching, token counting, error handling) without requiring the YAML config file. Alternatively, distribute a minimal test-specific blf.yaml in src/test/resources so the full pipeline can be exercised in CI.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "cql_stub_regex_coupling",
+      "summary": "Test stubs extract lemmas from CQL strings via hardcoded regex, coupling tests to internal CQL quoting format",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/SketchHandlersTest.java"
+      ],
+      "evidence": [
+        "At least four test files contain the pattern: Pattern.compile(\"lemma=[\\\"']([^\\\"']+)[\\\"']\", ...).matcher(pattern) to route stub responses to the correct lemma",
+        "If the CQL builder changes lemma quoting from single to double quotes or adds spacing (e.g. lemma = \"theory\"), the regex fails silently and stubs return empty lists instead of failing with a clear assertion error",
+        "This is test-production coupling: the stubs depend on the internal string format of the CQL patterns produced by RelationPatternBuilder, not just the observable behaviour of executeCollocations"
+      ],
+      "suggestion": "Add a helper method to StubQueryExecutor (or a shared test utility class) that centralises the lemma extraction from CQL strings. Add a self-test assertion that verifies the regex matched something non-empty and throws a clear error if it did not, so a format change surfaces immediately rather than silently returning empty results.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "full_query_pipeline_no_integration",
+      "summary": "No runnable integration test covers the complete query pipeline from CQL compilation through logDice scoring to ranked results",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorIntegrationTest is @Disabled at class level; the nested BlackLabQueryExecutorTest.LiveIndex is also @Disabled",
+        "CollocateQueryHelper.scoreCollocate() (the logDice calculation path) is exercised only through stub-backed tests that return pre-scored WordSketchResult objects; the scoring formula itself is not tested end-to-end",
+        "LogDiceUtilsTest and HybridAlgorithmTest exist and cover the math in isolation, but no test verifies that executeCollocations correctly invokes the scoring path with real frequency data"
+      ],
+      "suggestion": "Build a small self-contained integration test corpus (10-20 CoNLL-U sentences) and index it in a @TempDir during test setup using the same BlackLabConllUIndexer. Use this embedded index in BlackLabQueryExecutorIntegrationTest to verify that executeCollocations returns correctly scored and ranked results. This can run without an external index path and provides the missing cross-module verification.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The BlackLab YAML format config is an external runtime artifact not committed to the repository; rather than isolating the indexer from this dependency in tests, the entire test class was disabled, creating a permanent gap",
+      "The StubQueryExecutor pattern is well-conceived but was extended at the call site rather than in the stub itself, causing each consumer to independently re-implement the CQL string parsing logic"
+    ],
+    "likely_symptoms": [
+      "cql_stub_regex_coupling — the regex is functionally correct today but is a latent fragility, not yet a confirmed failure"
+    ],
+    "possible_false_positives": []
+  }
+}

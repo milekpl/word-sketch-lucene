@@ -1,0 +1,104 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 5,
+  "assessments": {
+    "mid_level_elegance": 78.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler centralises all model-to-JSON translation for ExplorationResult and ComparisonResult; handler classes contain no inline serialisation logic for those types.",
+        "GrammarConfigLoader, GrammarConfig, and GrammarConfigSerializer are three distinct, purpose-focused classes: file-IO in the loader, data in the value object, JSON rendering in the serialiser.",
+        "HttpApiUtils.wrapWithErrorHandling provides a single error-propagation boundary for every HTTP route: IllegalArgumentException → 400, RequestEntityTooLargeException → 413, IOException → 500.",
+        "SemanticFieldExplorer acts as a stable facade for the HTTP layer, delegating multi-seed and comparison operations to MultiSeedExplorer and CollocateProfileComparator respectively.",
+        "RelationUtils.resolveRelationAlias centralises alias resolution in one place; ExplorationHandlers and ConcordanceHandlers both pass through it without duplicating alias logic.",
+        "ExplorationParams.collocatesPerSeed maps the HTTP parameter 'nouns_per' to a Java field with a different name; it is then re-emitted as 'nouns_per' in the response via an extraParams map. The two renames happen without a comment at either translation point.",
+        "ConcordanceHandlers.handleConcordanceExamples assembles its response with an inline HashMap + manual loop, while the sibling ExplorationHandlers delegates to ExploreResponseAssembler. The asymmetry is unexplained.",
+        "ExplorationHandlers.handleSemanticFieldExplore and handleSemanticFieldExploreMulti both manually destructure the same ExplorationParams record into slightly different options objects (SingleSeedExplorationOptions vs ExplorationOptions) inline inside the handler, producing thin ad-hoc glue code at the HTTP-to-domain seam.",
+        "resolveRelationConfig terminates with 'return relationConfig.orElseThrow()' after an explicit isEmpty() guard two lines above — the orElseThrow is unreachable and adds noise at the boundary validation seam."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler isolates all model-to-presentation translation in one place; neither ExplorationResult nor the handler classes carry JSON concerns.",
+        "The GrammarConfig/GrammarConfigLoader/GrammarConfigSerializer trio cleanly separates data, I/O, and serialisation into three focused collaborators with no back-and-forth coupling.",
+        "HttpApiUtils.wrapWithErrorHandling provides a single, predictable error-propagation contract across every HTTP route, eliminating per-handler try/catch scatter.",
+        "SemanticFieldExplorer correctly acts as a stable facade: the HTTP layer calls one class regardless of which underlying algorithm (single-seed, multi-seed, comparison) is invoked.",
+        "RelationUtils.resolveRelationAlias ensures alias-to-canonical-ID translation happens at exactly one seam, keeping both calling handlers free of alias logic."
+      ],
+      "issue_character": "The seam issues are concentrated at the HTTP-to-domain parameter-translation layer: minor naming discontinuities, thin inline glue code that bypasses the established assembler pattern, and a redundant guard that adds noise without protection. None cross into architectural problems, but they represent localised glue-code entropy at the input/output boundary of ExplorationHandlers.",
+      "score_rationale": "The codebase demonstrates above-average mid-level elegance: dedicated translation objects, a clean facade, and uniform error propagation are all present and working. What pulls the score below 'solid' is a cluster of small but real seam imperfections in ExplorationHandlers: a parameter that is silently renamed twice as it crosses the HTTP boundary, inline options construction that duplicates the same field-extraction pattern in two sibling methods, and asymmetric response-assembly compared to the concordance handler. These are not deep structural failures, but they represent the kind of glue-code entropy the dimension rubric flags. Anchoring against the global scale: this is comfortably above 60 (no significant drag) but short of 85 (seam translation is uneven in one subsystem)."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "nouns_per_rename_seam",
+      "summary": "HTTP parameter 'nouns_per' is silently renamed to 'collocatesPerSeed' in ExplorationParams and then back to 'nouns_per' in the response, with no comment at either translation point",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "parseExplorationParams: 'int collocatesPerSeed = HttpApiUtils.parseIntParam(params, \"nouns_per\", 30);' — field name diverges silently from the HTTP parameter name.",
+        "handleSemanticFieldExplore: 'extraParams.put(\"nouns_per\", exploreParams.collocatesPerSeed());' — the HTTP name is recreated manually for the response, meaning callers and readers must trace two renames to verify round-trip consistency.",
+        "No comment at either translation explains why the rename exists or which name is canonical."
+      ],
+      "suggestion": "Either align the ExplorationParams field name with the HTTP parameter ('nounsPerSeed' or keeping 'nouns_per' as the field name to match the wire name), or add a single comment at the ExplorationParams record explaining the deliberate rename and the canonical name used in responses. Centralising the key constant would also prevent the two sites diverging.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "inline_options_construction_glue",
+      "summary": "ExplorationHandlers manually destructures ExplorationParams into domain options objects inline in two sibling methods, producing thin ad-hoc glue code at the HTTP-to-domain seam",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore: 'new SingleSeedExplorationOptions(new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared()), exploreParams.collocatesPerSeed())' — three fields unpacked inline.",
+        "handleSemanticFieldExploreMulti: 'new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared())' — same three fields unpacked again.",
+        "handleSemanticFieldComparison: 'new ExplorationOptions(exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared())' — identical inline construction a third time.",
+        "The pattern is repeated three times with no extraction into a helper, meaning a field addition or rename in ExplorationParams requires updating three call sites."
+      ],
+      "suggestion": "Add a 'toExplorationOptions()' factory method to ExplorationParams (or a package-private static helper) that constructs an ExplorationOptions from the record, and a 'toSingleSeedOptions()' variant for the single-seed case. All three handler methods then call the helper, centralising the translation in one place.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "asymmetric_response_assembly",
+      "summary": "ConcordanceHandlers assembles its response with inline HashMap construction while sibling ExplorationHandlers delegates to ExploreResponseAssembler, leaving the pattern inconsistent across the API layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlers.handleConcordanceExamples builds the 'examples' list inline with a manual HashMap loop: 'for (QueryResults.CollocateResult r : results) { Map<String, Object> exMap = new HashMap<>(); exMap.put(\"sentence\", r.sentence()); ... }'.",
+        "ExplorationHandlers always delegates list building to ExploreResponseAssembler methods (populateExploreResponse, populateComparisonResponse, formatSeedCollocates, etc.).",
+        "The asymmetry means a developer adding a new field to concordance responses edits the handler directly, while for exploration responses they edit the assembler — different locations for the same kind of change."
+      ],
+      "suggestion": "Extract concordance response assembly into ExploreResponseAssembler (or a sibling ConcordanceResponseAssembler) so the handler class contains only HTTP-layer logic. The concordance examples list formatting is simple enough that a static helper method is sufficient.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationHandlers grew to own both HTTP parsing and domain-options construction without a dedicated parameter-to-options translation object, creating repeated inline glue at the input boundary.",
+      "ConcordanceHandlers was extracted from a larger class after ExploreResponseAssembler was already established, so it did not inherit the assembler pattern."
+    ],
+    "likely_symptoms": [
+      "nouns_per_rename_seam — the silent rename is a symptom of the HTTP parameter vocabulary not being aligned with the domain options vocabulary.",
+      "inline_options_construction_glue — the repeated destructuring is a symptom of ExplorationParams having no built-in translation to domain types."
+    ],
+    "possible_false_positives": []
+  }
+}

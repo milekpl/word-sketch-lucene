@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
-import pl.marcinmilkowski.word_sketch.model.exploration.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
@@ -67,7 +67,7 @@ class CollocateProfileComparator {
         logger.debug("Min logDice: {}", minLogDice);
 
         Map<String, Map<String, Double>> rawProfiles = buildRawAdjectiveProfiles(nounList, minLogDice, maxPerNoun);
-        List<AdjectiveProfile> profiles = buildAdjectiveProfileList(nounList, rawProfiles);
+        List<CollocateProfile> profiles = buildAdjectiveProfileList(nounList, rawProfiles);
 
         // Sort by commonality score (most shared first)
         profiles.sort((a, b) -> Double.compare(b.commonalityScore(), a.commonalityScore()));
@@ -105,12 +105,12 @@ class CollocateProfileComparator {
      * Phase 2: Build AdjectiveProfile objects from raw per-noun scores.
      * Uses a single pass over scores to compute average, max, min, and variance together.
      */
-    private List<AdjectiveProfile> buildAdjectiveProfileList(
+    private List<CollocateProfile> buildAdjectiveProfileList(
             List<String> nounList,
             Map<String, Map<String, Double>> adjectiveProfiles) {
 
         int nounCount = nounList.size();
-        List<AdjectiveProfile> profiles = new ArrayList<>();
+        List<CollocateProfile> profiles = new ArrayList<>();
 
         for (Map.Entry<String, Map<String, Double>> entry : adjectiveProfiles.entrySet()) {
             String adj = entry.getKey();
@@ -146,7 +146,7 @@ class CollocateProfileComparator {
             double distinctivenessScore = maxScore * (1.0 - (double) presentIn / nounCount)
                                          + Math.sqrt(variance);
 
-            profiles.add(new AdjectiveProfile(
+            profiles.add(new CollocateProfile(
                 adj, fullScores, presentIn, nounCount,
                 avgScore, maxScore, minScore, variance,
                 commonalityScore, distinctivenessScore
@@ -155,7 +155,7 @@ class CollocateProfileComparator {
         return profiles;
     }
 
-    private void logTopProfiles(List<AdjectiveProfile> profiles) {
+    private void logTopProfiles(List<CollocateProfile> profiles) {
         if (!logger.isDebugEnabled()) return;
         profiles.stream()
             .filter(p -> p.presentInCount() >= 2)

@@ -1,0 +1,81 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 13,
+  "assessments": {"error_consistency": 74.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling maps IllegalArgumentException→400, RequestEntityTooLargeException→413, IOException→500, and any other Exception→500 — applied uniformly to every registered endpoint in WordSketchApiServer.registerRoutes().",
+        "BlackLabQueryExecutor constructor catches ErrorOpeningIndex (a BlackLab RuntimeException) and re-throws as checked IOException with the index path in the message, preserving the original as cause.",
+        "GrammarConfigLoader has a documented two-tier exception contract: checked IOException for direct callers, IllegalStateException wrapping it for containers; createDefaultEnglish() distinguishes FileNotFoundException from generic IOException in two separate catch blocks with actionable messages.",
+        "CollocateQueryHelper.getTotalFrequency wraps RuntimeException into IOException('Unexpected failure retrieving frequency for lemma ...')  preserving context.",
+        "GrammarConfig.relation() returns Optional<RelationConfig> (documented as 'query-style accessor where the absent case is normal'), while RelationConfig.deriveDeprel() returns @Nullable String for the same 'not found' scenario — two different absent-value strategies within the same package.",
+        "RelationPatternBuilder.resolvePosGroupFromPrefix returns null as a sentinel (not Optional, not throw) and computeCollocatePosGroup has a null-check guard; this third strategy for 'no value' sits alongside Optional and @Nullable in the config layer.",
+        "SketchHandlers.buildRelationResults catches IOException per-relation, logs a warning, and appends to a relationErrors list that is included in the JSON response — a partial-result pattern that does not fully swallow errors but requires API consumers to inspect the relation_errors field to detect per-relation failures.",
+        "BlackLabConllUIndexer uses broad catch(Exception e) in both the index-creation block and close(), wrapping to IOException — acceptable given BlackLab's undeclared runtime exceptions, and the cause is always chained.",
+        "BlackLabSnippetParser returns null uniformly for parse failures across all its extraction methods; callers in BlackLabQueryExecutor and CollocateQueryHelper consistently null-check these returns, making the contract locally coherent but diverging from the checked-exception style used by the rest of the query layer."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "HttpApiUtils.wrapWithErrorHandling provides a single, uniform error boundary across all 10+ API endpoints, mapping specific exception types to precise HTTP status codes with logged context.",
+        "Library RuntimeExceptions (BlackLab's ErrorOpeningIndex, InvalidQuery) are consistently wrapped into checked IOException with cause chaining and contextual messages at every I/O boundary.",
+        "GrammarConfigLoader documents and implements a deliberate two-tier exception contract (IOException for direct callers, IllegalStateException for containers), making the startup failure mode predictable.",
+        "All handler methods use IllegalArgumentException for input validation errors, which flows cleanly to the API error boundary without requiring per-handler catch blocks."
+      ],
+      "issue_character": "Inconsistency is confined to the config and utility layers — the API and query layers are disciplined — where Optional, @Nullable returns, and null sentinels coexist for the same 'absent value' scenario, and one partial-result pattern in SketchHandlers silently degrades under per-relation failures without surfacing them in HTTP status codes.",
+      "score_rationale": "The API and query layers demonstrate intentional, consistent error design: a uniform boundary wrapper, checked exception contracts, cause chaining, and no silent swallowing. What prevents a higher score (80+) is the config layer's mixed absent-value strategies (Optional vs @Nullable vs null sentinel) and the SketchHandlers partial-result pattern that encodes per-relation failures in a response body field rather than HTTP status, requiring callers to parse errors out of a 200 response. These are workable but introduce cognitive overhead for anyone extending the config layer or consuming the sketch endpoint. Relative to a codebase-level anchor of 60 (significant drag), 74 reflects genuinely good architecture in the hot paths with moderate inconsistency at the edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "config_absent_value_strategy_mix",
+      "summary": "Config layer uses three different absent-value strategies — Optional, @Nullable return, and null sentinel — for the same 'not found' concept",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternBuilder.java"
+      ],
+      "evidence": [
+        "GrammarConfig.relation(String) returns Optional<RelationConfig> and documents it as 'query-style accessor where the absent case is a normal, expected outcome'.",
+        "RelationConfig.deriveDeprel() is annotated @Nullable and returns null when the relation type is not DEP or no deprel can be derived — documented, but a different contract than Optional.",
+        "RelationPatternBuilder.resolvePosGroupFromPrefix returns null (not Optional) when no POS prefix matches; computeCollocatePosGroup guards with '!= null' before returning PosGroup.OTHER — a third pattern, undocumented, in the same package."
+      ],
+      "suggestion": "Standardise on Optional<T> for query-style lookups that can legitimately return 'nothing' in the config layer. Replace @Nullable String deriveDeprel() with Optional<String> deriveDeprel(), and replace the null sentinel in resolvePosGroupFromPrefix with Optional<PosGroup>, pushing the .orElse(PosGroup.OTHER) to computeCollocatePosGroup. This eliminates the three-way inconsistency and lets the compiler enforce null-safety without requiring callers to remember which method returns which style.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "sketch_handlers_partial_result_silent_200",
+      "summary": "Per-relation IOException in SketchHandlers is caught and downgraded to a warning, encoding failures in the response body rather than HTTP status",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "buildRelationResults (around line 179) catches IOException per-relation, logs logger.warn('Relation {} failed for lemma {}: {}'), and appends the relation id + message to a relationErrors list.",
+        "The method still returns HTTP 200 with whatever partial results were gathered; the relation_errors field is present in the JSON body but HTTP status gives no hint of partial failure.",
+        "Consumers polling the sketch endpoint cannot use HTTP status alone to detect degraded responses; they must inspect a secondary field, making alerting and retry logic more complex."
+      ],
+      "suggestion": "Either (a) propagate the first IOException so wrapWithErrorHandling returns HTTP 500, or (b) if partial results are intentional, document the contract explicitly in the handler Javadoc, return HTTP 206 Partial Content, and ensure integration tests assert on the relation_errors field. Option (b) is preferred for production UX, but the current silent-200 behaviour is the inconsistency to resolve.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The config layer evolved incrementally — Optional was introduced for public API accessors later than @Nullable was adopted for internal helpers, leaving a legacy inconsistency.",
+      "The partial-result pattern in SketchHandlers was likely added for resilience (show what you can when one relation fails) without updating the HTTP contract to reflect partial success."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

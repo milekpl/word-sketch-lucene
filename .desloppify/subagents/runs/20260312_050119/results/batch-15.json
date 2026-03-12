@@ -1,0 +1,42 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 15,
+  "assessments": {"initialization_coupling": 91.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "No mutable static fields exist anywhere in the codebase: every static field is either `private static final Logger` or a `private static final` constant (e.g. `DEFAULT_CORS_ALLOW_ORIGIN`, `RELATION_ALIASES`).",
+        "No static initializer blocks (`static { ... }`) were found in any class.",
+        "`System.getProperty(\"cors.allow.origin\", ...)` is read inside `HttpApiUtils.sendOptionsResponse()` at call time, not in a static field initializer — meaning it reflects the current JVM state on each call and does not create a stale-snapshot hazard.",
+        "`System.getProperty(\"grammar.config\", ...)` in `GrammarConfigLoader.createDefaultEnglish()` and in `Main.handleBlackLabServerCommand()` is read at method-invocation time, not at class-load time.",
+        "`BlackLabQueryExecutor` opens the BlackLab index in its constructor; this is intentional and documented with a Javadoc note explaining why constructor-level I/O is appropriate for this lifecycle model.",
+        "`WordSketchApiServer` explicitly separates construction from port binding: the Javadoc comment `// NOTE: Port binding is deferred to start()` confirms the design.",
+        "All dependencies (`QueryExecutor`, `GrammarConfig`, `SemanticFieldExplorer`) flow through constructors — no class reaches out to a global registry or ambient context.",
+        "`GrammarConfigLoader.createDefaultEnglish()` is a static factory method with documented two-tier exception handling; it is not wired into any static field initializer or class-load hook."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The `createDefaultEnglish()` static factory method hides file I/O and a `System.getProperty` read behind a static call surface. While it is never invoked at class-load time, a future developer who wires it into a static field or DI container annotation could silently introduce an import-time side effect. The method exists alongside the explicit `load(Path)` API that is already used in `Main`, creating a dual-path access pattern where the more dangerous convenience path may be reached for in test helpers or future DI scaffolding."
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "No mutable static fields anywhere: every class-level static is `final`, making class-load state fully deterministic and safe across test runs.",
+        "System.getProperty reads are consistently deferred to method-invocation time (`sendOptionsResponse`, `createDefaultEnglish`, `handleBlackLabServerCommand`) rather than captured in static field initializers, eliminating stale-snapshot risk.",
+        "All cross-component dependencies are injected via constructors (`QueryExecutor`, `GrammarConfig`, `SemanticFieldExplorer`), with no ambient singletons or global registries.",
+        "Port binding in `WordSketchApiServer` is explicitly separated from construction, with a comment marking the deferral as intentional — showing active awareness of initialization-order concerns.",
+        "Constructor-level I/O in `BlackLabQueryExecutor` is justified and documented in the Javadoc, rather than hidden."
+      ],
+      "issue_character": "No concrete initialization-coupling defects were found; the only flag is a latent risk: the `createDefaultEnglish()` static factory method provides a convenience path that reads `System.getProperty` and performs file I/O, which could be misused as a static field initializer in future code.",
+      "score_rationale": "By the dimension rubric (boot-order dependencies, import-time side effects, global singletons with ordering constraints), this codebase has none of the listed defects: no class-level I/O, no mutable globals, no implicit ordering between class loads. This places the codebase firmly in the 'exemplary' range. A small deduction from 100 is warranted because `createDefaultEnglish()` is an untested latent risk — it is a static method whose signature does not convey that it performs I/O and reads environment state, which violates the 'interface honesty' principle for initialization code and could become a real coupling issue if future code wires it into a static field or DI lifecycle annotation."
+    }
+  },
+  "issues": [],
+  "retrospective": {
+    "root_causes": [],
+    "likely_symptoms": [],
+    "possible_false_positives": ["mutable_globals scan signal — mechanical scan found no mutable globals; confirmed by code inspection"]
+  }
+}

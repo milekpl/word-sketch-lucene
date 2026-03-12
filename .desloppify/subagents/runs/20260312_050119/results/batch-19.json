@@ -1,0 +1,60 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 19,
+  "assessments": {
+    "authorization_consistency": 78.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer class Javadoc explicitly documents the security model: server binds to 127.0.0.1 (loopback only), all endpoints are unauthenticated, and the Javadoc warns that any rebind to 0.0.0.0 must be accompanied by auth or network-level ACL.",
+        "All 11 routes are registered via the same registerGetHandler/registerPostHandler helpers, which funnel every request through the same CORS preflight + method-enforcement logic — no sibling route has elevated or reduced access controls.",
+        "HttpApiUtils.setCorsHeader is called inside every response-sending method (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse), so the CORS trust boundary is uniformly applied regardless of which handler fires.",
+        "Input validation is applied consistently: all handler classes use requireParam, parseIntParam, parseDoubleParam, and readBodyWithSizeLimit via shared utility methods; no endpoint bypasses these checks.",
+        "The powerful /api/bcql endpoint (arbitrary BCQL pattern) applies extra complexity guards (MAX_BCQL_PATTERN_LENGTH=1024, MAX_BCQL_BRACKET_DEPTH=20) consistent with the same wrapWithErrorHandling wrapper used on all other endpoints.",
+        "CORS origin defaults to http://localhost:3000; widening to '*' triggers a runtime logger.warn() in setCorsHeader but does not refuse the request, and this is the only runtime enforcement of the CORS trust boundary."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "The security model is explicitly documented in WordSketchApiServer's class Javadoc — 'All endpoints are unauthenticated' — so the design intent is unambiguous rather than accidental.",
+        "Every route, including the more powerful /api/bcql and /api/visual/radial POST endpoints, goes through exactly the same access-control path (loopback bind + no auth middleware) with no siblings that receive elevated treatment.",
+        "CORS headers are applied in a single private setCorsHeader method called from every response-writing utility, making it structurally impossible to omit them on a new endpoint that uses the shared utilities.",
+        "Input validation utilities (requireParam, length checks, body-size cap) are shared across all handler classes, so validation consistency is enforced by architecture rather than discipline."
+      ],
+      "issue_character": "There are no auth-consistency defects in the traditional sense (no mixed middleware, no missing decorators on sibling routes); the single concern is that the CORS wildcard configuration path (*) triggers only a warning log rather than a hard refusal, leaving a gap if the loopback constraint is ever removed at deployment time.",
+      "score_rationale": "The codebase applies its 'loopback-only, no auth' model with complete and deliberate uniformity — there is no instance of one route having a guard that a sibling lacks, and the rationale is documented. This places it solidly above the 'significant drag' anchor at 60. The score is bounded below the high-80s because the authorization model itself is minimal: if the loopback constraint is violated (a scenario the Javadoc warns about), there is zero fallback auth layer, and the CORS wildcard path is not hard-blocked. This aligns with a 'solid but uneven' posture where the consistency is strong but the depth of the authorization model is low."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_wildcard_no_hard_block",
+      "summary": "CORS origin wildcard (*) logs a warning but is not refused, leaving no enforcement if loopback bind is later removed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "In setCorsHeader (line 80): if (\"*\".equals(origin)) { logger.warn(...); } — the wildcard is accepted and sent as the CORS header despite the warning.",
+        "WordSketchApiServer Javadoc explicitly warns that rebinding to 0.0.0.0 requires an auth layer; if a deployer adds that rebind but also sets cors.allow.origin=*, there is no server-side guard — only a log line that may go unnoticed."
+      ],
+      "suggestion": "Add a startup check in WordSketchApiServer.start() (or in setCorsHeader itself) that throws an IllegalStateException or logs at ERROR severity when cors.allow.origin=* is detected alongside a non-loopback bind address, making the misconfiguration impossible to miss rather than silently warned at request time.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The project is designed as a single-user local research tool where network-level isolation (loopback bind) is the sole access-control layer; this is a reasonable and documented design choice that naturally produces a 'no auth' codebase with nothing to be inconsistent about.",
+      "Shared utility methods (HttpApiUtils, wrapWithErrorHandling) enforce cross-cutting concerns structurally, which makes auth-consistency issues unlikely to be introduced as the codebase grows."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

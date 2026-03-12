@@ -1,0 +1,111 @@
+{
+  "batch": "type_safety",
+  "batch_index": 11,
+  "assessments": {"type_safety": 74.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "Consistent use of org.jspecify @NonNull/@Nullable on public API boundaries: QueryExecutor interface parameters, HttpApiUtils helpers, ExploreResponseAssembler, CollocateQueryHelper constructor.",
+        "Sealed interface QueryResults.ConcordanceResult with permits clause covers all concrete subtypes (SnippetResult, CollocateResult) — honest sum type.",
+        "RelationConfig record declares `@NonNull String pattern`, but RelationConfig.deriveDeprel() contains an explicit `if (pattern == null || ...)` null guard, directly contradicting the @NonNull annotation.",
+        "GrammarConfigSerializer.toJson(RelationConfig) similarly guards `if (rel.pattern() != null) obj.put(\"pattern\", rel.pattern())` even though pattern is annotated @NonNull on the record — the serializer doesn't trust the annotation.",
+        "CollocateQueryHelper package-private no-arg constructor sets `this.index = null`, but the `BlackLabIndex index` field carries no @Nullable annotation. The field is accessed via Objects.requireNonNull in production paths, but the field type annotation is a silent lie.",
+        "Optional<RelationType> on RelationConfig.relationType() is used correctly: callers use .orElse(null) + null check or .ifPresent(), not blind .get().",
+        "QueryExecutor.executeCollocations declares @Nullable String lemma on the interface, but BlackLabQueryExecutor's override omits the @Nullable — JSpecify annotations are not inherited across interface/impl boundaries in Java, so the implementation's contract is under-specified.",
+        "PosGroup and RelationType enums are used correctly throughout — no raw string bypasses observed; RelationConfig.relationType uses Optional<RelationType> rather than a nullable String.",
+        "Record types (WordSketchResult, CollocateResult, ExplorationOptions, SingleSeedExplorationOptions, etc.) are well-typed with explicit field types and no Object or raw Map leakage at the model layer.",
+        "Map<String, Object> is used in response assembly (ExploreResponseAssembler, SketchHandlers, ConcordanceHandlers) as the JSON payload type — this is a boundary concern and acceptable for fastjson2 serialisation, not a model-layer issue."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Consistent JSpecify @NonNull/@Nullable annotations on all public API interfaces and handler helpers (QueryExecutor, HttpApiUtils, ExploreResponseAssembler).",
+        "Sealed interface ConcordanceResult with a closed permits clause provides an honest, exhaustive sum type for concordance results.",
+        "Model-layer types use records and enums throughout; no raw Map or Object field types leak into DTOs.",
+        "Optional<RelationType> on RelationConfig.relationType() is used idiomatically — callers never call .get() without checking, and the absent case is documented."
+      ],
+      "issue_character": "The issues are a cluster of @NonNull annotation contradictions: RelationConfig declares pattern as @NonNull yet two callers (deriveDeprel and GrammarConfigSerializer) guard against null, and one test-seam field (CollocateQueryHelper.index) is silently nullable without annotation — these are localised annotation dishonesty problems rather than deep architectural type gaps.",
+      "score_rationale": "The codebase sits solidly above the 60 'significant drag' threshold: JSpecify is applied consistently at API boundaries, sealed types and records are used correctly, and enums are not bypassed with raw strings. The score does not reach 80 ('solid but uneven') because the @NonNull annotation on RelationConfig.pattern is directly contradicted in two sibling files, the CollocateQueryHelper test-seam field is implicitly nullable without declaration, and the interface @Nullable annotation on executeCollocations is not repeated on the implementing class. These are real annotation dishonesty issues that a NullAway or checker-framework run would surface, pulling the score to the mid-70s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "nonnull_pattern_null_guard_deriveDeprel",
+      "summary": "RelationConfig.pattern is @NonNull but deriveDeprel() guards against null — annotation contradicts implementation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "Record field is declared `@NonNull String pattern` (line 13 approx.), but deriveDeprel() opens with `if (pattern == null || !RelationType.DEP.equals(...))` — the null branch is either dead code (if @NonNull is correct) or the annotation is wrong."
+      ],
+      "suggestion": "If pattern can genuinely be null at runtime (e.g. constructed reflectively), change the annotation to @Nullable and add a null guard at construction time in GrammarConfigLoader instead. If it cannot be null, remove the `pattern == null` branch in deriveDeprel().",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "nonnull_annotation_contradictions"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nonnull_pattern_null_guard_serializer",
+      "summary": "GrammarConfigSerializer guards rel.pattern() != null despite @NonNull annotation — parallel annotation distrust",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigSerializer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "GrammarConfigSerializer.toJson(RelationConfig) contains `if (rel.pattern() != null) obj.put(\"pattern\", rel.pattern())` even though RelationConfig declares pattern as @NonNull — the serializer doesn't trust the annotation declared on the record."
+      ],
+      "suggestion": "Remove the null guard and write `obj.put(\"pattern\", rel.pattern())` directly, relying on the @NonNull contract. Alternatively, resolve the root annotation question in RelationConfig first (see nonnull_pattern_null_guard_deriveDeprel).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "nonnull_annotation_contradictions"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_helper_index_nullable_unannotated",
+      "summary": "CollocateQueryHelper.index is assigned null in the test constructor but the field carries no @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "The no-arg constructor sets `this.index = null` for test subclasses, but the field `BlackLabIndex index` is declared without @Nullable. Production paths guard with Objects.requireNonNull, but the field type does not document its nullability contract."
+      ],
+      "suggestion": "Annotate the field as `@Nullable BlackLabIndex index` to match actual runtime behaviour, making the test-seam intent explicit to static analysis tools.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "nonnull_annotation_contradictions"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_annotation_missing_on_impl",
+      "summary": "BlackLabQueryExecutor.executeCollocations omits @Nullable on the lemma parameter that the interface declares @Nullable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeCollocations declares `@Nullable String lemma`, but the override in BlackLabQueryExecutor drops the annotation — Java does not inherit parameter annotations from interfaces, so the implementation's contract is invisible to JSpecify analysis."
+      ],
+      "suggestion": "Repeat `@Nullable String lemma` on the BlackLabQueryExecutor.executeCollocations override to make the nullability contract explicit on both sides of the interface/implementation boundary.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A single root cause underlies issues 1-3: RelationConfig.pattern may have started as nullable in an earlier design and was later annotated @NonNull without auditing all callsites — the annotation was added to the record but not back-propagated to deriveDeprel() or GrammarConfigSerializer.",
+      "Java's non-inheritance of parameter annotations across interface/impl means JSpecify annotations must be manually repeated on overrides — easy to miss without a NullAway or checker-framework CI step."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

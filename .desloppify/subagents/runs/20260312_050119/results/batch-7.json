@@ -1,0 +1,61 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 7,
+  "assessments": {
+    "incomplete_migration": 78.0
+  },
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "webapp/index.html:1544 calls deprecated `/api/semantic-field` with `?nouns=` parameter, but the backend handler `handleSemanticFieldComparison` (ExplorationHandlers.java:149) calls `HttpApiUtils.requireParam(params, \"seeds\")` — the `nouns` key is never read, causing a guaranteed 400 at runtime",
+        "WordSketchApiServer.java:96-100 registers `/api/semantic-field` as a deprecated alias (tagged 'Will be removed in v2.0') alongside the canonical `/api/semantic-field/compare`, with startup and per-invocation warn logs",
+        "GrammarConfigLoader.java:123+159: the old `cql_pattern` field name is documented as 'no longer supported' and the loader actively rejects the legacy `copulas` top-level key via validateNoLegacyKeys — old config shapes cannot silently pass through",
+        "The `blacklab` sub-package names (indexer/blacklab/, query/BlackLabQueryExecutor.java) reflect the library actually in use (nl.inl.blacklab.*), so this is intentional naming, not a stale migration artefact"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "Deprecated `/api/semantic-field` endpoint is explicitly logged at both registration time and per-invocation with a clear v2.0 removal note, giving operators visibility",
+        "GrammarConfigLoader actively rejects the legacy `copulas` key and documents `cql_pattern` as unsupported, so old config shapes fail loudly rather than silently misbehaving",
+        "The canonical new path (`/api/semantic-field/compare`) and its parameter contract (`seeds=`) are consistently used by all server-side tests (ExplorationHandlersTest.java), making the intended migration path clear"
+      ],
+      "issue_character": "A single parameter name mismatch between the webapp client and the server's deprecated endpoint handler causes functional breakage; the migration machinery itself is documented and intentional, but the webapp was not updated when the parameter was renamed from `nouns` to `seeds`.",
+      "score_rationale": "The codebase manages its deprecations deliberately: the old endpoint is logged, the v2.0 removal plan is documented, and config-level migrations are enforced with hard rejections. This pushes the score above 80. However, the webapp's live call to the deprecated endpoint with the wrong parameter (`nouns=` instead of `seeds=`) is a concrete functional regression — the semantic comparison feature in the UI silently fails with a 400 at runtime. That one incomplete update prevents a higher score, landing the overall judgment at 78: the migration strategy is solid but the rollout is incomplete in a user-visible way."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "webapp_deprecated_endpoint_wrong_param",
+      "summary": "webapp calls deprecated /api/semantic-field with `nouns=` param; backend requires `seeds=`, causing a 400 runtime error",
+      "related_files": [
+        "webapp/index.html",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "index.html:1544: `${apiUrl}/api/semantic-field?nouns=${encodeURIComponent(nouns)}&min_logdice=...` — passes `nouns` key",
+        "ExplorationHandlers.java:152: `HttpApiUtils.requireParam(params, \"seeds\")` — throws 400 when `seeds` is absent",
+        "The `nouns` key is never read by any server-side handler; `max_per_noun` sent by the webapp is also silently ignored by the compare handler which uses `top`"
+      ],
+      "suggestion": "In index.html, update the deprecated-path call to either: (a) switch to the canonical endpoint — change `/api/semantic-field` to `/api/semantic-field/compare` and rename the query parameter from `nouns` to `seeds`; or (b) if backward compatibility is needed, keep the deprecated path but fix the parameter name to `seeds=`. Option (a) is preferred as it completes the migration. Also update the `max_per_noun` parameter to `top` to align with the API contract.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The backend parameter was renamed from `nouns` to `seeds` during the v1.5 comparison-endpoint refactor, but the webapp JS was not updated in the same change, leaving a broken call path"
+    ],
+    "likely_symptoms": [
+      "webapp_deprecated_endpoint_wrong_param"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,7 +1,7 @@
 package pl.marcinmilkowski.word_sketch.exploration;
 
 import org.junit.jupiter.api.Test;
-import pl.marcinmilkowski.word_sketch.model.exploration.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
@@ -59,7 +59,7 @@ class CollocateProfileComparatorTest {
         CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(data), null);
         ComparisonResult result = comparator.compareCollocateProfiles(Set.of("theory", "model"), 0.0, 10);
 
-        List<AdjectiveProfile> adjectives = result.allAdjectives();
+        List<CollocateProfile> adjectives = result.collocates();
         assertFalse(adjectives.isEmpty());
 
         // First profile must have the highest commonality score
@@ -84,17 +84,17 @@ class CollocateProfileComparatorTest {
                 Set.of("theory", "model", "hypothesis"), 0.0, 10);
 
         // "important" must be identified as fully shared (present in 3/3 nouns)
-        List<AdjectiveProfile> fullyShared = result.fullyShared();
+        List<CollocateProfile> fullyShared = result.fullyShared();
         assertTrue(fullyShared.stream().anyMatch(p -> "important".equals(p.adjective())),
                 "\"important\" should be fully shared across all three seeds");
 
         // "recent" must be partially shared (present in 2/3 nouns)
-        List<AdjectiveProfile> partiallyShared = result.partiallyShared();
+        List<CollocateProfile> partiallyShared = result.partiallyShared();
         assertTrue(partiallyShared.stream().anyMatch(p -> "recent".equals(p.adjective())),
                 "\"recent\" should be partially shared across two seeds");
 
         // "large" must be specific to one noun
-        List<AdjectiveProfile> specific = result.specific();
+        List<CollocateProfile> specific = result.specific();
         assertTrue(specific.stream().anyMatch(p -> "large".equals(p.adjective())),
                 "\"large\" should be specific to a single seed");
     }

@@ -1,0 +1,92 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {
+    "abstraction_fitness": 78.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed (line 360) is a single-line delegation to MultiSeedExplorer.findCollocateIntersection that only unpacks ExplorationOptions into positional parameters — no policy, no behaviour added",
+        "SemanticFieldExplorer.compareCollocateProfiles adds only a seedNouns.size() < 2 cardinality guard before delegating to comparator.compareCollocateProfiles — the guard is the entirety of added value",
+        "QueryExecutor interface declares 7 methods (executeCollocations, executeCqlQuery, executeBcqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern, getExecutorType) with a single production implementation (BlackLabQueryExecutor); the Javadoc itself labels it a 'testability seam rather than an abstraction boundary' and calls the current shape 'deferred' debt",
+        "CollocateQueryHelper encapsulates a genuine two-phase algorithm — hit collection (collectHits) and scoring (scoreHits) — with real logic: corpus-frequency pre-caching, logDice computation, over-fetch windowing; it pays for its existence",
+        "RelationPatternBuilder is properly extracted from RelationConfig as a pure static utility class with documented rationale (keep the record as a plain data carrier); no structural over-abstraction",
+        "Handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) appropriately separate HTTP routing and parameter parsing from domain logic; WordSketchApiServer acts as a clean wiring point",
+        "ExploreResponseAssembler cleanly translates model objects (ExplorationResult, ComparisonResult, AdjectiveProfile, Edge) into JSON-ready maps, removing that concern from ExplorationHandlers entirely",
+        "Mechanical scan reports 0 delegation-heavy classes, 0 facade modules, and 0 typed-dict violations — the delegation hotspots flagged are Java method-chain fluent APIs on external libraries (BlackLab), not structural wrappers"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "sub_axes": {
+        "abstraction_leverage": 84.0,
+        "indirection_cost": 72.0,
+        "interface_honesty": 76.0,
+        "delegation_density": 92.0,
+        "definition_directness": 84.0,
+        "type_discipline": 90.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "CollocateQueryHelper encapsulates a real two-phase algorithm (hit collection + logDice scoring with frequency pre-caching) that would otherwise litter BlackLabQueryExecutor; the abstraction clearly pays for itself",
+        "RelationPatternBuilder is correctly extracted from the RelationConfig record as a pure static utility, keeping the data type free of logic without introducing unnecessary indirection",
+        "Handler decomposition (SketchHandlers, ExplorationHandlers, etc.) gives each HTTP handler class a focused responsibility and insulates domain logic from HTTP plumbing without adding gratuitous layers",
+        "ExploreResponseAssembler consolidates all model-to-JSON translation in one place, eliminating per-handler response assembly code and making the translation testable independently"
+      ],
+      "issue_character": "The abstraction problems are isolated to two related points — a documented but still-deferred wide single-implementation interface (QueryExecutor) and two thin facade methods on SemanticFieldExplorer — rather than a systemic over-engineering pattern across the codebase.",
+      "score_rationale": "The codebase sits comfortably in the 'solid but uneven' band. Most abstractions clearly earn their keep: CollocateQueryHelper, RelationPatternBuilder, and the handler split all reduce complexity for their callers. However, the QueryExecutor interface accumulates 7 heterogeneous method contracts behind a boundary that currently has only one production implementation, adding indirection cost that the code itself acknowledges as deferred; and SemanticFieldExplorer.exploreMultiSeed is a single-line options-unpacking wrapper that a developer tracing call chains will find unhelpful. These are genuine friction points but they are isolated and documented, which puts the score above 70 ('mixed') but below 80 ('solid but uneven') — landing at 78."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "semantic_field_explorer_thin_delegation",
+      "summary": "SemanticFieldExplorer.exploreMultiSeed is a single-line options-unpacking wrapper with no added behaviour",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "exploreMultiSeed (line 360) contains exactly: return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared()); — the entire body unpacks ExplorationOptions into positional parameters and forwards the call",
+        "No policy, guard, logging, or transformation is added relative to calling MultiSeedExplorer.findCollocateIntersection directly",
+        "compareCollocateProfiles similarly adds only a seedNouns.size() < 2 guard then delegates — the guard itself could live in MultiSeedExplorer or CollocateProfileComparator where the contract is defined"
+      ],
+      "suggestion": "Make MultiSeedExplorer.findCollocateIntersection accept ExplorationOptions directly instead of three discrete parameters, then have SemanticFieldExplorer call it with no unpacking. Alternatively, move the cardinality guard into CollocateProfileComparator (which already validates size >= 2) and let ExplorationHandlers call the sub-classes through SemanticFieldExplorer only when the facade adds real invariants. If the indirection is retained purely for testability, document that explicitly alongside the existing facade note.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "thin_facade_delegation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "query_executor_wide_single_impl_interface",
+      "summary": "QueryExecutor combines 7 heterogeneous query methods behind an interface with one production implementation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor declares executeCollocations, executeCqlQuery, executeBcqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern, and getExecutorType — three distinct query paradigms (CQL concordance, BCQL collocate, dependency) in one interface",
+        "The interface Javadoc states: 'The single production implementation (BlackLabQueryExecutor) means the interface acts primarily as a testability seam rather than an abstraction boundary. A future split into narrower ports (e.g. CollocateQueryPort / DependencyQueryPort) is feasible but deferred' — confirming this is known, unresolved debt",
+        "Test doubles must implement or stub all 7 methods even when only 1-2 are exercised by a given test scenario"
+      ],
+      "suggestion": "Split QueryExecutor into two narrower interfaces: CollocateQueryPort (executeCollocations, executeSurfacePattern, executeDependencyPattern, getTotalFrequency) and ConcordanceQueryPort (executeCqlQuery, executeBcqlQuery). BlackLabQueryExecutor implements both. Callers that use only one query paradigm (e.g. SemanticFieldExplorer only calls executeSurfacePattern/executeCollocations) take the narrower interface, reducing the stub surface for tests and making the actual dependency explicit.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "thin_facade_delegation"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The facade/delegation pattern was applied deliberately (documented in SemanticFieldExplorer and QueryExecutor Javadocs) to provide a stable HTTP-layer surface, but the abstraction cost was not fully paid down — thin methods remained rather than either owning the logic or removing the layer",
+      "QueryExecutor was designed as a testability seam before the query surface grew to 7 methods; the interface was never narrowed as the API expanded"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

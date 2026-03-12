@@ -3,7 +3,7 @@ package pl.marcinmilkowski.word_sketch.query;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
-import pl.marcinmilkowski.word_sketch.model.exploration.AdjectiveProfile;
+import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
@@ -73,7 +73,7 @@ class SemanticFieldExplorerTest {
         ComparisonResult result =
             explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
-        List<AdjectiveProfile> fullyShared = result.fullyShared();
+        List<CollocateProfile> fullyShared = result.fullyShared();
         List<String> sharedNames = fullyShared.stream()
             .map(p -> p.adjective()).toList();
 
@@ -95,7 +95,7 @@ class SemanticFieldExplorerTest {
         ComparisonResult result =
             explorer.compareCollocateProfiles(Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
-        List<AdjectiveProfile> specific = result.specific();
+        List<CollocateProfile> specific = result.specific();
         List<String> specificNames = specific.stream().map(p -> p.adjective()).toList();
 
         assertTrue(specificNames.contains("abstract"),

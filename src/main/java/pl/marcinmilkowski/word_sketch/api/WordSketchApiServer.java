@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 
 import java.io.IOException;
@@ -33,7 +34,6 @@ import java.util.Objects;
  * - GET  /api/semantic-field/explore        - Single-seed semantic field exploration (?seed=)
  * - GET  /api/semantic-field/explore-multi  - Multi-seed semantic field exploration (?seeds=)
  * - GET  /api/semantic-field/compare        - Semantic field comparison (canonical path)
- * - GET  /api/semantic-field                - Semantic field comparison (legacy alias)
  * - GET  /api/semantic-field/examples       - Semantic field concordance examples
  * - GET  /api/concordance/examples          - Concordance examples for a word pair
  * - POST /api/visual/radial                 - Radial plot (POST-only)
@@ -56,8 +56,8 @@ public class WordSketchApiServer {
         this(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig);
     }
 
-    /** Full constructor accepting an injected {@link SemanticFieldExplorer}, useful for testing. */
-    public WordSketchApiServer(QueryExecutor executor, SemanticFieldExplorer semanticFieldExplorer,
+    /** Full constructor accepting an injected {@link ExplorationService}, useful for testing. */
+    public WordSketchApiServer(QueryExecutor executor, ExplorationService semanticFieldExplorer,
                                 int port, GrammarConfig grammarConfig) throws IOException {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
@@ -92,14 +92,6 @@ public class WordSketchApiServer {
 
         registerGetHandler(server, "/api/semantic-field/compare",
             HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldComparison, "Semantic field comparison"));
-
-        // Deprecated since v1.5 — use /api/semantic-field/compare instead. Will be removed in v2.0.
-        logger.warn("Registering deprecated endpoint /api/semantic-field — use /api/semantic-field/compare instead. Will be removed in v2.0.");
-        registerGetHandler(server, "/api/semantic-field",
-            HttpApiUtils.wrapWithErrorHandling(exchange -> {
-                logger.warn("Deprecated endpoint /api/semantic-field invoked — use /api/semantic-field/compare instead");
-                explorationHandlers.handleSemanticFieldComparison(exchange);
-            }, "Semantic field comparison (legacy)"));
 
         registerGetHandler(server, "/api/semantic-field/examples",
             HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldExamples, "Semantic field examples"));

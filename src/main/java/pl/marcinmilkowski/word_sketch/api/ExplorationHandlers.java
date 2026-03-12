@@ -12,7 +12,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
-import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
+import pl.marcinmilkowski.word_sketch.exploration.ExplorationService;
 
 import java.util.Objects;
 
@@ -32,9 +32,9 @@ class ExplorationHandlers {
     private static final Logger logger = LoggerFactory.getLogger(ExplorationHandlers.class);
 
     private final GrammarConfig grammarConfig;
-    private final SemanticFieldExplorer semanticFieldExplorer;
+    private final ExplorationService semanticFieldExplorer;
 
-    ExplorationHandlers(SemanticFieldExplorer semanticFieldExplorer, @NonNull GrammarConfig grammarConfig) {
+    ExplorationHandlers(ExplorationService semanticFieldExplorer, @NonNull GrammarConfig grammarConfig) {
         this.grammarConfig = Objects.requireNonNull(grammarConfig,
             "grammarConfig must not be null; exploration endpoints require a loaded grammar configuration");
         this.semanticFieldExplorer = semanticFieldExplorer;

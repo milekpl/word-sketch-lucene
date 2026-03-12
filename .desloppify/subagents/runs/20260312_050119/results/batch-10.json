@@ -1,0 +1,90 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 10,
+  "assessments": {"logic_clarity": 82.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "No identical if/else or ternary branches found across all seed files — all branching reflects genuine alternatives",
+        "No dead code paths after unconditional returns; all early-return guards are distinct and necessary",
+        "logDice guard `(headwordFreq > 0 && collocateFreq > 0)` correctly protects against division-by-zero in CollocateQueryHelper.buildAndRankCollocates and scoreHits",
+        "ExplorationHandlers.resolveRelationConfig (line 265): `return relationConfig.orElseThrow()` is logically unreachable as a throw — the `isEmpty()` guard on line 257 already throws IAE, so `orElseThrow()` is always equivalent to `.get()` here",
+        "RelationConfig.deriveDeprel() (line 54): `if (pattern == null || ...)` — `pattern` is declared `@NonNull` and validated non-null/non-blank by GrammarConfigLoader.parseRelation (line 161); the `pattern == null` sub-expression is always false",
+        "ConlluConverter.processLines (line 113): `if (inSentence && writer != null)` — the Javadoc invariant states `inSentence implies writer != null`; the `&& writer != null` sub-expression is logically redundant per that invariant, yet line 87 (inside the same class) correctly omits the null check with an explanatory comment, creating an inconsistency",
+        "BlackLabConllUIndexer.close() (line 94): `if (indexer != null)` — `indexer` is a final field that is either set during construction or the constructor throws (preventing the object from being returned); in any callable instance the field is non-null"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "No dead code paths exist after unconditional returns anywhere in the seed files; all guard clauses are distinct and necessary",
+        "logDice computation consistently guards against division-by-zero with an explicit compound condition rather than relying on silent arithmetic defaults",
+        "No identical if/else branches — every conditional expresses a genuine behavioural distinction",
+        "The `ConlluConverter.processLines` sentencing invariant is clearly documented in Javadoc and correctly applied at line 87 (no redundant null check with an explanatory comment)"
+      ],
+      "issue_character": "The issues are isolated, logically-harmless redundancies where the code expresses uncertainty that does not actually exist — always-false null checks on @NonNull fields, a redundant orElseThrow() after a guard that already throws, and an inconsistent null check that contradicts a documented invariant in the same file.",
+      "score_rationale": "The codebase has no genuinely wrong control flow, no hidden dead code, and no boolean simplification opportunities that mask bugs. Logic is well-structured and intention is clear throughout. The score is pulled slightly below 85 by three local inconsistencies: a redundant `orElseThrow()` that makes future readers question whether the guard is reliable, an always-false `pattern == null` check that contradicts the `@NonNull` contract, and an inconsistent `writer != null` check that contradicts the file-level invariant documented two lines above. These are cosmetic/maintenance issues rather than correctness hazards, placing the codebase solidly in the 80–85 range (solid but with minor uneven spots) rather than at the higher 90+ level."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_orelsethrow_after_guard",
+      "summary": "orElseThrow() called on Optional that is provably non-empty after an isEmpty() guard",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "Line 257: `if (relationConfig.isEmpty()) { throw new IllegalArgumentException(...); }` — control never reaches line 265 when empty",
+        "Line 265: `return relationConfig.orElseThrow();` — equivalent to `.get()` here; the orElseThrow() implies residual uncertainty that does not exist"
+      ],
+      "suggestion": "Replace `relationConfig.orElseThrow()` with `relationConfig.get()` to make the intent explicit: the value is known-present at this point. Alternatively collapse to a single expression: `return grammarConfig.relation(relationId).orElseThrow(() -> new IllegalArgumentException(\"Unknown relation: \" + relationId));` and remove the separate isEmpty() check.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "always_false_null_check_nonnull_field",
+      "summary": "Always-false null check on @NonNull pattern field in RelationConfig.deriveDeprel()",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"],
+      "evidence": [
+        "Line 26: `@NonNull String pattern` — record component is annotated @NonNull",
+        "GrammarConfigLoader.parseRelation lines 161-163: validates pattern is non-null/non-blank before constructing RelationConfig — no null can reach deriveDeprel()",
+        "Line 54: `if (pattern == null || !RelationType.DEP.equals(relationType().orElse(null)))` — the `pattern == null` sub-expression is always false"
+      ],
+      "suggestion": "Remove the `pattern == null ||` sub-expression. The condition should be: `if (!RelationType.DEP.equals(relationType().orElse(null))) { return null; }`. This aligns the code with the @NonNull contract and eliminates reader confusion about whether null is possible.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_null_check_contradicts_invariant",
+      "summary": "Redundant `writer != null` check at end of processLines contradicts the documented inSentence-implies-non-null invariant",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"],
+      "evidence": [
+        "Javadoc line 71: 'Invariant: inSentence implies writer != null'",
+        "Line 87: `writer.write(\"</s>\\n\");` inside `if (inSentence)` block — correctly omits null check with comment 'inSentence implies writer != null (see invariant in Javadoc)'",
+        "Line 113: `if (inSentence && writer != null)` — includes a redundant null check that the invariant makes unnecessary, creating inconsistency with line 87"
+      ],
+      "suggestion": "Simplify line 113 to `if (inSentence)`, consistent with the documented invariant and the existing pattern at line 87. Optionally add the same explanatory comment: `// inSentence implies writer != null (see invariant in Javadoc)`.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Defensive programming habits applied without checking whether the invariants are already established by annotations or Javadoc contracts"
+    ],
+    "likely_symptoms": [
+      "redundant_orelsethrow_after_guard",
+      "always_false_null_check_nonnull_field",
+      "redundant_null_check_contradicts_invariant"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 4,
+  "assessments": {
+    "low_level_elegance": 78.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "CollocateQueryHelper phases (collectHits, scoreHits, buildAndRankCollocates) are well-extracted private helpers with clear single responsibilities",
+        "BlackLabSnippetParser is a focused utility class: every method has a single concern, guard clauses appear at entry points only, no defensive sprawl inside logic bodies",
+        "HttpApiUtils methods are proportionate and focused; request-body reading, param parsing, and response writing are each in appropriately-sized helpers",
+        "SemanticFieldExplorer phase helpers (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) are cleanly extracted, but the inline seedCollocateScores/seedCollocateFrequencies map-building loop in exploreByPattern is not extracted, creating an asymmetry with those named phases",
+        "ConlluConverter passes mutable state via a long[] array with named int indices (STATE_SENTENCES=0, STATE_TOKENS=1, STATE_CHUNKS=2) across method calls — an unusual idiom that relies on array-side-effect mutation rather than a simple mutable record",
+        "rotateChunkIfNeeded in ConlluConverter returns Optional<Long> as a rotation sentinel (present = rotated, value = new chunk count; empty = no rotation), with the caller responsible for resetting sentencesInChunk — indirect compared to a plain boolean or a small result record",
+        "MultiSeedExplorer.buildCoreCollocates re-streams seedCollocateMap.values() to compute avgLd for each common collocate, when avgLd could be accumulated during the earlier seedCollocScores pass in findCollocateIntersection",
+        "VisualizationHandlers.handleVisualRadial is a flat inline method mixing validation, JSON parsing, and item collection; the sibling CorpusQueryHandlers uses a private BcqlRequest record + parseBcqlRequest helper for an equivalent concern, so the extraction style is inconsistent across handlers"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": null
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "Phase-labelled helper extraction in CollocateQueryHelper and SemanticFieldExplorer makes multi-step algorithms easy to trace without monolithic methods",
+        "BlackLabSnippetParser is a model of focused design: each method does exactly one thing, guard clauses appear at entry boundaries only, and the private extractLastLemma consolidation eliminates duplication",
+        "HttpApiUtils helper methods are proportionate: requireParam, parseIntParam, parseDoubleParam, and readBodyWithSizeLimit are each self-contained, with no defensive sprawl inside callers",
+        "GrammarConfigLoader uses small private helpers (parseAndValidateVersion, validateNoLegacyKeys, parseRelations, parseRelation) that keep the public load() entry point free of parsing detail",
+        "RelationPatternBuilder is a pure static utility class with no state mutation and no hidden side effects — every method is a transparent function of its arguments"
+      ],
+      "issue_character": "Issues are isolated to a few specific classes and are pattern-level inconsistencies rather than systemic problems: unusual mutable-state idioms in ConlluConverter, asymmetric phase extraction in SemanticFieldExplorer, and inconsistent inline-vs-record parsing style in VisualizationHandlers relative to its sibling handlers.",
+      "score_rationale": "The majority of the codebase is clean at the function level — proportionate helpers, bounded side effects, and precise edge-case handling are the norm across CollocateQueryHelper, BlackLabSnippetParser, HttpApiUtils, and the config layer. The codebase sits solidly above the 'significant drag' threshold (60) and below 'solid but uneven' (80) because a developer would mostly be well-served but would encounter a handful of moments of friction: the long[] state array in ConlluConverter is an indirect mutation pattern that breaks the otherwise clean style, the Optional<Long> rotation sentinel in the same class is unexpectedly indirect, and the inconsistent extraction style between VisualizationHandlers and its sibling CorpusQueryHandlers creates a 'why is this different?' moment. These are isolated rough edges, not deep structural problems, placing the score in the high-70s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_state_array_mutation",
+      "summary": "ConlluConverter threads mutable state via long[] array with named index constants instead of a named mutable record",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "private static final int STATE_SENTENCES = 0; STATE_TOKENS = 1; STATE_CHUNKS = 2; — three int constants used to index a long[] passed across processLines and rotateChunkIfNeeded",
+        "state[STATE_SENTENCES]++; state[STATE_CHUNKS] = rotation.get(); — mutation via array index inside processLines, with the actual semantics only apparent by cross-referencing the index constant"
+      ],
+      "suggestion": "Replace the long[] state array with a private static final class ConversionState { long sentences, tokens, chunks; } mutable object. Pass and mutate it directly in processLines and rotateChunkIfNeeded. This makes mutation explicit and co-located with the fields it affects, and removes the need for the three index constants.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "conllu_optional_rotation_sentinel",
+      "summary": "rotateChunkIfNeeded returns Optional<Long> as a rotation/no-rotation sentinel, an indirect convention that obscures its intent",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/ConlluConverter.java"
+      ],
+      "evidence": [
+        "private static Optional<Long> rotateChunkIfNeeded(...) { if (...) return Optional.empty(); writer.close(); return Optional.of(chunks + 1); } — Optional is used as a discriminated return, not as a nullable value",
+        "Caller: if (rotation.isPresent()) { writer = null; state[STATE_CHUNKS] = rotation.get(); sentencesInChunk = 0; } — the three-statement block on the Optional.isPresent() path is non-obvious; caller must know the value is the new chunk count"
+      ],
+      "suggestion": "Replace with a boolean return: if rotation occurred, close the writer and increment the chunk counter inside rotateChunkIfNeeded (or in a dedicated rotate() helper that also resets state), and return true. The caller's if-block shrinks to a single flag check. Alternatively, inline the rotation logic into processLines directly since rotateChunkIfNeeded is only three lines.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "explore_inline_map_building_asymmetry",
+      "summary": "SemanticFieldExplorer.exploreByPattern builds seedCollocateScores/seedCollocateFrequencies inline in the main method body while all other phases are extracted to named helpers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Map<String, Double> seedCollocateScores = new LinkedHashMap<>(); Map<String, Long> seedCollocateFrequencies = new LinkedHashMap<>(); for (QueryResults.WordSketchResult r : seedRelations) { ... } — this phase 1b map-building block sits inline in exploreByPattern alongside fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates which are all extracted methods",
+        "The four extracted phase helpers each have their own Javadoc phase comment; the inline map loop does not follow this convention"
+      ],
+      "suggestion": "Extract the inline map-building loop into a private helper, e.g. private Map<String, Double> buildSeedCollocateScoreMap(List<WordSketchResult> results) and private Map<String, Long> buildSeedCollocateFrequencyMap(List<WordSketchResult> results), or a single private record SeedCollocateMaps containing both maps. This makes the main method body a uniform sequence of named-phase calls.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "visualization_handler_inconsistent_extraction",
+      "summary": "VisualizationHandlers.handleVisualRadial parses its POST body inline, while the sibling CorpusQueryHandlers uses a dedicated private record + parseBcqlRequest helper for the same concern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "handleVisualRadial mixes readBodyWithSizeLimit, JSON.parseObject, null-coalescing (if (center == null) center = \"\"), int extraction, array iteration, and RenderMode validation all in one flat method body",
+        "CorpusQueryHandlers has a private record BcqlRequest(String query, int top) {} and a dedicated parseBcqlRequest(HttpExchange) method that throws IllegalArgumentException for validation failures — a clear pattern for the same POST-body parsing concern"
+      ],
+      "suggestion": "Extract a private record RadialRequest(String center, int width, int height, List<RadialPlot.Item> items, String mode) and a private parseRadialRequest(HttpExchange) method analogous to CorpusQueryHandlers.parseBcqlRequest. Move all validation (RenderMode check, null-center coercion, item count clamping) into parseRadialRequest. This aligns VisualizationHandlers with the established pattern in its sibling handler.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The long[] state pattern and Optional sentinel in ConlluConverter may reflect early prototyping style that was not revisited when the class was otherwise cleaned up",
+      "The helper extraction asymmetry in SemanticFieldExplorer and VisualizationHandlers suggests the extraction refactors were applied incrementally and never fully completed across all code paths"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

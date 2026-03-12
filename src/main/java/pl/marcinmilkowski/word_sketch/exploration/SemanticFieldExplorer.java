@@ -67,7 +67,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  *
  * <h2>Result classes</h2>
  * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
- * {@code CoreCollocate}, {@code ComparisonResult}, {@code AdjectiveProfile}, {@code Edge})
+ * {@code CoreCollocate}, {@code ComparisonResult}, {@code CollocateProfile}, {@code Edge})
  * live in the {@code pl.marcinmilkowski.word_sketch.model} package.</p>
  *
  * <h2>Design: coordination facade for the HTTP exploration layer</h2>
@@ -86,7 +86,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  *   <li>Minimum overlap threshold (default: 2 shared adjectives)</li>
  * </ul>
  */
-public class SemanticFieldExplorer {
+public class SemanticFieldExplorer implements ExplorationService {
 
     private static final Logger logger = LoggerFactory.getLogger(SemanticFieldExplorer.class);
 

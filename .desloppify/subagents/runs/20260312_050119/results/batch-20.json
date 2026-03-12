@@ -1,0 +1,97 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 20,
+  "assessments": {
+    "design_coherence": 82.5
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "WordSketchApiServer is a pure route-registration hub; all domain logic lives in five focused handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers)",
+        "SemanticFieldExplorer is a thin facade: owns single-seed exploration directly and delegates multi-seed to MultiSeedExplorer and profile comparison to CollocateProfileComparator — three algorithm owners with no overlap",
+        "ExploreResponseAssembler cleanly separates model-to-presentation translation from HTTP handlers, with a Javadoc contract clarifying what each method owns",
+        "ExplorationHandlers uses a private ExplorationParams record to group the four common request parameters, eliminating repetitive inline parsing across three handler methods",
+        "handleSemanticFieldComparison (lines 163-176) duplicates the status/seeds/seed_count/parameters map construction that buildCoreExploreResponse already encapsulates; the Javadoc documents the asymmetry but the helper could accept 'all' as relationType and cover this case",
+        "BlackLabQueryExecutor.collectFrequenciesAndPosFromGroups takes two mutable output maps (freqMap, lemmaPosMap) as parameters and is called three times in the same class; a small FrequencyData record return type would make the data-flow explicit",
+        "SketchHandlers.executeRelationQueries has 6 parameters — relationType, extraFilter predicate, lemma, two accumulator collections, and a BiFunction builder — grouping the two accumulators would reduce the cognitive load of reading its callers"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "API layer decomposed into five single-responsibility handler classes with a pure registration hub (WordSketchApiServer) — a developer adding a new endpoint knows exactly where the code goes",
+        "SemanticFieldExplorer as a thin coordination facade over MultiSeedExplorer and CollocateProfileComparator gives each algorithm a focused owner without leaking algorithm details to the HTTP layer",
+        "ExploreResponseAssembler extracts all model-to-JSON translation into one place, so handler methods contain only HTTP concerns and domain calls",
+        "ExplorationParams record groups related request parameters cleanly, avoiding repeated parseIntParam/parseDoubleParam calls scattered across handler bodies",
+        "CollocateQueryHelper organises its pipeline into named phases (collect hits → score hits → rank) with private helpers that each do exactly one thing"
+      ],
+      "issue_character": "Issues are isolated structural inconsistencies — one missed helper reuse, one out-parameter pattern, and one overlong parameter list — rather than a systemic problem with how responsibilities are assigned.",
+      "score_rationale": "The overall decomposition is strong: handler segregation, algorithm ownership, and response assembly are all well-factored, placing this clearly above the 80 ('developer regularly encounters functions doing too many things') anchor. Three localised friction points — a duplicated response-building block in handleSemanticFieldComparison, out-parameter mutation in collectFrequenciesAndPosFromGroups, and a 6-parameter method in SketchHandlers — push the score below 90, where the rubric requires only 'minor multi-responsibility functions or parameter sprawl'. Because none of the issues cross module boundaries or repeat across many sites, 82.5 reflects strong design with a small cluster of grouped rough edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "comparison_response_builder_bypass",
+      "summary": "handleSemanticFieldComparison manually builds status/seeds/parameters envelope instead of reusing buildCoreExploreResponse",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Lines 166-174 of ExplorationHandlers.java duplicate the status + paramsUsed map construction that buildCoreExploreResponse already encapsulates; only the hardcoded 'all' relationType and absence of relationType/extraParams differences prevent direct reuse",
+        "buildCoreExploreResponse accepts relationType as a String parameter and an extraParams map, so calling buildCoreExploreResponse(\"all\", exploreParams.topCollocates(), exploreParams.minShared(), exploreParams.minLogDice(), Map.of()) would produce the identical structure"
+      ],
+      "suggestion": "In handleSemanticFieldComparison, replace the manual response initialisation with: Map<String, Object> response = buildCoreExploreResponse(\"all\", exploreParams.topCollocates(), exploreParams.minShared(), exploreParams.minLogDice(), Map.of()); then add response.put(\"seeds\", ...) and response.put(\"seed_count\", ...) as today.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "collect_frequencies_out_params",
+      "summary": "collectFrequenciesAndPosFromGroups uses two mutable output-parameter maps, obscuring data-flow at three call sites",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "collectFrequenciesAndPosFromGroups is called at lines 91-94, 184-191, and 236-243; each call site must pre-allocate two empty maps, pass them in, then read from them — the method has implicit output parameters rather than a return value",
+        "A private record FrequencyData(Map<String, Long> freqMap, Map<String, String> lemmaPosMap) returned by the method would make the data-flow obvious and eliminate the caller-side allocation ceremony"
+      ],
+      "suggestion": "Introduce a private record FrequencyData(Map<String, Long> freqMap, Map<String, String> lemmaPosMap) in BlackLabQueryExecutor. Change collectFrequenciesAndPosFromGroups to return FrequencyData (populating internally) and update the three call sites to destructure the return value.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "implicit_output_parameters"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "execute_relation_queries_param_sprawl",
+      "summary": "SketchHandlers.executeRelationQueries takes 6 parameters including two accumulator collections and a builder callback",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "executeRelationQueries signature: (RelationType, Predicate<RelationConfig>, String lemma, Map<String,Object> byRelation, List<String> relationErrors, BiFunction<...> builder) — the two accumulator parameters (byRelation, relationErrors) are passed as output parameters from two callers",
+        "handleFullSketchForType and handleDepSketch pre-allocate byRelation and relationErrors, pass them in, then read from them after the call — the same out-parameter pattern as collectFrequenciesAndPosFromGroups"
+      ],
+      "suggestion": "Introduce a private record SketchQueryResult(Map<String,Object> byRelation, List<String> errors) and have executeRelationQueries return it. Callers unpack the record instead of pre-allocating two collections. This reduces the parameter list to 4 (relationType, extraFilter, lemma, builder) and makes the data-flow explicit.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "implicit_output_parameters"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A recurring pattern of using mutable out-parameters instead of return-value records appears in both BlackLabQueryExecutor and SketchHandlers — likely from incremental addition of a second output without refactoring to a tuple/record return"
+    ],
+    "likely_symptoms": [
+      "comparison_response_builder_bypass is a symptom of the comparison endpoint being added after the explore endpoints without backfitting the shared helper"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 74.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "StubQueryExecutor (src/test/.../query/StubQueryExecutor.java) is a shared base class used across 10+ test files via anonymous-subclass overrides — clean test infrastructure that avoids duplication",
+        "WordSketchApiServerTest starts a real HTTP server on an ephemeral port (port=0) and issues real HTTP requests, providing genuine end-to-end route coverage without a live corpus",
+        "BlackLabIntegrationTest (src/test/.../query/BlackLabIntegrationTest.java) exercises the full XML-parse → collocation-accumulate → logDice-score → rank pipeline with canned XML snippets, CI-safe and deterministic",
+        "ExplorationHandlersTest, SketchHandlersTest, ConcordanceHandlersTest, CorpusQueryHandlersTest and VisualizationHandlersTest all cover both 200 (happy path) and 4xx (validation) paths at the handler layer",
+        "Live-index tests (BlackLabQueryExecutorIntegrationTest, BlackLabBcqlConcordanceTest) are cleanly gated with Assumptions.assumeTrue + CONCEPT_SKETCH_TEST_INDEX env-var convention — they skip gracefully in CI",
+        "Handler tests with stub executors verify response structure (status, required JSON keys) but always inject empty-returning stubs — semantic content of non-trivial results is not verified at the handler level",
+        "SemanticFieldExplorerTest.exploreMultiSeed_returnsNonNullResult constructs RelationConfig inline with hard-coded positional args; changes to constructor parameter order would silently produce wrong test data",
+        "CollocateQueryHelperTest verifies ranking, logDice range and minLogDice filtering — useful coverage of a scoring-critical path",
+        "No snapshot tests found anywhere; no timing or ordering dependencies observed in unit tests"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Shared StubQueryExecutor base class with override-friendly design eliminates per-test stub boilerplate and keeps tests decoupled from each other",
+        "WordSketchApiServerTest provides genuine HTTP-level integration (real server, real HttpClient) without any corpus dependency",
+        "BlackLabIntegrationTest runs the full query-to-score pipeline in CI using controlled XML snippets, catching scoring regressions without a live index",
+        "Live-index tests are isolated behind env-var assumptions and never block CI — the CI / local distinction is well-managed",
+        "Handler tests systematically cover both success paths and input-validation error paths (400, 413) across all handler classes"
+      ],
+      "issue_character": "The primary weakness is shallow semantic verification at the API-handler layer: handler tests confirm response structure (status=ok, key existence) using empty-returning stubs but do not verify correctness of the actual JSON payload when the underlying logic produces non-trivial output — this is a coverage gap rather than fragility or coupling.",
+      "score_rationale": "The codebase has broad, well-structured test coverage: unit tests for every core module, a CI-safe pipeline integration test, a real-server HTTP integration test, and cleanly gated live-index tests. No snapshot overuse, no timing fragility, no hidden shared state. The main gap is that handler-level tests verify HTTP plumbing with empty stubs rather than asserting the correctness of fully-populated responses (e.g. correct edge weights, correct collocate ordering in the JSON body), leaving semantic regression risk at the API boundary. This pulls the score down from the 80s to the mid-70s — solid but uneven, consistent with the rubric's 80=solid but uneven anchor."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "handler_stub_semantic_gap",
+      "summary": "API handler tests inject empty stubs and only assert response structure, leaving semantic correctness of populated JSON responses untested",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/SketchHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlersTest.java"
+      ],
+      "evidence": [
+        "ExplorationHandlersTest.handleSemanticFieldExplore_validRequest_returns200 asserts status=ok and edges key presence, but the stub returns empty collocates so the edges array is always [] — correctness of populated edge payloads is never verified",
+        "SketchHandlersTest.handleSketchRequest_fullSketch_returns200WithRelationsMap verifies that a 'relations' key exists but does not assert collocate names, logDice values or ordering in the relations map",
+        "The one test that does verify semantic content is compare_edgeWeights_abstractHasCorrectWeightToTheory in ExplorationHandlersTest — this pattern is not applied consistently across handlers"
+      ],
+      "suggestion": "Add at least one parametric 'data-shape' test per handler that injects a stub returning known non-empty data and asserts specific values in the JSON output (e.g. first collocate name, logDice value, edge source/target). The compare_edgeWeights_abstractHasCorrectWeightToTheory test in ExplorationHandlersTest is the right template — replicate it for SketchHandlers and ConcordanceHandlers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "relation_config_constructor_coupling",
+      "summary": "Several tests construct RelationConfig via positional constructor — a brittle pattern that silently passes wrong data if parameter order changes",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerTest.exploreMultiSeed_returnsNonNullResult calls new RelationConfig(\"test\", \"test\", \"test\", \"[xpos=\\\"NN.*\\\"] [xpos=\\\"JJ.*\\\"]\", 1, 2, false, 0, RelationType.SURFACE, PosGroup.ADJ) — 10 positional args with no field names",
+        "SemanticFieldExplorerInternalTest.adjRelationConfig() duplicates the same 10-arg inline construction",
+        "GrammarConfigHelper.requireTestConfig() already provides a canonical test RelationConfig and is used in MultiSeedExplorerTest.anyRelation() — the inline constructions are unnecessary"
+      ],
+      "suggestion": "Replace inline RelationConfig constructor calls in exploration tests with GrammarConfigHelper.requireTestConfig().relations().stream().findFirst().orElseThrow(), matching the pattern already used in MultiSeedExplorerTest. This eliminates the positional-arg coupling and keeps tests aligned with the grammar fixture.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Handler tests were written to verify plumbing (routing, HTTP status codes, JSON structure) but the same test class was not extended to cover semantic correctness — likely because adding a non-empty stub per handler felt like extra boilerplate",
+      "RelationConfig inline construction in exploration tests predates the GrammarConfigHelper fixture; tests were not updated when the shared helper was introduced"
+    ],
+    "likely_symptoms": [
+      "handler_stub_semantic_gap"
+    ],
+    "possible_false_positives": []
+  }
+}

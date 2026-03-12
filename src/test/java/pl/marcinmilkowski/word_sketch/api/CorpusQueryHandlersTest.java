@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class CorpusQueryHandlersTest {
 
-    private static TestExchangeFactory.MockPostBodyExchange postExchange(String body) {
-        return new TestExchangeFactory.MockPostBodyExchange("http://localhost/api/bcql", body == null ? "" : body);
+    private static MockExchangeFactory.MockPostBodyExchange postExchange(String body) {
+        return new MockExchangeFactory.MockPostBodyExchange("http://localhost/api/bcql", body == null ? "" : body);
     }
 
     private static CorpusQueryHandlers handlers() {
@@ -37,7 +37,7 @@ class CorpusQueryHandlersTest {
 
     @Test
     void handleCorpusQuery_validQuery_returns200() throws Exception {
-        TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"[lemma=\\\"theory\\\"]\", \"top\": 5}");
+        MockExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"[lemma=\\\"theory\\\"]\", \"top\": 5}");
         handlersWithStub().handleCorpusQuery(ex);
         assertEquals(200, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
@@ -48,14 +48,14 @@ class CorpusQueryHandlersTest {
     @Test
     void handleCorpusQuery_bodyTooLarge_returns413() throws Exception {
         String oversizeBody = "x".repeat(65537);
-        TestExchangeFactory.MockPostBodyExchange ex = postExchange(oversizeBody);
+        MockExchangeFactory.MockPostBodyExchange ex = postExchange(oversizeBody);
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(413, ex.statusCode);
     }
 
     @Test
     void handleCorpusQuery_invalidJson_returns400() throws Exception {
-        TestExchangeFactory.MockPostBodyExchange ex = postExchange("not-json");
+        MockExchangeFactory.MockPostBodyExchange ex = postExchange("not-json");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
@@ -64,7 +64,7 @@ class CorpusQueryHandlersTest {
 
     @Test
     void handleCorpusQuery_missingQueryField_returns400() throws Exception {
-        TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"top\": 10}");
+        MockExchangeFactory.MockPostBodyExchange ex = postExchange("{\"top\": 10}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
@@ -73,7 +73,7 @@ class CorpusQueryHandlersTest {
 
     @Test
     void handleCorpusQuery_blankQueryField_returns400() throws Exception {
-        TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"   \"}");
+        MockExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"   \"}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
@@ -82,7 +82,7 @@ class CorpusQueryHandlersTest {
     void handleCorpusQuery_bracketDepthExceeded_returns400() throws Exception {
         // Use a simple bracket pattern with no inner quotes so JSON stays valid
         String deepPattern = "[x]".repeat(21);
-        TestExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"" + deepPattern + "\"}");
+        MockExchangeFactory.MockPostBodyExchange ex = postExchange("{\"query\": \"" + deepPattern + "\"}");
         HttpApiUtils.wrapWithErrorHandling(handlers()::handleCorpusQuery, "test").handle(ex);
         assertEquals(400, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);

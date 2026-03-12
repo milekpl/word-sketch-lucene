@@ -1,0 +1,66 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 13,
+  "assessments": {"logic_clarity": 80.5},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "Guard clauses are used consistently: CollocateQueryHelper.collectHits returns early when sampleSize==0 (line 260); BlackLabQueryExecutor.executeCollocations returns empty list when lemma is null/empty (lines 85-88); BlackLabQueryExecutor.executeCqlQuery returns empty list when TextPattern is null (lines 109-111).",
+        "Fallback logic in SingleSeedExplorer.fetchSeedCollocates is correctly structured and heavily documented: BCQL primary path, executeCollocations fallback only when result is empty — intentional and correct.",
+        "The logDice zero-frequency guard `(headwordFreq > 0 && collocateFreq > 0)` is correctly applied in CollocateQueryHelper.buildAndRankCollocates and scoreHits — avoids division-by-zero and returns 0.0 explicitly.",
+        "ExplorationHandlers.java defines two private methods — buildMultiSeedResponseEnvelope (lines 215-221) and buildBaseResponseEnvelope (lines 228-239) — that are never invoked from any handler. All three handlers (compare, explore, explore-multi) now route through ExploreResponseAssembler typed builders. These private methods are dead code: buildMultiSeedResponseEnvelope calls buildBaseResponseEnvelope, but nothing calls buildMultiSeedResponseEnvelope.",
+        "ConcordanceHandlers.java line 67: `fallback ? true : null` is a valid but opaque idiom to pass Boolean.TRUE or null to a @Nullable Boolean parameter. When fallback is false the field is intentionally omitted from JSON via null. Correct behavior but unusual phrasing.",
+        "Main.parseNumericParam: after System.exit(1) a `throw new AssertionError(\"unreachable\")` is present — a well-understood Java idiom to satisfy the return-type requirement after System.exit; not a defect.",
+        "VisualizationHandlers.handleVisualRadial uses a switch expression with an explicit `case null` branch — correctly handles the absent renderMode without a NullPointerException.",
+        "MultiSeedExplorer.identifyCommonCollocates: threshold is `Math.min(minShared, seedCount)`, capping an impossible threshold to seedCount. Intentional defensive capping, well-scoped.",
+        "CollocateQueryHelper.buildCollocateFrequencyMap and scoreHits are cleanly separated phases that do not duplicate frequency-accumulation logic across the pipeline."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Two private dead-code methods in ExplorationHandlers (buildMultiSeedResponseEnvelope, buildBaseResponseEnvelope) are never called; they appear to be a migration artefact from before ExploreResponseAssembler typed builders were introduced. While isolated, they represent provably unreachable logic and add confusion about the response-assembly path."
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses are applied uniformly across all query execution methods — null/empty lemma checks, zero-size short-circuits, and null concordance guards prevent silent misfires throughout the query pipeline.",
+        "The BCQL-primary / executeCollocations-fallback strategy in SingleSeedExplorer.fetchSeedCollocates is provably correct and paired with a clear rationale for why MultiSeedExplorer deliberately omits the same fallback — no hidden asymmetry.",
+        "logDice zero-frequency guards (`headwordFreq > 0 && collocateFreq > 0`) are applied consistently in both ranking paths, preventing division-by-zero and emitting an explicit 0.0 rather than NaN.",
+        "Switch expressions with explicit null handling (VisualizationHandlers renderMode switch) prevent NPEs cleanly rather than relying on a fall-through default.",
+        "Exception-type contracts in GrammarConfigLoader and BlackLabQueryExecutor are internally consistent: checked IOException for I/O failures, IllegalArgumentException for structural/validation failures — callers can reason about failure modes without inspecting stack traces."
+      ],
+      "issue_character": "The single confirmed defect is a pair of private dead-code methods left in ExplorationHandlers after response assembly was migrated to ExploreResponseAssembler, suggesting a clean migration that was not fully completed with a sweep to remove the now-unused scaffolding.",
+      "score_rationale": "The codebase scores well on logic_clarity: control flow is correct and intentional throughout, boolean expressions are not redundant, guard clauses are consistent, and all branching logic is well-justified. The one confirmed issue — two unreachable private methods in ExplorationHandlers — is isolated to a single class and has no runtime impact, but it creates false expectations about the response-assembly path for a developer reading the code. This pulls the score slightly below 'solid but uneven' (80) territory, placing it just above that threshold at 80.5, because the issue is provably dead code rather than a subtle correctness risk."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_private_envelope_builders",
+      "summary": "Two private methods in ExplorationHandlers — buildMultiSeedResponseEnvelope and buildBaseResponseEnvelope — are never called from any handler and constitute unreachable dead code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildMultiSeedResponseEnvelope (lines 215-221) is a private instance method that only calls buildBaseResponseEnvelope; no handler method calls buildMultiSeedResponseEnvelope.",
+        "buildBaseResponseEnvelope (lines 228-239) is a private instance method called only by buildMultiSeedResponseEnvelope.",
+        "All three exploration handlers (handleSemanticFieldExploreMulti, handleSemanticFieldComparison, handleSemanticFieldExplore) delegate to ExploreResponseAssembler static factory methods, bypassing these private helpers entirely.",
+        "grep confirms no external caller: the only references to these method names are their own definitions and the Javadoc @link on the BaseEnvelope record (line 206)."
+      ],
+      "suggestion": "Delete buildMultiSeedResponseEnvelope, buildBaseResponseEnvelope, and the private BaseEnvelope record (lines 206-239) from ExplorationHandlers — they are unreachable and were superseded by ExploreResponseAssembler typed builders. Also verify there is no suppressed lint warning hiding the unused-method warning for these.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Response assembly was migrated from in-handler Map<String,Object> construction to ExploreResponseAssembler typed records, but the private envelope-builder helpers in ExplorationHandlers were not removed during that migration."
+    ],
+    "likely_symptoms": [
+      "dead_private_envelope_builders"
+    ],
+    "possible_false_positives": []
+  }
+}

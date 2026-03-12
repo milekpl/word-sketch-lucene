@@ -1,0 +1,108 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 16,
+  "assessments": {
+    "cross_module_architecture": 68.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is clean throughout: model/utils <- config <- (query, exploration) <- api <- Main; no upward or cyclic imports found",
+        "api package imports only exploration.spi.ExplorationService, never the concrete SemanticFieldExplorer — a well-enforced SPI boundary in WordSketchApiServer and ExplorationHandlers",
+        "ConcordanceHandlers and CorpusQueryHandlers use the narrow CollocateQueryPort interface rather than the full QueryExecutor, explicitly minimising their query surface",
+        "model package has zero project-internal imports — pure DTOs; config imports only model.PosGroup and utils; query imports only model.sketch and utils — all in the right direction",
+        "ExplorationService SPI (exploration.spi) declares parameters typed as config.RelationConfig, causing api.ExplorationHandlers to import and resolve config objects before crossing the service boundary; the SPI leaks a config-layer type through its interface",
+        "api.ExplorationHandlers contains two dead private methods — buildBaseResponseEnvelope(String, SharedExploreParams) and buildMultiSeedResponseEnvelope(String, SharedExploreParams, List<?>) — that are never called by any handler method; they reference the pre-refactoring Map<String,Object> pattern that ExploreResponseAssembler replaced",
+        "api.ExplorationHandlers constructs domain option objects (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) from raw HTTP params and passes them across the SPI boundary; the api layer owns domain object instantiation rather than delegating it inside the service",
+        "Response type placement is split: ExamplesResponse is package-private in api, while ComparisonResponse, ExploreResponse, and SeedCollocateEntry are in api.model sub-package; both ExplorationHandlers and ConcordanceHandlers share ExamplesResponse across handler classes within the api package"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "No circular dependencies anywhere in the codebase; the import graph is a strict DAG with Main as the single composition root that knows all concrete types",
+        "api package exclusively references ExplorationService (the SPI interface) and never SemanticFieldExplorer directly — the SPI boundary is consistently enforced at the call sites",
+        "Narrow CollocateQueryPort interface correctly limits ConcordanceHandlers and CorpusQueryHandlers to only the BCQL concordance surface they need",
+        "model package is a pure dependency sink with no project-internal imports, making it a stable shared vocabulary with zero blast radius for changes",
+        "api/viz/RadialPlot is entirely self-contained with no cross-module project imports, cleanly isolating SVG generation"
+      ],
+      "issue_character": "The architecture has sound layering with no cycles, but the SPI boundary is weakened by exposing config.RelationConfig in the service interface and by leaving dead response-building code in a handler after assembly was consolidated into ExploreResponseAssembler.",
+      "score_rationale": "The codebase sits above the mid-range for cross-module architecture: there are no cycles, no hub with uncontrolled blast radius, and the SPI pattern is applied consistently at injection sites. However, the ExplorationService interface leaking RelationConfig forces the api layer to reach into the config package to satisfy the service contract — a non-trivial boundary smear that would require multi-file changes to fix. The dead private envelope builders in ExplorationHandlers are a concrete sign of incomplete boundary consolidation after the ExploreResponseAssembler extraction. These two issues together reduce the score from the high-70s to 68, since they represent real coupling and confusion costs for future maintainers even though no cycles exist."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "spi_leaks_relation_config",
+      "summary": "ExplorationService SPI exposes config.RelationConfig in its method signatures, forcing the api layer to import and resolve config objects before crossing the service boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "ExplorationService.exploreByRelation, exploreMultiSeed, compareCollocateProfiles, and fetchExamples all accept RelationConfig as a parameter (exploration/spi/ExplorationService.java lines ~20-55)",
+        "ExplorationHandlers.resolveRelationConfig() imports GrammarConfig and RelationConfig to resolve the relation before delegating to the service — the api layer is doing config resolution work that belongs in the service or a mapper (ExplorationHandlers.java lines 246-259)",
+        "This means any refactoring of RelationConfig (adding/removing fields, splitting the type) forces changes in three layers: config, spi, and api simultaneously"
+      ],
+      "suggestion": "Accept a relation identifier string (e.g. String relationId) in the ExplorationService interface methods instead of RelationConfig. Move config resolution — the grammarConfig.relation(id) lookup and validation — inside SemanticFieldExplorer, which already holds a GrammarConfig reference (it receives one at construction). ExplorationHandlers then passes only the raw string from the HTTP parameter, eliminating its direct dependency on config.RelationConfig for service calls.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "dead_envelope_builders_in_handler",
+      "summary": "ExplorationHandlers retains two dead private response-building methods (buildBaseResponseEnvelope, buildMultiSeedResponseEnvelope) that were not removed when response assembly was consolidated into ExploreResponseAssembler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "buildBaseResponseEnvelope(String, SharedExploreParams) at line 228 of ExplorationHandlers builds a Map<String,Object> envelope — the old pre-typed pattern",
+        "buildMultiSeedResponseEnvelope(String, SharedExploreParams, List<?>) at line 215 calls buildBaseResponseEnvelope but is itself never called by any handler method",
+        "The handlers handleSemanticFieldExploreMulti and handleSemanticFieldComparison both delegate to ExploreResponseAssembler typed-record builders, meaning the Map-based envelope helpers are fully orphaned",
+        "The BaseEnvelope record (line 206) exists solely to support these dead helpers and is also unreachable from any handler"
+      ],
+      "suggestion": "Delete buildBaseResponseEnvelope, buildMultiSeedResponseEnvelope, and the private BaseEnvelope record from ExplorationHandlers. Response assembly responsibility is already wholly owned by ExploreResponseAssembler; removing these orphaned helpers eliminates the split-boundary confusion.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_constructs_domain_options",
+      "summary": "api.ExplorationHandlers constructs domain option objects (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) from raw HTTP parameters, placing domain model instantiation inside the HTTP layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/FetchExamplesOptions.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore constructs new SingleSeedExplorationOptions(new ExplorationOptions(top, minLogDice, minShared), nounsPerSeed) directly from parsed HTTP params before calling semanticFieldExplorer.exploreByRelation()",
+        "handleSemanticFieldExploreMulti and handleSemanticFieldComparison each construct an ExplorationOptions from HTTP params",
+        "handleSemanticFieldExamples constructs new FetchExamplesOptions(top) inline",
+        "This means adding a new option field to ExplorationOptions forces a change in the HTTP handler as well as the domain model — the api layer is the de-facto constructor for domain option types"
+      ],
+      "suggestion": "This is a moderate coupling issue rather than a hard boundary violation; the option types are pure value objects with no behaviour. A pragmatic improvement would be to add static factory methods on each option type (e.g. ExplorationOptions.fromHttpParams(int top, double minLogDice, int minShared)) so that parsing-to-construction logic is co-located with the type. Alternatively, if the SPI is refactored to accept a relation id string (see spi_leaks_relation_config), the HTTP parameter surface could be encapsulated in a dedicated request object to further decouple the handler from domain constructors.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The ExplorationService SPI was likely designed when RelationConfig was the only way to pass relation context; the service interface was never updated to accept a simpler identifier string after config resolution was available inside SemanticFieldExplorer",
+      "The ExploreResponseAssembler extraction was incomplete — the old Map-based envelope helpers in ExplorationHandlers were not pruned after the handlers were migrated to the typed-record assembler"
+    ],
+    "likely_symptoms": [
+      "dead_envelope_builders_in_handler — purely a cleanup symptom of the ExploreResponseAssembler refactoring"
+    ],
+    "possible_false_positives": []
+  }
+}

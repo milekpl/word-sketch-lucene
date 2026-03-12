@@ -45,7 +45,7 @@ class ConcordanceHandlersTest {
             }
         };
         ConcordanceHandlers handlers = new ConcordanceHandlers(countingExecutor, GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/concordance/examples?seed=house&collocate=big&relation=noun_adj_predicates");
         handlers.handleConcordanceExamples(ex);
         assertEquals(200, ex.statusCode);
@@ -58,7 +58,7 @@ class ConcordanceHandlersTest {
     @Test
     void handleConcordanceExamples_validParams_returns200() throws Exception {
         ConcordanceHandlers handlers = new ConcordanceHandlers(stubExecutor(), GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/concordance/examples?seed=house&collocate=big&relation=noun_adj_predicates");
         handlers.handleConcordanceExamples(ex);
         assertEquals(200, ex.statusCode);
@@ -72,7 +72,7 @@ class ConcordanceHandlersTest {
     @Test
     void handleConcordanceExamples_missingWord1_returns400() throws Exception {
         ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/concordance?collocate=house");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleConcordanceExamples, "test").handle(ex);
         assertEquals(400, ex.statusCode);
@@ -81,7 +81,7 @@ class ConcordanceHandlersTest {
     @Test
     void handleConcordanceExamples_missingWord2_returns400() throws Exception {
         ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/concordance?seed=big");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleConcordanceExamples, "test").handle(ex);
         assertEquals(400, ex.statusCode);
@@ -90,7 +90,7 @@ class ConcordanceHandlersTest {
     @Test
     void handleConcordanceExamples_missingBothWords_returns400() throws Exception {
         ConcordanceHandlers handlers = new ConcordanceHandlers(null, GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/concordance");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleConcordanceExamples, "test").handle(ex);
         assertEquals(400, ex.statusCode);

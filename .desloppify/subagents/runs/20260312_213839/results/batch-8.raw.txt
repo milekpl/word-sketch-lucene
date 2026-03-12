@@ -1,0 +1,106 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 8,
+  "assessments": {
+    "mid_level_elegance": 70.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "CollocateQueryPort is a narrow interface that gives ConcordanceHandlers and CorpusQueryHandlers exactly the one method they need (executeBcqlQuery), rather than the full QueryExecutor surface — dependency surface is explicit and minimal.",
+        "ExploreResponseAssembler is a dedicated boundary translator: all model-to-presentation conversion for exploration endpoints lives there, keeping ExplorationResult/ComparisonResult/CollocateProfile free of JSON concerns.",
+        "HttpApiUtils.wrapWithErrorHandling is the single place where IllegalArgumentException → 400 and IOException → 500 conversion happens, making error propagation predictable across all API endpoints.",
+        "GrammarConfigLoader / GrammarConfig / GrammarConfigSerializer are separated along clean lines: IO and validation in the loader, immutable data in the value object, JSON serialization in the serializer — each boundary handoff is in one obvious place.",
+        "ExplorationService SPI bundles four related methods and is the clean seam between the HTTP layer and exploration logic; its location in exploration.spi signals the contract surface explicitly.",
+        "ExplorationHandlers contains two private methods (buildBaseResponseEnvelope, buildMultiSeedResponseEnvelope) that are defined but never called — the handlers now delegate to ExploreResponseAssembler.buildXxx instead. These orphans create false dual-pathway appearance at the response-assembly seam.",
+        "ExploreResponseAssembler contains both the active typed-record path (buildSingleSeedExploreResponse, buildMultiSeedExploreResponse, buildComparisonResponse) and the deprecated map-based path (populateExploreResponse, populateComparisonResponse, formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, collocateProfileToMap). The deprecated methods remain package-visible and are still covered by tests, making it genuinely ambiguous which path is canonical for new work.",
+        "collocateResultToExampleMap in ExploreResponseAssembler (Map<String,Object> returning) has no production callers — only the typed collocateResultToExampleEntry is actually used — another stale map-based converter that adds surface confusion.",
+        "SketchHandlers still assembles responses with raw HashMap/put chains (lines 75–136) while the exploration handlers use typed records, creating an inconsistent boundary protocol across the API layer: one half speaks types, the other speaks maps."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "CollocateQueryPort narrows the full QueryExecutor to a single-method contract for concordance handlers, making dependency surfaces explicit and minimal.",
+        "ExploreResponseAssembler centralises all model-to-presentation translation in one place, keeping domain objects free of JSON concerns — the translation-at-one-obvious-place principle is followed for the exploration subsystem.",
+        "HttpApiUtils.wrapWithErrorHandling provides a single, predictable crossing point for exception-to-HTTP-status translation, so all handlers share one error-propagation contract.",
+        "The config package seam is cleanly designed: loader handles IO, value object holds data, serializer handles presentation — no concern bleeds across these three boundaries.",
+        "ExplorationService SPI interface is honest about what the HTTP layer needs from exploration logic; the spi sub-package naming signals the intended contract surface."
+      ],
+      "issue_character": "The issues are not design flaws but migration residue: the codebase is about 70% through a transition from raw-map response assembly to typed-record assembly, and the incomplete migration leaves orphaned code at the API response boundary — dead private helpers in ExplorationHandlers, deprecated-but-still-visible map methods in ExploreResponseAssembler, and SketchHandlers still on the old map path — creating seam ambiguity rather than broken seams.",
+      "score_rationale": "The core boundary design is solid: narrow ports, dedicated translators, predictable error propagation, and clean config handoffs all represent good mid-level elegance. These patterns consistently serve developers working on the exploration and concordance subsystems. What pulls the score down is the partially-completed migration leaving dual response-assembly pathways at the API seam: a developer adding a new endpoint must infer which path to follow from context rather than from an obvious single pattern, and the orphaned helpers in ExplorationHandlers create the appearance of competing seam strategies. At a 100-point scale anchored to 80 as 'solid but uneven', the codebase sits just below that threshold — the seams are sound but the in-progress state of the map-to-typed-record migration introduces meaningful unevenness precisely at the boundary layer this dimension evaluates."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "dead_envelope_helpers_in_exploration_handlers",
+      "summary": "ExplorationHandlers defines buildBaseResponseEnvelope and buildMultiSeedResponseEnvelope but never calls them, creating a ghost dual-pathway at the response-assembly seam",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildBaseResponseEnvelope and buildMultiSeedResponseEnvelope are private methods in ExplorationHandlers (lines ~215–242) that construct Map<String,Object> response skeletons.",
+        "None of the four handler methods (handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison, handleSemanticFieldExamples) call these methods; all delegate to ExploreResponseAssembler typed-record builders instead.",
+        "The BaseEnvelope record is also defined solely to support these unused helpers, adding a local type to the seam with no live usage."
+      ],
+      "suggestion": "Delete buildBaseResponseEnvelope, buildMultiSeedResponseEnvelope, and the private BaseEnvelope record from ExplorationHandlers. They are fully superseded by ExploreResponseAssembler.buildXxx typed-record builders and their presence creates false dual-pathway appearance at the response-assembly boundary.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "deprecated_map_path_still_visible_in_assembler",
+      "summary": "ExploreResponseAssembler retains package-visible deprecated map-based assembly methods alongside the typed-record path, leaving the seam surface ambiguous for new work",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssemblerTest.java"
+      ],
+      "evidence": [
+        "populateExploreResponse and populateComparisonResponse are marked @Deprecated but remain package-visible, with their own Javadoc and test coverage in ExploreResponseAssemblerTest.",
+        "Helper methods formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, collocateProfileToMap are package-visible and not deprecated, yet they exist solely to support the deprecated map path — the typed record path does not call them.",
+        "collocateResultToExampleMap (Map<String,Object> returning) has no production callers; only collocateResultToExampleEntry (typed) is used by buildExamplesResponse.",
+        "This means a developer reading ExploreResponseAssembler sees two response-building strategies of apparently equal standing rather than one clear canonical path."
+      ],
+      "suggestion": "Complete the migration: delete the deprecated populateExploreResponse, populateComparisonResponse, and all their supporting map-format helpers (formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, collocateProfileToMap, collocateResultToExampleMap). Update the tests in ExploreResponseAssemblerTest to use the typed-record builders instead. If any test legitimately needs low-level field coverage, test through buildSingleSeedExploreResponse / buildComparisonResponse.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "sketch_handlers_on_old_map_path",
+      "summary": "SketchHandlers assembles responses via raw HashMap/put while the exploration handlers use typed records, leaving the API response boundary with an inconsistent seam protocol",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchResponseAssembler.java"
+      ],
+      "evidence": [
+        "SketchHandlers.handleRelationsForType constructs a List<Map<String,Object>> via HashMap and obj.put() (lines ~75–93).",
+        "handleFullSketchForType and handleDependencySketch similarly assemble Map<String,Object> response envelopes inline.",
+        "ExplorationHandlers and ConcordanceHandlers by contrast produce typed ExploreResponse, ComparisonResponse, ExamplesResponse records — the serialisation contract is compile-time verified.",
+        "The inconsistency means the two halves of the API layer have different levels of contract honesty: exploration seam is type-safe, sketch seam is stringly-typed."
+      ],
+      "suggestion": "Introduce typed response records for the sketch endpoints (e.g. RelationsResponse, FullSketchResponse) following the same pattern as ExploreResponse and ComparisonResponse. Move the map construction into a SketchResponseAssembler method (or extend the existing SketchResponseAssembler) that returns the typed record, mirroring how ExploreResponseAssembler works for exploration. This makes the sketch seam as contract-honest as the exploration seam.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental migration from Map<String,Object> response assembly to typed record assembly was applied to the exploration subsystem but not yet extended to the sketch subsystem, leaving the API boundary in an inconsistent state.",
+      "The deprecated methods in ExploreResponseAssembler were not removed after the typed path was established, and their continued test coverage gives them false canonical status."
+    ],
+    "likely_symptoms": [
+      "dead_envelope_helpers_in_exploration_handlers is a symptom of the migration leaving orphaned code rather than a root seam design issue.",
+      "deprecated_map_path_still_visible_in_assembler is a symptom of the same incomplete migration."
+    ],
+    "possible_false_positives": []
+  }
+}

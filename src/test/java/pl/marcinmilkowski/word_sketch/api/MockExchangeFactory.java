@@ -12,7 +12,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 
 /** Shared test utilities for HTTP handler tests. */
-public class TestExchangeFactory {
+public class MockExchangeFactory {
 
     public static class MockExchange extends HttpExchange {
         private final URI uri;

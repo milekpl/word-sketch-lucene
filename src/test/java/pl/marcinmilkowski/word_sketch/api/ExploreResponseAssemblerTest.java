@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.api;
 
 import org.junit.jupiter.api.Test;
+import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 import pl.marcinmilkowski.word_sketch.model.exploration.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.exploration.Edge;
@@ -8,7 +9,6 @@ import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.RelationEdgeType;
 import pl.marcinmilkowski.word_sketch.utils.MathUtils;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -80,16 +80,16 @@ class ExploreResponseAssemblerTest {
         List<CoreCollocate> core = List.of(new CoreCollocate("important", 2, 2, 8.0, 7.5));
         ExplorationResult result = resultWith("theory", collocates, freqs, nouns, core);
 
-        Map<String, Object> response = new HashMap<>();
-        ExploreResponseAssembler.populateExploreResponse(response, result);
+        ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
+                result, "adj_predicate", 10, 1, 0.0, 20);
 
-        assertTrue(response.containsKey("seed_collocates"), "should have seed_collocates");
-        assertTrue(response.containsKey("seed_collocates_count"), "should have seed_collocates_count");
-        assertTrue(response.containsKey("discovered_nouns"), "should have discovered_nouns");
-        assertTrue(response.containsKey("discovered_nouns_count"), "should have discovered_nouns_count");
-        assertTrue(response.containsKey("core_collocates"), "should have core_collocates");
-        assertTrue(response.containsKey("core_collocates_count"), "should have core_collocates_count");
-        assertTrue(response.containsKey("edges"), "should have edges");
+        assertNotNull(response.seedCollocates(), "should have seed_collocates");
+        assertTrue(response.seedCollocatesCount() >= 0, "should have seed_collocates_count");
+        assertNotNull(response.discoveredNouns(), "should have discovered_nouns");
+        assertTrue(response.discoveredNounsCount() >= 0, "should have discovered_nouns_count");
+        assertNotNull(response.coreCollocates(), "should have core_collocates");
+        assertTrue(response.coreCollocatesCount() >= 0, "should have core_collocates_count");
+        assertNotNull(response.edges(), "should have edges");
     }
 
     @Test
@@ -97,13 +97,11 @@ class ExploreResponseAssemblerTest {
         Map<String, Double> collocates = Map.of("important", 8.0, "novel", 5.0);
         ExplorationResult result = resultWith("theory", collocates, Map.of(), List.of(), List.of());
 
-        Map<String, Object> response = new HashMap<>();
-        ExploreResponseAssembler.populateExploreResponse(response, result);
+        ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
+                result, "adj_predicate", 10, 1, 0.0, 20);
 
-        @SuppressWarnings("unchecked")
-        List<?> seedCollocs = (List<?>) response.get("seed_collocates");
-        assertEquals(2, seedCollocs.size());
-        assertEquals(2, response.get("seed_collocates_count"));
+        assertEquals(2, response.seedCollocates().size());
+        assertEquals(2, response.seedCollocatesCount());
     }
 
     @Test

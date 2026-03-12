@@ -31,7 +31,16 @@ final class HttpApiUtils {
      */
     private static final String DEFAULT_CORS_ALLOW_ORIGIN = "http://localhost:3000";
 
-    /** Wraps a handler: maps {@link IllegalArgumentException} to 400, {@link java.io.IOException} to 500, any other exception to 500. */
+    /**
+     * Wraps a handler with tiered error handling:
+     * <ul>
+     *   <li>{@link RequestEntityTooLargeException} → 413</li>
+     *   <li>{@link IllegalArgumentException} → 400 (validation / missing param)</li>
+     *   <li>{@link com.fasterxml.jackson.core.JsonProcessingException} → 400 (malformed JSON input from client)</li>
+     *   <li>{@link java.io.IOException} → 500 (index / I/O failure)</li>
+     *   <li>Any other {@link Exception} → 500 (unexpected server error)</li>
+     * </ul>
+     */
     static com.sun.net.httpserver.HttpHandler wrapWithErrorHandling(
             com.sun.net.httpserver.HttpHandler handler, String description) {
         return exchange -> {
@@ -43,9 +52,17 @@ final class HttpApiUtils {
             } catch (IllegalArgumentException e) {
                 logger.warn("{} client error", description, e);
                 sendError(exchange, 400, "Bad request: " + e.getMessage());
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                // JsonProcessingException extends IOException; catch it before the IOException
+                // handler so that malformed client JSON is reported as 400, not 500.
+                logger.warn("{} client sent invalid JSON", description, e);
+                sendError(exchange, 400, "Bad request: invalid JSON — " + e.getOriginalMessage());
             } catch (java.io.IOException e) {
                 logger.error("{} error", description, e);
                 sendError(exchange, 500, description + " failed: " + e.getMessage());
+            } catch (NullPointerException | IllegalStateException e) {
+                logger.error("{} internal error", description, e);
+                sendError(exchange, 500, "Internal server error: " + e.getMessage());
             } catch (Exception e) {
                 logger.error("{} unexpected error", description, e);
                 sendError(exchange, 500, "Unexpected error: " + e.getMessage());

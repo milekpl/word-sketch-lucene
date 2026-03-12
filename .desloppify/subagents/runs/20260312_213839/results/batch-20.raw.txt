@@ -1,0 +1,57 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {"authorization_consistency": 82.0},
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer binds exclusively to InetAddress.getLoopbackAddress() (127.0.0.1) — explicitly documented in class Javadoc as the security model: 'Any change to the bind address must be accompanied by an authentication or network-level access-control layer'.",
+        "All endpoints are uniformly unauthenticated by design — no route carries an auth decorator because the stated trust boundary is the loopback interface and host firewall, not application-level auth.",
+        "Input validation is applied consistently across all handlers: HttpApiUtils.requireParam() enforces presence and MAX_PARAM_LENGTH (200) for every string param; parseIntParam/parseDoubleParam throw IllegalArgumentException on bad input; MAX_REQUEST_BODY_BYTES (65 536) and MAX_BCQL_PATTERN_LENGTH (1 024) / MAX_BCQL_BRACKET_DEPTH (20) guard the POST endpoints.",
+        "The BCQL endpoint (the only one that accepts arbitrary corpus query expressions) has an explicit audit log line: logger.warn(\"BCQL audit – src={} len={} query: {}\", ...) — the only endpoint with per-request audit logging.",
+        "CORS origin is configurable via the -Dcors.allow.origin system property; HttpApiUtils.warnIfWildcardCors() emits a warning at startup when set to '*' but does not prevent it.",
+        "No permission strings, RLS tables, or role-based checks exist because this is a single-user local research tool — consistent with the documented security model."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Security model is explicitly documented in WordSketchApiServer class Javadoc, including the specific threat vector (bind-address change) and the required mitigation — rare clarity for a research tool.",
+        "All handlers use the same shared HttpApiUtils.requireParam / parseIntParam / parseDoubleParam helpers with consistent length and value limits — no siblings diverge from this pattern.",
+        "The dangerous BCQL endpoint (arbitrary query execution) carries explicit audit logging absent from simpler endpoints — appropriate asymmetric treatment, not an inconsistency.",
+        "CORS is centralised in a single setCorsHeader() method with a startup warning for wildcard — no inline header writing scattered across handlers."
+      ],
+      "issue_character": "The single mild inconsistency is that CORS can be set to '*' via system property with only a soft warning rather than a hard check, but the overall auth posture is intentional and uniformly applied with no siblings that receive more protection than others.",
+      "score_rationale": "The codebase scores well because the authorization model is a deliberate, documented design choice (loopback-only binding) applied uniformly to every endpoint — there are no inconsistently protected siblings, no magic permission literals, and no routes that validate user input while their siblings do not. The score stops short of 90 because the CORS wildcard path is only softly guarded (a warn log rather than a startup failure), and the audit logging applied to BCQL is not extended to other mutation-capable endpoints (POST /api/visual/radial accepts arbitrary data without per-request logging). These are minor gaps in an otherwise consistent posture, placing this near the 'solid but uneven' anchor."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "cors_wildcard_not_hardblocked",
+      "summary": "Wildcard CORS origin is only warned about at startup, not prevented; any operator misconfiguration silently opens all origins",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java", "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"],
+      "evidence": [
+        "warnIfWildcardCors() calls logger.warn(...) when cors.allow.origin is '*' but returns normally, allowing the server to start with unrestricted CORS.",
+        "The class Javadoc says any bind-address change requires an auth layer, but does not say that wildcard CORS is equally dangerous when the bind address is changed."
+      ],
+      "suggestion": "In warnIfWildcardCors(), throw an IllegalStateException (or at minimum log at ERROR level) when the system property is '*' and the server is not in an explicitly acknowledged dev mode. Alternatively, document wildcard as an accepted risk with an explicit --allow-wildcard-cors flag so it is a conscious opt-in.",
+      "confidence": "medium",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The tool was designed as a single-user local research server; the absence of application-level auth is an intentional trade-off, not neglect. The remaining inconsistencies (CORS softness, asymmetric audit logging) are edge-of-scope rather than structural problems."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "Any signal pointing to 'missing authentication on endpoints' — these are all intentionally unauthenticated, documented as such, and rely on network-level isolation."
+    ]
+  }
+}

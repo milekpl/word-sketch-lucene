@@ -1,0 +1,136 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 7,
+  "assessments": {"low_level_elegance": 72.0},
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "ExplorationHandlers defines two private methods (buildBaseResponseEnvelope, buildMultiSeedResponseEnvelope) that are never called from any handler — both methods build raw Map-based response envelopes from the pre-typed-record era; all handlers now delegate to ExploreResponseAssembler. buildMultiSeedResponseEnvelope appears only at its own definition site (line 215); buildBaseResponseEnvelope is referenced only by buildMultiSeedResponseEnvelope.",
+        "ExploreResponseAssembler contains two @Deprecated methods (populateExploreResponse, populateComparisonResponse) that mutate raw Map<String,Object> in-place, alongside the newer typed-record factory methods. The deprecated methods are still tested (ExploreResponseAssemblerTest lines 75-101), making the migration visibly incomplete and leaving two parallel serialization styles in the same class.",
+        "HttpApiUtils.parseQueryParams uses URLDecoder.decode(str, \"UTF-8\") (legacy string-literal overload) with a surrounding try/catch for UnsupportedEncodingException. The code itself acknowledges this is unreachable ('UTF-8 is always supported; this branch is unreachable in practice'). Java 10+ provides URLDecoder.decode(String, Charset) which removes this dead branch entirely.",
+        "CollocateQueryHelper.buildAndRankCollocates calls prefetchCorpusFrequencies(freqMap.keySet()) to look up corpus frequencies for all collocates before the minLogDice filter is applied. This means I/O is performed for entries that may be immediately discarded. The filter logDice >= minLogDice happens inside the subsequent for loop, not before the expensive prefetch.",
+        "CollocateQueryHelper.collectHits has a dense inline extraction block inside the main hit-iteration loop: trimLeftXmlAtSentence + extractPlainTextFromXml, extractPlainTextFromXml, trimRightXmlAtSentence + extractPlainTextFromXml, and extractCollocateLemma all happen inline with concatenation of xmlSnippet. This mixed-level logic (loop coordination + per-hit field extraction) would be clearer as a named private method parseHitFields(hit, concordance, collocatePos) → HitRecord.",
+        "SemanticFieldExplorer.fetchExamples deduplicates results with a seen-set loop rather than using stream distinctBy or a LinkedHashSet. The pattern is correct but verbose for what is a straightforward distinct-while-limiting operation.",
+        "Helper extraction is consistent across related modules: parseSharedExploreParams, resolveRelationConfig, parseSeedSet, parseConcordanceExamplesRequest, parseRadialRequest, parseBcqlRequest all extract validation into named helpers of similar granularity, and all reuse HttpApiUtils.requireParam / parseIntParam / parseDoubleParam uniformly."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "Validation and parameter extraction is consistently refactored into focused private helpers across all handler classes (parseSharedExploreParams, resolveRelationConfig, parseSeedSet, parseBcqlRequest, parseRadialRequest, parseConcordanceExamplesRequest), using a uniform vocabulary of HttpApiUtils helpers.",
+        "Algorithm decomposition in the exploration package is well-balanced: MultiSeedExplorer, SingleSeedExplorer, and CollocateProfileComparator each own one algorithm; SemanticFieldExplorer is a thin facade. No monolithic god methods.",
+        "CollocateQueryHelper pipeline is cleanly divided into named phases with record types carrying data between them (CollocateSearch, HitRecord, GroupStats, AggregatedCollocateStats), making data flow explicit and bounded.",
+        "State mutation is local and explicit throughout: accumulators (CollocateAccumulator) are private to MultiSeedExplorer, intermediate maps are scoped to individual methods, and results are assembled into immutable records before leaving each phase.",
+        "Edge-case handling in BlackLabSnippetParser is precise and non-sprawling: null guards are present where warranted (extractPosFromMatch, safeParts), fallbacks are documented with rationale, and boundary conditions (extractLemmaWithFallback, trimLeftAtSentenceBoundary) are isolated in named helpers."
+      ],
+      "issue_character": "The issues are concentrated in incomplete refactoring artefacts — dead code and parallel migration paths left behind after a transition from raw Map responses to typed records — rather than fundamental control-flow or extraction problems.",
+      "score_rationale": "The codebase sits solidly above the 60-point 'significant drag' threshold: extraction is balanced, helper style is consistent, and state is well-bounded. It falls short of the 80-point 'solid but uneven' band because of two refactoring remnants that produce real cognitive overhead: dead private methods in ExplorationHandlers and a @Deprecated parallel-style section in ExploreResponseAssembler that is still tested, signalling an incomplete migration. A minor structural inefficiency in buildAndRankCollocates (pre-fetching before filtering) and the avoidable dead exception branch in parseQueryParams add modest drag. The overall picture is confident and clean in the algorithmic core, uneven in the API response-assembly layer where the typed-record migration stalled partway through."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "dead_envelope_methods",
+      "summary": "Two dead private methods in ExplorationHandlers are never called after typed-record migration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildMultiSeedResponseEnvelope (line 215) appears only at its own definition — no handler calls it.",
+        "buildBaseResponseEnvelope (line 228) is called only by buildMultiSeedResponseEnvelope, making both unreachable.",
+        "All three public handlers (handleSemanticFieldExploreMulti, handleSemanticFieldComparison, handleSemanticFieldExplore) delegate to ExploreResponseAssembler typed factory methods instead.",
+        "The BaseEnvelope record (line 206) exists solely to serve buildBaseResponseEnvelope."
+      ],
+      "suggestion": "Delete buildMultiSeedResponseEnvelope, buildBaseResponseEnvelope, and the BaseEnvelope record from ExplorationHandlers. They are stranded from a pre-typed-record era and add dead-code noise without serving any active code path.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "incomplete_typed_record_migration"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "deprecated_parallel_serialization",
+      "summary": "Deprecated Map-mutation methods in ExploreResponseAssembler keep a parallel serialization style alive alongside typed records",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssemblerTest.java"
+      ],
+      "evidence": [
+        "populateExploreResponse and populateComparisonResponse are @Deprecated but still present and tested in ExploreResponseAssemblerTest (lines 75-101).",
+        "Both methods mutate a raw Map<String,Object> in-place, whereas the active code path uses buildSingleSeedExploreResponse / buildMultiSeedExploreResponse / buildComparisonResponse returning typed records.",
+        "The deprecated methods duplicate field-population logic already present in the typed builders (formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates)."
+      ],
+      "suggestion": "Complete the migration: update ExploreResponseAssemblerTest to use the typed factory methods and delete populateExploreResponse and populateComparisonResponse. The deprecated comment in ExploreResponseAssembler at line 198 ('Prefer buildSingleSeedExploreResponse...') confirms the intended direction.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "incomplete_typed_record_migration"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "unreachable_uee_catch",
+      "summary": "parseQueryParams catches UnsupportedEncodingException that its own comment acknowledges is unreachable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "URLDecoder.decode(keyValue[0], \"UTF-8\") is called with the legacy String-charset overload, which throws the checked UnsupportedEncodingException.",
+        "The catch block carries the comment: 'UTF-8 is always supported; this branch is unreachable in practice.'",
+        "Java 10+ URLDecoder.decode(String, Charset) accepts java.nio.charset.Charset directly and does not declare UnsupportedEncodingException, removing the dead branch entirely."
+      ],
+      "suggestion": "Replace URLDecoder.decode(str, \"UTF-8\") with URLDecoder.decode(str, StandardCharsets.UTF_8) (Java 10+ overload) and remove the now-unnecessary UnsupportedEncodingException catch block. The outer IllegalArgumentException catch for malformed percent-encoding remains correct.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "prefetch_before_filter",
+      "summary": "buildAndRankCollocates prefetches all corpus frequencies before applying the minLogDice filter, performing I/O for entries that will be discarded",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "prefetchCorpusFrequencies(freqMap.keySet()) issues getTotalFrequency calls for every collocate in freqMap before any filtering occurs.",
+        "The minLogDice >= threshold check is applied inside the subsequent for loop, after all I/O has completed.",
+        "For results with many collocates below threshold, this performs wasted I/O that could be eliminated by computing logDice eagerly from already-available headword/collocate frequencies and filtering before the corpus-frequency lookup, or by restructuring to apply logDice pre-screening."
+      ],
+      "suggestion": "Restructure buildAndRankCollocates to compute logDice scores lazily: instead of pre-fetching all corpus frequencies upfront, fetch each collocate's frequency on demand within the loop, or use a two-pass approach that first filters entries by an approximate threshold before the expensive I/O loop. Alternatively, document the current order explicitly if profiling shows the overhead is negligible.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "collecthits_mixed_level",
+      "summary": "collectHits loop mixes coordination logic with inline per-hit XML extraction, reducing readability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Inside the for loop, six consecutive extraction calls (trimLeftXmlAtSentence, extractPlainTextFromXml twice, trimRightXmlAtSentence, extractPlainTextFromXml again, extractCollocateLemma) are inlined with intermediate variable assignments.",
+        "The null-check-and-continue on safeParts(conc) is at the same nesting level as this block, mixing skip-logic with extraction-logic.",
+        "A named private method extractHitRecord(Hit hit, Concordance conc, int collocatePos) -> HitRecord would separate the iteration scaffold from the per-hit field extraction, matching the pattern used elsewhere (e.g., buildCollocateFrequencyMap, scoreHits as distinct phases)."
+      ],
+      "suggestion": "Extract the per-hit extraction block inside collectHits into a private method buildHitRecord(Hit, Concordance, int collocatePos) returning HitRecord. The loop body would then read: obtain concordance, call buildHitRecord, add to records. This matches the phase-oriented style already established by buildCollocateFrequencyMap and scoreHits.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A typed-record migration for API response assembly was started but not completed: dead envelope methods in ExplorationHandlers and deprecated Map-mutation methods in ExploreResponseAssembler are the visible symptoms.",
+      "The collocate query pipeline (CollocateQueryHelper) was refactored into phases but the collectHits method predates the phase-naming discipline applied to its siblings."
+    ],
+    "likely_symptoms": [
+      "prefetch_before_filter — may be negligible in practice if corpus frequency lookups are fast; listed as a structural concern rather than a confirmed performance issue.",
+      "collecthits_mixed_level — readability issue rather than a bug; the behavior is correct."
+    ],
+    "possible_false_positives": []
+  }
+}

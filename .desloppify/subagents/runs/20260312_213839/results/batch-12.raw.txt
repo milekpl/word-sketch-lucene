@@ -1,0 +1,83 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 12,
+  "assessments": {"contract_coherence": 78.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "GrammarConfigLoader has an exemplary two-tier exception contract in its class Javadoc: IOException for I/O failures, IllegalArgumentException for structural validation failures; every public method echoes this in @throws clauses.",
+        "QueryExecutor interface documents each method thoroughly, including the @Nullable lemma parameter for executeCollocations, the silent-empty-list behaviour for null/empty lemma, and the @throws IllegalArgumentException for malformed cqlPattern.",
+        "ExplorationService interface declares four methods with only one-line Javadoc and no @throws clauses; callers or mock implementors cannot tell that exploreByRelation throws IllegalArgumentException for PosGroup.OTHER, or that exploreMultiSeed / compareCollocateProfiles throw IllegalArgumentException for seed count < 2.",
+        "executeDependencyPattern in QueryExecutor interface marks headPosConstraint as @Nullable (correctly) but leaves deprel un-annotated, implying it is required; the BlackLabQueryExecutor implementation silently returns an empty list when deprel is null — contradicting the interface signature.",
+        "ComparisonResponse uses a typed record with explicit @JsonProperty annotations, making the JSON contract explicit at compile time.",
+        "ExplorationException is documented as an intentional unchecked wrapper, keeping ExplorationService free of checked exceptions — design intent is communicated.",
+        "CollocateQueryPort uses a narrow interface type with clear Javadoc, and ConcordanceHandlers / CorpusQueryHandlers correctly declare CollocateQueryPort rather than QueryExecutor to make dependency surfaces explicit.",
+        "WordSketchApiServer.getPort() documents that it throws IllegalStateException when called before start(), consistent with the implementation.",
+        "RelationPatternUtils.buildCollocateReversePattern documents its @throws IllegalStateException for absent relationType; buildFullPattern documents the null/blank passthrough."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "GrammarConfigLoader has an exemplary two-tier exception strategy documented at the class level and echoed in every @throws clause — IOException vs IllegalArgumentException distinction is precise and consistently honoured.",
+        "QueryExecutor interface documents the silent-empty-list behaviour for null/empty lemma parameters and the @throws IllegalArgumentException for malformed CQL, so callers know what to expect from both happy and error paths.",
+        "ComparisonResponse and its nested records use typed Java records with @JsonProperty annotations, making the JSON API contract self-documenting and verifiable at compile time.",
+        "ExplorationException is explicitly documented as an unchecked wrapper that keeps ExplorationService free of checked exceptions — the design rationale is stated, not just implied.",
+        "Narrow interface split (CollocateQueryPort vs QueryExecutor) is correctly applied: handlers that only need BCQL retrieval declare the narrower type, and the Javadoc on QueryExecutor explains the method-responsibility boundaries clearly."
+      ],
+      "issue_character": "The two issues found are isolated contract gaps at interface boundaries rather than systemic mutations or type lies: one interface omits @throws documentation for an unchecked exception that callers should anticipate, and one parameter is silently nullable in the implementation despite appearing required in the interface signature.",
+      "score_rationale": "The codebase sits comfortably in the 75–80 band ('solid but uneven'). The fundamentals are strong: exception contracts are documented carefully at the most important boundaries (GrammarConfigLoader, QueryExecutor, BlackLabSnippetParser), return types are honest throughout, and there are no hidden mutations behind getter names. What pulls the score below 80 is the ExplorationService interface, which is the primary injection point for the HTTP layer yet has near-empty Javadoc on all four methods: no @throws clauses, no documentation of IllegalArgumentException paths that callers will encounter (seeds < 2, unsupported POS group). The null-deprel silent-return in executeDependencyPattern is a secondary gap. Neither issue rises to a score-60 'significant drag', but together they represent a real contract-coherence hole at a visible module seam."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_service_missing_throws_docs",
+      "summary": "ExplorationService interface methods lack @throws documentation for IllegalArgumentException paths visible to callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationService.exploreByRelation has a one-line Javadoc with no @throws; the implementation throws IllegalArgumentException when relationConfig.collocatePosGroup() == PosGroup.OTHER.",
+        "ExplorationService.exploreMultiSeed and compareCollocateProfiles each have a one-line Javadoc with no @throws; both implementations throw IllegalArgumentException when seeds.size() < 2.",
+        "ExplorationService.fetchExamples has a one-line Javadoc with no @throws; implementation can throw IllegalArgumentException via RelationConfig.validate().",
+        "ExplorationException is intentionally unchecked, but without any @throws documentation or caller contract note in the interface, a developer injecting a stub or mock has no contract signal for what error states the service can enter."
+      ],
+      "suggestion": "Add @throws IllegalArgumentException clauses to each ExplorationService method documenting the conditions that raise it (seeds < 2, unsupported POS group, invalid RelationConfig). Optionally add a class-level note mirroring the one in ExplorationException explaining that ExplorationException wraps IO failures and propagates as an unchecked exception.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "dependency_pattern_null_deprel_silent_accept",
+      "summary": "executeDependencyPattern silently returns empty list for null deprel despite interface implying it is required",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.executeDependencyPattern declares 'String deprel' with no @Nullable annotation; the @param says 'the dependency relation label (e.g. nsubj, obj)', implying it is a required, non-null argument.",
+        "BlackLabQueryExecutor.executeDependencyPattern: 'if (lemma == null || lemma.isEmpty() || deprel == null) { return Collections.emptyList(); }' — null deprel is silently accepted and returns an empty list rather than throwing.",
+        "headPosConstraint is correctly annotated @Nullable on both the interface and implementation, making the contrast with the undocumented null-tolerance for deprel visible."
+      ],
+      "suggestion": "Either annotate 'deprel' as @Nullable in the interface and document that null returns an empty list, or assert 'Objects.requireNonNull(deprel)' in the implementation to enforce the apparent required contract. The former is cheaper; the latter is safer if callers should never pass null.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The ExplorationService interface was likely written as a thin extraction from SemanticFieldExplorer; the Javadoc was not upgraded to document caller-visible exception behaviour when the design shifted to unchecked exceptions.",
+      "The silent null-tolerance in executeDependencyPattern may be a defensive pattern carried over from an earlier API where callers might pass null; the @Nullable annotation discipline introduced elsewhere (headPosConstraint, lemma) was not applied retroactively to deprel."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

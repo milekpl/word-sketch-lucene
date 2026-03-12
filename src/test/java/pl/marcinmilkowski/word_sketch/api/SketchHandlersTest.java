@@ -53,7 +53,7 @@ class SketchHandlersTest {
 
     @Test
     void handleSketchRequest_fullSketch_returns200WithRelationsMap() throws Exception {
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/theory");
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange("http://localhost/api/sketch/theory");
         handlers().routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
@@ -71,7 +71,7 @@ class SketchHandlersTest {
                 .findFirst()
                 .map(pl.marcinmilkowski.word_sketch.config.RelationConfig::id)
                 .orElse("adj_predicate");
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/theory/" + firstRelationId);
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange("http://localhost/api/sketch/theory/" + firstRelationId);
         new SketchHandlers(stubExecutor(), config).routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
@@ -85,7 +85,7 @@ class SketchHandlersTest {
 
     @Test
     void handleSurfaceRelations_returns200WithRelationsArray() throws Exception {
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/surface-relations");
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange("http://localhost/api/sketch/surface-relations");
         handlers().handleRelationsForType(ex, RelationType.SURFACE);
         assertEquals(200, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
@@ -98,7 +98,7 @@ class SketchHandlersTest {
     @Test
     void handleSketchRequest_missingLemma_returns400() throws Exception {
         SketchHandlers handlers = new SketchHandlers(null, null);
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange("http://localhost/api/sketch/");
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange("http://localhost/api/sketch/");
         HttpApiUtils.wrapWithErrorHandling(handlers::routeSketchRequest, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }
@@ -106,7 +106,7 @@ class SketchHandlersTest {
     @Test
     void handleSketchRequest_unknownRelation_returns400() throws Exception {
         SketchHandlers handlers = new SketchHandlers(stubExecutor(), GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/sketch/house/no_such_relation");
         HttpApiUtils.wrapWithErrorHandling(handlers::routeSketchRequest, "test").handle(ex);
         assertEquals(400, ex.statusCode);
@@ -118,7 +118,7 @@ class SketchHandlersTest {
             "theory", List.of(wsr("abstract", 8.0))
         ));
         SketchHandlers handlers = new SketchHandlers(executor, GrammarConfigHelper.requireTestConfig());
-        TestExchangeFactory.MockExchange ex = new TestExchangeFactory.MockExchange(
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/sketch/theory?lemma=theory");
         handlers.routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);

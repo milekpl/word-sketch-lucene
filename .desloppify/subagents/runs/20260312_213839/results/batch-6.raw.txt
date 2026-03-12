@@ -1,0 +1,68 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 6,
+  "assessments": {"dependency_health": 83.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares only 5 runtime-scoped external libraries: blacklab-engine, blacklab-query-parser, jackson-databind, jackson-core, log4j-to-slf4j. SLF4J is compile-scope facade; logback is runtime; jspecify is provided. Test deps are properly test-scoped.",
+        "Jackson is the sole JSON library — no competing libraries (e.g. Gson, fastjson, org.json) present. Used throughout via ObjectMapper, ObjectNode, ArrayNode, JsonNode, and @JsonProperty/@JsonInclude annotations.",
+        "Logging uses the canonical SLF4J + Logback stack. log4j-to-slf4j is present to bridge BlackLab's internal Log4j calls — not a duplicate, a deliberate bridge.",
+        "blacklab-query-parser is declared separately from blacklab-engine and both are genuinely used: ContextualQueryLanguageParser (BlackLabQueryExecutor.java:108) and CorpusQueryLanguageParser (CollocateQueryHelper.java:141, 229) are called in production code.",
+        "jackson-core is explicitly pinned to 2.17.2 alongside the jackson-bom import. The pom comment explains this: a transitive dependency (likely BlackLab) resolves an older Jackson version, so the explicit declaration forces the correct version. This is proper version management, not sloppiness.",
+        "com.sun.net.httpserver is used as the HTTP server across all API handler files. The pom.xml compiler plugin comment acknowledges this is the public API of the named module jdk.httpserver and notes a TODO to consider migrating to Undertow or Jetty. The package is stable in Java 21 but carries long-term portability risk.",
+        "No circular dependency cycles are visible in the import graph: api layer imports query/exploration/model; exploration imports query/model; query imports model; no reverse dependencies observed.",
+        "jspecify 1.0.0 is scoped as 'provided' — correct, since @Nullable/@NonNull annotations are compile-time only and should not ship in the shaded jar."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Use of com.sun.net.httpserver across the entire API layer creates a long-term portability concern; the jackson-core explicit pin is a minor workaround smell even though it is documented."
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Extremely lean dependency set: only 5 runtime-scoped external libraries for a non-trivial NLP/corpus application.",
+        "Single JSON library (Jackson) used consistently; no competing alternatives present.",
+        "Canonical SLF4J + Logback logging stack with an explicit log4j-to-slf4j bridge for the third-party BlackLab engine — no duplicate logging frameworks.",
+        "All declared dependencies are actively used in production code; no dependency appears to be pulled in for a single trivial call.",
+        "Proper Maven scoping throughout: jspecify as 'provided', logback as 'runtime', all test libraries as 'test'."
+      ],
+      "issue_character": "The issues are isolated and narrow: a single platform API choice (com.sun.net.httpserver) that carries documented long-term portability risk, and one version-pinning workaround for Jackson — both are already acknowledged in the codebase comments.",
+      "score_rationale": "This codebase sits comfortably in the 80-85 solid-but-uneven band. The dependency set is exemplary in discipline — no duplication, no bloat, nothing unused, proper scoping, and good version management. The score does not reach the 90+ exemplary range because com.sun.net.httpserver pervades the entire API layer (HttpApiUtils, all handler classes, WordSketchApiServer) creating a non-trivial migration burden if the JDK ever moves it, and the explicit jackson-core pin is a documented workaround that signals a transitive conflict rather than clean resolution. These are minor, acknowledged issues on an otherwise tight dependency graph."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "com_sun_httpserver_pervasive",
+      "summary": "com.sun.net.httpserver used pervasively across the entire API layer instead of a stable third-party HTTP server",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "import com.sun.net.httpserver.HttpExchange appears in 6 handler files and HttpApiUtils.java",
+        "WordSketchApiServer.java:55 declares 'private com.sun.net.httpserver.HttpServer server;'",
+        "pom.xml maven-compiler-plugin comment notes a TODO: 'consider migrating to Undertow or Jetty if a multi-module build, custom classloader environment, or EE-style deployment is ever needed'"
+      ],
+      "suggestion": "Replace com.sun.net.httpserver with a stable third-party HTTP server such as Undertow (lightweight, no container required) or Jetty Embedded. The API surface touched is concentrated in WordSketchApiServer and HttpApiUtils, so a shim/adapter approach can isolate the migration to those two files before touching the handlers.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The choice of com.sun.net.httpserver was likely made to avoid adding any external HTTP dependency for a simple single-process tool; the resulting coupling is now spread across the entire API layer."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

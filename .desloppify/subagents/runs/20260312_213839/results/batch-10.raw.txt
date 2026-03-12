@@ -1,0 +1,82 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 10,
+  "assessments": {
+    "incomplete_migration": 80.0
+  },
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "All three production handlers in ExplorationHandlers (handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison) use the new typed-record API: ExploreResponseAssembler.buildSingleSeedExploreResponse, buildMultiSeedExploreResponse, and buildComparisonResponse. No production path calls the old Map-based populateExploreResponse or populateComparisonResponse.",
+        "ExploreResponseAssembler.populateExploreResponse and populateComparisonResponse are marked @Deprecated with clear Javadoc pointing to the replacement methods. They are only called from test code (ExploreResponseAssemblerTest lines 84, 101), not from any production handler.",
+        "ExplorationHandlers contains two private dead-code methods (buildMultiSeedResponseEnvelope and buildBaseResponseEnvelope) plus the BaseEnvelope record that are never called by any handler — a residue from the intermediate Map-based response-building phase. Lines 206-238 define infrastructure that no caller reaches.",
+        "GrammarConfigLoader.parseRelation explicitly rejects the old 'cql_pattern' key with an IllegalArgumentException rather than silently accepting it as a fallback. This is a clean fail-fast guard, not a shim.",
+        "WordSketchApiServer contains exactly one forward-looking TODO: 'migrate to Undertow or Jetty if a multi-module build or custom classloader is needed' (line 54). This is a prospective note about an optional future upgrade, not evidence of an incomplete migration in the current codebase.",
+        "RelationUtils.RELATION_ALIASES maps legacy short-form alias strings (e.g. 'adj_modifier', 'modifier', 'predicate') to canonical grammar-config IDs. This shim is actively called by resolveRelationAlias in multiple handlers. The aliases are documented with clear ownership and instructions to update when relations change, suggesting this is intentional backward-compatibility rather than stale scaffolding."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "The core migration from Map<String,Object> response building to typed record responses (ExploreResponse, ComparisonResponse) is complete in all production handlers — no old-API execution path is reachable at runtime.",
+        "Deprecated methods are properly annotated with @Deprecated and Javadoc cross-references that name the replacement, making the migration intent clear to any developer who encounters them.",
+        "The cql_pattern key migration is enforced fail-fast: GrammarConfigLoader throws IllegalArgumentException when it detects the old key, preventing silent coexistence of old config formats.",
+        "The alias shim in RelationUtils is explicitly documented with instructions for future maintainers to register new aliases, signalling active ownership rather than forgotten scaffolding."
+      ],
+      "issue_character": "The issues are residual cleanup items from a largely completed migration: dead private helper methods in ExplorationHandlers that were scaffolding during the Map-to-record transition, and test code that still exercises the deprecated Map-based path rather than the current typed API.",
+      "score_rationale": "The production path is clean and fully migrated to typed records — no old-API coexistence exists where it matters. What remains is a small pocket of dead code (buildMultiSeedResponseEnvelope/buildBaseResponseEnvelope in ExplorationHandlers) and tests that call @Deprecated methods instead of the new typed ones, which keeps the deprecated code alive unnecessarily. These are real incomplete-migration signals but isolated to the assembler module and test suite, not structural. Relative to the global anchor where 80 = 'solid but uneven', this codebase sits just at that threshold: the main migration is done well, but the dead helper methods and un-migrated tests create mild unevenness that a developer would notice when working in ExplorationHandlers or ExploreResponseAssemblerTest."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead_map_envelope_helpers",
+      "summary": "ExplorationHandlers retains two private Map-based response-envelope helpers and a BaseEnvelope record that no handler calls",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildMultiSeedResponseEnvelope (line 215) and buildBaseResponseEnvelope (line 228) are defined as private instance methods.",
+        "All three public handlers now delegate to ExploreResponseAssembler typed-record factories; grep confirms neither envelope helper appears at any call site outside its own definition.",
+        "The BaseEnvelope record at line 207 exists solely to support these two methods, so it is also dead."
+      ],
+      "suggestion": "Remove the BaseEnvelope record and both buildMultiSeedResponseEnvelope / buildBaseResponseEnvelope methods from ExplorationHandlers. They were scaffolding during the migration to typed records and are now unreachable from any handler.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "deprecated_methods_in_tests",
+      "summary": "ExploreResponseAssemblerTest still calls @Deprecated populateExploreResponse instead of the current typed-record API",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssemblerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssemblerTest lines 84 and 101 call ExploreResponseAssembler.populateExploreResponse, which is annotated @Deprecated.",
+        "The test also calls formatSeedCollocates and formatDiscoveredNouns (lines 115, 129), which are helper methods of the deprecated Map-based path that are not annotated @Deprecated themselves but exist solely to support it.",
+        "The production path uses buildSingleSeedExploreResponse / buildMultiSeedExploreResponse, but these return values are not covered by the existing test cases in ExploreResponseAssemblerTest."
+      ],
+      "suggestion": "Migrate ExploreResponseAssemblerTest to call buildSingleSeedExploreResponse and buildMultiSeedExploreResponse and assert on the returned ExploreResponse record fields instead. Once no test calls populateExploreResponse or populateComparisonResponse, the deprecated methods and their Map-based helpers (formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates) can be deleted.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The Map-to-typed-record migration for response assembly was completed in the production layer but the test suite was not updated as part of the same change, leaving the deprecated path kept alive by tests.",
+      "The intermediate envelope-helper methods in ExplorationHandlers were not removed when the handlers switched to ExploreResponseAssembler factories, suggesting the cleanup commit was either deferred or forgotten."
+    ],
+    "likely_symptoms": [
+      "dead_map_envelope_helpers",
+      "deprecated_methods_in_tests"
+    ],
+    "possible_false_positives": []
+  }
+}

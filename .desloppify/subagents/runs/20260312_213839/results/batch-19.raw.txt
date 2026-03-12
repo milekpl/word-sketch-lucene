@@ -1,0 +1,134 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {
+    "api_surface_coherence": 68.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "ExplorationHandlers cleanly separates single-seed, multi-seed, comparison, and examples paths into four distinct handler methods, each with well-scoped parameter parsing.",
+        "ExplorationService interface has three distinct operation types (exploreByRelation, exploreMultiSeed, compareCollocateProfiles) with their own typed options records (SingleSeedExplorationOptions, ExplorationOptions), preventing option-object confusion at call sites.",
+        "wrapWithErrorHandling in HttpApiUtils provides a uniform error-to-HTTP-status mapping (IAE→400, RequestEntityTooLargeException→413, IOException→500) applied consistently across all endpoints.",
+        "ExploreResponseAssembler.buildExamplesResponse has 7 parameters: seed, collocate, relation, bcql, top, @Nullable Boolean fallback, List<CollocateResult> — exceeding the 5-parameter public-boundary guideline and including an awkward nullable Boolean rather than an explicit type.",
+        "ExploreResponseAssembler contains both a typed-record path (buildSingleSeedExploreResponse, buildMultiSeedExploreResponse, buildComparisonResponse) and a @Deprecated Map-based path (populateExploreResponse, populateComparisonResponse) — the deprecated methods are still exercised by tests, so both code paths are live.",
+        "ExploreResponse is a single record that encodes two response shapes: single-seed (seed field non-null, seeds/seedCount null) and multi-seed (seeds/seedCount non-null, seed null). The record Javadoc documents this duality, but there is no static factory or sealed hierarchy to prevent a caller from constructing a hybrid with neither field set.",
+        "buildComparisonResponse(List<String> seeds, String relationType, int top, int minShared, double minLogDice, ComparisonResult result) takes three bare scalar parameters (top, minShared, minLogDice) that already exist bundled as SharedExploreParams inside ExplorationHandlers — that record does not cross the module boundary into the assembler, so the caller must destructure it at the call site.",
+        "ExplorationHandlers contains two private helper methods (buildMultiSeedResponseEnvelope, buildBaseResponseEnvelope) that are never called from any handler — the handlers use the typed-record assembler path instead. These are orphaned Map-based envelope builders left from an earlier revision."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Handler classes are correctly decomposed by concern (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers), giving each a narrow, coherent public surface.",
+        "ExplorationService interface cleanly separates three exploration modes with distinct typed options records, making call-site intent explicit and preventing parameter conflation.",
+        "wrapWithErrorHandling applies a uniform exception-to-HTTP-status contract across all endpoints with no per-handler repetition.",
+        "The migration toward typed response records (ExploreResponse, ComparisonResponse, ExamplesResponse) is well underway, with @Deprecated annotations correctly marking the old Map-based helpers.",
+        "Parameter parsing helpers (requireParam, parseIntParam, parseDoubleParam) share a consistent signature and error message format across all handlers."
+      ],
+      "issue_character": "The issues are primarily transitional debt from a Map-based-to-typed-record migration that is incomplete: deprecated assembly paths remain live, a two-shape response record leaks implementation detail into the type system, and a few assembly methods carry too many scalar parameters that could be consolidated into existing option records.",
+      "score_rationale": "The codebase sits in the 65-72 band. The handler decomposition and error-handling consistency push it above 60 ('significant drag'). What pulls it below 80 ('solid but uneven') is a concrete set of coherence gaps: a seven-parameter public factory method, an overloaded response record that models two distinct JSON shapes via nullable discriminator fields, parallel deprecated and non-deprecated assembly paths that are both exercised, and dead private helpers from the old Map path that were not removed. None of these are severe individually, but together they impose real cognitive cost on a developer trying to understand where the canonical assembly path is and what the guaranteed response shape looks like."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dual_assembly_paths",
+      "summary": "Deprecated Map-based assembly methods (populateExploreResponse, populateComparisonResponse) coexist with typed-record builders and are still exercised by tests",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssemblerTest.java"
+      ],
+      "evidence": [
+        "populateExploreResponse and populateComparisonResponse are marked @Deprecated but are called directly in ExploreResponseAssemblerTest (lines 84, 101), keeping both code paths live.",
+        "The typed-record path (buildSingleSeedExploreResponse, buildMultiSeedExploreResponse, buildComparisonResponse) is what production handlers use, but the Map-based path has no clear removal timeline and its test coverage creates an ongoing maintenance obligation."
+      ],
+      "suggestion": "Migrate the test assertions to use the typed-record builders (buildSingleSeedExploreResponse etc.) and delete the deprecated Map-based methods and their formatSeedCollocates/formatDiscoveredNouns/formatCoreCollocates helpers once tests pass. This collapses the two paths into one.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "overloaded_explore_response_record",
+      "summary": "ExploreResponse encodes two mutually exclusive JSON shapes (single-seed vs multi-seed) in one record via nullable discriminator fields",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ExploreResponse Javadoc states: 'The seed field is set for single-seed responses and null for multi-seed; the seeds and seedCount fields are set for multi-seed responses and null for single-seed.'",
+        "No sealed interface, factory method, or compile-time check prevents constructing an ExploreResponse with seed=null AND seeds=null, which would produce a structurally invalid response silently accepted by Jackson."
+      ],
+      "suggestion": "Extract two subtypes: SingleSeedExploreResponse and MultiSeedExploreResponse, sharing a common base interface or sealed parent. Alternatively, add compact constructor validation (Objects.requireNonNull logic) that throws if neither seed nor seeds is present. Either approach makes the two-shape contract explicit at the type boundary.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "buildExamplesResponse_param_count",
+      "summary": "buildExamplesResponse has 7 parameters including an awkward @Nullable Boolean fallback",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExamplesResponse.java"
+      ],
+      "evidence": [
+        "Signature: static ExamplesResponse buildExamplesResponse(@NonNull String seed, @NonNull String collocate, @NonNull String relation, @NonNull String bcql, int top, @Nullable Boolean fallback, @NonNull List<CollocateResult> results) — seven parameters.",
+        "@Nullable Boolean fallback is a three-valued nullable boolean; callers pass 'fallback ? true : null' (ConcordanceHandlers line ~65), which is awkward and error-prone."
+      ],
+      "suggestion": "Introduce an ExamplesRequest or ExamplesContext value object bundling seed, collocate, relation, bcql, top, and a boolean fallback (non-nullable, defaulting to false). The builder then takes (ExamplesContext ctx, List<CollocateResult> results). Replace 'fallback ? true : null' with a plain boolean at the call site.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "buildComparisonResponse_bare_scalars",
+      "summary": "buildComparisonResponse takes three bare scalar parameters (top, minShared, minLogDice) that are already bundled as SharedExploreParams inside ExplorationHandlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildComparisonResponse(List<String> seeds, String relationType, int top, int minShared, double minLogDice, ComparisonResult result) — three consecutive scalars with no parameter object.",
+        "ExplorationHandlers already defines 'private record SharedExploreParams(int topCollocates, int minShared, double minLogDice)' but it is private to the handler and not passed to the assembler, forcing the caller to destructure it: buildComparisonResponse(..., commonParams.topCollocates(), commonParams.minShared(), commonParams.minLogDice())."
+      ],
+      "suggestion": "Promote SharedExploreParams to package-visible (or move it to the model package) and use it as a single parameter in buildComparisonResponse, buildSingleSeedExploreResponse, and buildMultiSeedExploreResponse. This closes the gap between the record that already exists and the flat parameter list that the assembler exposes.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dead_envelope_helpers",
+      "summary": "buildMultiSeedResponseEnvelope and buildBaseResponseEnvelope are private methods in ExplorationHandlers that are never called",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildMultiSeedResponseEnvelope is defined at line 215 but grep finds no call site outside its own definition; buildBaseResponseEnvelope is only called by buildMultiSeedResponseEnvelope.",
+        "All three handlers now delegate to typed ExploreResponseAssembler methods, leaving these Map-based envelope builders orphaned."
+      ],
+      "suggestion": "Delete both methods and the BaseEnvelope record. They are unreachable and represent leftover scaffolding from the Map-based response era.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "An in-progress migration from Map<String,Object>-based response assembly to typed records left deprecated methods, orphaned helpers, and a dual-shape response record behind without a cleanup pass.",
+      "SharedExploreParams was scoped private to ExplorationHandlers rather than promoted to a shared value object, causing the assembler's public API to accept bare scalar parameters instead."
+    ],
+    "likely_symptoms": [
+      "dual_assembly_paths",
+      "dead_envelope_helpers"
+    ],
+    "possible_false_positives": []
+  }
+}

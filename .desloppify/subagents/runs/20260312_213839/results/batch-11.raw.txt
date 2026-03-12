@@ -1,0 +1,68 @@
+{
+  "batch": "package_organization",
+  "batch_index": 11,
+  "assessments": {"package_organization": 80.0},
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "Directory tree has 11 packages across api/, api/model/, api/viz/, config/, exploration/, exploration/spi/, indexer/blacklab/, model/, model/exploration/, model/sketch/, query/, utils/ — naming is unambiguous and closely tracks responsibility boundaries.",
+        "model/ and its sub-packages (model/exploration/ 14 files, model/sketch/ 5 files) are pure data carriers with no imports from api/, config/, or query/; correct downstream dependency direction enforced in practice.",
+        "exploration/ uses exploration/spi/ as a single-type interface sub-package (ExplorationService); api/ depends on spi/, not on the implementation — clean inbound boundary.",
+        "api/ (12 files) is on the threshold for flat-dir overload but already has two focused sub-packages (model/, viz/) that pull out the response DTOs and visualization logic.",
+        "ExamplesResponse.java sits in api/ root (package-private) while three structurally identical response records — ComparisonResponse, ExploreResponse, SeedCollocateEntry — live in api/model/ (public). Two inconsistent policies for response-DTO placement co-exist in the same bounded context.",
+        "model/ root contains only PosGroup.java (fan-in: 7 files across config/, exploration/, api/) plus package-info — the lone resident of a parent package whose sub-packages (model/exploration/, model/sketch/) carry all the density; the parent package acts as a thin shared-enum container.",
+        "No bidirectional or downstream→upstream coupling edges observed: api/ imports model/ and exploration/; exploration/ imports model/; query/ imports model/sketch/; all arrows flow in the same direction."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "Package names map one-to-one to responsibilities: api/, config/, exploration/, query/, utils/, indexer/blacklab/ each contain one cohesive concern with no ambiguous files.",
+        "Domain model is isolated in model/exploration/ and model/sketch/ with no outbound imports to api/, config/, or query/, enforcing correct dependency direction across the entire codebase.",
+        "exploration/spi/ correctly segregates the ExplorationService interface from its implementations, enabling api/ to depend on the abstraction boundary rather than concrete explorers.",
+        "api/model/ and api/viz/ sub-packages successfully pull response DTOs and visualization logic out of the handler layer, keeping the 12-file api/ root manageable.",
+        "All cross-package import edges flow downstream-to-upstream with no reciprocal or bidirectional directory dependencies detected."
+      ],
+      "issue_character": "The issues are isolated to a single inconsistency in response-DTO placement policy (ExamplesResponse in api/ root vs. three peers in api/model/) and a thin model/ root layer that hosts only one enum; neither is a systemic structural failure, but together they create a minor navigation friction for developers looking for response type contracts.",
+      "score_rationale": "The package organization is solid and deliberately designed: clear package names, correct dependency direction, well-used sub-packages, and a proper SPI layer. The rubric anchor for 80 is 'solid but uneven'; the main unevenness here is the two-policy treatment of response DTOs (ExamplesResponse package-private in api/ vs. public siblings in api/model/), which a new developer will find confusing when tracing response shapes. The model/ root thinness is a secondary cosmetic concern. Neither issue is a boundary-placement failure or coupling problem, so the score sits comfortably at 80 rather than dropping to the 60-range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "examples_response_placement_mismatch",
+      "summary": "ExamplesResponse lives in api/ root instead of api/model/ where all other response records reside",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExamplesResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/SeedCollocateEntry.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ExamplesResponse.java is declared package-private (no access modifier) in api/, while ComparisonResponse, ExploreResponse, and SeedCollocateEntry are public classes in api/model/ — two distinct placement policies for response DTOs in the same bounded context.",
+        "ExamplesResponse is consumed by ConcordanceHandlers, ExplorationHandlers, and ExploreResponseAssembler all within api/ — its package-private visibility is the only technical reason it stays out of api/model/.",
+        "A developer searching for response type contracts will find three in api/model/ but miss ExamplesResponse.java unless they scan the handler package."
+      ],
+      "suggestion": "Move ExamplesResponse (and its nested ExampleEntry record) to api/model/, making both public. Update the three consumers in api/ to use the fully-qualified or imported name: import pl.marcinmilkowski.word_sketch.api.model.ExamplesResponse. Move order: (1) create api/model/ExamplesResponse.java with public access modifier; (2) delete api/ExamplesResponse.java; (3) add the import in ConcordanceHandlers, ExplorationHandlers, and ExploreResponseAssembler; (4) verify with: mvn test -pl . to confirm no compile errors.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExamplesResponse was likely added quickly as a package-private helper inside the api/ handler layer before the api/model/ sub-package convention was established, and was never promoted to align with that convention."
+    ],
+    "likely_symptoms": [
+      "examples_response_placement_mismatch"
+    ],
+    "possible_false_positives": []
+  }
+}

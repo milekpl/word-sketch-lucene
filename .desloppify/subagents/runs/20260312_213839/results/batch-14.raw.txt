@@ -1,0 +1,108 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {"type_safety": 74.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify @NonNull / @Nullable used throughout public APIs: HttpApiUtils, ExploreResponseAssembler, ExplorationService interface, RelationPatternUtils, BlackLabQueryExecutor, GrammarConfigLoader — consistent null annotation discipline across the codebase",
+        "API response layer uses strongly-typed Java records (ComparisonResponse, ExploreResponse with nested records) in place of Map<String,Object>; explicit migration is under way with @Deprecated on old map-returning methods",
+        "RelationType, RelationEdgeType, SharingCategory, PosGroup are proper enums with stable .label() serialisation methods; no raw-string bypasses observed for any enum comparison or dispatch site",
+        "ConcordanceHandlers and CorpusQueryHandlers accept CollocateQueryPort rather than the broader QueryExecutor — interfaces are narrowed to minimum required capability",
+        "Nullable return values on extraction helpers (BlackLabSnippetParser.extractLemmaFromMatch, extractPosFromMatch, CollocateQueryHelper.extractCollocateLemma, GrammarConfigLoader.parseRelationType) are correctly annotated",
+        "BCQL endpoint (CorpusQueryHandlers) uses BcqlQueryResponse record with List<Map<String,Object>> results — this active production endpoint has not been migrated to a typed result record; ExploreResponseAssembler.collocateResultToFullMap and edgeToMap (non-deprecated) still return Map<String,Object>",
+        "ExploreResponse.EdgeEntry and ComparisonResponse.EdgeEntry declare 'String type' instead of RelationEdgeType — the enum is erased at the record boundary without a compile-time guard",
+        "@SuppressWarnings(\"NullAway\") on CollocateQueryHelper's protected no-arg constructor assigns null to a @NonNull field (this.index = null); the suppression is documented but creates a nullability hole in the production class hierarchy"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 72.0,
+        "indirection_cost": 68.0,
+        "interface_honesty": 76.0,
+        "delegation_density": 70.0,
+        "definition_directness": 75.0,
+        "type_discipline": 74.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Consistent JSpecify @NonNull/@Nullable annotation discipline on all public method signatures across api, query, exploration, and config packages",
+        "Active migration from Map<String,Object> response bags to strongly-typed Java records (ComparisonResponse, ExploreResponse) with deprecated markers on the old map-based methods",
+        "Proper enum types (RelationType, RelationEdgeType, SharingCategory, PosGroup) used for all domain discriminators, with stable .label() bridge to JSON serialisation — no raw-string enum bypasses in dispatch code",
+        "Interface contracts correctly narrowed: handlers accept CollocateQueryPort not QueryExecutor; ExplorationService exposes only the facade methods needed by the HTTP layer"
+      ],
+      "issue_character": "The remaining type-safety gaps are concentrated in one subsystem (the BCQL/legacy response assembly path) and reflect an incomplete migration rather than a systemic disregard for type discipline — the issues are real but localised.",
+      "score_rationale": "The codebase earns a solid mid-range score because its null annotation coverage, enum usage, and record-based response objects are genuinely good — a developer extending the exploration endpoints gets full compile-time support. What pulls the score below 80 is the incomplete migration: the BCQL query endpoint still emits List<Map<String,Object>> from a non-deprecated helper (collocateResultToFullMap), EdgeEntry records erase RelationEdgeType to String without a compile-time guard, and the @SuppressWarnings(\"NullAway\") escape hatch in CollocateQueryHelper introduces a silent nullability hole. These are real defects against the rubric but they are localised; the overall pattern is 'solid but uneven' rather than 'significant drag'."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "bcql_response_untyped",
+      "summary": "BCQL query endpoint assembles results into List<Map<String,Object>> instead of a typed record",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "BcqlQueryResponse record (CorpusQueryHandlers line 82-88) declares 'List<Map<String, Object>> results'",
+        "collocateResultToFullMap (ExploreResponseAssembler line 424) is non-deprecated and returns Map<String,Object>, erasing the CollocateResult type at the response boundary",
+        "All other endpoints in the api package now use typed records (ExploreResponse, ComparisonResponse, ExamplesResponse); the BCQL endpoint is the sole remaining holdout"
+      ],
+      "suggestion": "Define a BcqlResultEntry record with fields sentence, raw, matchStart, matchEnd, collocateLemma, frequency, logDice; replace collocateResultToFullMap with a typed collocateResultToEntry method; update BcqlQueryResponse.results to List<BcqlResultEntry>",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "edge_type_string_erasure",
+      "summary": "EdgeEntry records in ComparisonResponse and ExploreResponse use String type instead of RelationEdgeType enum",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ComparisonResponse.EdgeEntry (line 54): 'record EdgeEntry(String source, String target, double weight, String type)'",
+        "ExploreResponse.EdgeEntry (line 76-80): 'String type' field",
+        "Assembler lines 339 and 192 call e.type().label() to produce the String — the enum value is known at the call site but is immediately erased to String before entering the record",
+        "RelationEdgeType enum exists in the model layer with a stable @JsonValue-equivalent label() — it could be carried through to the record and serialised by Jackson via its toString() override"
+      ],
+      "suggestion": "Change both EdgeEntry records to carry RelationEdgeType type instead of String; Jackson will serialise it via toString() (which already returns the stable label). Remove the .label() call in the assembler.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullaway_suppression_index_field",
+      "summary": "@SuppressWarnings(\"NullAway\") on CollocateQueryHelper no-arg constructor assigns null to a @NonNull field, breaking nullability guarantees for subclasses",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Lines 73-76: '@SuppressWarnings(\"NullAway\") protected CollocateQueryHelper() { this.index = null; }' — the field 'index' is declared as 'private final BlackLabIndex index' with no @Nullable annotation",
+        "The Javadoc states this constructor is 'not for production use' but it lives in a production class with protected visibility, reachable by any subclass in the package"
+      ],
+      "suggestion": "Annotate the 'index' field as @Nullable and add an Objects.requireNonNull guard in getTotalFrequency / performCollocateSearch; OR use a proper Optional<BlackLabIndex> field and a factory method for the test-only variant. Either approach removes the NullAway suppression.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental migration from Map<String,Object> response assembly to typed records — the migration is well-structured and explicitly marked with @Deprecated but has not yet reached the BCQL endpoint or edge-type fields",
+      "Serialisation boundary friction: records need String fields for Jackson unless @JsonSerialize/@JsonValue is configured, leading to premature enum erasure"
+    ],
+    "likely_symptoms": [
+      "bcql_response_untyped is a direct consequence of the incomplete migration rather than a separate design decision"
+    ],
+    "possible_false_positives": []
+  }
+}

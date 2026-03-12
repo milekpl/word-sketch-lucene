@@ -1,0 +1,67 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {
+    "initialization_coupling": 84.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "No static initializer blocks anywhere in the production codebase — confirmed by exhaustive grep for 'static {'.",
+        "JsonUtils.MAPPER is the only application-level singleton; it is a plain 'new ObjectMapper()' with no I/O or side effects at class-load time. The mapper() method returns MAPPER.copy(), so callers get an independent copy and cannot mutate the shared base.",
+        "System.getProperty(\"cors.allow.origin\", ...) is read inside warnIfWildcardCors() and setCorsHeader() at call time, not at class-load time — no stale snapshot problem.",
+        "System.getProperty(\"grammar.config\", \"grammars/relations.json\") is read inside GrammarConfigLoader.createDefaultEnglish() at call time, not at class-load time.",
+        "BlackLabQueryExecutor opens the BlackLab index in its constructor (I/O at construction time), but this is explicitly documented as intentional with a 'Constructor I/O note' and the constructor declares throws IOException — callers have a clear contract.",
+        "AtomicReference<WordSketchApiServer> in Main.handleBlackLabServerCommand is a method-local variable used only to bridge the shutdown hook closure; it is not a global singleton.",
+        "Dependency wiring in Main assembles executor → grammarConfig → SemanticFieldExplorer → WordSketchApiServer in a single sequential block with no hidden ordering requirements between static class fields.",
+        "RelationUtils.RELATION_ALIASES is a static final Map hardcoding grammar-config IDs (e.g., 'adj_modifier' -> 'noun_modifiers'). If grammar config relation IDs are renamed, RELATION_ALIASES must be updated in sync — a silent misconfiguration risk.",
+        "HttpApiUtils.MAPPER is a second reference to the same Jackson singleton (via JsonUtils.mapper()), used package-locally. Both fields are effectively immutable after class load; no ordering risk."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "No import-time I/O side effects: no DB connections, file reads, or network calls occur at class load time across the entire production codebase.",
+        "System property reads (cors.allow.origin, grammar.config) are deferred to call time inside methods, avoiding stale-snapshot problems in tests or when properties are set after class loading.",
+        "The GrammarConfig/GrammarConfigLoader separation is exemplary: loading concerns are kept in the loader, the value object is fully immutable, and callers can depend on just the data without carrying the I/O machinery.",
+        "Constructor I/O in BlackLabQueryExecutor is explicitly justified and documented; the constructor declares throws IOException, giving callers a predictable checked-exception contract rather than hiding the coupling.",
+        "Startup wiring in Main is straightforward and linear — all objects are constructed in a single top-down sequence with no hidden static-field boot-order dependencies."
+      ],
+      "issue_character": "Issues are isolated and maintenance-oriented rather than architectural: one static alias map creates a silent coupling between API-layer string keys and grammar config IDs, but there are no boot-order races, no global mutable singletons with ordering constraints, and no import-time side effects anywhere.",
+      "score_rationale": "The codebase scores well on initialization_coupling: the dimension's primary concerns (import-time side effects, boot-order races, global mutable singletons) are essentially absent. The one real finding — RelationUtils.RELATION_ALIASES hardcoding grammar-config IDs — is a maintenance coupling risk rather than an initialization ordering hazard. Against the global anchors (80=solid but uneven), the codebase sits just above that line: the patterns are clean and consistent, and only a single localized issue holds the score below the 90s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "relation_aliases_hardcode",
+      "summary": "RelationUtils.RELATION_ALIASES statically hardcodes grammar-config relation IDs, creating silent drift risk when IDs change",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java"
+      ],
+      "evidence": [
+        "RELATION_ALIASES = Map.of(\"adj_modifier\", \"noun_modifiers\", \"adj_predicate\", \"noun_adj_predicates\", ...) in RelationUtils — eight hardcoded grammar-config ID strings.",
+        "GrammarConfig holds the authoritative list of relation IDs parsed from relations.json at runtime; RelationUtils has no reference to GrammarConfig and cannot validate its hardcoded aliases against the loaded config.",
+        "If a grammar config relation ID is renamed (e.g. 'noun_modifiers' → 'adj_modifiers'), RelationUtils.resolveRelationAlias silently returns the stale ID; the API call will find no matching relation and return empty results with no error."
+      ],
+      "suggestion": "Validate RELATION_ALIASES entries against the loaded GrammarConfig at server startup: after loading grammarConfig, iterate RELATION_ALIASES.values() and assert each value matches a known relation ID (grammarConfig.relation(id).isPresent()), throwing IllegalStateException on mismatch. This converts silent runtime drift into a fast startup failure. Alternatively, load aliases directly from the grammar config JSON (e.g. an 'aliases' field per relation), eliminating the static map entirely.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The alias map in RelationUtils was likely added as a convenience shim when relation IDs were renamed or normalised, without establishing a validation step to keep it in sync with the grammar config."
+    ],
+    "likely_symptoms": [
+      "relation_aliases_hardcode"
+    ],
+    "possible_false_positives": []
+  }
+}

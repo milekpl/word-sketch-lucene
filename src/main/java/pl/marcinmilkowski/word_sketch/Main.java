@@ -121,25 +121,23 @@ public class Main {
             return;
         }
 
-        System.out.println("=== BlackLab Indexer ===");
-        System.out.println("Input:      " + inputPath);
-        System.out.println("Output:     " + outputPath);
-        System.out.println("Format dir: " + formatDir);
-        System.out.println();
+        logger.info("=== BlackLab Indexer ===");
+        logger.info("Input:      {}", inputPath);
+        logger.info("Output:     {}", outputPath);
+        logger.info("Format dir: {}", formatDir);
 
         // Step 1: Convert CoNLL-U → WPL chunk files (BlackLab indexes one file = one document)
-        System.out.println("Step 1/2: Converting CoNLL-U → WPL chunks (10 000 sentences/file)...");
+        logger.info("Step 1/2: Converting CoNLL-U → WPL chunks (10 000 sentences/file)...");
         Path wplTempDir = Files.createTempDirectory("conllu_wpl_");
         Runtime.getRuntime().addShutdownHook(new Thread(() -> deleteRecursively(wplTempDir)));
         ConlluConverter.ConversionStats stats = ConlluConverter.convertConlluToWplChunks(Paths.get(inputPath), wplTempDir, 10_000);
         long sentenceCount = stats.sentences();
         long tokenCount = stats.tokens();
         long chunkFileCount = stats.chunks();
-        System.out.printf("  → %,d sentences, %,d tokens in %,d chunk files%n%n",
-                sentenceCount, tokenCount, chunkFileCount);
+        logger.info("  → {} sentences, {} tokens in {} chunk files", sentenceCount, tokenCount, chunkFileCount);
 
         // Step 2: Index the chunk directory with BlackLab (registers format from formatDir internally)
-        System.out.println("Step 2/2: Indexing with BlackLab...");
+        logger.info("Step 2/2: Indexing with BlackLab...");
         try (BlackLabConllUIndexer indexer = new BlackLabConllUIndexer(outputPath, "conllu-sentences", formatDir)) {
             indexer.indexFile(wplTempDir.toString());
         }
@@ -168,15 +166,14 @@ public class Main {
             return;
         }
 
-        System.out.println("=== BlackLab Query ===");
-        System.out.println("Index: " + indexPath);
-        System.out.println("Lemma: " + lemma);
+        logger.info("=== BlackLab Query ===");
+        logger.info("Index: {}", indexPath);
+        logger.info("Lemma: {}", lemma);
         if (deprel != null) {
-            System.out.println("Dependency: " + deprel);
+            logger.info("Dependency: {}", deprel);
         }
-        System.out.println("Min logDice: " + minLogDice);
-        System.out.println("Limit: " + limit);
-        System.out.println();
+        logger.info("Min logDice: {}", minLogDice);
+        logger.info("Limit: {}", limit);
 
         try (QueryExecutor executor = new BlackLabQueryExecutor(indexPath)) {
             var results = deprel != null
@@ -184,18 +181,18 @@ public class Main {
                 : executor.executeCollocations(lemma, "[]", minLogDice, limit);
 
             if (results.isEmpty()) {
-                System.out.println("No results found.");
+                logger.info("No results found.");
                 return;
             }
 
-            System.out.println("Results:");
-            System.out.println("--------");
+            logger.info("Results:");
+            logger.info("--------");
             for (var result : results) {
-                System.out.printf("  %s: freq=%d, logDice=%.2f, relFreq=%.4f%n",
+                logger.info("  {}: freq={}, logDice={}, relFreq={}",
                     result.lemma(),
                     result.frequency(),
-                    result.logDice(),
-                    result.relativeFrequency()
+                    String.format("%.2f", result.logDice()),
+                    String.format("%.4f", result.relativeFrequency())
                 );
             }
         }
@@ -221,10 +218,9 @@ public class Main {
             return;
         }
 
-        System.out.println("Starting API server...");
-        System.out.println("Index: " + indexPath);
-        System.out.println("Port: " + port);
-        System.out.println();
+        logger.info("Starting API server...");
+        logger.info("Index: {}", indexPath);
+        logger.info("Port: {}", port);
 
         QueryExecutor executor = new BlackLabQueryExecutor(indexPath);
 
@@ -233,7 +229,7 @@ public class Main {
         GrammarConfig grammarConfig;
         try {
             grammarConfig = GrammarConfigLoader.createDefaultEnglish();
-            System.out.println("Loaded grammar config: " + grammarConfig.version());
+            logger.info("Loaded grammar config: {}", grammarConfig.version());
         } catch (IllegalArgumentException e) {
             logger.error("Invalid grammar config: {}", e.getMessage());
             System.err.println("Error: invalid grammar config: " + e.getMessage());
@@ -251,7 +247,7 @@ public class Main {
         // always closed even if server construction throws.
         AtomicReference<WordSketchApiServer> serverHolder = new AtomicReference<>();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\nShutting down...");
+            logger.info("Shutting down...");
             WordSketchApiServer s = serverHolder.get();
             if (s != null) s.stop();
             try {

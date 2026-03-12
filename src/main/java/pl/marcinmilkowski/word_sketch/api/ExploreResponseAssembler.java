@@ -193,38 +193,6 @@ final class ExploreResponseAssembler {
                 .toList();
     }
 
-    // -------------------------------------------------------------------------
-    // Legacy Map-based helper kept for tests and internal callers that still
-    // use the Map-based populateExploreResponse path.
-    // -------------------------------------------------------------------------
-
-    /**
-     * Populates {@code response} with all exploration result fields:
-     * {@code seed_collocates}, {@code discovered_nouns}, {@code core_collocates}, and {@code edges}.
-     *
-     * @deprecated Prefer {@link #buildSingleSeedExploreResponse} or
-     *             {@link #buildMultiSeedExploreResponse} which return a typed
-     *             {@link ExploreResponse} record instead of mutating a raw map.
-     */
-    @Deprecated
-    static void populateExploreResponse(@NonNull Map<String, Object> response, @NonNull ExplorationResult result) {
-        List<Map<String, Object>> seedCollocs = formatSeedCollocates(result);
-        response.put("seed_collocates", seedCollocs);
-        response.put("seed_collocates_count", seedCollocs.size());
-
-        List<Map<String, Object>> nouns = formatDiscoveredNouns(result);
-        response.put("discovered_nouns", nouns);
-        response.put("discovered_nouns_count", nouns.size());
-
-        List<Map<String, Object>> coreCollocs = formatCoreCollocates(result);
-        response.put("core_collocates", coreCollocs);
-        response.put("core_collocates_count", coreCollocs.size());
-
-        List<Edge> edges = buildExplorationEdges(result);
-        response.put("edges", edges.stream().map(ExploreResponseAssembler::edgeToMap).toList());
-        response.put("edges_count", edges.size());
-    }
-
     static @NonNull List<Map<String, Object>> formatSeedCollocates(@NonNull ExplorationResult result) {
         List<Map<String, Object>> seedCollocs = new ArrayList<>();
         for (Map.Entry<String, Double> e : result.seedCollocates().entrySet()) {
@@ -292,30 +260,6 @@ final class ExploreResponseAssembler {
             collocate.strongestNoun().ifPresent(n -> collocateMap.put("specific_to", n));
         }
         return collocateMap;
-    }
-
-    /**
-     * Populates {@code response} with comparison data fields.
-     *
-     * @deprecated Use {@link #buildComparisonResponse} instead.
-     */
-    @Deprecated
-    static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result) {
-        List<Map<String, Object>> collocates = new ArrayList<>();
-        for (CollocateProfile collocate : result.collocates()) {
-            collocates.add(collocateProfileToMap(collocate));
-        }
-        response.put("collocates", collocates);
-        response.put("collocates_count", result.collocates().size());
-
-        ComparisonResult.SummaryCounts counts = result.summaryCounts();
-        response.put("fully_shared_count", counts.fullyShared());
-        response.put("partially_shared_count", counts.partiallyShared());
-        response.put("specific_count", counts.specific());
-
-        List<Edge> edges = buildComparisonEdges(result);
-        response.put("edges", edges.stream().map(ExploreResponseAssembler::edgeToMap).toList());
-        response.put("edges_count", edges.size());
     }
 
     /**

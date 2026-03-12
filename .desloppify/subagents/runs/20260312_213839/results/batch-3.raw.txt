@@ -1,0 +1,65 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 3,
+  "assessments": {
+    "error_consistency": 74.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "BlackLabQueryExecutor constructor catches BlackLab's RuntimeException (ErrorOpeningIndex) and converts it to a checked IOException with full context: 'Failed to open BlackLab index at \\'' + indexPath + \\'': ' + e.getMessage(), e'",
+        "wrapWithErrorHandling in HttpApiUtils provides a single, consistent HTTP error boundary: RequestEntityTooLargeException→413, IllegalArgumentException→400, IOException→500 (description-specific message), Exception→500 (generic 'Unexpected error')",
+        "ExplorationException extends RuntimeException (intentionally unchecked per its Javadoc) — but this means it is caught by the catch-all Exception block in wrapWithErrorHandling, producing 'Unexpected error: ...' in HTTP responses instead of the description-specific 'Semantic field explore failed: ...' that IOException would produce",
+        "CollocateQueryHelper consistently wraps InvalidQuery (BlackLab parse exception) into IllegalArgumentException with context in two separate locations (executeBcqlQuery and executeGroupedCollocateSearch), ensuring bad BCQL surfaces as a 400 at the HTTP boundary",
+        "SketchHandlers collects per-relation IOException messages into a list and surfaces them as a 'warnings' array in the response — a deliberate and well-documented partial-failure pattern that preserves error context without aborting the full word-sketch",
+        "SemanticFieldExplorer consistently wraps java.io.IOException into ExplorationException with a descriptive message in all four public methods (exploreByRelation, compareCollocateProfiles, fetchExamples, exploreMultiSeed)",
+        "GrammarConfigLoader uses IllegalStateException for missing config file (startup-time assertion) and IOException for parse errors — appropriate distinction between startup/config failures and I/O failures",
+        "ExplorationException Javadoc states it is designed to 'prevent I/O concerns from leaking into the HTTP API boundary', but the boundary handler (wrapWithErrorHandling) has no explicit ExplorationException case, so the design intent is not reflected in the catch hierarchy"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "wrapWithErrorHandling provides a single, documented HTTP error boundary that all route handlers use without exception — no handler exposes raw exceptions to the wire",
+        "IOException is propagated with context at every wrapping site (constructor, query executor, exploration layer) — the cause chain is never discarded",
+        "SketchHandlers partial-failure pattern (per-relation IOException caught, message collected, surfaced as 'warnings' in response) is intentional, documented, and preserves error information for the caller",
+        "InvalidQuery is consistently translated to IllegalArgumentException (→ 400) in both CollocateQueryHelper locations, giving callers a predictable contract for bad BCQL input",
+        "Guard clauses in BlackLabQueryExecutor (empty lemma → return emptyList, not exception) and executeSurfacePattern (null lemma → IllegalArgumentException with pattern in message) are documented and applied consistently"
+      ],
+      "issue_character": "A single structural gap: ExplorationException is designed as the domain failure type for the exploration layer but is not explicitly handled at the HTTP boundary, causing it to be misclassified as an 'unexpected' error instead of a predictable domain failure.",
+      "score_rationale": "The codebase scores well on the mechanics of error consistency: one central HTTP error boundary, IOException propagated with context throughout, and a clear partial-failure pattern in the sketch layer. The single real gap is that ExplorationException (a well-defined domain type with a Javadoc that explicitly says it is the API boundary type) falls through to the generic catch block and produces misleading 'Unexpected error' messages. This is a meaningful gap because it obscures corpus failures in logs and responses, but it is contained to one module boundary and is a single-edit fix. Relative to the 80=solid-but-uneven anchor, the codebase is close — one concrete inconsistency between a documented design intent and its implementation pulls it to 74."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "exploration_exception_not_caught_at_boundary",
+      "summary": "ExplorationException falls through to generic catch block, producing misleading 'Unexpected error' HTTP responses for expected corpus failures",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationException.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationException extends RuntimeException (line 11 of ExplorationException.java) — intentionally unchecked per Javadoc, which states it is designed to keep the ExplorationService interface 'free of checked exceptions' and contain I/O concerns at the 'HTTP API boundary'",
+        "wrapWithErrorHandling (HttpApiUtils.java lines 38-51) catches IOException explicitly with the description-specific message (e.g. 'Semantic field explore failed: ...') but has no ExplorationException case; the exception falls to catch (Exception e) which logs 'unexpected error' and returns 'Unexpected error: ...' in the JSON body",
+        "All four public SemanticFieldExplorer methods wrap IOException into ExplorationException before throwing, so a corpus query failure always arrives at the boundary as ExplorationException, never as IOException — meaning the descriptive IOException handler never fires for exploration operations"
+      ],
+      "suggestion": "Add an explicit catch for ExplorationException in wrapWithErrorHandling, between the IOException and the generic Exception catches, mapping it to 500 with the same description-qualified message pattern: 'catch (ExplorationException e) { logger.error(\"{} error\", description, e); sendError(exchange, 500, description + \" failed: \" + e.getMessage()); }'. Alternatively, since ExplorationException always wraps an IOException (see all four throw sites in SemanticFieldExplorer), change the ExplorationHandlers methods to catch ExplorationException and re-throw its cause as IOException — this keeps the boundary handler unchanged while surfacing the correct message.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationException was designed to decouple the ExplorationService interface from checked IOException, but the HTTP boundary was not updated to explicitly handle the new unchecked type — the design intent (documented in the Javadoc) and the implementation (catch hierarchy) drifted apart"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

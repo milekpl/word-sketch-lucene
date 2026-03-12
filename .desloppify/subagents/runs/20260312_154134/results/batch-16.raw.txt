@@ -1,0 +1,87 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 16,
+  "assessments": {
+    "cross_module_architecture": 76.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "api package has two distinct access paths to the query layer: ExplorationHandlers depends on ExplorationService (service abstraction), while ConcordanceHandlers and CorpusQueryHandlers hold a QueryExecutor directly — bypassing the service layer for 2 of 5 handler classes",
+        "ExploreResponseAssembler (in api) imports viz.Edge and viz.RelationEdgeType to build intermediate edge lists that are immediately serialized to maps via edgeToMap() — creating an api→viz dependency for what is a data-carrier concern, not a rendering concern",
+        "MultiSeedExplorer and CollocateProfileComparator are public classes in the exploration package, forcing Main to import them as concrete algorithm classes for DI wiring; SingleSeedExplorer is package-private by contrast — the boundary between 'facade surface' and 'internal algorithm' is inconsistently enforced",
+        "Overall dependency direction is largely correct: model is a stable leaf; config, query, exploration, api form an upward-flowing stack; utils is a horizontal leaf; viz is consumed by api for visualization rendering",
+        "No import-time side effects or shared mutable singletons observed; all stateful construction is explicit in Main and WordSketchApiServer constructors",
+        "WordSketchApiServer accepts QueryExecutor directly in its constructor alongside ExplorationService, meaning the api-level composition root itself encodes the dual-path design"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Dependency direction is coherent: model is a stable leaf, config/query/exploration are mid-tier, api is the outermost layer — no downstream-to-upstream violations",
+        "ExplorationService interface cleanly decouples the HTTP exploration handlers from algorithm implementation details; SemanticFieldExplorer implements it without leaking internal types",
+        "No global mutable state or import-time side effects; all wiring is explicit at the Main composition root",
+        "The config package is cleanly separated from query logic — RelationConfig, RelationPatternUtils, RelationUtils are all pure data/utility with no back-references to higher layers",
+        "package-info.java files are present for api, config, exploration, model, indexer, query, utils — architectural intent is documented at the package level"
+      ],
+      "issue_character": "The issues are localized and structural rather than systemic: the api layer has a consistent split where exploration endpoints use the service abstraction but concordance/BCQL endpoints bypass it, and viz.Edge leaks into the api response-assembly layer as an intermediate data carrier rather than staying in a shared model.",
+      "score_rationale": "The codebase is closer to 80 (solid but uneven) than 60 (significant drag). Dependency direction is mostly right, packages have documented intent, and the exploration subsystem is cleanly factored. What pulls it below 80 is the API layer's split personality — two handler classes hold QueryExecutor directly while the other three go through ExplorationService — and the api→viz coupling introduced by using viz.Edge as an intermediate in ExploreResponseAssembler. A developer extending concordance or adding a new handler would need to make an opaque choice between the two paths; the boundary is not self-enforcing. These are real but contained structural issues, landing the score at 76."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api-bypasses-service-abstraction",
+      "summary": "ConcordanceHandlers and CorpusQueryHandlers hold QueryExecutor directly, bypassing ExplorationService abstraction used by sibling handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlers constructor: `ConcordanceHandlers(QueryExecutor executor, GrammarConfig grammarConfig)` — holds raw QueryExecutor",
+        "CorpusQueryHandlers constructor: `CorpusQueryHandlers(QueryExecutor executor)` — holds raw QueryExecutor",
+        "ExplorationHandlers constructor: `ExplorationHandlers(ExplorationService semanticFieldExplorer, GrammarConfig grammarConfig)` — correctly depends on the service abstraction",
+        "WordSketchApiServer accepts both QueryExecutor and ExplorationService, encoding the split design at construction time"
+      ],
+      "suggestion": "Extend ExplorationService (or extract a separate ConcordanceService interface) to cover fetchConcordanceExamples and executeBcqlQuery, then inject that interface into ConcordanceHandlers and CorpusQueryHandlers instead of QueryExecutor directly. This makes the api layer uniformly depend on service interfaces rather than the query port, and keeps the boundary self-enforcing for future handlers.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api-layer-access-paths"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "viz-edge-as-api-intermediate",
+      "summary": "ExploreResponseAssembler uses viz.Edge as an intermediate data carrier, creating an api→viz dependency for a non-visualization concern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RelationEdgeType.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler imports `pl.marcinmilkowski.word_sketch.viz.Edge` and `pl.marcinmilkowski.word_sketch.viz.RelationEdgeType`",
+        "buildExplorationEdges() returns List<Edge> only to be consumed by edgeToMap() in the same class — the Edge object is never used for actual rendering",
+        "viz.RadialPlot is the rendering engine; Edge and RelationEdgeType are data records that conceptually belong with the model layer, not the viz layer"
+      ],
+      "suggestion": "Move Edge and RelationEdgeType to the model package (e.g. model.graph or model.exploration), so that api and viz can both import them without creating an api→viz coupling. The viz package should depend on model types, not the other way round. This is a straightforward file-move with import updates.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api-layer-access-paths"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The api layer grew incrementally: exploration handlers were written with the ExplorationService abstraction in mind, but concordance and BCQL handlers were added later as thin wrappers directly over QueryExecutor, leaving no consistent policy for which layer the api should access",
+      "viz.Edge was likely created as a graph data record and then imported into ExploreResponseAssembler for convenience, without considering that it creates a cross-package dependency in the wrong direction"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

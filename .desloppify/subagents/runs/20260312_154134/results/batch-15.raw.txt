@@ -1,0 +1,66 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 15,
+  "assessments": {
+    "design_coherence": 79.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "SemanticFieldExplorer acts as a clean facade delegating to three algorithm classes (SingleSeedExplorer, MultiSeedExplorer, CollocateProfileComparator), each owning a single algorithm; the facade itself performs only wiring and validation.",
+        "Handler classes (CorpusQueryHandlers, VisualizationHandlers, ExplorationHandlers, SketchHandlers, ConcordanceHandlers) are decomposed by endpoint group with no cross-concern leakage.",
+        "CorpusQueryHandlers.parseBcqlRequest() extracts validation into a focused private method, using a record BcqlRequest as a value object to carry the result — a textbook focused-function design.",
+        "Both POST handlers (CorpusQueryHandlers lines 61-66, VisualizationHandlers lines 56-61) duplicate the identical 5-line 'read body -> MAPPER.readValue -> wrap JsonProcessingException as IllegalArgumentException' block; HttpApiUtils already centralises cross-cutting HTTP utilities and has readBodyWithSizeLimit, making a readJsonBody(HttpExchange) helper the natural home for this pattern.",
+        "The 'import duplication' flagged by the scanner between CollocateProfileComparator/SemanticFieldExplorer and ExplorationService/SemanticFieldExplorer is an artefact of Java requiring each file to import its own type references — not a design defect.",
+        "Functions in SingleSeedExplorer and MultiSeedExplorer are appropriately decomposed into named phases (fetchCollocatesPerSeed, identifyCommonCollocates, buildDiscoveredNouns, etc.) with no mixed responsibilities inside any single method body."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The only genuine structural gap is the JSON-body parsing boilerplate duplicated across the two POST handlers. It is a small, extractable pattern that HttpApiUtils is already the right home for, but it has not been centralised."
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "SemanticFieldExplorer is a deliberate, documented facade — its Javadoc explicitly calls out its role as 'pure coordination', and it delegates each algorithm to a focused owner class with no logic leakage into the facade itself.",
+        "Handler decomposition is coherent: each handler class owns exactly one endpoint group and has no cross-group state; WordSketchApiServer does only routing and lifecycle management.",
+        "parseBcqlRequest() in CorpusQueryHandlers is a well-designed extraction: input validation, complexity checks, and parsing are bundled into one focused private method that returns a typed value record — not a raw map.",
+        "HttpApiUtils centralises cross-cutting HTTP concerns (body size limiting, CORS, error wrapping, parameter parsing) and is actively used by all handlers, avoiding scattered duplicates of these concerns.",
+        "MultiSeedExplorer breaks its algorithm into named, well-scoped private methods (fetchCollocatesPerSeed, identifyCommonCollocates, aggregateCollocateStats, buildDiscoveredNouns, buildCoreCollocates) — the top-level entry point reads as a clear algorithm description."
+      ],
+      "issue_character": "The only confirmed structural issue is a single extractable boilerplate pattern (JSON body parsing) duplicated across two POST handlers; it is surficial and isolated, not symptomatic of a broader design incoherence.",
+      "score_rationale": "The codebase exhibits genuinely healthy design coherence: the facade-and-delegation pattern in the exploration subsystem, the handler decomposition, and the use of value objects and focused extraction methods are all above the 'solid but uneven' bar. What prevents a score above 80 is the small JSON-body parsing block duplicated across the two POST endpoints — an obvious candidate for HttpApiUtils.readJsonBody() that has not been factored out, creating a first inconsistency in what is otherwise a consistently centralised utility class. This places the codebase at the upper end of the solid range (79): better than most on structural clarity, with one minor missed extraction."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "post_body_parsing_duplication",
+      "summary": "Identical JSON-body parsing boilerplate duplicated across both POST handlers instead of centralised in HttpApiUtils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "CorpusQueryHandlers.java lines 61-66 and VisualizationHandlers.java lines 56-61 both contain: readBodyWithSizeLimit -> MAPPER.readValue(body, ObjectNode.class) inside try/catch(JsonProcessingException) -> throw new IllegalArgumentException(\"Invalid JSON in request body: \" + e.getMessage(), e)",
+        "HttpApiUtils already owns readBodyWithSizeLimit and MAPPER; adding readJsonBody(HttpExchange) -> ObjectNode would centralise this identical 5-line block and keep POST handler code at the field-extraction level."
+      ],
+      "suggestion": "Add a static HttpApiUtils.readJsonBody(HttpExchange exchange) method that calls readBodyWithSizeLimit, parses ObjectNode, and wraps JsonProcessingException as IllegalArgumentException. Both handlers then call this single helper and proceed directly to field extraction.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The JSON-body parsing boilerplate was likely written per-handler when each POST endpoint was first added; with only two POST endpoints the cost of leaving it inline was low and no refactor pressure accumulated."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "Import block overlap between CollocateProfileComparator and SemanticFieldExplorer (lines 7/6): Java requires each file to declare its own imports; this is not extractable and carries no design signal.",
+      "Import block overlap between ExplorationService and SemanticFieldExplorer (lines 10/16): same false-positive category as above — the interface and its implementation naturally import the same model types."
+    ]
+  }
+}

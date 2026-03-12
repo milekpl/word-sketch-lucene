@@ -1,0 +1,79 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 18,
+  "assessments": {"test_strategy": 78.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "Every major module has a corresponding test class: api, exploration, config, query, indexer, utils, viz — breadth coverage is impressive for the codebase size.",
+        "Shared StubQueryExecutor base class with default empty-returning methods allows easy anonymous-subclass overrides without boilerplate — a deliberate, reusable test utility.",
+        "Zero snapshot tests — all assertions are programmatic (assertEquals, assertTrue, assertFalse, assertNotNull).",
+        "BlackLabIntegrationTest exercises the full XML-parsing → collocate-extraction → logDice-scoring → ranking pipeline without a live index using a StubCollocateHelper.",
+        "WordSketchApiServerTest boots a real HttpServer on TEST_PORT and sends actual HTTP requests, covering the full HTTP→handler→serialisation path.",
+        "Live-index tests in BlackLabQueryExecutorTest and BlackLabQueryExecutorIntegrationTest are properly guarded with Assumptions.assumeTrue so CI never fails without a corpus.",
+        "WordSketchApiServerTest comment says 'ephemeral port' but TEST_PORT = 18080 is hardcoded; additional servers use TEST_PORT+1 (18081) and TEST_PORT+2 (18082) — not ephemeral, fragility risk when ports are busy.",
+        "Several stub executors extract the lemma by matching CQL pattern text with regex lemma=[\\\"']([^\\\"']+)[\\\"'] — if the pattern format changes the regex silently returns empty results instead of failing clearly."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Full module-level breadth: every production package (api, exploration, config, query, indexer, utils, viz) has at least one dedicated test class.",
+        "Layered test strategy: unit tests with stubs, pipeline-level integration tests (BlackLabIntegrationTest without a live index), and real-HTTP end-to-end tests (WordSketchApiServerTest).",
+        "StubQueryExecutor is a shared, well-designed test helper that makes per-test stub overrides trivial and consistent across 10+ test classes.",
+        "Live-index tests are properly gated behind Assumptions.assumeTrue, preventing CI failures when no corpus is present.",
+        "Both happy-path and negative-path coverage in handler tests (missing params → 400, oversized body → 413, invalid JSON → 400, unknown relation → 400)."
+      ],
+      "issue_character": "Issues are localised fragility risks (hardcoded server ports and regex-based lemma extraction in stubs) rather than systemic gaps in coverage or architectural test-production coupling.",
+      "score_rationale": "The codebase demonstrates a genuinely thoughtful test strategy: high breadth, a clean layered test architecture, zero snapshot overuse, and CI-safe live-index guards. The port-hardcoding in WordSketchApiServerTest (described as 'ephemeral' in the Javadoc but using fixed port 18080) is a real fragility that could cause spurious CI failures. The regex-based lemma extraction in multiple stub overrides is mild implementation-detail coupling that could silently degrade test fidelity if CQL pattern format changes. These are meaningful but bounded defects that pull the score below the 'solid-and-consistent' 80 band without reaching 'significant drag' territory."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "hardcoded_server_ports",
+      "summary": "WordSketchApiServerTest uses fixed ports 18080–18082 rather than OS-assigned ephemeral ports",
+      "related_files": ["src/test/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServerTest.java"],
+      "evidence": [
+        "private static final int TEST_PORT = 18080; — hardcoded, not ephemeral",
+        "Three servers started on TEST_PORT, TEST_PORT+1, TEST_PORT+2 within the same test class",
+        "Javadoc comment says 'Starts the server on an ephemeral port' but the implementation contradicts this"
+      ],
+      "suggestion": "Pass port 0 to WordSketchApiServer and retrieve the bound port via server.getAddress().getPort() after start(); update the get() helper to use the bound port. This eliminates port-conflict fragility with zero test-logic changes.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "stub_regex_lemma_coupling",
+      "summary": "Stub executors extract the query lemma by parsing CQL pattern text via regex, coupling test stubs to pattern format",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "Pattern.compile(\"lemma=[\\\"']([^\\\"']+)[\\\"']\", CASE_INSENSITIVE).matcher(bcqlPattern) used in at least 4 test files to extract lemma from pattern string",
+        "If CQL pattern format changes (e.g., lemma→ word, or quoting style), regex silently returns empty string → stub returns emptyList() → tests pass vacuously"
+      ],
+      "suggestion": "Extract a helper method in StubQueryExecutor (e.g., extractLemmaFromPattern) so the regex is maintained in one place; alternatively, redesign stubs to accept a Map<String,List<...>> keyed by pattern string and assert the exact expected pattern rather than parsing it.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Port hardcoding is likely a convenience shortcut taken when adding the full-server test that was never revisited; the misleading Javadoc comment suggests the intent was ephemeral but the implementation drifted.",
+      "Regex-based lemma extraction in stubs emerged organically as tests were written against executeSurfacePattern, which receives a composed CQL string rather than a structured lemma argument — a design consequence of the QueryExecutor interface surface."
+    ],
+    "likely_symptoms": ["hardcoded_server_ports"],
+    "possible_false_positives": []
+  }
+}

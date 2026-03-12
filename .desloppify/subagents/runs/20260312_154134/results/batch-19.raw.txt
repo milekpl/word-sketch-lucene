@@ -1,0 +1,105 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 19,
+  "assessments": {"api_surface_coherence": 72.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All endpoints use HttpApiUtils.wrapWithErrorHandling, giving a uniform exception→HTTP-code contract: IAE→400, RequestEntityTooLargeException→413, IOException→500",
+        "/api/semantic-field/examples returns a nested 'parameters' sub-object (via buildExploreResponseEnvelope) while /api/concordance/examples returns a flat structure with the same logical fields at the top level — inconsistent shapes for two endpoints that serve the same conceptual role (concordance lines for a seed+collocate pair)",
+        "QueryExecutor.executeCqlQuery returns List<ConcordanceResult>, executeBcqlQuery returns List<CollocateResult>, and executeSurfacePattern/executeCollocations both return List<WordSketchResult> — three distinct return types on a single interface that all represent 'query the corpus'",
+        "SketchHandlers.buildSurfaceRelationEntry (surface relations) emits {id, name, pattern, collocate_pos_group, total_matches, collocations}; buildRelationResponse (dep relations) emits the same plus {description, deprel} — the 'relations' map value shape varies by type with no discriminator field",
+        "ExplorationHandlers consistently uses seed/collocate vocabulary; ConcordanceHandlers.parseConcordanceExamplesRequest documents the prior word1/word2 naming was retired — vocabulary is now aligned",
+        "ExplorationOptions / SingleSeedExplorationOptions hierarchy prevents reverseExpansionLimit from silently leaking into multi-seed paths — clean type discipline at the service boundary",
+        "All four exploration handler methods extract common params via parseCommonExploreParams and route responses through buildExploreResponseEnvelope — structural consistency within the exploration subsystem",
+        "QueryExecutor.executeDependencyPattern has 5 parameters (lemma, deprel, minLogDice, maxResults, headPosConstraint) — borderline but documented; @Nullable on headPosConstraint means callers must read docs to know when null is safe",
+        "No public functions with >5 parameters at HTTP handler level; parameter objects (ExplorationOptions, SingleSeedExplorationOptions, ConcordanceExamplesRequest) absorb complexity cleanly",
+        "All endpoints are synchronous; no mixed sync/async surface"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "Uniform error contract via wrapWithErrorHandling: all endpoints map the same exception types to the same HTTP codes, so a developer integrating any endpoint encounters no surprises",
+        "Handler decomposition into SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers keeps each handler's public surface narrow and focused on one concern",
+        "Parameter vocabulary is consistent: seed/collocate used everywhere, with documented rationale for the rename from word1/word2",
+        "ExplorationOptions/SingleSeedExplorationOptions type hierarchy prevents accidental cross-path parameter leakage at the service interface boundary",
+        "All exploration handlers share buildExploreResponseEnvelope, producing structurally consistent response envelopes within the exploration subsystem"
+      ],
+      "issue_character": "The issues are not systemic design failures but localized boundary mismatches: a response-shape inconsistency between two sibling example endpoints, a multi-return-type interface with good documentation but real cognitive load, and silently varying JSON shapes in the sketch 'relations' map — each affecting a different part of the API surface.",
+      "score_rationale": "The API is well-structured overall: clear error contracts, clean handler decomposition, consistent vocabulary, and no sync/async mixing. However, the /api/semantic-field/examples vs /api/concordance/examples response-shape inconsistency is a real friction point for frontend developers who use both endpoints, and the QueryExecutor interface returning three different result types for conceptually similar corpus queries adds meaningful learning overhead. These issues keep the score below 'solid but uneven' (80): the inconsistencies are real and would surface in practice, but they are bounded to specific seams rather than codebase-wide, putting the score at 72."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "example_endpoint_shape_mismatch",
+      "summary": "/api/semantic-field/examples and /api/concordance/examples have inconsistent response shapes despite serving the same logical role",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExamples wraps relation/top/min_shared/min_logdice inside a 'parameters' sub-object via buildExploreResponseEnvelope; seed, collocate, bcql appear at the top level",
+        "handleConcordanceExamples puts seed, collocate, relation, bcql, top all at the top level with no 'parameters' wrapper",
+        "Both endpoints return 'examples' and 'total_results' at the top level — the shape is partially overlapping but structurally different for the metadata fields"
+      ],
+      "suggestion": "Align the response shapes: either promote ConcordanceHandlers to also use buildExploreResponseEnvelope (putting relation/top inside 'parameters'), or flatten ExplorationHandlers' example response to match the concordance shape. Given concordance examples is the simpler endpoint and the exploration envelope carries min_shared/min_logdice that concordance does not use, the pragmatic fix is to add a dedicated buildExamplesResponseEnvelope that puts seed, collocate, relation, bcql, top consistently at the top level for both endpoints.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "query_executor_mixed_return_types",
+      "summary": "QueryExecutor interface returns three distinct result types across its corpus-query methods with no unifying abstraction",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java"
+      ],
+      "evidence": [
+        "executeCqlQuery returns List<QueryResults.ConcordanceResult> (sealed interface)",
+        "executeBcqlQuery returns List<QueryResults.CollocateResult> (concrete record)",
+        "executeSurfacePattern and executeCollocations both return List<QueryResults.WordSketchResult> (different record)",
+        "ConcordanceResult is a sealed interface permitting SnippetResult and CollocateResult — CollocateResult appears as both a ConcordanceResult subtype and a direct return type of executeBcqlQuery, which could confuse callers about when to use which method"
+      ],
+      "suggestion": "The distinction between the three methods is legitimate (ranking vs raw KWIC vs word-sketch aggregation), but the interface Javadoc could be promoted to a table in the interface header that maps each method to its return type and use case. Alternatively, consider whether executeCqlQuery (returning the sealed ConcordanceResult) and executeBcqlQuery (returning the concrete CollocateResult subtype) could be unified under one method with a parameter controlling ranking, since CollocateResult already implements ConcordanceResult.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_relation_value_shape_variation",
+      "summary": "The 'relations' map in sketch responses has different value shapes for surface vs dependency relations with no type discriminator",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "buildSurfaceRelationEntry emits: id, name, pattern, collocate_pos_group, total_matches, collocations",
+        "buildRelationResponse (dep) emits the same fields plus: description, deprel",
+        "No 'type' or 'relation_type' discriminator field in the relation value object to signal which shape applies",
+        "The /api/relations and /api/relations/dep listing endpoints do include a 'relation_type' field, but the sketch response body does not"
+      ],
+      "suggestion": "Add a 'relation_type' field (e.g. 'SURFACE' or 'DEP') to both buildSurfaceRelationEntry and buildRelationResponse so clients can unambiguously determine which optional fields (description, deprel) to expect without out-of-band knowledge. Alternatively, always include description and deprel (null for surface relations) to produce a uniform shape.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ConcordanceHandlers was extracted from SketchHandlers but not brought into alignment with the exploration response envelope pattern that ExplorationHandlers uses",
+      "QueryExecutor evolved organically to support multiple query modes; the return-type variation reflects genuine semantic differences but was not surfaced as an explicit design decision in the interface contract"
+    ],
+    "likely_symptoms": [
+      "Frontend code that handles both /api/semantic-field/examples and /api/concordance/examples will need branching logic to unpack metadata",
+      "New contributors implementing a feature that calls both executeCqlQuery and executeBcqlQuery will need careful reading to avoid type confusion"
+    ],
+    "possible_false_positives": []
+  }
+}

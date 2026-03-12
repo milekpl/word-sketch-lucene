@@ -1,0 +1,59 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 6,
+  "assessments": {"dependency_health": 84.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares 5 runtime dependency groups: blacklab-engine, blacklab-query-parser, jackson-databind (+core pin), slf4j-api, logback-classic, jspecify (provided), log4j-to-slf4j — a minimal and purposeful set",
+        "jackson-core is explicitly pinned with comment: 'Pin jackson-core to match databind; another transitive dep resolves an older version otherwise' — a real transitive version conflict that was handled by explicit override",
+        "jackson-bom imported via dependencyManagement for version alignment, yet jackson-core still requires an explicit pin, suggesting the BOM alone doesn't fully resolve the conflict",
+        "HTTP server uses com.sun.net.httpserver (JDK built-in) — no external HTTP framework dependency; pom comment acknowledges this as a deliberate choice with a TODO to migrate if multi-module deployment is needed",
+        "No duplicate libraries: single JSON library (Jackson), single logging implementation (Logback), single corpus engine (BlackLab)",
+        "log4j-to-slf4j bridges BlackLab's internal log4j usage through SLF4J — correct layered logging approach with no competing logging implementations",
+        "jspecify declared with provided scope — annotation-only dependency correctly avoids runtime bloat",
+        "logback-classic declared with runtime scope — no compile-time coupling to the logging implementation",
+        "No unused dependencies visible: every declared artifact corresponds to active import statements in production code",
+        "blacklab-query-parser (separate from blacklab-engine) is actively used in BlackLabQueryExecutor via ContextualQueryLanguageParser.parse() — justified as a separate artifact"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Minimal dependency set: 5 runtime groups covering corpus engine, JSON, logging, and null-safety annotations — no speculative or comfort dependencies",
+        "No duplicate-purpose libraries: one JSON library (Jackson), one logging facade (SLF4J), one corpus engine (BlackLab); no moment+dayjs or axios+fetch-wrapper anti-patterns",
+        "Correct scoping throughout: jspecify as provided, logback as runtime, all test deps as test — no scope leakage",
+        "log4j-to-slf4j correctly routes BlackLab's internal logging through the application's chosen SLF4J/Logback stack without a competing log4j appender",
+        "JDK-builtin HTTP server used instead of a third-party framework, keeping the dependency count low for a tool that doesn't need servlet-container features"
+      ],
+      "issue_character": "A single transitive version conflict in Jackson (jackson-core resolved to an older version by another BlackLab transitive dependency) requires an explicit pin; this is handled correctly but indicates a latent alignment fragility in the dependency tree.",
+      "score_rationale": "The dependency graph is lean, purposeful, and properly scoped — a strong baseline that most codebases of this complexity don't achieve. The jackson-core transitive conflict is the only noteworthy issue, and it is correctly mitigated by an explicit pin with a descriptive comment; the risk is real but contained. This places the codebase solidly in the 80–85 range: better than 'solid but uneven' because the intentionality is clear and consistent, but short of exemplary because the BOM/pin combination reveals an underlying alignment fragility that would resurface on a BlackLab upgrade."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "jackson_core_version_conflict",
+      "summary": "jackson-core requires an explicit version pin to override an older transitive version pulled in alongside blacklab-engine",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "pom.xml declares jackson-core 2.17.2 explicitly with comment 'Pin jackson-core to match databind; another transitive dep resolves an older version otherwise'",
+        "jackson-bom 2.17.2 is already imported via dependencyManagement but is insufficient to override the transitive conflict on its own"
+      ],
+      "suggestion": "Identify which BlackLab transitive dependency pulls in the older jackson-core (run `mvn dependency:tree -Dincludes=com.fasterxml.jackson.core:jackson-core`). If it is a BlackLab sub-artifact, consider filing an upstream issue or adding an explicit <exclusion> on the offending artifact rather than a blanket pin. Re-evaluate after each BlackLab upgrade to check whether the conflict persists.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "transitive_dependency_conflict"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["BlackLab 4.x (not on Maven Central, installed locally) brings transitive Jackson dependencies that conflict with the application's own Jackson version, requiring explicit pins to stabilise the dependency tree"],
+    "likely_symptoms": ["jackson_core_version_conflict"],
+    "possible_false_positives": []
+  }
+}

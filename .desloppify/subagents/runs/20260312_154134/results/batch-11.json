@@ -1,0 +1,93 @@
+{
+  "batch": "package_organization",
+  "batch_index": 11,
+  "assessments": {
+    "package_organization": 73.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "9 packages with domain-aligned names: api, config, exploration, indexer, model, model/exploration, query, utils, viz — each clearly reflects its contained responsibility",
+        "Main.java is the only root-level file and is the genuine entry point with high fan-out to all subsystem packages; no root stragglers present",
+        "Every package except viz/ has a package-info.java: api, config, exploration, indexer/blacklab, model, model/exploration, query, utils all have one; viz/ omits it",
+        "Exploration domain is split across two packages: logic lives in exploration/ (ExplorationService, SingleSeedExplorer, MultiSeedExplorer, SemanticFieldExplorer, CollocateProfileComparator) while all data types live in model/exploration/ (ExplorationResult, CollocateProfile, ExplorationOptions, CoreCollocate, etc.) — a developer looking for ExplorationResult will first check exploration/ and not find it",
+        "ExplorationHandlers.java in api/ imports 6 types from model/exploration/ and 1 from exploration/ — the API handler must know to look in two packages for exploration-related concepts",
+        "model/ base package is thin: only PosGroup and QueryResults; PosGroup is used by config/ (3 classes: RelationConfig, RelationPatternUtils, RelationUtils) and exploration/ (2 classes) — cross-cutting placement in model/ is justified by the Javadoc and multi-consumer pattern",
+        "viz/ package has 3 files (Edge, RadialPlot, RelationEdgeType) with no package-info.java; it is consumed exclusively by api/ (ExploreResponseAssembler, VisualizationHandlers), making it functionally a sub-concern of the API response layer, though its placement as a peer package is defensible as a separation of viz data from HTTP concerns",
+        "directory_profiles show api/ at exactly 10 files and model/exploration/ at exactly 10 files — at the flat-dir threshold but not over it; concerns within each directory are cohesive",
+        "No coupling-direction violations found: api/ imports from config/, model/, exploration/, viz/ (downstream-to-upstream only); exploration/ imports from model/, config/, query/ (appropriate layering); no bidirectional edges detected"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "All package names are domain-aligned and unambiguous: api, config, exploration, indexer, query, utils, viz each precisely reflect their contained responsibility",
+        "No root-level stragglers — Main.java is the genuine single entry point and appropriately high-fan-out",
+        "Coupling directions are clean: api imports from config/model/exploration/viz, exploration imports from model/config/query — no bidirectional or downstream-to-upstream violations",
+        "Package sizes are controlled and cohesive: no package substantially exceeds 10 files, and files within each package share a tight theme",
+        "8 of 9 packages carry a package-info.java, demonstrating intentional package documentation"
+      ],
+      "issue_character": "The primary structural issue is a dual-location pattern for the exploration domain: logic lives in exploration/ while all data types live in model/exploration/, requiring a developer to know an implicit convention to navigate between them — this is a navigation cost rather than a coupling violation.",
+      "score_rationale": "The package layout is well above average: clear naming, no root stragglers, no coupling-direction violations, and package sizes that stay cohesive. The main drag is the exploration domain split between exploration/ (logic) and model/exploration/ (data types), which imposes a non-obvious lookup rule — a new engineer reading ExplorationHandlers will need to search two packages to find all exploration-related types. The missing package-info.java in viz/ and the thin model/ base package are minor. At 80 the structure would need consistent single-location semantics for each domain; this codebase scores solidly in the 70s for generally correct but with a predictable navigation tax on the exploration subsystem."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "exploration_model_split",
+      "summary": "Exploration domain split across exploration/ (logic) and model/exploration/ (data types) creates a dual-lookup navigation tax",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java imports from both model/exploration/ (ComparisonResult, ExplorationResult, FetchExamplesResult, ExplorationOptions, SingleSeedExplorationOptions) and exploration/ (ExplorationService) — the API handler must know to look in two packages",
+        "exploration/SingleSeedExplorer.java imports CoreCollocate, DiscoveredNoun, ExplorationResult, SingleSeedExplorationOptions from model/exploration/ — logic and its own data types are split",
+        "A developer searching for CollocateProfile or ExplorationOptions will first look in exploration/ and not find them",
+        "The split is consistent (all exploration DTOs are in model/exploration/, all services/explorers are in exploration/) but requires knowing this implicit convention"
+      ],
+      "suggestion": "Consolidate the exploration domain into a single package. Staged plan: (1) Move all files from model/exploration/ into exploration/ — this makes exploration/ the single location for all exploration concepts. (2) Update imports codebase-wide: `find src -name '*.java' | xargs sed -i 's/import pl.marcinmilkowski.word_sketch.model.exploration./import pl.marcinmilkowski.word_sketch.exploration./g'`. (3) Delete the now-empty model/exploration/ directory. (4) Verify with `mvn compile` and `mvn test`. If the model/ vs logic separation is considered a hard architectural principle, an alternative is to rename model/exploration/ to exploration/dto/ or exploration/model/ to make the relationship explicit rather than requiring knowledge of the parent model/ convention.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "exploration_structure"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "viz_missing_package_info",
+      "summary": "viz/ package omits package-info.java present in all 8 sibling packages",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RelationEdgeType.java"
+      ],
+      "evidence": [
+        "api/, config/, exploration/, indexer/blacklab/, model/, model/exploration/, query/, utils/ all have package-info.java; viz/ does not",
+        "viz/ contains 3 files (Edge, RadialPlot, RelationEdgeType) but no package-level Javadoc"
+      ],
+      "suggestion": "Add src/main/java/pl/marcinmilkowski/word_sketch/viz/package-info.java with a brief package description: `/** * Value types for visualization output: graph edges, radial plot data, and relation edge type constants. */ package pl.marcinmilkowski.word_sketch.viz;`",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental growth of the exploration subsystem likely caused data types to be placed in model/exploration/ as a Java layering convention (model = data, service = logic) without considering the navigation cost of splitting a single domain across two package roots"
+    ],
+    "likely_symptoms": [
+      "exploration_model_split: the dual-package pattern is real but not a coupling violation — it is a pure navigation cost"
+    ],
+    "possible_false_positives": []
+  }
+}

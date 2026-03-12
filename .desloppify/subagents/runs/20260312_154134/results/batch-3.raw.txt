@@ -1,0 +1,75 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 3,
+  "assessments": {"error_consistency": 82.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling centralises all API error-to-HTTP mapping: RequestEntityTooLargeException → 413, IllegalArgumentException → 400, IOException → 500, Exception → 500. Every endpoint is wrapped with this.",
+        "All validation failures across the codebase (requireParam, parseIntParam, parseDoubleParam, parseBcqlRequest, resolveRelationConfig, handleSemanticFieldExploreMulti, compareCollocateProfiles) consistently throw IllegalArgumentException, which the central wrapper converts to 400.",
+        "Error context is preserved at all library boundaries: ErrorOpeningIndex (RuntimeException) wrapped to IOException in BlackLabQueryExecutor constructor with cause and message; JsonProcessingException wrapped to IOException in GrammarConfigLoader; InvalidQuery wrapped to IllegalArgumentException in both CollocateQueryHelper.performCollocateSearch and executeCqlQuery; NumberFormatException wrapped to IAE in parseIntParam/parseDoubleParam.",
+        "GrammarConfigLoader uses an explicit, documented two-tier exception contract: load() throws checked IOException; createDefaultEnglish() wraps to IllegalStateException for DI/startup code. The rationale is written in Javadoc.",
+        "CollocateQueryHelper.getTotalFrequency defensively catches RuntimeException from BlackLab and converts to IOException, preventing unexpected library failures from bypassing the checked exception contract.",
+        "SketchHandlers.executeRelationQueries catches IOException per relation and accumulates errors in relationErrors, which is surfaced as an 'errors' field in the response — this is a deliberate partial-success pattern, not silent swallowing.",
+        "executeCqlQuery only catches InvalidQuery; other RuntimeExceptions from BlackLab (e.g. from tp.toQuery() or index.find()) propagate uncaught through the IOException-declared method and are absorbed only by the outer broad Exception catch in wrapWithErrorHandling.",
+        "BlackLabSnippetParser uses null as a sentinel for 'no match' across 8+ methods (extractPosFromMatch, extractCollocateFromXmlByPosition, extractPlainTextTokenAt, safeParts, etc.). All call sites perform null checks, making the pattern consistent but untyped."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "Centralized error-to-HTTP mapping in HttpApiUtils.wrapWithErrorHandling applied uniformly to every endpoint, with distinct handlers for each error class (413/400/500/500).",
+        "IllegalArgumentException used consistently for all validation errors across all handlers and utility helpers, so the 400-path is predictable and easy to audit.",
+        "Error context preserved with cause-chaining at every library boundary: BlackLab's unchecked ErrorOpeningIndex, JsonProcessingException, and InvalidQuery are all wrapped with original cause retained.",
+        "GrammarConfigLoader's two-tier exception contract (checked IOException vs unchecked IllegalStateException) is explicitly documented and used in the appropriate call sites.",
+        "The partial-success pattern in full-sketch queries surfaces relation-level errors via an 'errors' field in the response rather than silently omitting failed relations."
+      ],
+      "issue_character": "Issues are narrow and isolated — a missing RuntimeException catch at one BlackLab call boundary, and null sentinel usage in a parser utility — rather than systemic inconsistency across the codebase.",
+      "score_rationale": "The codebase has a clearly designed error strategy: uniform IAE for validation, IOException for I/O, a single central HTTP mapping wrapper, documented tier transitions, and no silent swallowing. This places it well above the 60 (significant drag) anchor. The minor gaps — executeCqlQuery's reliance on the outer broad catch for non-InvalidQuery BlackLab exceptions, and null sentinels in BlackLabSnippetParser — are bounded deviations from an otherwise consistent pattern. Against the 80 (solid but uneven) anchor, the overall consistency is slightly better than that, but the null-sentinel layer and the full-sketch status:'ok' on all-relations-failed nudge it back; 82 accurately reflects a strong design with a few pragmatic rough edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "executeCqlQuery_broad_catch_gap",
+      "summary": "executeCqlQuery catches only InvalidQuery, leaving non-InvalidQuery BlackLab RuntimeExceptions to slip through the IOException contract",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "executeCqlQuery declares throws IOException and catches only InvalidQuery (line 137); calls to tp.toQuery(QueryInfo.create(blackLabIndex)) and blackLabIndex.find(query) can throw other BlackLab RuntimeExceptions that propagate past the IOException boundary.",
+        "The broad Exception catch in wrapWithErrorHandling does absorb these, so no request is lost, but the IOException declaration creates a false contract."
+      ],
+      "suggestion": "Add a catch (RuntimeException e) block wrapping the BlackLab calls to convert unexpected library exceptions to IOException with context, mirroring the pattern in CollocateQueryHelper.getTotalFrequency.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "full_sketch_ok_on_total_failure",
+      "summary": "Full-sketch endpoint returns status:'ok' even when all relations fail, making silent total-failure invisible to clients checking only the status field",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "handleFullSketchForType (line 104-111) and handleDependencySketch (line 125-133) always put 'status':'ok' in the response, even when relationErrors is non-empty and byRelation is empty.",
+        "A client checking only response.status sees 'ok' with zero relations and may not inspect the 'errors' array, leading to a silent empty-result failure."
+      ],
+      "suggestion": "Set status to 'partial' (or add a 'warnings' indicator) when relationErrors is non-empty, to distinguish genuine zero-results from query failures without breaking existing partial-success semantics.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Library boundary normalization is done carefully in most places (BlackLab RuntimeException → IOException) but not uniformly — executeCqlQuery relies on the outer broad handler as a fallback.",
+      "The null-sentinel pattern in BlackLabSnippetParser predates the otherwise well-structured error design and was not updated when the API layer was centralised."
+    ],
+    "likely_symptoms": [
+      "executeCqlQuery_broad_catch_gap is a narrow boundary issue; the broad Exception handler means no user-visible breakage, just a contract inconsistency."
+    ],
+    "possible_false_positives": []
+  }
+}

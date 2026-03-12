@@ -1,0 +1,74 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 13,
+  "assessments": {"logic_clarity": 82.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "GrammarConfigLoader.parseAndValidateVersion (line 119): `versionNode.isNull() ? null : versionNode.textValue()` is logically redundant — Jackson's `textValue()` already returns null for both MissingNode (absent field) and NullNode (JSON null), so the ternary adds no new logic.",
+        "GrammarConfigLoader.parseRelation (line 178): `boolean isDual = relObj.has(\"dual\") && relObj.path(\"dual\").asBoolean()` — the `has(\"dual\")` guard is redundant because `asBoolean()` on a MissingNode already returns false; the canonical form is `relObj.path(\"dual\").asBoolean(false)`.",
+        "CorpusQueryHandlers.parseBcqlRequest: `topNode.asInt()` appears twice in the ternary expression — once in the condition `topNode.asInt() > 0` and once in the result branch — evaluating the same node twice; a local variable would make the logic single-pass.",
+        "No identical if/else branches, dead code after unconditional returns, always-true/false conditions, or boolean-return simplification issues were found across any of the seed files.",
+        "The `throw new AssertionError(\"unreachable\")` in Main.parseNumericParam after `System.exit(1)` is an intentional Java compiler-satisfaction idiom, correctly labeled as unreachable — not a logic defect.",
+        "Null guard discipline is consistent: executeCollocations, executeDependencyPattern, SingleSeedExplorer.explore all validate inputs at entry. Control flow is purposeful throughout.",
+        "Fallback logic in SingleSeedExplorer.fetchSeedCollocates (BCQL primary, simple-pattern fallback) is explicit and logged; the multi-seed path intentionally omits the fallback with a documented rationale — no hidden mixed strategies.",
+        "resolveRelationConfig validates Optional emptiness before .get(), with distinct IllegalArgumentException messages for absent vs. misconfigured relations — clear control flow.",
+        "Switch expressions (VisualizationHandlers.handleVisualRadial, RelationPatternUtils.buildCollocateReversePattern) are exhaustive and handle all enum cases explicitly including the null case."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Null guard discipline is consistent at all public entry points — lemma/deprel nullity checks in BlackLabQueryExecutor, seed-blank check in SingleSeedExplorer, and requireParam in HttpApiUtils all fail fast with clear messages.",
+        "No dead code after unconditional returns or throws exists across the 23 seed files; the single `throw new AssertionError(\"unreachable\")` after `System.exit(1)` in Main is an intentional compiler-satisfaction idiom, correctly labeled.",
+        "Switch expressions are exhaustive and enumerate all enum cases explicitly (including null), leaving no implicit fall-through.",
+        "The BCQL-primary / simple-pattern-fallback strategy in SingleSeedExplorer is explicit, logged, and architecturally documented — no silent mixing of retrieval strategies."
+      ],
+      "issue_character": "The defects are isolated minor redundancies — ternary null-checks on values Jackson already returns null for, and one redundant `has()` guard — not structural logic errors, dead paths, or always-true conditions.",
+      "score_rationale": "The codebase is free of the most damaging logic_clarity problems: no dead code paths, no identical branches, no always-true/false conditions, and boolean returns are direct throughout. What pulls the score below 90 is a small cluster of redundant null-check expressions (the `versionNode.isNull() ? null : textValue()` ternary, the `has(\"dual\")` guard, the double `topNode.asInt()` evaluation) that are misleading rather than incorrect — they imply a code path that does not exist. These are isolated and low-severity, placing the codebase solidly in the 80–85 range: solid with a small number of clarity missteps that a developer would briefly pause on."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_isnull_ternary",
+      "summary": "Ternary `versionNode.isNull() ? null : versionNode.textValue()` is logically equivalent to just `versionNode.textValue()`",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Line 119: `String parsedVersion = versionNode.isNull() ? null : versionNode.textValue();`",
+        "Jackson's `JsonNode.textValue()` returns null for NullNode (JSON null) and MissingNode (absent field) — both the cases `isNull()` is guarding against.",
+        "The ternary implies there is a meaningful distinction between the two branches, but both return null."
+      ],
+      "suggestion": "Replace with `String parsedVersion = versionNode.textValue();` — this is behaviourally identical and removes the misleading conditional.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_has_dual_guard",
+      "summary": "`relObj.has(\"dual\") &&` guard in parseRelation is redundant — `asBoolean()` already returns false for absent nodes",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "Line 178: `boolean isDual = relObj.has(\"dual\") && relObj.path(\"dual\").asBoolean();`",
+        "When `\"dual\"` is absent, `relObj.path(\"dual\")` returns a MissingNode; `MissingNode.asBoolean()` returns false, making `has()` redundant.",
+        "The idiomatic Jackson form is `relObj.path(\"dual\").asBoolean(false)`."
+      ],
+      "suggestion": "Replace with `boolean isDual = relObj.path(\"dual\").asBoolean(false);` to make the default explicit and remove the redundant guard.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Both redundancies originate from over-defensive Jackson usage patterns — authors accustomed to checking presence before reading may add guards that the API already renders unnecessary."
+    ],
+    "likely_symptoms": ["redundant_isnull_ternary", "redundant_has_dual_guard"],
+    "possible_false_positives": []
+  }
+}

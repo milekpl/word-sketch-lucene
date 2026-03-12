@@ -1,0 +1,65 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 20,
+  "assessments": {
+    "authorization_consistency": 80.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer.java binds exclusively to InetAddress.getLoopbackAddress() (127.0.0.1) and the Javadoc explicitly documents the intentional unauthenticated security model with a warning for any change to 0.0.0.0",
+        "All 11 routes are wrapped with HttpApiUtils.wrapWithErrorHandling, providing uniform error handling and preventing unhandled exceptions from leaking stack traces",
+        "Query-parameter handlers (ConcordanceHandlers, ExplorationHandlers, SketchHandlers) use requireParam with MAX_PARAM_LENGTH=200 consistently for all string inputs",
+        "POST body handlers (CorpusQueryHandlers, VisualizationHandlers) both call readBodyWithSizeLimit with MAX_REQUEST_BODY_BYTES=65536 before parsing",
+        "CorpusQueryHandlers adds two extra guards on the BCQL pattern: MAX_BCQL_PATTERN_LENGTH=1024 and MAX_BCQL_BRACKET_DEPTH=20 — the most powerful endpoint has the most stringent input controls",
+        "VisualizationHandlers.handleVisualRadial: the 'center' string field is extracted via obj.path('center').textValue() with no length bound — unlike all query-param handlers which call requireParam and cap at 200 chars",
+        "VisualizationHandlers.handleVisualRadial: 'width' and 'height' are extracted as obj.path('width').asInt(840) with no bounds check — a negative or extremely large integer is silently accepted and passed to RadialPlot",
+        "VisualizationHandlers.handleVisualRadial: per-item 'label' strings inside the items array are also unchecked for length",
+        "CORS header application is centralised in HttpApiUtils.setCorsHeader, called by every response-sending method — no endpoint can accidentally send an unguarded response without a CORS header"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Security model is explicitly documented in WordSketchApiServer Javadoc: loopback-only binding, intentionally unauthenticated, with a stated requirement for auth before any change to 0.0.0.0",
+        "All routes pass through wrapWithErrorHandling uniformly — no endpoint bypasses the shared error-handling middleware",
+        "requireParam with MAX_PARAM_LENGTH=200 is applied consistently to all query-string parameters across ConcordanceHandlers, ExplorationHandlers, and SketchHandlers",
+        "The highest-risk endpoint (/api/bcql) applies layered guards: body size limit, JSON parse validation, pattern length cap, and bracket-depth complexity cap",
+        "warnIfWildcardCors provides a startup safety check for overly permissive CORS config, ensuring operators are alerted before requests are served"
+      ],
+      "issue_character": "A single handler (VisualizationHandlers) is missing the length/bounds guards that are consistently applied everywhere else, creating a localised trust-boundary gap rather than a systemic authentication design flaw.",
+      "score_rationale": "The codebase has no authorization layer by explicit design (loopback-only tool), so the dimension is evaluated primarily on input-validation consistency across trust boundaries. That consistency is strong in nine of ten handlers, with shared utilities enforcing it. The one gap — VisualizationHandlers accepting unbounded center, width, height, and label values — is real but localised, low-risk given the loopback binding, and fixable with a single-file edit. This places the codebase solidly in the 80-range: better than 'significant drag' (60) but short of 'exemplary' (95+) because an inconsistency does exist."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "viz_unbounded_json_fields",
+      "summary": "VisualizationHandlers does not bound-check center, width, height, or per-item label fields, unlike all other handlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "center is set to obj.path('center').textValue() with no MAX_PARAM_LENGTH guard (line 63-64)",
+        "width and height use asInt(default) with no min/max bounds — a caller could pass -1 or Integer.MAX_VALUE undetected (lines 66-67)",
+        "per-item label strings inside the items array are extracted without length checks (line 80)",
+        "Sibling handlers in ConcordanceHandlers, ExplorationHandlers, SketchHandlers all use HttpApiUtils.requireParam which enforces MAX_PARAM_LENGTH=200"
+      ],
+      "suggestion": "Apply explicit guards before passing values to RadialPlot: validate center/label length against MAX_PARAM_LENGTH, add a positive-integer range check for width and height (e.g. 100–4096 px), and reject null labels with an IllegalArgumentException so wrapWithErrorHandling maps them to 400",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "VisualizationHandlers processes a JSON body (not query params), so the team's requireParam utility did not naturally apply — the gap likely arose from a different code path rather than deliberate omission"
+    ],
+    "likely_symptoms": ["viz_unbounded_json_fields"],
+    "possible_false_positives": []
+  }
+}

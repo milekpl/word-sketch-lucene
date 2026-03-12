@@ -1,0 +1,102 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 5,
+  "assessments": {
+    "abstraction_fitness": 73.0
+  },
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles() is a pure single-line delegation: `return comparator.compareCollocateProfiles(seeds, opts);` — no policy, no translation, no added behaviour beyond forwarding the call.",
+        "SemanticFieldExplorer.exploreMultiSeed() is also a pure single-line delegation: `return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts);` — same pattern, no value added.",
+        "The class Javadoc for SemanticFieldExplorer itself labels the class a 'thin facade' and explicitly calls these 'pass-through methods', confirming the delegation ratio is known and intentional.",
+        "ExplorationHandlers → ExplorationService (interface) → SemanticFieldExplorer (facade) → CollocateProfileComparator — three hops before reaching any algorithm logic for the comparison path.",
+        "QueryExecutor interface bundles 6 methods across 4 distinct query modes (surface pattern, collocate scan, BCQL concordance, dependency pattern) plus frequency lookup; the Javadoc explicitly notes it 'acts primarily as a testability seam rather than an abstraction boundary'.",
+        "Both single-impl interfaces (QueryExecutor, ExplorationService) are self-documented as testability seams; the QueryExecutor Javadoc defers splitting into narrower ports pending a second implementation.",
+        "No util/helper dumping grounds: HttpApiUtils is package-private, cohesive, and serves a single HTTP-layer concern; RelationPatternUtils is a pure static utility for pattern-string construction.",
+        "Model layer (DTOs, records in model/exploration/) is cleanly separated from HTTP and algorithm concerns — no persistence, I/O, or HTTP references leak into model classes.",
+        "ExploreResponseAssembler is a focused static utility for model-to-presentation translation within the api package — single-purpose with no cross-cutting concerns.",
+        "exploreByPattern() in SemanticFieldExplorer adds genuine value over bare delegation: it validates RelationConfig (checks relationType and collocatePosGroup) before forwarding to singleSeedExplorer.explore().",
+        "fetchExamples() in SemanticFieldExplorer contains real logic: builds the BCQL query, calls executor, deduplicates sentences — not a pass-through.",
+        "indirection hotspots (chain_count 54 in Main.java, max_chain_depth 5) reflect normal Java builder/method-chaining patterns, not wrapper layering."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 76.0,
+        "indirection_cost": 72.0,
+        "interface_honesty": 68.0,
+        "delegation_density": 70.0,
+        "definition_directness": 82.0,
+        "type_discipline": 88.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "Both single-impl interfaces (QueryExecutor, ExplorationService) are explicitly documented as testability seams, with the Javadoc naming the tradeoff and deferring narrower ports — the author is aware and honest about the design.",
+        "No util/helper dumping grounds: HttpApiUtils (package-private, HTTP-layer only) and RelationPatternUtils (pure static, single concern) show correct judgment about when to use a utility class versus when to introduce a concept.",
+        "Model layer records/DTOs are completely clean of HTTP, persistence, and algorithm concerns — abstraction boundary between domain model and presentation layer is never violated.",
+        "SemanticFieldExplorer.fetchExamples() and exploreByPattern() add genuine behaviour (validation, query construction, deduplication) rather than forwarding blindly.",
+        "ExploreResponseAssembler is a single-purpose static class with clear ownership of model-to-JSON translation, avoiding duplication across four handler methods."
+      ],
+      "issue_character": "The primary abstraction issue is the self-described 'thin facade' layer (SemanticFieldExplorer) that adds two truly pass-through delegation methods (compareCollocateProfiles, exploreMultiSeed) and the wide QueryExecutor interface that bundles four distinct query modes — both are acknowledged in code comments but create navigational friction without corresponding leverage.",
+      "score_rationale": "The codebase sits in the 70-75 band: it avoids the worst abstraction sins (no delegation chains, no util dumping grounds, no generic machinery used once, no leaky callers) and its abstraction choices are unusually self-aware and documented. What pulls it below 80 is the extra indirection hop through the SemanticFieldExplorer facade for comparison and multi-seed paths (three layers before reaching algorithm logic) and the wide QueryExecutor interface that co-locates four distinct query modes in a single testability-seam contract. Both issues are minor and contained to the exploration subsystem, but they represent real navigational friction for a developer tracing a code path. The honest self-documentation is a genuine strength that prevents this from scoring lower."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "exploration_facade_passthrough",
+      "summary": "SemanticFieldExplorer has two pure pass-through delegation methods that add no behaviour, policy, or translation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles(): body is `return comparator.compareCollocateProfiles(seeds, opts);` — single-line, no guard, no transformation.",
+        "SemanticFieldExplorer.exploreMultiSeed(): body is `return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts);` — single-line, no guard, no transformation.",
+        "The class Javadoc labels both 'pass-through methods' and justifies them as keeping the HTTP layer unaware of individual algorithm classes — a stated motivation for facade unity, but the ExplorationService interface already provides that decoupling without the extra class.",
+        "Navigation path for compare: ExplorationHandlers.handleSemanticFieldComparison() → ExplorationService.compareCollocateProfiles() → SemanticFieldExplorer.compareCollocateProfiles() → CollocateProfileComparator.compareCollocateProfiles() — three hops, one of which adds nothing."
+      ],
+      "suggestion": "Inject CollocateProfileComparator and MultiSeedExplorer directly into ExplorationHandlers (or pass them via ExplorationService with a narrower interface) and remove the pass-through methods from SemanticFieldExplorer. Alternatively, merge the two pass-through algorithm classes into SemanticFieldExplorer since the facade already owns their lifecycle. If keeping SemanticFieldExplorer as a wiring point, add at least a policy (e.g. minimum-seed validation) to the two delegating methods so the facade earns its layer.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "unnecessary_facade_layer"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "query_executor_wide_interface",
+      "summary": "QueryExecutor bundles four semantically distinct query modes in a single interface, weakening its contract honesty",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor declares 6 methods: executeCollocations (collocate scan), executeCqlQuery (raw concordance), executeBcqlQuery (BCQL concordance with logDice), executeSurfacePattern (labeled BCQL with head/collocate positions), executeDependencyPattern (dependency relation lookup), and getTotalFrequency — four distinct query modes plus a frequency utility.",
+        "The Javadoc explicitly states the interface 'acts primarily as a testability seam rather than an abstraction boundary' and defers splitting into narrower ports (CollocateQueryPort / DependencyQueryPort).",
+        "Callers differ significantly in which subset of methods they need: SketchHandlers uses executeSurfacePattern/executeDependencyPattern; CorpusQueryHandlers uses only executeBcqlQuery; ConcordanceHandlers uses executeBcqlQuery; CollocateQueryHelper exercises executeCollocations internally — no caller needs all 6 methods.",
+        "The wide contract means any test double for QueryExecutor must stub all 6 methods even when only 1 is exercised."
+      ],
+      "suggestion": "Split QueryExecutor into two narrower interfaces aligned with actual usage: CollocateQueryPort (executeCollocations, executeSurfacePattern, getTotalFrequency) and ConcordanceQueryPort (executeCqlQuery, executeBcqlQuery, executeDependencyPattern). BlackLabQueryExecutor implements both. Each handler/explorer receives only the port it actually uses, tightening coupling and simplifying test doubles. The current interface can remain as a combined marker interface (extends both) for wiring convenience.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "wide_interface"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration subsystem was assembled incrementally (single-seed first, then multi-seed, then comparison), leading to a coordination facade (SemanticFieldExplorer) that unified three independently developed algorithm classes — the facade was correct at each step but ended up with pass-through methods that do not earn their layer.",
+      "QueryExecutor was designed as a testability seam from the start and grew to cover all BlackLab query modes; the absence of a second implementation removed the pressure to narrow its contract."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": [
+      "The two single-impl interfaces (QueryExecutor, ExplorationService) flagged by the mechanical scan are justified testability seams per the dimension rubric and are not counted as issues."
+    ]
+  }
+}

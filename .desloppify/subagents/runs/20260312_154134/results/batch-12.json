@@ -1,0 +1,71 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 12,
+  "assessments": {"contract_coherence": 78.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor.executeCollocations documents null/empty lemma behavior ('returns an empty list silently if null or empty') and the implementation honors this with an early-return guard",
+        "HttpApiUtils.wrapWithErrorHandling explicitly documents the exception-to-HTTP-status mapping (IAE→400, IOException→500, other→500); all handler callsites observe this contract",
+        "CollocateQueryHelper no-arg constructor documents 'Not for production use' and explains the test-subclass seam contract clearly",
+        "GrammarConfigLoader.load documents both @throws IOException and @throws IllegalArgumentException, but GrammarConfigLoader.fromReader only documents @throws IOException — both call the same parse() internal method that can throw IllegalArgumentException for structural errors (duplicate ids, missing fields, etc.); callers of fromReader cannot infer this from the Javadoc",
+        "SingleSeedExplorer.explore is labelled 'Package-private testing seam. Production code should call SemanticFieldExplorer#exploreByPattern' but this IS the production algorithm invoked by SemanticFieldExplorer.exploreByPattern in every production path — the label was copied from the SemanticFieldExplorer overload and mischaracterises the method's role",
+        "RelationPatternUtils.buildCollocateReversePattern declares @throws IllegalStateException for absent relationType and for unmatched POS group; the switch default arm throws exactly that exception with a clear message — contract and implementation agree",
+        "@NonNull/@Nullable annotations are used consistently across public API boundaries in QueryExecutor, ExplorationService, ExploreResponseAssembler, and CollocateQueryHelper"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface precisely documents every method's exception paths, null-input behavior, and return-value semantics; implementation honors all of them without deviation",
+        "HttpApiUtils.wrapWithErrorHandling centralises and documents the exception-to-HTTP-status contract; every handler observes it uniformly",
+        "@NonNull/@Nullable annotations are applied consistently on public API boundaries, making nullability contracts machine-checkable rather than prose-only",
+        "buildCollocateReversePattern declares its @throws IllegalStateException exactly in line with the switch-default arm; no silent swallowing or undeclared throws"
+      ],
+      "issue_character": "The two issues found are isolated and surface-level: one Javadoc omission (fromReader missing the IllegalArgumentException declaration that its sibling load correctly documents) and one copy-pasted label that misdescribes SingleSeedExplorer.explore as a 'testing seam' when it is the core production algorithm — neither reflects a systematic disregard for contracts.",
+      "score_rationale": "The codebase demonstrates strong contract discipline: interfaces are well-specified, error contracts are consistent between signatures and implementations, and nullability annotations reinforce prose contracts. The fromReader Javadoc omission is the most actionable finding — a caller relying solely on the declared throws IOException would be surprised by IllegalArgumentException for structurally invalid configs — but it is confined to one loader method and requires only a one-line fix. The mislabeled 'testing seam' is confusing but causes no runtime misbehaviour. These are two small, fixable issues in an otherwise coherent contract landscape, placing the codebase solidly in the 75-80 range — solid but with a couple of documented rough edges."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "fromreader_missing_iae_throws",
+      "summary": "GrammarConfigLoader.fromReader Javadoc omits the IllegalArgumentException that parse() can throw",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "fromReader Javadoc: '@throws IOException if the reader fails or the JSON is invalid' — no mention of IllegalArgumentException",
+        "load() Javadoc: '@throws IOException if the file cannot be read' and '@throws IllegalArgumentException if the config is structurally invalid'",
+        "Both methods call parse(), which throws IllegalArgumentException at lines 121, 129, 140, 150, 160, 165, 170 for structural errors such as missing 'version', duplicate relation IDs, and missing 'pattern' fields",
+        "A caller using fromReader to validate programmatic grammar JSON would receive an undocumented RuntimeException for malformed input"
+      ],
+      "suggestion": "Add '@throws IllegalArgumentException if the config is structurally invalid (missing fields, duplicate IDs, etc.)' to the fromReader Javadoc, mirroring the contract already declared on load()",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "single_seed_explorer_mislabeled_seam",
+      "summary": "SingleSeedExplorer.explore mislabelled as 'testing seam' when it is the production algorithm entry point",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"],
+      "evidence": [
+        "explore() Javadoc: 'Package-private testing seam. Production code should call SemanticFieldExplorer#exploreByPattern'",
+        "SemanticFieldExplorer.exploreByPattern calls singleSeedExplorer.explore(...) directly in every production code path — this method IS the production algorithm",
+        "The 'testing seam' label was intended for the overload on SemanticFieldExplorer that accepts raw pattern strings instead of a RelationConfig; it was incorrectly duplicated here"
+      ],
+      "suggestion": "Remove the 'testing seam' paragraph from SingleSeedExplorer.explore Javadoc; replace with a note that this is the core algorithm and that production callers reach it via SemanticFieldExplorer.exploreByPattern",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": ["Javadoc was written for load() first; fromReader was added later and its throws clause was not kept in sync with the shared parse() helper"],
+    "likely_symptoms": ["fromreader_missing_iae_throws", "single_seed_explorer_mislabeled_seam"],
+    "possible_false_positives": []
+  }
+}

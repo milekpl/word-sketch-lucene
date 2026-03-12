@@ -1,0 +1,110 @@
+{
+  "batch": "type_safety",
+  "batch_index": 14,
+  "assessments": {"type_safety": 72.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify @NonNull/@Nullable annotations used consistently across QueryExecutor interface, ExplorationService, HttpApiUtils, RelationPatternUtils, and BlackLabSnippetParser public methods",
+        "Java records used for DTOs: WordSketchResult, SnippetResult, CollocateResult, RelationConfig — providing typed, immutable data carriers with no silent null-field issues",
+        "Enum types RelationType, PosGroup, RelationEdgeType, SharingCategory defined and used in domain logic; PosGroup.fromString() provides a safe string-to-enum entry point",
+        "Optional<RelationType> returned from RelationConfig.relationType() instead of @Nullable — correct Optional usage at query boundaries",
+        "sealed interface ConcordanceResult with SnippetResult and CollocateResult enables exhaustive type-safe pattern matching",
+        "CollocateQueryHelper has @Nullable BlackLabIndex index field but production methods getTotalFrequency (line 91: index.mainAnnotatedField()) and executeCollocateSearchWithContent (line 143: index.search()) dereference it directly with no null check — annotation says nullable but code trusts it to be non-null",
+        "API response assembly throughout ExploreResponseAssembler, SketchHandlers, ExplorationHandlers, ConcordanceHandlers uses Map<String, Object> for fixed-shape responses; at least 25+ call sites building typed response bodies as untyped maps",
+        "RelationConfig record declares @NonNull String pattern but deriveDeprel() still contains if (pattern == null || ...) — defensive null check on an annotated @NonNull field shows annotation not fully trusted at call site",
+        "buildExploreResponseEnvelope takes String relationType (plain string) rather than a typed RelationConfig.id() wrapper; the string flows into JSON output so no harm, but the parameter type offers no compile-time contract",
+        "No type: ignore comments, no unchecked cast suppressions, no raw generic types observed"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 75.0,
+        "indirection_cost": 65.0,
+        "interface_honesty": 68.0,
+        "delegation_density": 80.0,
+        "definition_directness": 72.0,
+        "type_discipline": 70.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "JSpecify @NonNull/@Nullable annotations applied consistently to all public interface and utility method signatures (QueryExecutor, ExplorationService, HttpApiUtils, RelationPatternUtils)",
+        "Java records used for all domain DTOs — WordSketchResult, SnippetResult, CollocateResult, RelationConfig — giving the type system stable, complete shapes to verify against",
+        "Enum types (RelationType, PosGroup, RelationEdgeType, SharingCategory) are defined for every discriminated concept and used in domain switching, not bypassed by raw string literals in domain logic",
+        "Optional<RelationType> used instead of @Nullable for the relationType() accessor — correct idiom at query-style API boundaries",
+        "sealed interface ConcordanceResult provides type-safe polymorphism with exhaustive coverage over result subtypes"
+      ],
+      "issue_character": "The dominant issue is a consistent pattern in the API layer: response bodies are assembled as Map<String, Object> even though their shapes are fixed and well-understood, and separately one concrete annotation-vs-behavior mismatch in CollocateQueryHelper where a @Nullable field is unconditionally dereferenced.",
+      "score_rationale": "The codebase sits in the 70-75 range. The interface and domain layers are genuinely well-annotated and type-disciplined — records, enums, Optional, and JSpecify annotations are used correctly and consistently. What pulls the score down is the pervasive Map<String, Object> pattern across the entire API response assembly layer (ExploreResponseAssembler, SketchHandlers, ExplorationHandlers, ConcordanceHandlers), where typed response records or Jackson-annotated classes would give compile-time verification of response shape; this affects 25+ call sites across multiple files. The CollocateQueryHelper @Nullable field issue is a smaller but concrete annotation dishonesty. A score of 80 would require the response assembly layer to use typed shapes; the codebase is clearly above 60 (significant drag) because the domain and interface layers are strong."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_index_unchecked_deref",
+      "summary": "@Nullable BlackLabIndex field dereferenced without null check in production methods",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "Field declared: @Nullable private final BlackLabIndex index;",
+        "getTotalFrequency calls index.mainAnnotatedField() at line 91 with no null guard",
+        "executeCollocateSearchWithContent calls index.search() at line 143 with no null guard",
+        "executeBcqlQuery calls index.find() at line 230 with no null guard",
+        "No-arg constructor sets index = null and is intended for test subclasses that override I/O methods, but the annotation truthfully says the field can be null at runtime"
+      ],
+      "suggestion": "Change the production constructor's field to @NonNull and store it as a @NonNull final field; rename the no-arg protected constructor javadoc to make the contract clearer, or extract an abstract method checkIndex() that throws if index is null so the annotation and the dereference behavior match. Alternatively, flip the annotation to reflect actual production invariants and add an assert index != null in each production method.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "untyped_response_maps",
+      "summary": "API response bodies built as Map<String, Object> throughout the response assembly layer instead of typed records",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.populateExploreResponse builds Map<String, Object> for seed_collocates, discovered_nouns, core_collocates, edges — shapes are stable but unverified",
+        "ExploreResponseAssembler.collocateProfileToMap puts 10 fixed keys into a HashMap<String, Object>",
+        "SketchHandlers.buildSurfaceRelationEntry, buildRelationResponse all construct Map<String, Object> with hardcoded string keys",
+        "At least 25 sites creating new HashMap<>() for fixed-shape response bodies across 5 API files",
+        "No Jackson @JsonProperty or response record types exist to enforce the shape at compile time"
+      ],
+      "suggestion": "Introduce typed Jackson-serializable response records (e.g., ExploreResponse, SeedCollocateEntry, DiscoveredNounEntry) annotated with @JsonProperty. Replace Map<String, Object> construction in ExploreResponseAssembler and handler classes with these records. This gives compile-time verification that all required fields are populated and eliminates typo risks in map key strings.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nonnull_field_redundant_null_check",
+      "summary": "RelationConfig.pattern annotated @NonNull but deriveDeprel() contains a defensive null check on it",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"],
+      "evidence": [
+        "Record component declared: @NonNull String pattern",
+        "deriveDeprel() contains: if (pattern == null || relationType().orElse(null) != RelationType.DEP)",
+        "The null branch for pattern can never be reached given the @NonNull annotation, but its presence signals the annotation is not fully trusted internally"
+      ],
+      "suggestion": "Remove the pattern == null guard in deriveDeprel() since the @NonNull annotation guarantees it; or if the annotation is aspirational rather than enforced, downgrade it to @Nullable and ensure callers handle null safely. Choosing one consistent approach avoids the mixed signal.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "API response assembly layer was built with convenience maps (Map<String, Object>) before typed response DTOs were established — consistent with an incremental growth pattern where domain types were added later",
+      "CollocateQueryHelper's @Nullable field design is a test-seam pattern (protected no-arg constructor for subclassing) that was annotated to reflect the field's actual nullability but the production code paths were not updated to guard against it, leaving an annotation-behavior gap"
+    ],
+    "likely_symptoms": ["nonnull_field_redundant_null_check"],
+    "possible_false_positives": []
+  }
+}

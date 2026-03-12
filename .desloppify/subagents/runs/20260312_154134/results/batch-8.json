@@ -1,0 +1,122 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 8,
+  "assessments": {"mid_level_elegance": 74.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler is a dedicated translation class consolidating all model→JSON mapping for exploration responses: collocateProfileToMap, populateExploreResponse, populateComparisonResponse, collocateResultToExampleMap, collocateResultToFullMap — single obvious place for this translation boundary.",
+        "ExplorationService interface provides a clean seam between the HTTP layer (ExplorationHandlers) and the domain layer (SemanticFieldExplorer); handlers depend on the interface, not the implementation.",
+        "GrammarConfig/GrammarConfigLoader/GrammarConfigSerializer are cleanly separated: the value object has no IO or serialization dependencies; the loader owns IO; the serializer owns presentation. Textbook boundary design.",
+        "HttpApiUtils.wrapWithErrorHandling() centralises error→HTTP-status mapping in one place; handlers throw IllegalArgumentException or IOException and the wrapper handles the HTTP layer uniformly across all endpoints.",
+        "CommonExploreParams record + parseCommonExploreParams() + resolveRelationConfig() are shared extraction helpers in ExplorationHandlers that prevent parameter-parsing duplication across the three exploration handlers.",
+        "FetchExamplesResult bundles the BCQL pattern with the examples, preventing callers from re-constructing a pattern independently — clean boundary contract.",
+        "SketchHandlers.handleRelationsForType() assembles its Map<String,Object> DTO inline rather than delegating to an assembler — inconsistent with ExplorationHandlers' pattern of delegating to ExploreResponseAssembler.",
+        "ConcordanceHandlers.handleConcordanceExamples() builds its response map inline (HashMap with manual puts) for the outer envelope, while inner example items are delegated to ExploreResponseAssembler::collocateResultToExampleMap — partial delegation creates an inconsistent seam.",
+        "EnvelopeExtras(paramFields, topLevelFields) record in ExplorationHandlers is an ad-hoc mechanism to route fields to different envelope positions; callers must know which fields go in which slot, leaking envelope shape knowledge into the call sites of buildExploreResponseEnvelope.",
+        "handleSemanticFieldExploreMulti passes the pre-result seeds set to the envelope; handleSemanticFieldComparison passes result.nouns() instead — asymmetry means the two endpoints can diverge on what seeds are echoed if the service filters seeds.",
+        "ExplorationResult has a public constructor in addition to the empty() factory, allowing callers to bypass the factory and construct partially-valid instances — weakens the contract at the model boundary.",
+        "SingleSeedExplorationOptions wraps ExplorationOptions with delegation methods (topCollocates, minLogDice, minShared) but also exposes base() — callers have two paths to the same data, creating a slightly ambiguous handoff contract."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler consolidates all model→presentation translation in a single class, eliminating scattered ad-hoc mappers for exploration responses.",
+        "ExplorationService interface provides an honest, well-documented seam between HTTP and domain layers with @NonNull annotations and checked-exception contracts.",
+        "GrammarConfig / GrammarConfigLoader / GrammarConfigSerializer are cleanly separated by concern — the value object carries no IO or JSON dependencies.",
+        "HttpApiUtils.wrapWithErrorHandling() provides uniform, centralised error propagation across all endpoints with consistent HTTP status mapping.",
+        "CommonExploreParams + parseCommonExploreParams() + resolveRelationConfig() are shared extraction helpers that avoid parameter-parsing duplication across three exploration handlers."
+      ],
+      "issue_character": "Issues are inconsistency in applying established good patterns rather than structural breakdown: some handlers delegate translation to the assembler while others build inline response maps, and a small ad-hoc envelope-routing mechanism leaks shape knowledge to call sites.",
+      "score_rationale": "The codebase has clearly thought-out integration seam design in the exploration and config layers: a dedicated assembler, a service interface, separated value/loader/serializer objects, and centralised error handling all reflect solid mid-level design discipline. What pulls the score below 80 is inconsistency in applying those patterns — SketchHandlers and ConcordanceHandlers assemble response DTOs inline rather than through the assembler, the EnvelopeExtras mechanism creates a call-site burden for a simple structural concern, and the seed-echo asymmetry between explore-multi and compare means the handoff contract at the response level is not uniform across sibling endpoints. These are module-level inconsistencies, not codebase-wide entropy, placing the score solidly in the 70-78 range rather than at 60 or 85."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "inline-dto-assembly-in-sketch-handlers",
+      "summary": "SketchHandlers assembles response DTOs inline instead of delegating to a shared assembler, breaking the pattern established by ExploreResponseAssembler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "SketchHandlers.handleRelationsForType() constructs Map<String,Object> inline with manual puts for each relation field, while exploration handlers delegate identical translation concerns to ExploreResponseAssembler.",
+        "ExploreResponseAssembler already handles collocate and edge translation; the sketch-response translation follows the same Map<String,Object> pattern but lives in the handler."
+      ],
+      "suggestion": "Add a SketchResponseAssembler (or extend ExploreResponseAssembler) with a static toRelationMap(RelationConfig, RelationType) method and have SketchHandlers delegate to it, mirroring how ExplorationHandlers delegates to ExploreResponseAssembler.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "inconsistent_translation_boundary"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "envelope-extras-leaks-shape-knowledge",
+      "summary": "EnvelopeExtras(paramFields, topLevelFields) requires call sites to know which fields belong in the parameters sub-map vs the top-level envelope, diffusing envelope shape responsibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "buildExploreResponseEnvelope(relationType, params, EnvelopeExtras extras) takes two named slots (paramFields, topLevelFields); every call site must decide which map each field belongs to, e.g. new EnvelopeExtras(Map.of(\"nouns_per\", nounsPerSeed), Map.of(\"seed\", result.seed())).",
+        "This means the call site carries knowledge of the envelope's internal shape (two-level nesting), rather than the envelope builder owning that shape entirely."
+      ],
+      "suggestion": "Replace EnvelopeExtras with a more explicit builder or dedicated per-handler overloads of buildExploreResponseEnvelope that accept the variant fields by name; this keeps shape knowledge inside the builder and call sites only supply data values.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "ad_hoc_boundary_mechanism"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "seed-echo-asymmetry-explore-vs-compare",
+      "summary": "handleSemanticFieldExploreMulti echoes the pre-result input seeds while handleSemanticFieldComparison echoes result.nouns(), creating divergent contracts for the seeds field in sibling endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti: new EnvelopeExtras(Map.of(), Map.of(\"seeds\", new ArrayList<>(seeds), \"seed_count\", seeds.size())) — uses the parsed input set.",
+        "handleSemanticFieldComparison: new EnvelopeExtras(Map.of(), Map.of(\"seeds\", new ArrayList<>(result.nouns()), \"seed_count\", result.nouns().size())) — uses the service's output nouns.",
+        "If the service filters, deduplicates, or reorders seeds differently from the input, the two endpoints will echo different seed lists for equivalent inputs, surprising API consumers."
+      ],
+      "suggestion": "Normalise both handlers to echo result-derived seeds (or both to echo input seeds) so the response contract for the seeds field is consistent; prefer result.nouns() since it reflects what was actually computed.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "ad_hoc_boundary_mechanism"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "exploration-result-public-constructor",
+      "summary": "ExplorationResult exposes a public constructor alongside the empty() factory, weakening the model boundary by allowing callers to construct partially-valid instances",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "The class has a public constructor accepting all six fields with no validation, alongside the empty(String seed) factory method which does document the expected invariants.",
+        "Callers (e.g. MultiSeedExplorer, SingleSeedExplorer) construct ExplorationResult directly rather than through a factory, meaning invariants (non-null seeds list, consistent perSeedCollocates) are not enforced at construction."
+      ],
+      "suggestion": "Make the constructor package-private or replace it with a static of() factory that validates the seeds list is non-empty and all maps are non-null, matching the contract documented on the class.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "inconsistent_translation_boundary"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "A strong assembler pattern was introduced for the exploration layer but not back-applied to older handlers (Sketch, Concordance), leaving the codebase in a partially-migrated state.",
+      "The EnvelopeExtras mechanism was likely introduced to DRY up three exploration handlers but overfit to the current endpoint count rather than choosing a simpler dedicated-overload approach."
+    ],
+    "likely_symptoms": [
+      "inline-dto-assembly-in-sketch-handlers",
+      "seed-echo-asymmetry-explore-vs-compare"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 17,
+  "assessments": {
+    "initialization_coupling": 92.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "No static initializer blocks exist anywhere in the codebase — confirmed by grep",
+        "JsonUtils.MAPPER is the sole non-trivial static allocation: `public static final ObjectMapper MAPPER = new ObjectMapper()` — a pure in-memory construction with no I/O, env reads, or network access at class load time",
+        "System.getProperty reads for 'grammar.config' and 'cors.allow.origin' occur at method call time inside GrammarConfigLoader.createDefaultEnglish() and HttpApiUtils.setCorsHeader/warnIfWildcardCors — not at class load time, so no import-time fragility",
+        "All heavy dependencies (BlackLabQueryExecutor, GrammarConfig, SemanticFieldExplorer) are constructed explicitly and sequentially inside Main.handleBlackLabServerCommand() with clear ordering: executor first, then grammarConfig, then higher-level services that depend on them",
+        "HttpApiUtils.MAPPER aliases JsonUtils.MAPPER (package-private), consistent with the 'single shared instance' intent",
+        "RelationUtils.RELATION_ALIASES is a static final Map.of(...) — purely immutable, zero coupling risk"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "JsonUtils.MAPPER is declared public and mutable (ObjectMapper is not immutable). The comment 'Never mutate after startup' is advisory only — there is no API-level enforcement. Tests or future code could call configure() or registerModule() on the shared instance, silently affecting all consumers without a compilation error.",
+      "sub_axes": {}
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "All service objects are wired through explicit constructor injection in Main.java with a clear, readable construction order — no hidden boot-order dependencies",
+        "System property reads (grammar.config, cors.allow.origin) happen at method invocation time, not at class load, so changing properties between test cases takes effect correctly",
+        "No static initializer blocks anywhere in the production code — class loading is side-effect free",
+        "The shutdown hook in Main.handleBlackLabServerCommand is registered before server construction, correctly ensuring executor cleanup even on construction failure",
+        "The single static singleton (JsonUtils.MAPPER) is a standard ObjectMapper with no configuration state, constructed entirely in memory with no external dependencies"
+      ],
+      "issue_character": "Issues are isolated to a single mild risk: the public mutable ObjectMapper singleton lacks API-level immutability enforcement, which is an advisory-only design contract rather than an architectural coupling problem.",
+      "score_rationale": "This codebase is very close to exemplary for initialization_coupling. A developer can import any class without triggering I/O, environment reads, or order-dependent side effects; all heavy initialization is deferred to explicit method calls in Main. The only friction is the public mutable ObjectMapper, which violates the spirit of the 'never mutate' contract without enforcement — a real but minor risk that nudges the score from 95 down to 92. Against the global anchor of 90 ('mostly stable with limited boot-order fragility'), this sits slightly above that bar."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "mutable_public_mapper_singleton",
+      "summary": "JsonUtils.MAPPER is public and mutable — advisory 'never mutate' comment provides no enforcement",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/JsonUtils.java"
+      ],
+      "evidence": [
+        "Line 16: `public static final ObjectMapper MAPPER = new ObjectMapper();`",
+        "ObjectMapper is mutable; callers can call configure(), registerModule(), setSerializationInclusion() etc. on the shared instance",
+        "HttpApiUtils references it as a package-private alias but does not copy or wrap it, so any mutation would silently affect all 10+ consumers across api/, config/, and exploration/ packages"
+      ],
+      "suggestion": "Wrap the ObjectMapper in an immutable facade or configure it once at declaration and call mapper.findAndRegisterModules().disable(MapperFeature.DEFAULT_VIEW_INCLUSION) before assigning to the field, then replace the public field with a static accessor that returns a configured, unmodifiable view. Minimally, change the field to package-private to limit mutation surface, or add a defensive copy in JsonUtils: `public static ObjectMapper mapper() { return MAPPER.copy(); }` for callers that need to configure locally.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The codebase was designed with explicit DI from the start, which eliminated the common root cause of initialization coupling (lazy-init globals, circular class-level deps). The only residual risk is the shared ObjectMapper — a common Java pattern inherited from Jackson best-practices guidance that was written before ObjectMapper.copy() existed."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

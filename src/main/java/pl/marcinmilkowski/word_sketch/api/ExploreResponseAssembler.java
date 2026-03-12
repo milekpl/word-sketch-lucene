@@ -23,7 +23,7 @@ import pl.marcinmilkowski.word_sketch.model.RelationEdgeType;
  * and {@link ComparisonResult} stay free of presentation concerns. All response-body assembly
  * for exploration endpoints is centralised here.</p>
  */
-public final class ExploreResponseAssembler {
+final class ExploreResponseAssembler {
 
     private ExploreResponseAssembler() {}
 

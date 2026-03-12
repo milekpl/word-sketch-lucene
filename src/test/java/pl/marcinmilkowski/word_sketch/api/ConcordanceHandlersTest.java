@@ -28,7 +28,7 @@ class ConcordanceHandlersTest {
                 return List.of(new QueryResults.CollocateResult("The big house", null, 4, 7, "d1", "big", 1, 7.5));
             }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                    String lemma, String bcqlPattern, double minLogDice, int maxResults) { return List.of(); }
+                    String bcqlPattern, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
                     String lemma, String deprel, double minLogDice, int maxResults,
                     String headPosConstraint) { return List.of(); }

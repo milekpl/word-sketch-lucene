@@ -34,7 +34,7 @@ public class BlackLabQueryExecutorIntegrationTest {
             for (String p : patterns) {
                 try {
                     List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(
-                            "test", p, 0.0, 10);
+                            p, 0.0, 10);
                     assertNotNull(results, "Results list should not be null for pattern: " + p);
                 } catch (IOException e) {
                     Assumptions.assumeTrue(false,

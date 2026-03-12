@@ -26,7 +26,10 @@ class MultiSeedExplorerTest {
             @Override public List<QueryResults.CollocateResult> executeBcqlQuery(String p, int m) { return List.of(); }
             @Override public long getTotalFrequency(String lemma) { return 0; }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                    String lemma, String pattern, double minLogDice, int max) {
+                    String pattern, double minLogDice, int max) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
+                        java.util.regex.Pattern.CASE_INSENSITIVE).matcher(pattern);
+                String lemma = m.find() ? m.group(1) : "";
                 return data.getOrDefault(lemma, List.of());
             }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(

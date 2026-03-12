@@ -27,7 +27,7 @@ class CollocateProfileComparatorTest {
             @Override public List<QueryResults.CollocateResult> executeBcqlQuery(String p, int m) { return List.of(); }
             @Override public long getTotalFrequency(String lemma) { return 0; }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                    String lemma, String pattern, double minLogDice, int maxResults) { return List.of(); }
+                    String pattern, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
                     String lemma, String deprel,
                     double minLogDice, int maxResults, String headPosConstraint) { return List.of(); }

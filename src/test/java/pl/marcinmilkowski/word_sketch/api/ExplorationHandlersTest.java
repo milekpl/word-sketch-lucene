@@ -36,7 +36,7 @@ class ExplorationHandlersTest {
             @Override public List<QueryResults.CollocateResult> executeBcqlQuery(String p, int m) { return List.of(); }
             @Override public long getTotalFrequency(String lemma) { return 0; }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                    String lemma, String pattern, double minLogDice, int maxResults) { return List.of(); }
+                    String pattern, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
                     String lemma, String deprel, double minLogDice, int maxResults,
                     String headPosConstraint) { return List.of(); }
@@ -205,7 +205,7 @@ class ExplorationHandlersTest {
         ComparisonResult result = explorer.compareCollocateProfiles(
                 Set.of("theory", "model"), new ExplorationOptions(50, 0.0, 1));
 
-        List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
+        List<Edge> edges = ExploreResponseAssembler.buildComparisonEdges(result);
         assertFalse(edges.isEmpty(), "Should have edges");
 
         Edge theoryEdge = edges.stream()
@@ -227,7 +227,10 @@ class ExplorationHandlersTest {
             @Override public List<QueryResults.CollocateResult> executeBcqlQuery(String p, int m) { return List.of(); }
             @Override public long getTotalFrequency(String lemma) { return 0; }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                    String lemma, String pattern, double minLogDice, int maxResults) {
+                    String pattern, double minLogDice, int maxResults) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
+                        java.util.regex.Pattern.CASE_INSENSITIVE).matcher(pattern);
+                String lemma = m.find() ? m.group(1) : "";
                 return map.getOrDefault(lemma.toLowerCase(), List.of());
             }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(

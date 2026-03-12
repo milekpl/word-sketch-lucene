@@ -170,7 +170,7 @@ class ExplorationHandlers {
 
         Map<String, Object> response = new HashMap<>();
         ExploreResponseAssembler.populateComparisonResponse(response, result,
-            exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared());
+            exploreParams.topCollocates(), exploreParams.minLogDice(), exploreParams.minShared(), "all");
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }

@@ -59,7 +59,7 @@ class WordSketchApiServerTest {
 
         @Override
         public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                String lemma, String pattern, double minLogDice, int maxResults) {
+                String pattern, double minLogDice, int maxResults) {
             return Collections.emptyList();
         }
 

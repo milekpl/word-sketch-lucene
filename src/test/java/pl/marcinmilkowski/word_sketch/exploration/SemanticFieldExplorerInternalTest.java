@@ -58,8 +58,11 @@ class SemanticFieldExplorerInternalTest {
 
         @Override
         public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                String lemma, String bcqlPattern,
+                String bcqlPattern,
                 double minLogDice, int maxResults) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
+                    java.util.regex.Pattern.CASE_INSENSITIVE).matcher(bcqlPattern);
+            String lemma = m.find() ? m.group(1) : "";
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }
 

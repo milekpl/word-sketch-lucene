@@ -60,8 +60,10 @@ class SemanticFieldExplorerTest {
 
         @Override
         public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                String lemma, String bcqlPattern,
+                String bcqlPattern,
                 double minLogDice, int maxResults) {
+            String lemma = BlackLabSnippetParser.extractHeadword(bcqlPattern);
+            if (lemma == null) lemma = "";
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }
 

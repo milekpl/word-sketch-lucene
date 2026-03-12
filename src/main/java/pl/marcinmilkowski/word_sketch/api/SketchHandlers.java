@@ -214,7 +214,7 @@ class SketchHandlers {
 
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
         List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(
-            lemma, fullPattern,
+            fullPattern,
             0.0, SINGLE_RELATION_RESULTS);
 
         List<Map<String, Object>> collocations = new ArrayList<>();
@@ -246,7 +246,7 @@ class SketchHandlers {
     private Optional<ExecutedSketch> buildSketch(String lemma,
             pl.marcinmilkowski.word_sketch.config.RelationConfig rel) throws IOException {
         String fullPattern = RelationPatternBuilder.buildFullPattern(rel, lemma);
-        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(lemma, fullPattern, 0.0, DEFAULT_SKETCH_RESULTS);
+        List<QueryResults.WordSketchResult> results = executor.executeSurfacePattern(fullPattern, 0.0, DEFAULT_SKETCH_RESULTS);
         if (results.isEmpty()) return Optional.empty();
         List<Map<String, Object>> collocations = new ArrayList<>();
         for (QueryResults.WordSketchResult result : results) {

@@ -26,9 +26,10 @@ import pl.marcinmilkowski.word_sketch.model.QueryResults;
  *       (CorpusQueryLanguageParser). Handles labeled capture groups and computes
  *       per-hit logDice scores. Distinct from {@link #executeCqlQuery}.</li>
  *   <li>{@link #executeSurfacePattern} — word-sketch collocate extraction using a labeled
- *       BCQL pattern ({@code 1:} for head, {@code 2:} for collocate). Uses explicit
- *       position hints to identify the head and collocate tokens; returns results ranked
- *       by logDice. Distinct from {@link #executeCollocations} which ignores position hints.</li>
+ *       BCQL pattern ({@code 1:} for head, {@code 2:} for collocate). The headword lemma is
+ *       extracted from the pattern's {@code lemma=} attribute; uses explicit position hints to
+ *       identify the head and collocate tokens; returns results ranked by logDice. Distinct from
+ *       {@link #executeCollocations} which ignores position hints.</li>
  * </ul>
  */
 public interface QueryExecutor extends Closeable {
@@ -85,23 +86,23 @@ public interface QueryExecutor extends Closeable {
 
     /**
      * Execute a surface pattern query for word sketches using a labeled BCQL pattern.
-     * The collocate position is inferred from the {@code 2:} label in {@code bcqlPattern}.
+     * The collocate position is inferred from the {@code 2:} label in {@code bcqlPattern},
+     * and the headword lemma is extracted from the pattern's {@code lemma=} attribute.
      *
-     * <p>Both {@code lemma} and {@code bcqlPattern} are required even though {@code lemma}
-     * has already been substituted into {@code bcqlPattern}: {@code lemma} is used to look
-     * up the head-word's total corpus frequency for logDice scoring, while {@code bcqlPattern}
-     * drives the Lucene span search. Separating them avoids re-parsing the pattern to recover
-     * the headword and keeps the scoring path free of string manipulation.
+     * <p>The headword lemma must be embedded in {@code bcqlPattern} (typically by the caller via
+     * {@link pl.marcinmilkowski.word_sketch.config.RelationPatternBuilder#buildFullPattern}).
+     * It is extracted internally to look up the head-word's total corpus frequency for logDice
+     * scoring, keeping the interface free of redundant parameters.
      *
-     * @param lemma             The head lemma (already substituted into {@code bcqlPattern})
-     * @param bcqlPattern       BCQL pattern with labeled positions (1: head, 2: collocate)
+     * @param bcqlPattern       BCQL pattern with labeled positions (1: head, 2: collocate) and
+     *                          an embedded {@code lemma="..."} attribute for the headword
      * @param minLogDice        Minimum logDice score threshold (0 for no minimum)
      * @param maxResults        Maximum number of results to return
      * @return Collocate results ranked by logDice descending
      * @throws IOException if index access or parsing fails
      */
     List<QueryResults.WordSketchResult> executeSurfacePattern(
-            String lemma, String bcqlPattern,
+            String bcqlPattern,
             double minLogDice, int maxResults) throws IOException;
 
     /**

@@ -35,7 +35,7 @@ final class ExploreResponseAssembler {
      * {@code SEED_ADJ} edge correctly names its source (e.g. "theory" or "model") rather than
      * the comma-joined aggregate string that {@link ExplorationResult#seed()} would return.</p>
      */
-    public static @NonNull List<Edge> buildEdges(@NonNull ExplorationResult result) {
+    public static @NonNull List<Edge> buildExplorationEdges(@NonNull ExplorationResult result) {
         List<Edge> edges = new ArrayList<>();
         List<String> seedList = result.seeds();
         for (Map.Entry<String, Double> colloc : result.seedCollocates().entrySet()) {
@@ -52,7 +52,7 @@ final class ExploreResponseAssembler {
     }
 
     /** Builds {@link RelationEdgeType#MODIFIER} edges for adjective-noun pairs with positive logDice scores. */
-    public static @NonNull List<Edge> buildEdges(@NonNull ComparisonResult result) {
+    public static @NonNull List<Edge> buildComparisonEdges(@NonNull ComparisonResult result) {
         List<Edge> edges = new ArrayList<>();
         for (AdjectiveProfile adj : result.allAdjectives()) {
             for (Map.Entry<String, Double> entry : adj.nounScores().entrySet()) {
@@ -82,7 +82,7 @@ final class ExploreResponseAssembler {
         response.put("core_collocates", coreCollocs);
         response.put("core_collocates_count", coreCollocs.size());
 
-        List<Edge> edges = buildEdges(result);
+        List<Edge> edges = buildExplorationEdges(result);
         response.put("edges", edges.stream().map(ExploreResponseAssembler::serializeEdge).toList());
     }
 
@@ -160,14 +160,19 @@ final class ExploreResponseAssembler {
      * {@code seeds}, {@code seed_count}, {@code parameters}, {@code adjectives},
      * {@code adjectives_count}, {@code fully_shared_count}, {@code partially_shared_count},
      * {@code specific_count}, {@code edges}, and {@code edges_count}.
+     *
+     * <p>The {@code parameters} map includes a {@code relation} key (value {@code "all"} because
+     * comparison aggregates across all loaded relations) for consistency with the sibling
+     * explore/explore-multi endpoints that use {@code buildCoreExploreResponse}.</p>
      */
     public static void populateComparisonResponse(@NonNull Map<String, Object> response, @NonNull ComparisonResult result,
-            int topCollocates, double minLogDice, int minShared) {
+            int topCollocates, double minLogDice, int minShared, @NonNull String relation) {
         response.put("status", "ok");
         response.put("seeds", new java.util.ArrayList<>(result.nouns()));
         response.put("seed_count", result.nouns().size());
 
         Map<String, Object> paramsUsed = new HashMap<>();
+        paramsUsed.put("relation", relation);
         paramsUsed.put("top", topCollocates);
         paramsUsed.put("min_logdice", minLogDice);
         paramsUsed.put("min_shared", minShared);
@@ -185,7 +190,7 @@ final class ExploreResponseAssembler {
         response.put("partially_shared_count", counts.partiallyShared());
         response.put("specific_count", counts.specific());
 
-        List<Edge> edges = buildEdges(result);
+        List<Edge> edges = buildComparisonEdges(result);
         response.put("edges", edges.stream().map(ExploreResponseAssembler::serializeEdge).toList());
         response.put("edges_count", edges.size());
     }

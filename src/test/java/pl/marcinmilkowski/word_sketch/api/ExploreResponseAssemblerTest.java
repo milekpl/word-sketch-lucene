@@ -39,7 +39,7 @@ class ExploreResponseAssemblerTest {
         Map<String, Double> collocates = Map.of("important", 8.5, "novel", 6.0);
         ExplorationResult result = resultWith("theory", collocates, Map.of(), List.of(), List.of());
 
-        List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
+        List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);
 
         assertEquals(2, edges.size());
         assertTrue(edges.stream().allMatch(e -> e.source().equals("theory")));
@@ -54,7 +54,7 @@ class ExploreResponseAssemblerTest {
         DiscoveredNoun noun = new DiscoveredNoun("model", Map.of("abstract", 7.0), 1, 7.0, 7.0);
         ExplorationResult result = resultWith("theory", Map.of(), Map.of(), List.of(noun), List.of());
 
-        List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
+        List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);
 
         assertEquals(1, edges.size());
         assertEquals("model", edges.get(0).source());
@@ -65,7 +65,7 @@ class ExploreResponseAssemblerTest {
     @Test
     void buildEdges_emptyResult_returnsEmptyList() {
         ExplorationResult result = ExplorationResult.empty("theory");
-        List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
+        List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);
         assertTrue(edges.isEmpty());
     }
 
@@ -141,7 +141,7 @@ class ExploreResponseAssemblerTest {
         Map<String, Double> aggregateCollocates = Map.of("abstract", 7.0);
         ExplorationResult result = resultWith(List.of("theory", "model"), aggregateCollocates, Map.of(), List.of(), List.of());
 
-        List<Edge> edges = ExploreResponseAssembler.buildEdges(result);
+        List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);
 
         assertEquals(2, edges.size(), "one SEED_ADJ edge per individual seed");
         List<String> sources = edges.stream().map(Edge::source).toList();

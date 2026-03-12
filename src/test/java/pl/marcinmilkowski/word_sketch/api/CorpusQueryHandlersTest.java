@@ -37,7 +37,7 @@ class CorpusQueryHandlersTest {
                 return List.of(new QueryResults.CollocateResult("a theory emerged", null, 2, 8, "d1", "theory", 1, 7.0));
             }
             @Override public List<QueryResults.WordSketchResult> executeSurfacePattern(
-                    String lemma, String bcqlPattern, double minLogDice, int maxResults) { return List.of(); }
+                    String bcqlPattern, double minLogDice, int maxResults) { return List.of(); }
             @Override public List<QueryResults.WordSketchResult> executeDependencyPattern(
                     String lemma, String deprel, double minLogDice, int maxResults,
                     String headPosConstraint) { return List.of(); }

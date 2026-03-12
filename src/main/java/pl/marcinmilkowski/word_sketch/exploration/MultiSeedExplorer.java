@@ -79,7 +79,7 @@ class MultiSeedExplorer {
         for (String seed : seeds) {
             String bcqlPattern = RelationPatternBuilder.buildFullPattern(relationConfig, seed);
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
-                seed, bcqlPattern, minLogDice, topCollocates);
+                bcqlPattern, minLogDice, topCollocates);
             seedCollocateMap.put(seed, collocates);
             for (QueryResults.WordSketchResult wsr : collocates) {
                 collocateSharedCount.merge(wsr.lemma(), 1, Integer::sum);

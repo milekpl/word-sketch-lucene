@@ -11,7 +11,6 @@ class BlackLabSnippetParser {
     private static final Logger logger = LoggerFactory.getLogger(BlackLabSnippetParser.class);
 
     private static final java.util.regex.Pattern LEMMA_ATTR      = java.util.regex.Pattern.compile("lemma=\"([^\"]+)\"");
-    private static final java.util.regex.Pattern LEMMA_ATTR_RELAXED  = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE);
     private static final java.util.regex.Pattern XPOS_ATTR       = java.util.regex.Pattern.compile("xpos=\"([^\"]+)\"");
     private static final java.util.regex.Pattern UPOS_ATTR       = java.util.regex.Pattern.compile("upos=\"([^\"]+)\"");
     private static final java.util.regex.Pattern SENT_BOUND_LEFT  = java.util.regex.Pattern.compile("[.!?]\\s+(?=[A-Z]|$)");
@@ -140,13 +139,13 @@ class BlackLabSnippetParser {
     /**
      * Extract collocate lemma from XML by labeled position.
      * @param xmlSnippet The XML snippet containing the full sentence
-     * @param position The 1-based position of the token to extract (from findLabelTokenIndex)
+     * @param position The 1-based position of the token to extract (from BcqlPatternUtils.findLabelTokenIndex)
      * @return the lemma at the given position, or {@code null} if not found
      */
     @Nullable
     static String extractCollocateFromXmlByPosition(String xmlSnippet, int position) {
         // The position < 1 guard is defensive: all current callers pass values from
-        // findLabelTokenIndex() which returns >= 1, or explicitly check > 0 before calling.
+        // BcqlPatternUtils.findLabelTokenIndex() which returns >= 1, or explicitly check > 0 before calling.
         if (xmlSnippet == null || xmlSnippet.isEmpty() || position < 1) {
             return null;
         }
@@ -161,14 +160,7 @@ class BlackLabSnippetParser {
         return null;
     }
 
-    @Nullable
-    static String extractHeadword(String bcqlPattern) {
-        java.util.regex.Matcher m = LEMMA_ATTR_RELAXED.matcher(bcqlPattern);
-        if (m.find()) {
-            return m.group(1);
-        }
-        return null;
-    }
+    // ==================== Consolidated clean API ====================
 
     /**
      * Extract a word by position from plain whitespace-separated text.
@@ -185,43 +177,7 @@ class BlackLabSnippetParser {
         return words[position - 1];
     }
 
-    /**
-     * Find the position of a labeled capture group (e.g., "2:") in a BCQL pattern.
-     * Returns the 1-based position of that token in the pattern.
-     *
-     * Example: "1:[xpos="NN.*"] [lemma="be|..."] 2:[xpos="JJ.*"]"
-     * - "1:" is at position 1
-     * - "[lemma=...]" (unlabeled) is at position 2
-     * - "2:" is at position 3
-     */
-    static int findLabelTokenIndex(String pattern, int label) {
-        if (pattern == null) {
-            return -1;
-        }
-        String labelStr = label + ":";
-        int labelIndex = pattern.indexOf(labelStr);
-        if (labelIndex < 0) {
-            return -1;
-        }
-        if (labelIndex + labelStr.length() < pattern.length() &&
-            pattern.charAt(labelIndex + labelStr.length()) == '[') {
-            int tokenPos = 0;
-            for (int i = 0; i < pattern.length(); i++) {
-                if (pattern.charAt(i) == '[') {
-                    tokenPos++;
-                    if (i == labelIndex + labelStr.length()) {
-                        return tokenPos;
-                    }
-                }
-            }
-            // label syntax found but no '[' at expected position in loop (shouldn't happen)
-        }
-        // -1 covers two cases: label absent (caught above) OR label present but not
-        // immediately followed by '[' (e.g. "2:foo" — not a labelled token bracket)
-        return -1;
-    }
 
-    // ==================== Consolidated clean API ====================
 
     /**
      * Finds the last {@code lemma="..."} attribute in the match XML fragment.

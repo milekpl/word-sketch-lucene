@@ -35,14 +35,17 @@ public class ConlluConverter {
     /** Index into the {@code state} long-array for the total chunk-file count. */
     private static final int STATE_CHUNKS = 2;
 
+    /** Counts returned from {@link #convertConlluToWplChunks}. */
+    public record ConversionStats(long sentences, long tokens, long chunks) {}
+
     private ConlluConverter() {}
 
     /**
      * Converts a CoNLL-U file to WPL chunk files in the given output directory.
      *
-     * @return long[]{sentenceCount, tokenCount, chunkCount}
+     * @return {@link ConversionStats} with sentence, token, and chunk-file counts
      */
-    public static long[] convertConlluToWplChunks(Path input, Path outputDir, int sentencesPerChunk)
+    public static ConversionStats convertConlluToWplChunks(Path input, Path outputDir, int sentencesPerChunk)
             throws IOException {
         long[] state = {0, 0, 0}; // [sentences, tokens, chunks]
         @Nullable BufferedWriter writer = null;
@@ -51,19 +54,12 @@ public class ConlluConverter {
             writer = processLines(reader, outputDir, sentencesPerChunk, state);
         } finally {
             if (writer != null) {
-                // On the error path the in-progress sentence is left open deliberately:
-                // writing a partial </s> tag would produce a malformed chunk that is
-                // harder to detect than an abrupt EOF. The try-with-resources below
-                // ensures the writer is always closed (flushing any buffered bytes) even
-                // if close() itself throws.
-                // NOTE: state[STATE_CHUNKS]++ runs unconditionally after close, so every
-                // chunk file that was opened (including error-path chunks) is counted.
                 try (BufferedWriter toClose = writer) {
                 }
                 state[STATE_CHUNKS]++;
             }
         }
-        return state;
+        return new ConversionStats(state[STATE_SENTENCES], state[STATE_TOKENS], state[STATE_CHUNKS]);
     }
 
     /**

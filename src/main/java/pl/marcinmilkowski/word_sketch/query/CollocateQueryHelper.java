@@ -214,9 +214,9 @@ class CollocateQueryHelper {
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(index));
 
             Hits hits = index.find(query);
-            String headword = BlackLabSnippetParser.extractHeadword(bcqlPattern);
+            String headword = BcqlPatternUtils.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
-            int collocatePos = BlackLabSnippetParser.findLabelTokenIndex(bcqlPattern, 2);
+            int collocatePos = BcqlPatternUtils.findLabelTokenIndex(bcqlPattern, 2);
             int sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR); // safe: min ensures result ≤ maxResults * OVER_FETCH_FACTOR
 
             Map<String, Long> collocateFreqMap = new HashMap<>();

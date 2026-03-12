@@ -47,7 +47,7 @@ class SemanticFieldExplorerTest {
         public List<QueryResults.WordSketchResult> executeSurfacePattern(
                 String bcqlPattern,
                 double minLogDice, int maxResults) {
-            String lemma = BlackLabSnippetParser.extractHeadword(bcqlPattern);
+            String lemma = BcqlPatternUtils.extractHeadword(bcqlPattern);
             if (lemma == null) lemma = "";
             return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
         }

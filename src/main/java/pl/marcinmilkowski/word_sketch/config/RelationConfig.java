@@ -14,8 +14,9 @@ import java.util.regex.Pattern;
  *
  * <p>Pattern-building and POS-group inference logic lives in {@link RelationPatternBuilder},
  * keeping this record focused on data only. The sole remaining method ({@link #deriveDeprel()})
- * is retained here because it is a simple derivation from {@link #pattern()} and {@link #id()}
- * that is only called during construction and has no callers outside this class.</p>
+ * is retained here because it is a simple derivation from {@link #pattern()} and {@link #id()};
+ * it is part of the public API and is called externally from {@link pl.marcinmilkowski.word_sketch.api.SketchHandlers}
+ * and related components.</p>
  */
 public record RelationConfig(
     @NonNull String id,
@@ -42,7 +43,7 @@ public record RelationConfig(
      * <p><strong>Nullability design note:</strong> this method returns {@code @Nullable} rather
      * than {@code Optional} because it is a method-internal derivation used only during
      * construction and short-circuit logic (a {@code null} return signals "not applicable").
-     * By contrast, {@link pl.marcinmilkowski.word_sketch.config.GrammarConfig#getRelation}
+     * By contrast, {@link pl.marcinmilkowski.word_sketch.config.GrammarConfig#relation(String)}
      * returns {@code Optional} because it is a query-style accessor where the absent case is
      * a normal, expected outcome for callers.</p>
      *

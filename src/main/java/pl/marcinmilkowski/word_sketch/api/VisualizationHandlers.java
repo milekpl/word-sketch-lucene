@@ -24,6 +24,18 @@ class VisualizationHandlers {
 
     private static final int MAX_RADIAL_ITEMS = 40;
 
+    /** Valid render modes for the radial plot endpoint. */
+    private enum RenderMode {
+        SIGNED;
+
+        static boolean isValid(String value) {
+            for (RenderMode m : values()) {
+                if (m.name().equalsIgnoreCase(value)) return true;
+            }
+            return false;
+        }
+    }
+
     /**
      * POST /api/visual/radial
      * Body JSON: { center: "word", width: 840, height: 520, items: [{label:"", score: 3.2}, ...] }
@@ -56,7 +68,7 @@ class VisualizationHandlers {
             }
         }
         String mode = obj.getString("mode");
-        if (mode != null && !mode.isEmpty() && !mode.equals("signed")) {
+        if (mode != null && !mode.isEmpty() && !RenderMode.isValid(mode)) {
             throw new IllegalArgumentException("Unknown mode: " + mode);
         }
 

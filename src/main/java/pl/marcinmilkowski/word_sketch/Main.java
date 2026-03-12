@@ -137,10 +137,10 @@ public class Main {
         System.out.println("Step 1/3: Converting CoNLL-U → WPL chunks (10 000 sentences/file)...");
         Path wplTempDir = Files.createTempDirectory("conllu_wpl_");
         Runtime.getRuntime().addShutdownHook(new Thread(() -> deleteRecursively(wplTempDir)));
-        long[] counts = ConlluConverter.convertConlluToWplChunks(Paths.get(inputPath), wplTempDir, 10_000);
-        long sentenceCount = counts[0];
-        long tokenCount = counts[1];
-        long chunkFileCount = counts[2];
+        ConlluConverter.ConversionStats stats = ConlluConverter.convertConlluToWplChunks(Paths.get(inputPath), wplTempDir, 10_000);
+        long sentenceCount = stats.sentences();
+        long tokenCount = stats.tokens();
+        long chunkFileCount = stats.chunks();
         System.out.printf("  → %,d sentences, %,d tokens in %,d chunk files%n%n",
                 sentenceCount, tokenCount, chunkFileCount);
 
@@ -179,8 +179,26 @@ public class Main {
                 case "--index": case "-i": indexPath = requireNextArg(args, ++i, "--index"); break;
                 case "--lemma": case "-w": lemma = requireNextArg(args, ++i, "--lemma"); break;
                 case "--deprel": deprel = requireNextArg(args, ++i, "--deprel"); break;
-                case "--min-logdice": minLogDice = Double.parseDouble(requireNextArg(args, ++i, "--min-logdice")); break;
-                case "--limit": limit = Integer.parseInt(requireNextArg(args, ++i, "--limit")); break;
+                case "--min-logdice": {
+                    String val = requireNextArg(args, ++i, "--min-logdice");
+                    try {
+                        minLogDice = Double.parseDouble(val);
+                    } catch (NumberFormatException e) {
+                        System.err.println("Invalid value for --min-logdice: '" + val + "' is not a valid number.");
+                        System.exit(1);
+                    }
+                    break;
+                }
+                case "--limit": {
+                    String val = requireNextArg(args, ++i, "--limit");
+                    try {
+                        limit = Integer.parseInt(val);
+                    } catch (NumberFormatException e) {
+                        System.err.println("Invalid value for --limit: '" + val + "' is not a valid integer.");
+                        System.exit(1);
+                    }
+                    break;
+                }
                 default: System.err.println("Unknown option: " + args[i]);
             }
         }
@@ -230,7 +248,16 @@ public class Main {
         for (int i = 1; i < args.length; i++) {
             switch (args[i]) {
                 case "--index": case "-i": indexPath = requireNextArg(args, ++i, "--index"); break;
-                case "--port": case "-p": port = Integer.parseInt(requireNextArg(args, ++i, "--port")); break;
+                case "--port": case "-p": {
+                    String val = requireNextArg(args, ++i, "--port");
+                    try {
+                        port = Integer.parseInt(val);
+                    } catch (NumberFormatException e) {
+                        System.err.println("Invalid value for --port: '" + val + "' is not a valid integer.");
+                        System.exit(1);
+                    }
+                    break;
+                }
                 default: System.err.println("Unknown option: " + args[i]);
             }
         }

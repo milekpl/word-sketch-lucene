@@ -44,11 +44,11 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(2, result[0], "sentences");
-        assertEquals(6, result[1], "tokens");
-        assertEquals(1, result[2], "chunks");
+        assertEquals(2, result.sentences(), "sentences");
+        assertEquals(6, result.tokens(), "tokens");
+        assertEquals(1, result.chunks(), "chunks");
     }
 
     @Test
@@ -76,10 +76,10 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 1);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 1);
 
-        assertEquals(2, result[0], "sentences");
-        assertEquals(2, result[2], "chunks");
+        assertEquals(2, result.sentences(), "sentences");
+        assertEquals(2, result.chunks(), "chunks");
         assertTrue(Files.exists(outDir.resolve("chunk_000000.tsv")), "chunk 0 exists");
         assertTrue(Files.exists(outDir.resolve("chunk_000001.tsv")), "chunk 1 exists");
     }
@@ -131,10 +131,10 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(1, result[0], "sentences");
-        assertEquals(3, result[1], "tokens (MWT line not counted)");
+        assertEquals(1, result.sentences(), "sentences");
+        assertEquals(3, result.tokens(), "tokens (MWT line not counted)");
 
         List<String> lines = Files.readAllLines(outDir.resolve("chunk_000000.tsv"));
         assertTrue(lines.stream().noneMatch(l -> l.startsWith("1-2\t")), "MWT line absent");
@@ -153,9 +153,9 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(2, result[1], "tokens (empty node not counted)");
+        assertEquals(2, result.tokens(), "tokens (empty node not counted)");
         List<String> lines = Files.readAllLines(outDir.resolve("chunk_000000.tsv"));
         assertTrue(lines.stream().noneMatch(l -> l.startsWith("1.1\t")), "empty node line absent");
     }
@@ -169,11 +169,11 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(0, result[0], "sentences");
-        assertEquals(0, result[1], "tokens");
-        assertEquals(0, result[2], "chunks");
+        assertEquals(0, result.sentences(), "sentences");
+        assertEquals(0, result.tokens(), "tokens");
+        assertEquals(0, result.chunks(), "chunks");
         assertEquals(0, Files.list(outDir).count(), "no output files");
     }
 
@@ -184,11 +184,11 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(0, result[0]);
-        assertEquals(0, result[1]);
-        assertEquals(0, result[2]);
+        assertEquals(0, result.sentences());
+        assertEquals(0, result.tokens());
+        assertEquals(0, result.chunks());
     }
 
     @Test
@@ -201,11 +201,11 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(1, result[0], "sentences");
-        assertEquals(1, result[1], "tokens");
-        assertEquals(1, result[2], "chunks");
+        assertEquals(1, result.sentences(), "sentences");
+        assertEquals(1, result.tokens(), "tokens");
+        assertEquals(1, result.chunks(), "chunks");
 
         List<String> lines = Files.readAllLines(outDir.resolve("chunk_000000.tsv"));
         assertTrue(lines.contains("</s>"), "trailing </s> written");
@@ -225,10 +225,10 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(1, result[0], "sentences");
-        assertEquals(1, result[1], "tokens");
+        assertEquals(1, result.sentences(), "sentences");
+        assertEquals(1, result.tokens(), "tokens");
         List<String> lines = Files.readAllLines(outDir.resolve("chunk_000000.tsv"));
         assertTrue(lines.stream().anyMatch(l -> l.startsWith("1\tcat")), "short line preserved");
     }
@@ -248,9 +248,9 @@ class ConlluConverterTest {
         Path outDir = tmp.resolve("out");
         Files.createDirectories(outDir);
 
-        long[] result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
 
-        assertEquals(2, result[0], "only 2 real sentences, not 3");
-        assertEquals(2, result[1], "tokens");
+        assertEquals(2, result.sentences(), "only 2 real sentences, not 3");
+        assertEquals(2, result.tokens(), "tokens");
     }
 }

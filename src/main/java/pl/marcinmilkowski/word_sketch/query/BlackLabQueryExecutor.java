@@ -222,13 +222,13 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             String bcqlPattern,
             double minLogDice, int maxResults) throws IOException {
 
-        String lemma = BlackLabSnippetParser.extractHeadword(bcqlPattern);
+        String lemma = BcqlPatternUtils.extractHeadword(bcqlPattern);
         if (lemma == null || lemma.isEmpty()) {
             logger.debug("executeSurfacePattern: skipping query — could not extract lemma from pattern");
             return Collections.emptyList();
         }
 
-        int collocatePos = BlackLabSnippetParser.findLabelTokenIndex(bcqlPattern, 2);
+        int collocatePos = BcqlPatternUtils.findLabelTokenIndex(bcqlPattern, 2);
         CollocateQueryHelper.CollocateSearch collocateSearch = collocateQueryHelper.executeCollocateSearch(lemma, bcqlPattern);
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();

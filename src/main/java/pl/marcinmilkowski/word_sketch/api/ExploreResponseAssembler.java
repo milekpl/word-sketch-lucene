@@ -181,7 +181,7 @@ final class ExploreResponseAssembler {
                 .map(e -> new ExploreResponse.EdgeEntry(
                         e.source(), e.target(),
                         MathUtils.round2dp(e.weight()),
-                        e.type().label()))
+                        e.type()))
                 .toList();
     }
 
@@ -196,18 +196,18 @@ final class ExploreResponseAssembler {
      */
     static @NonNull ComparisonResponse buildComparisonResponse(
             @NonNull List<String> seeds, @NonNull String relationType,
-            int top, int minShared, double minLogDice,
+            @NonNull SharedExploreParams params,
             @NonNull ComparisonResult result) {
         List<ComparisonResponse.CollocateProfileEntry> collocates = result.collocates().stream()
                 .map(ExploreResponseAssembler::collocateProfileToEntry)
                 .toList();
         ComparisonResult.SummaryCounts counts = result.summaryCounts();
         List<ComparisonResponse.EdgeEntry> edges = buildComparisonEdges(result).stream()
-                .map(e -> new ComparisonResponse.EdgeEntry(e.source(), e.target(), e.weight(), e.type().label()))
+                .map(e -> new ComparisonResponse.EdgeEntry(e.source(), e.target(), e.weight(), e.type()))
                 .toList();
         return new ComparisonResponse(
                 "ok", seeds, seeds.size(),
-                new ComparisonResponse.ComparisonParameters(relationType, top, minShared, minLogDice),
+                new ComparisonResponse.ComparisonParameters(relationType, params.topCollocates(), params.minShared(), params.minLogDice()),
                 collocates, collocates.size(),
                 counts.fullyShared(), counts.partiallyShared(), counts.specific(),
                 edges, edges.size());

@@ -41,6 +41,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -53,6 +54,7 @@ class CollocateQueryHelper {
     /** Over-fetch factor: request 3x as many hits as needed to compensate for scoring discards. */
     private static final int OVER_FETCH_FACTOR = 3;
 
+    @Nullable
     private final BlackLabIndex index;
 
     /**
@@ -64,8 +66,7 @@ class CollocateQueryHelper {
      *
      * @param index the BlackLab index to query (null permitted for test subclasses only)
      */
-    @SuppressWarnings("NullAway")
-    CollocateQueryHelper(BlackLabIndex index) {
+    CollocateQueryHelper(@Nullable BlackLabIndex index) {
         this.index = index;
     }
 
@@ -81,7 +82,7 @@ class CollocateQueryHelper {
      */
     long getTotalFrequency(String lemma) throws IOException {
         try {
-            BlackLabIndex idx = this.index;
+            BlackLabIndex idx = Objects.requireNonNull(this.index, "index must not be null in production");
             AnnotatedField field = idx.mainAnnotatedField();
             Annotation annotation = field.annotation("lemma");
             if (annotation == null) {
@@ -131,7 +132,7 @@ class CollocateQueryHelper {
     private CollocateSearch performCollocateSearch(String lemma, String bcqlPattern, boolean withStoredHits)
             throws IOException {
         try {
-            BlackLabIndex idx = this.index;
+            BlackLabIndex idx = Objects.requireNonNull(this.index, "index must not be null in production");
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));
@@ -235,7 +236,7 @@ class CollocateQueryHelper {
     List<CollocateResult> executeBcqlQuery(String bcqlPattern, int maxResults)
             throws IOException {
         try {
-            BlackLabIndex idx = this.index;
+            BlackLabIndex idx = Objects.requireNonNull(this.index, "index must not be null in production");
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));

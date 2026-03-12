@@ -156,7 +156,7 @@ class ExplorationHandlers {
 
         ComparisonResponse response = ExploreResponseAssembler.buildComparisonResponse(
             new ArrayList<>(result.nouns()), CROSS_RELATIONAL,
-            commonParams.topCollocates(), commonParams.minShared(), commonParams.minLogDice(),
+            commonParams,
             result);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
@@ -202,13 +202,6 @@ class ExplorationHandlers {
         }
         return seeds;
     }
-
-    /**
-     * Parameters shared across all exploration handlers: {@code top}, {@code min_shared},
-     * and {@code min_logdice}. Handler-specific parameters (e.g., {@code nouns_per} for
-     * single-seed, rejected {@code nouns_per} for multi-seed) are parsed inline per handler.
-     */
-    private record SharedExploreParams(int topCollocates, int minShared, double minLogDice) {}
 
     /**
      * Resolves and validates the relation parameter from request params.

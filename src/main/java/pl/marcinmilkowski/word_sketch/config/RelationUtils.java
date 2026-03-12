@@ -4,6 +4,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 
@@ -11,6 +13,8 @@ import pl.marcinmilkowski.word_sketch.model.PosGroup;
  * Shared utilities for relation identifier handling.
  */
 public final class RelationUtils {
+
+    private static final Logger logger = LoggerFactory.getLogger(RelationUtils.class);
 
     private RelationUtils() {}
 
@@ -46,6 +50,24 @@ public final class RelationUtils {
         if (relation == null) throw new IllegalArgumentException("relation must not be null");
         String lower = relation.toLowerCase();
         return RELATION_ALIASES.getOrDefault(lower, lower);
+    }
+
+    /**
+     * Validates that every target relation ID in {@link #RELATION_ALIASES} exists in the
+     * given grammar config. Logs a warning for any alias that points to an unknown ID.
+     * Call this during server startup after the grammar config is loaded.
+     *
+     * @param config the loaded grammar configuration to validate against
+     */
+    public static void validateAliases(GrammarConfig config) {
+        for (Map.Entry<String, String> entry : RELATION_ALIASES.entrySet()) {
+            String configId = entry.getValue();
+            if (config.relation(configId).isEmpty()) {
+                logger.warn(
+                    "RELATION_ALIASES entry '{}' → '{}' references unknown relation ID '{}' in grammar config",
+                    entry.getKey(), configId, configId);
+            }
+        }
     }
 
     /**

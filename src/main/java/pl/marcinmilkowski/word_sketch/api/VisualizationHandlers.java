@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.api.viz.RadialPlot;
+import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 
 import java.io.IOException;
@@ -81,14 +81,14 @@ class VisualizationHandlers {
                     throw new IllegalArgumentException(
                         "items array contains non-object element at index " + i);
                 }
-                String label = it.path("label").textValue();
-                if (label != null && label.length() > HttpApiUtils.MAX_PARAM_LENGTH) {
+                String word = it.path("word").textValue();
+                if (word != null && word.length() > HttpApiUtils.MAX_PARAM_LENGTH) {
                     throw new IllegalArgumentException(
-                        "items[" + i + "].label exceeds maximum length of "
+                        "items[" + i + "].word exceeds maximum length of "
                         + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
                 }
                 double score = it.path("score").asDouble();
-                items.add(new RadialPlot.Item(label, score));
+                items.add(new RadialPlot.Item(word, score));
             }
         }
 

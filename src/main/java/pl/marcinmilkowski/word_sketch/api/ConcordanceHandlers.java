@@ -53,7 +53,7 @@ class ConcordanceHandlers {
         Map<String, String> params = HttpApiUtils.parseQueryParams(query);
         ConcordanceExamplesRequest req = parseConcordanceExamplesRequest(params);
 
-        var rel = grammarConfig.getRelation(req.relation());
+        var rel = grammarConfig.relation(req.relation());
         String resolvedQuery = rel.isPresent()
             ? CqlUtils.substituteAtPosition(
                 RelationPatternBuilder.buildFullPattern(rel.get(), req.noun()),
@@ -83,7 +83,7 @@ class ConcordanceHandlers {
         List<Map<String, Object>> examplesList = new ArrayList<>();
         for (QueryResults.CollocateResult r : results) {
             Map<String, Object> exMap = new HashMap<>();
-            exMap.put("sentence", r.getSentence());
+            exMap.put("sentence", r.sentence());
             exMap.put("raw", r.rawXml() != null ? r.rawXml() : "");
             examplesList.add(exMap);
         }

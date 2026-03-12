@@ -94,7 +94,13 @@ public final class GrammarConfigLoader {
     }
 
     private static GrammarConfig parse(String content, Path configPath) throws IOException {
-        JSONObject root = JSON.parseObject(content);
+        JSONObject root;
+        try {
+            root = JSON.parseObject(content);
+        } catch (com.alibaba.fastjson2.JSONException e) {
+            throw new IOException("Failed to parse grammar config" +
+                (configPath != null ? " at " + configPath : "") + ": " + e.getMessage(), e);
+        }
         String version = parseAndValidateVersion(root);
         validateNoLegacyKeys(root);
         List<RelationConfig> loadedRelations = new ArrayList<>();

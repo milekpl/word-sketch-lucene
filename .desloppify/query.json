@@ -1,14 +1,252 @@
 {
   "command": "show",
-  "query": "handler_happy_paths_untested",
+  "query": "review",
   "status_filter": "open",
-  "total": 0,
-  "issues": [],
+  "total": 10,
+  "summary": {
+    "by_tier": {
+      "T1": 10
+    },
+    "by_detector": {
+      "review": 10
+    },
+    "files": 1
+  },
+  "by_file": {
+    ".": [
+      {
+        "id": "review::.::holistic::api_surface_coherence::explore_response_relation_type_duplicate::c2f2ca63",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "Explore and explore-multi responses emit `relation_type` at the top level AND `parameters.relation` with the same value, producing redundant and potentially confusing response keys",
+        "detail": {
+          "holistic": true,
+          "dimension": "api_surface_coherence",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+          ],
+          "evidence": [
+            "In buildCoreExploreResponse: response.put(\"relation_type\", relationType) sets the top-level field.",
+            "In the same method: paramsUsed.put(\"relation\", relationType) places the identical string inside the parameters sub-map.",
+            "A client reading both keys receives the same value under two different paths (response.relation_type and response.parameters.relation), but with different names, which implies they might carry different meanings."
+          ],
+          "suggestion": "Remove the top-level `relation_type` field and rely solely on `parameters.relation`, or rename one to make the duplication intentional and document it. Choosing one canonical location eliminates the ambiguity.",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::api_surface_coherence::surface_pattern_redundant_lemma::67165746",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "QueryExecutor.executeSurfacePattern requires both `lemma` and `bcqlPattern` even though lemma is already substituted into the pattern, leaking the TotalFrequency implementation detail to callers",
+        "detail": {
+          "holistic": true,
+          "dimension": "api_surface_coherence",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+          ],
+          "evidence": [
+            "Javadoc for executeSurfacePattern states: 'Both lemma and bcqlPattern are required even though lemma has already been substituted into bcqlPattern: lemma is used to look up the head-word's total corpus frequency for logDice scoring, while bcqlPattern drives the Lucene span search.'",
+            "The caller must construct and pass the same lemma value twice \u2014 once embedded in the pattern string and once as a standalone parameter \u2014 to satisfy an internal scoring concern that should not be visible at the interface boundary."
+          ],
+          "suggestion": "Encapsulate the frequency-lookup behind the interface by having executeSurfacePattern extract the head lemma from the labeled bcqlPattern (position 1:) internally, or introduce a SurfacePatternRequest value object that carries both pieces of data together and documents the relationship explicitly. Alternatively, split the concern: add a separate getHeadFrequency call that the implementation makes internally so callers need not supply lemma twice.",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::authorization_consistency::sketch_lemma_path_param_unbounded::d715262a",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "Lemma extracted from URL path segment has no length limit, unlike all query parameters which are capped at MAX_PARAM_LENGTH=200",
+        "detail": {
+          "holistic": true,
+          "dimension": "authorization_consistency",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+          ],
+          "evidence": [
+            "SketchHandlers.routeSketchRequest(): `String lemma = parts[0];` \u2014 only checks isEmpty(), no length cap before passing lemma to query execution",
+            "HttpApiUtils.requireParam() enforces `MAX_PARAM_LENGTH = 200` and throws IllegalArgumentException for all query-string parameters used across ExplorationHandlers, ConcordanceHandlers",
+            "RelationPatternBuilder.buildFullPattern() embeds the raw lemma string directly into a BCQL pattern via CqlUtils.substituteAtPosition() with no downstream length guard"
+          ],
+          "suggestion": "Add a length validation for the path-segment lemma immediately after extraction in routeSketchRequest: `if (lemma.length() > HttpApiUtils.MAX_PARAM_LENGTH) throw new IllegalArgumentException(\"Lemma too long\");` \u2014 this reuses the existing constant and wrapWithErrorHandling maps it to 400.",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::convention_outlier::get_prefix_concordance_result::1e7ae241",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "ConcordanceResult interface uses get-prefixed accessor names, violating the documented un-prefixed convention and forcing boilerplate bridge methods onto implementing records",
+        "detail": {
+          "holistic": true,
+          "dimension": "convention_outlier",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/model/package-info.java"
+          ],
+          "evidence": [
+            "ConcordanceResult interface declares getSentence(), getStartOffset(), getEndOffset(), getDocId()",
+            "model/package-info.java explicitly states: 'Record types omit the get prefix per Java record conventions. Traditional classes (non-records) also use un-prefixed accessors for consistency.'",
+            "SnippetResult and CollocateResult records each implement four boilerplate bridge methods solely to satisfy the interface (e.g. @Override public String getSentence() { return sentence; }) that would be unnecessary if the interface used sentence(), startOffset(), endOffset(), docId()"
+          ],
+          "suggestion": "Rename the ConcordanceResult interface methods to un-prefixed forms (sentence(), startOffset(), endOffset(), docId()) to match the documented codebase convention; remove the now-redundant bridge override methods from SnippetResult and CollocateResult, since Java records auto-generate the matching un-prefixed accessor methods",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::convention_outlier::get_prefix_grammar_config::ec12ab2c",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "GrammarConfig exposes get-prefixed accessor names inconsistent with the adjacent RelationConfig record's un-prefixed accessors, creating mixed calling style at every use site",
+        "detail": {
+          "holistic": true,
+          "dimension": "convention_outlier",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+          ],
+          "evidence": [
+            "GrammarConfig declares getRelations(), getRelation(String), getVersion(), getConfigPath()",
+            "RelationConfig (a record in the same package) uses id(), name(), description(), pattern(), relationType() \u2014 no get prefix",
+            "SketchHandlers.java line 81: for (var rel : grammarConfig.getRelations()) \u2014 then immediately accesses rel.id(), rel.name(), rel.pattern() without prefix, producing mixed calling style in the same loop body",
+            "model/package-info.java states un-prefixed accessors for both records and classes; GrammarConfig is the only non-record class in the production codebase that uses get-prefixed names"
+          ],
+          "suggestion": "Rename GrammarConfig accessors from getRelations/getRelation/getVersion/getConfigPath to relations/relation/version/configPath to align with the documented accessor convention and eliminate the mixed-style calling pattern at use sites",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::error_consistency::grammar_config_json_exception_leaks::d94e641f",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "GrammarConfigLoader.parse() lets JSONException escape unchecked, bypassing all callers' catch(IOException) guards",
+        "detail": {
+          "holistic": true,
+          "dimension": "error_consistency",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+          ],
+          "evidence": [
+            "Line 97: JSONObject root = JSON.parseObject(content); \u2014 no try-catch; JSONException extends RuntimeException and is not declared in throws IOException",
+            "GrammarConfigLoader.load() declares throws IOException; callers (createDefaultEnglish, handleBlackLabServerCommand) catch only IOException and IllegalArgumentException \u2014 JSONException from a malformed grammar file escapes all three catch blocks",
+            "CorpusQueryHandlers line 70 and VisualizationHandlers line 39 both catch JSONException and re-throw as IllegalArgumentException, establishing the correct pattern for JSON parse boundaries that GrammarConfigLoader does not follow",
+            "createDefaultEnglish() claims in its Javadoc to provide an actionable IllegalStateException on malformed JSON but cannot deliver this when JSONException escapes unchecked"
+          ],
+          "suggestion": "Wrap the JSON.parseObject(content) call in GrammarConfigLoader.parse() in a try-catch(JSONException) that rethrows as IOException: try { JSONObject root = JSON.parseObject(content); } catch (com.alibaba.fastjson2.JSONException e) { throw new IOException(\"Malformed grammar config JSON\" + (configPath != null ? \" at \" + configPath : \"\") + \": \" + e.getMessage(), e); }. This aligns with the pattern already used in CorpusQueryHandlers and VisualizationHandlers.",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::logic_clarity::over_fetch_nullified::5a82c98d",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "OVER_FETCH_FACTOR collects 3x hits but scoreHits truncates to maxResults before scoring, making the over-fetch a no-op",
+        "detail": {
+          "holistic": true,
+          "dimension": "logic_clarity",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+          ],
+          "evidence": [
+            "OVER_FETCH_FACTOR=3 constant comment: 'request 3x as many hits as needed to compensate for scoring discards'",
+            "executeBcqlQuery: sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR) \u2014 collects up to 3*maxResults records",
+            "collectHits(hits, sampleSize, ...) gathers up to sampleSize (e.g. 30) HitRecords",
+            "scoreHits(hitRecords, ..., maxResults): limit = Math.min(records.size(), maxResults) \u2014 iterates only the first maxResults (e.g. 10) records, leaving the extra 20 collected records unscored",
+            "The sorted().limit(maxResults) in the caller operates on the already-truncated list, so the intended 'discard-and-re-rank' effect never fires"
+          ],
+          "suggestion": "Remove the maxResults truncation from scoreHits so it processes all hitRecords: change 'int limit = Math.min(records.size(), maxResults)' to 'int limit = records.size()'. The caller's sorted().limit(maxResults) already enforces the final result cap. Alternatively, remove OVER_FETCH_FACTOR and sampleSize if over-fetching is not intended.",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::logic_clarity::redundant_posmap_empty_check::90fdfc4d",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "posMap.isEmpty() guard in buildAndRankCollocates is redundant \u2014 both branches of the ternary return the same value when the map is empty",
+        "detail": {
+          "holistic": true,
+          "dimension": "logic_clarity",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+          ],
+          "evidence": [
+            "Line: 'String pos = posMap.isEmpty() ? QueryResults.WordSketchResult.UNKNOWN_POS : posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);'",
+            "When posMap is empty, posMap.getOrDefault(collocateLemma, UNKNOWN_POS) returns UNKNOWN_POS \u2014 identical to the then-branch",
+            "The ternary simplifies to: posMap.getOrDefault(collocateLemma, UNKNOWN_POS)"
+          ],
+          "suggestion": "Replace the ternary with: 'String pos = posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);'",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::naming_quality::collect_frequencies_hides_pos_collection::a702c192",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "collectFrequenciesFromGroups silently also collects POS tags but name only advertises frequency",
+        "detail": {
+          "holistic": true,
+          "dimension": "naming_quality",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+          ],
+          "evidence": [
+            "Method signature: private void collectFrequenciesFromGroups(HitGroups groups, Function<String,String> lemmaExtractor, Map<String,Long> freqMap, Map<String,String> lemmaPosMap)",
+            "Javadoc says 'Iterates over HitGroups and populates frequency and POS maps' \u2014 the docs acknowledge the dual output but the method name does not.",
+            "Every call site passes both freqMap and lemmaPosMap and depends on both being populated after the call."
+          ],
+          "suggestion": "Rename to 'collectFrequenciesAndPosFromGroups' or 'extractLemmaFrequenciesAndPos' to make both outputs visible at the call site, eliminating the need to read the signature to discover the POS side effect.",
+          "reasoning": ""
+        }
+      },
+      {
+        "id": "review::.::holistic::naming_quality::fetch_examples_adj_noun_assumption::2a32f140",
+        "tier": 1,
+        "confidence": "high",
+        "summary": "fetchExamples parameters named 'adjective'/'noun' but the method is relation-agnostic",
+        "detail": {
+          "holistic": true,
+          "dimension": "naming_quality",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+          ],
+          "evidence": [
+            "SemanticFieldExplorer.fetchExamples signature: public List<String> fetchExamples(@NonNull String adjective, @NonNull String noun, @NonNull RelationConfig relationConfig, ...) \u2014 Javadoc says '@param adjective The adjective lemma'.",
+            "The method accepts any RelationConfig including subject_of and object_of, where the first positional argument would be a verb lemma, not an adjective.",
+            "ExplorationHandlers.handleSemanticFieldExamples: String adjective = HttpApiUtils.requireParam(params, \"collocate\"); \u2014 the HTTP param is named 'collocate' (relation-neutral) but the local variable is renamed to 'adjective', implying POS role.",
+            "The response echoes back 'collocate' (correct) while the internal logic used 'adjective' \u2014 a round-trip rename that signals the assumption was baked into the original API surface."
+          ],
+          "suggestion": "Rename the fetchExamples parameters to 'collocateLemma' and 'headLemma' (or 'seedLemma') to match the relation-neutral vocabulary used by the HTTP layer and the rest of the exploration API. Update the Javadoc accordingly. In handleSemanticFieldExamples, rename the local variables to match.",
+          "reasoning": ""
+        }
+      }
+    ]
+  },
+  "total_matching": 22,
+  "hidden": {
+    "by_detector": {
+      "review": 12
+    },
+    "total": 12
+  },
+  "noise_budget": 10,
+  "noise_global_budget": 0,
   "narrative": {
     "phase": "stagnation",
-    "headline": "\u26a0 2 security issues \u2014 review before other cleanup. Score plateaued at 81.3 for 5 scans. Type Discipline (43.6%) is where the breakthrough is. 194 wontfix items may also be worth revisiting. (3 review issues \u2014 run `desloppify show review --status open`)",
+    "headline": "Score plateaued at 81.0 for 5 scans. Test strategy (42.0%) is where the breakthrough is. 195 wontfix items may also be worth revisiting. (22 review issues \u2014 run `desloppify show review --status open`)",
     "dimensions": {
       "lowest_dimensions": [
+        {
+          "name": "Test strategy",
+          "strict": 42.0,
+          "failing": 4,
+          "impact": 0.0,
+          "subjective": true,
+          "impact_description": "re-review to improve"
+        },
         {
           "name": "Type Discipline",
           "strict": 43.6,
@@ -18,29 +256,19 @@
           "impact_description": "re-review to improve"
         },
         {
-          "name": "Stale Migration",
-          "strict": 51.2,
-          "failing": 0,
-          "impact": 0.0,
-          "subjective": true,
-          "impact_description": "re-review to improve"
-        },
-        {
-          "name": "Definition Directness",
-          "strict": 56.7,
-          "failing": 0,
-          "impact": 0.0,
-          "subjective": true,
-          "impact_description": "re-review to improve"
+          "name": "Duplication",
+          "strict": 50.0,
+          "failing": 1,
+          "impact": 0.0
         }
       ],
       "biggest_gap_dimensions": [
         {
           "name": "Duplication",
           "lenient": 90.0,
-          "strict": 60.0,
-          "gap": 30.0,
-          "wontfix_count": 3
+          "strict": 50.0,
+          "gap": 40.0,
+          "wontfix_count": 4
         }
       ],
       "stagnant_dimensions": [
@@ -50,18 +278,8 @@
           "stuck_scans": 5
         },
         {
-          "name": "Security",
-          "strict": 97.7,
-          "stuck_scans": 5
-        },
-        {
           "name": "File health",
           "strict": 100.0,
-          "stuck_scans": 5
-        },
-        {
-          "name": "Duplication",
-          "strict": 60.0,
           "stuck_scans": 5
         },
         {
@@ -80,6 +298,11 @@
           "stuck_scans": 5
         },
         {
+          "name": "AI generated debt",
+          "strict": 71.9,
+          "stuck_scans": 5
+        },
+        {
           "name": "High elegance",
           "strict": 67.3,
           "stuck_scans": 5
@@ -95,6 +318,11 @@
           "stuck_scans": 5
         },
         {
+          "name": "Cross-module arch",
+          "strict": 63.0,
+          "stuck_scans": 5
+        },
+        {
           "name": "Init coupling",
           "strict": 89.0,
           "stuck_scans": 5
@@ -102,6 +330,11 @@
         {
           "name": "Dep health",
           "strict": 91.0,
+          "stuck_scans": 5
+        },
+        {
+          "name": "Stale migration",
+          "strict": 81.4,
           "stuck_scans": 5
         },
         {
@@ -128,6 +361,11 @@
           "name": "Type Discipline",
           "strict": 43.6,
           "stuck_scans": 5
+        },
+        {
+          "name": "Stale Migration",
+          "strict": 51.2,
+          "stuck_scans": 4
         }
       ]
     },
@@ -146,8 +384,8 @@
       {
         "type": "refactor",
         "detector": "review",
-        "count": 3,
-        "description": "3 review issues need investigation \u2014 run `desloppify show review --status open` to see them",
+        "count": 22,
+        "description": "22 review issues need investigation \u2014 run `desloppify show review --status open` to see them",
         "command": "desloppify show review --status open",
         "impact": 0.0,
         "dimension": "Unknown",
@@ -164,23 +402,12 @@
         "dimension": "Code quality",
         "priority": 3,
         "lane": "refactor_2"
-      },
-      {
-        "type": "manual_fix",
-        "detector": "security",
-        "count": 2,
-        "description": "2 security issues \u2014 review and fix security issues \u2014 prioritize by severity",
-        "command": "desloppify show security --status open",
-        "impact": 0.0,
-        "dimension": "Security",
-        "priority": 4,
-        "lane": "refactor_3"
       }
     ],
     "strategy": {
       "fixer_leverage": {
         "auto_fixable_count": 0,
-        "total_count": 17,
+        "total_count": 72,
         "coverage": 0.0,
         "impact_ratio": 0.0,
         "recommendation": "none"
@@ -212,19 +439,10 @@
           "total_impact": 0.0,
           "automation": "manual",
           "run_first": false
-        },
-        "refactor_3": {
-          "actions": [
-            4
-          ],
-          "file_count": 1,
-          "total_impact": 0.0,
-          "automation": "manual",
-          "run_first": false
         }
       },
       "can_parallelize": false,
-      "hint": "Try a different dimension to break the plateau. Review: 3 issue(s) \u2014 `desloppify show review --status open`."
+      "hint": "Try a different dimension to break the plateau. Review: 22 issue(s) \u2014 `desloppify show review --status open`."
     },
     "tools": {
       "fixers": [],
@@ -246,10 +464,10 @@
       }
     },
     "debt": {
-      "overall_gap": 0.8,
-      "wontfix_count": 194,
+      "overall_gap": 1.1,
+      "wontfix_count": 195,
       "worst_dimension": "Duplication",
-      "worst_gap": 30.0,
+      "worst_gap": 40.0,
       "trend": "stable"
     },
     "milestone": null,
@@ -257,7 +475,7 @@
       "command": "desloppify show boilerplate_duplication --status open",
       "description": "1 boilerplate_duplication issues \u2014 extract shared boilerplate into reusable helpers or base classes"
     },
-    "why_now": "Try a different dimension to break the plateau. Review: 3 issue(s) \u2014 `desloppify show review --status open`.",
+    "why_now": "Try a different dimension to break the plateau. Review: 22 issue(s) \u2014 `desloppify show review --status open`.",
     "verification_step": {
       "command": "desloppify scan",
       "reason": "revalidate after changes"
@@ -266,20 +484,20 @@
       {
         "type": "wontfix_gap",
         "severity": "high",
-        "message": "Strict/lenient gap is 0.8 pts with 194 wontfix issues"
+        "message": "Strict/lenient gap is 1.1 pts with 195 wontfix issues"
       }
     ],
     "strict_target": {
       "target": 95.0,
-      "current": 81.3,
-      "gap": 13.7,
+      "current": 81.0,
+      "gap": 14.0,
       "state": "below",
       "warning": null
     },
     "reminders": [],
     "reminder_history": {
       "zone_classification": 3,
-      "report_scores": 35,
+      "report_scores": 37,
       "review_issues_pending": 3,
       "feedback_nudge": 3,
       "wontfix_growing": 1,

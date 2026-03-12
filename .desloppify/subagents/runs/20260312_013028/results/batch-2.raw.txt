@@ -1,0 +1,83 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 2,
+  "assessments": {
+    "error_consistency": 83.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling provides a single, centrally applied error boundary mapping RequestEntityTooLargeException→413, IllegalArgumentException→400, IOException→500, Exception→500; every HTTP handler is registered through this wrapper",
+        "All handler classes (ExplorationHandlers, SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) consistently throw IAE for 400-class validation failures and propagate IOException for 500s — this is a coherent, documented protocol",
+        "BlackLabQueryExecutor constructor wraps ErrorOpeningIndex (BlackLab RuntimeException) into checked IOException, giving callers a predictable contract across the I/O boundary",
+        "CollocateQueryHelper wraps InvalidQuery (unchecked) into IOException with cause chain preserved at every parse-and-execute boundary",
+        "GrammarConfigLoader.parse() calls JSON.parseObject(content) at line 97 with no surrounding try-catch; JSONException extends RuntimeException and escapes unchecked through the method declared as throws IOException — callers' catch (IOException e) blocks do not intercept it",
+        "CorpusQueryHandlers and VisualizationHandlers both catch JSONException from JSON.parseObject() and convert to IllegalArgumentException — establishing the correct pattern for JSON parse boundaries — but GrammarConfigLoader does not follow this pattern",
+        "GrammarConfigLoader.createDefaultEnglish() catches FileNotFoundException and IOException with helpful messages but cannot catch JSONException — a malformed grammar config produces a raw fastjson2 stack trace rather than the actionable error message the method claims to provide",
+        "GrammarConfigLoader.parseRelationType silently swallows IllegalArgumentException for unrecognised relation_type values, returning Optional.empty() with a logger.warn; the relation appears to load successfully but silently loses its type, deferring the failure to query time",
+        "SketchHandlers.executeRelationQueries intentionally absorbs per-relation IOException into a String errors list, returning 200 with partial data — documented and intentional but diverges from exploration endpoints which propagate IOException as 500"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "HttpApiUtils.wrapWithErrorHandling is a single, uniformly applied HTTP error boundary — every route goes through it, and the four-case mapping (413/400/500/500) is consistent across all 12+ endpoints",
+        "The IAE-for-client-error, IOException-for-server-error convention is followed uniformly across all five handler classes with no deviations",
+        "BlackLabQueryExecutor converts BlackLab's ErrorOpeningIndex (RuntimeException) into checked IOException at the constructor boundary, giving callers a consistent contract despite the third-party library's own inconsistency",
+        "InvalidQuery from BlackLab is wrapped into IOException with cause preserved in both CollocateQueryHelper code paths (executeCollocateSearchImpl and executeBcqlQuery), never silently discarded",
+        "GrammarConfigLoader.createDefaultEnglish() documents its two-tier exception contract explicitly, explaining why IOException is wrapped into IllegalStateException for DI-container callers"
+      ],
+      "issue_character": "The issues are isolated to a single gap at one I/O boundary (JSON parsing in GrammarConfigLoader) rather than a pervasive pattern — the codebase has a strong, consistently applied protocol everywhere else.",
+      "score_rationale": "The HTTP and exploration layers are very well-designed: one error boundary, one propagation convention, good cause-chain preservation. This places the codebase above 80 (solid but uneven). The deduction comes from the JSONException leakage in GrammarConfigLoader — malformed grammar JSON silently bypasses all catch (IOException) guards and produces a raw stack trace, which is a real failure-mode gap at an important startup boundary. The secondary silent swallow in parseRelationType delays detection of config typos. These two issues together pull the score to 83: better than 80 (recurring friction), but not reaching 90 (only minor friction) because the config I/O boundary has a genuine catch-contract violation."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "grammar_config_json_exception_leaks",
+      "summary": "GrammarConfigLoader.parse() lets JSONException escape unchecked, bypassing all callers' catch(IOException) guards",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Line 97: JSONObject root = JSON.parseObject(content); — no try-catch; JSONException extends RuntimeException and is not declared in throws IOException",
+        "GrammarConfigLoader.load() declares throws IOException; callers (createDefaultEnglish, handleBlackLabServerCommand) catch only IOException and IllegalArgumentException — JSONException from a malformed grammar file escapes all three catch blocks",
+        "CorpusQueryHandlers line 70 and VisualizationHandlers line 39 both catch JSONException and re-throw as IllegalArgumentException, establishing the correct pattern for JSON parse boundaries that GrammarConfigLoader does not follow",
+        "createDefaultEnglish() claims in its Javadoc to provide an actionable IllegalStateException on malformed JSON but cannot deliver this when JSONException escapes unchecked"
+      ],
+      "suggestion": "Wrap the JSON.parseObject(content) call in GrammarConfigLoader.parse() in a try-catch(JSONException) that rethrows as IOException: try { JSONObject root = JSON.parseObject(content); } catch (com.alibaba.fastjson2.JSONException e) { throw new IOException(\"Malformed grammar config JSON\" + (configPath != null ? \" at \" + configPath : \"\") + \": \" + e.getMessage(), e); }. This aligns with the pattern already used in CorpusQueryHandlers and VisualizationHandlers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "parse_relation_type_silent_swallow",
+      "summary": "GrammarConfigLoader.parseRelationType silently drops unrecognised relation_type values, deferring config typo detection to query time",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "Lines 238-243: catch(IllegalArgumentException e) for RelationType.valueOf() logs a warning and returns Optional.empty() — the relation loads successfully but silently has no type",
+        "A typo in relation_type (e.g. 'adj_predicate' instead of 'ADJ_PREDICATE') produces no load-time error; the failure appears later as 'Unknown relation' or the relation being absent from exploration",
+        "The load path already validates required fields (id, pattern) with immediate IllegalArgumentException; the different treatment for relation_type is an inconsistency within the same method"
+      ],
+      "suggestion": "Change parseRelationType to throw IllegalArgumentException for non-blank unrecognised values (blank/null remains valid for non-exploration relations): if the field is present and non-blank but not a valid enum value, throw new IllegalArgumentException(\"Config error: Unrecognised relation_type '\" + value + \"' for relation — valid values: \" + Arrays.toString(RelationType.values())). Relations without exploration participation should simply omit the field.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The JSONException leakage in GrammarConfigLoader appears to be an oversight: the correct pattern (catch JSONException, rethrow as IAE or IOException) was established when CorpusQueryHandlers and VisualizationHandlers were written but was not back-applied to the earlier config loader",
+      "The silent swallow in parseRelationType reflects a design choice (tolerant loading) that is reasonable for a schema that evolves, but the warning log alone is insufficient to surface typos reliably"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -35,7 +35,7 @@ class GrammarConfigLoaderTest {
     void fromReader_loadsRelationNames() throws IOException {
         GrammarConfig config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
 
-        List<RelationConfig> relations = config.getRelations();
+        List<RelationConfig> relations = config.relations();
         assertEquals(2, relations.size());
 
         assertEquals("noun_adj_predicates", relations.get(0).id());
@@ -50,9 +50,9 @@ class GrammarConfigLoaderTest {
     void fromReader_getRelationById() throws IOException {
         GrammarConfig config = GrammarConfigLoader.fromReader(new StringReader(MINIMAL_JSON));
 
-        assertTrue(config.getRelation("noun_adj_predicates").isPresent());
-        assertTrue(config.getRelation("noun_modifiers").isPresent());
-        assertFalse(config.getRelation("nonexistent").isPresent());
+        assertTrue(config.relation("noun_adj_predicates").isPresent());
+        assertTrue(config.relation("noun_modifiers").isPresent());
+        assertFalse(config.relation("nonexistent").isPresent());
     }
 
     @Test

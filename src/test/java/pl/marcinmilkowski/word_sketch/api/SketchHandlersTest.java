@@ -64,7 +64,7 @@ class SketchHandlersTest {
     void handleSketchRequest_singleRelation_returns200WithCollocations() throws Exception {
         GrammarConfig config = GrammarConfigHelper.requireTestConfig();
         // Pick the first surface relation by ID (IDs are URL-safe)
-        String firstRelationId = config.getRelations().stream()
+        String firstRelationId = config.relations().stream()
                 .filter(r -> r.relationType().isPresent())
                 .findFirst()
                 .map(pl.marcinmilkowski.word_sketch.config.RelationConfig::id)

@@ -40,7 +40,7 @@ class MultiSeedExplorerTest {
     }
 
     private static RelationConfig anyRelation() {
-        return GrammarConfigHelper.requireTestConfig().getRelations().stream()
+        return GrammarConfigHelper.requireTestConfig().relations().stream()
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("No relations in test grammar"));
     }

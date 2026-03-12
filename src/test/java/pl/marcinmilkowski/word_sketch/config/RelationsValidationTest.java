@@ -14,7 +14,7 @@ public class RelationsValidationTest {
     @Test
     public void testAllRelationsHaveNonNullPattern() {
         GrammarConfig loader = GrammarConfigLoader.createDefaultEnglish();
-        List<RelationConfig> relations = loader.getRelations();
+        List<RelationConfig> relations = loader.relations();
 
         assertFalse(relations.isEmpty(), "Grammar config should have at least one relation");
 
@@ -29,7 +29,7 @@ public class RelationsValidationTest {
     @Test
     public void testAllRelationsHaveValidPositions() {
         GrammarConfig loader = GrammarConfigLoader.createDefaultEnglish();
-        List<RelationConfig> relations = loader.getRelations();
+        List<RelationConfig> relations = loader.relations();
 
         for (RelationConfig rel : relations) {
             assertTrue(rel.headPosition() >= 1,
@@ -44,7 +44,7 @@ public class RelationsValidationTest {
     @Test
     public void testAllRelationsHaveNonNullId() {
         GrammarConfig loader = GrammarConfigLoader.createDefaultEnglish();
-        List<RelationConfig> relations = loader.getRelations();
+        List<RelationConfig> relations = loader.relations();
 
         for (RelationConfig rel : relations) {
             assertNotNull(rel.id(), "Relation has a null id");

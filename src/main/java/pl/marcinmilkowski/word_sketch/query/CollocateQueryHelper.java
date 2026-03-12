@@ -176,9 +176,7 @@ class CollocateQueryHelper {
 
             if (logDice >= minLogDice) {
                 double relFreq = LogDiceUtils.relativeFrequency(jointFreq, headwordFreq);
-                String pos = posMap.isEmpty()
-                        ? QueryResults.WordSketchResult.UNKNOWN_POS
-                        : posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);
+                String pos = posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);
                 results.add(new QueryResults.WordSketchResult(
                         collocateLemma, pos, jointFreq, logDice, relFreq, Collections.emptyList()));
             }
@@ -215,7 +213,7 @@ class CollocateQueryHelper {
 
             Map<String, Long> collocateFreqMap = new HashMap<>();
             List<HitRecord> hitRecords = collectHits(hits, sampleSize, collocatePos, collocateFreqMap);
-            List<QueryResults.CollocateResult> scored = scoreHits(hitRecords, collocateFreqMap, headwordFreq, maxResults);
+            List<QueryResults.CollocateResult> scored = scoreHits(hitRecords, collocateFreqMap, headwordFreq);
             return scored.stream()
                     .sorted(Comparator.comparingDouble(QueryResults.CollocateResult::logDice).reversed())
                     .limit(maxResults)
@@ -277,9 +275,11 @@ class CollocateQueryHelper {
      * Phase 2 — score each hit with logDice using corpus frequencies.
      * Frequencies for each unique collocate are pre-fetched once and cached in a local map
      * to avoid redundant {@link #getTotalFrequency} calls for the same lemma.
+     * Scores all hit records and returns the full list (unsorted); the caller is responsible for
+     * sorting by logDice and limiting to {@code maxResults}.
      */
     private List<QueryResults.CollocateResult> scoreHits(List<HitRecord> records,
-            Map<String, Long> collocateFreqMap, long headwordFreq, int maxResults) throws IOException {
+            Map<String, Long> collocateFreqMap, long headwordFreq) throws IOException {
         // Pre-compute corpus frequency for each unique collocate to avoid one call per hit.
         Map<String, Long> collocateCorpusFreqs = new HashMap<>();
         for (String collocate : collocateFreqMap.keySet()) {
@@ -287,10 +287,8 @@ class CollocateQueryHelper {
         }
 
         List<QueryResults.CollocateResult> results = new ArrayList<>();
-        int limit = Math.min(records.size(), maxResults);
 
-        for (int i = 0; i < limit; i++) {
-            HitRecord rec = records.get(i);
+        for (HitRecord rec : records) {
             String collocateLemma = rec.collocateLemma();
             boolean validCollocate = collocateLemma != null && !collocateLemma.isEmpty();
 

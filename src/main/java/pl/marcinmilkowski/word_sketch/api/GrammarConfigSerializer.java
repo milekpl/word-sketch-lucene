@@ -25,10 +25,10 @@ public final class GrammarConfigSerializer {
      */
     public static JSONObject toJson(GrammarConfig config) {
         JSONObject root = new JSONObject();
-        root.put("version", config.getVersion());
-        root.put("config_path", config.getConfigPath() != null ? config.getConfigPath().toString() : null);
+        root.put("version", config.version());
+        root.put("config_path", config.configPath() != null ? config.configPath().toString() : null);
         JSONArray relationsArray = new JSONArray();
-        for (RelationConfig rel : config.getRelations()) {
+        for (RelationConfig rel : config.relations()) {
             relationsArray.add(toJson(rel));
         }
         root.put("relations", relationsArray);

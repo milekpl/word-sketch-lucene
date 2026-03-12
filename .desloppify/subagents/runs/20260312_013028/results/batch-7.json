@@ -1,0 +1,64 @@
+{
+  "batch": "authorization_consistency",
+  "batch_index": 7,
+  "assessments": {
+    "authorization_consistency": 84.0
+  },
+  "dimension_notes": {
+    "authorization_consistency": {
+      "evidence": [
+        "WordSketchApiServer.java Javadoc explicitly documents the security model: loopback-only bind (InetAddress.getLoopbackAddress()), all endpoints intentionally unauthenticated, firewall + loopback as the trust boundary",
+        "No endpoint in any handler (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) has any authentication middleware, decorator, or guard — uniform across all siblings",
+        "HttpApiUtils.setCorsHeader() is called from every response-sending method (sendJsonResponse, sendError, sendBinaryResponse, sendOptionsResponse), ensuring CORS headers are applied uniformly across all endpoints",
+        "HttpApiUtils.requireParam() enforces MAX_PARAM_LENGTH=200 for all query parameters, applied consistently across ExplorationHandlers, ConcordanceHandlers, and CorpusQueryHandlers",
+        "SketchHandlers.routeSketchRequest() extracts the `lemma` path segment (parts[0]) with only an emptiness check but no length cap, unlike query parameters which are all capped at 200 chars via requireParam",
+        "CorpusQueryHandlers POST /api/bcql applies length (1024 chars) and complexity (20 bracket tokens) limits that have no equivalent guard on path-derived lemma in sketch routes",
+        "CORS wildcard warning is logged (HttpApiUtils line: 'cors.allow.origin is set to * — this widens the browser trust boundary across all endpoints') but wildcard is still applied — the boundary is at least signalled consistently"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "authorization_consistency": {
+      "strengths": [
+        "Security model is explicitly documented in WordSketchApiServer Javadoc: loopback-only binding is named as the trust boundary, unauthenticated access is stated as intentional, and the note warns that any widening of the bind address must be accompanied by an auth layer",
+        "No sibling routes have partial auth — zero endpoints have any auth check, making the no-auth policy perfectly uniform and free of false security gaps",
+        "CORS header application is fully centralized in HttpApiUtils.setCorsHeader(), called by every response method, so no endpoint can accidentally omit CORS headers",
+        "POST endpoints (BCQL query, radial visualization) apply consistent body-size limits (64 KB) and the BCQL endpoint adds query-length and complexity guards, showing awareness of trust-boundary enforcement at the most powerful endpoint"
+      ],
+      "issue_character": "The single defect is a narrow, localized trust-boundary inconsistency: query string parameters flow through requireParam() with a 200-char cap, but path-segment parameters (the `lemma` in /api/sketch/{lemma}) bypass that cap entirely, creating an unguarded input channel that is inconsistent with the established pattern.",
+      "score_rationale": "The codebase scores well because its security model is a deliberately chosen, fully documented 'no auth anywhere' design backed by loopback-only binding, with CORS and error handling consistently applied across all endpoints — this is a clean, coherent trust boundary rather than accidental omission. The one concrete inconsistency (path-segment lemma not length-bounded while all query params are) is a real gap in the trust-boundary enforcement pattern but is isolated to a single extraction site and straightforward to fix. A score in the low-to-mid 80s reflects a mostly consistent posture with one identifiable deviation, placing it above 'significant drag' (60) but short of 'solid and even' (90+) due to the acknowledged input-boundary mismatch."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "sketch_lemma_path_param_unbounded",
+      "summary": "Lemma extracted from URL path segment has no length limit, unlike all query parameters which are capped at MAX_PARAM_LENGTH=200",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "SketchHandlers.routeSketchRequest(): `String lemma = parts[0];` — only checks isEmpty(), no length cap before passing lemma to query execution",
+        "HttpApiUtils.requireParam() enforces `MAX_PARAM_LENGTH = 200` and throws IllegalArgumentException for all query-string parameters used across ExplorationHandlers, ConcordanceHandlers",
+        "RelationPatternBuilder.buildFullPattern() embeds the raw lemma string directly into a BCQL pattern via CqlUtils.substituteAtPosition() with no downstream length guard"
+      ],
+      "suggestion": "Add a length validation for the path-segment lemma immediately after extraction in routeSketchRequest: `if (lemma.length() > HttpApiUtils.MAX_PARAM_LENGTH) throw new IllegalArgumentException(\"Lemma too long\");` — this reuses the existing constant and wrapWithErrorHandling maps it to 400.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Path parameters are extracted via manual string splitting rather than the centralized requireParam() utility, so the length-cap policy that was applied to all query parameters was not extended to URL path segments when the routing code was written"
+    ],
+    "likely_symptoms": [
+      "sketch_lemma_path_param_unbounded"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 3,
+  "assessments": {
+    "naming_quality": 76.0
+  },
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "HTTP handler methods follow a precise, self-documenting pattern: handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison — no generic 'handle' or 'process' methods that reveal nothing.",
+        "Phase-decomposed helper names in SemanticFieldExplorer (fetchSeedCollocates, buildCollocateToNounsMap, filterByMinShared, identifyCoreCollocates) map directly to the 4-phase algorithm described in the class Javadoc.",
+        "Model record names are domain-precise: DiscoveredNoun, CoreCollocate, SeedCollocateData, AdjectiveProfile, ExplorationParams — no generic DTOs like 'Result' or 'Data'.",
+        "fetchExamples(String adjective, String noun, ...) uses ADJ/NOUN terminology in parameter names even though the method accepts any relation type (including subject_of, object_of where the collocate is a verb). The Javadoc also says '@param adjective The adjective lemma'.",
+        "handleSemanticFieldExamples locally renames the 'collocate' param to 'adjective' and 'seed' to 'noun' — the handler then puts them back as 'collocate'/'seed' in the response, creating a brief identity change that implies POS role where none is guaranteed.",
+        "collectFrequenciesFromGroups in BlackLabQueryExecutor populates both a freqMap AND a lemmaPosMap — the method name only advertises frequency collection, silently omitting the POS-tag side effect.",
+        "posGroupForPrefix(String s, String attr) in RelationPatternBuilder is opaque: 'for prefix' does not communicate that it infers a PosGroup by scanning a CQL constraint string for attribute-prefixed POS codes.",
+        "Minor vocabulary divergence: the same concept (raw seeds query-param string) is named 'seedsRaw' in handleSemanticFieldExploreMulti and 'seedsParam' in handleSemanticFieldComparison.",
+        "SemanticFieldExplorer class name implies it only explores, but the class is documented as a 'coordination facade' — it also owns compareCollocateProfiles and fetchExamples, neither of which is exploration."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "HTTP handler methods across all handler classes use precise, verb-intent names (handleSemanticFieldExplore, handleSemanticFieldComparison, routeSketchRequest) — no generic 'process' or 'manage' verbs.",
+        "Phase-decomposed private helpers in SemanticFieldExplorer and MultiSeedExplorer (fetchCollocatesPerSeed, identifyCommonCollocates, buildDiscoveredNouns, buildCoreCollocates) mirror the documented algorithm phases exactly.",
+        "Model and record names are domain-rooted and specific: DiscoveredNoun, CoreCollocate, SeedCollocateData, ExplorationParams, WordSketchResult — developers can reason about the domain from the type names alone.",
+        "Private helper record ExplorationParams uses full descriptive field names (topCollocates, minShared, minLogDice, nounsPerCollocate) rather than terse abbreviations."
+      ],
+      "issue_character": "Issues are isolated rather than systemic: most problems are concentrated in the exploration/examples boundary where the original ADJ+NOUN assumption leaked into method signatures that were later generalised to support arbitrary relations, and in one internal utility with an opaque name.",
+      "score_rationale": "The vast majority of this codebase has strong, expressive naming — a developer can navigate it by reading names alone without consulting docs. The two most meaningful issues are the 'adjective'/'noun' parameter names in fetchExamples (a name/behaviour mismatch since the method now accepts any relation, not just ADJ_PREDICATE) and the SemanticFieldExplorer class name underselling its facade scope. These are real but bounded — they affect the exploration subsystem rather than the whole codebase. The 'collectFrequenciesFromGroups' and 'posGroupForPrefix' issues are local to one file each. Overall this sits at solid but uneven (80 range) pulled down slightly by the ADJ/NOUN assumption leaking into the public API signature and the class-level naming mismatch, landing at 76."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "fetch_examples_adj_noun_assumption",
+      "summary": "fetchExamples parameters named 'adjective'/'noun' but the method is relation-agnostic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.fetchExamples signature: public List<String> fetchExamples(@NonNull String adjective, @NonNull String noun, @NonNull RelationConfig relationConfig, ...) — Javadoc says '@param adjective The adjective lemma'.",
+        "The method accepts any RelationConfig including subject_of and object_of, where the first positional argument would be a verb lemma, not an adjective.",
+        "ExplorationHandlers.handleSemanticFieldExamples: String adjective = HttpApiUtils.requireParam(params, \"collocate\"); — the HTTP param is named 'collocate' (relation-neutral) but the local variable is renamed to 'adjective', implying POS role.",
+        "The response echoes back 'collocate' (correct) while the internal logic used 'adjective' — a round-trip rename that signals the assumption was baked into the original API surface."
+      ],
+      "suggestion": "Rename the fetchExamples parameters to 'collocateLemma' and 'headLemma' (or 'seedLemma') to match the relation-neutral vocabulary used by the HTTP layer and the rest of the exploration API. Update the Javadoc accordingly. In handleSemanticFieldExamples, rename the local variables to match.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adjective_noun_assumption_leak"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "collect_frequencies_hides_pos_collection",
+      "summary": "collectFrequenciesFromGroups silently also collects POS tags but name only advertises frequency",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Method signature: private void collectFrequenciesFromGroups(HitGroups groups, Function<String,String> lemmaExtractor, Map<String,Long> freqMap, Map<String,String> lemmaPosMap)",
+        "Javadoc says 'Iterates over HitGroups and populates frequency and POS maps' — the docs acknowledge the dual output but the method name does not.",
+        "Every call site passes both freqMap and lemmaPosMap and depends on both being populated after the call."
+      ],
+      "suggestion": "Rename to 'collectFrequenciesAndPosFromGroups' or 'extractLemmaFrequenciesAndPos' to make both outputs visible at the call site, eliminating the need to read the signature to discover the POS side effect.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": null
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "pos_group_for_prefix_opaque_name",
+      "summary": "posGroupForPrefix is an opaque internal name that does not communicate what it infers or how",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationPatternBuilder.java"
+      ],
+      "evidence": [
+        "Method: private static PosGroup posGroupForPrefix(String s, String attr) — 'for prefix' says nothing about what a 'prefix' is or what POS group inference involves.",
+        "The method scans a CQL pattern string for occurrences of an attribute prefix (e.g. 'xpos=\"jj') and returns the PosGroup that matches the first found tag family.",
+        "The parameter names 's' and 'attr' are equally opaque: 's' is the CQL constraint string to search, 'attr' is the attribute name prefix to look for."
+      ],
+      "suggestion": "Rename to 'inferPosGroupFromCqlAttribute(String cqlPattern, String attributeName)' or similar. This communicates the input (a CQL pattern + attribute name) and the output (inferred PosGroup) without requiring the reader to trace through the implementation.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": null
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "seeds_raw_vs_seeds_param_divergence",
+      "summary": "Same concept named 'seedsRaw' in one handler and 'seedsParam' in the sibling handler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti line 101: String seedsRaw = HttpApiUtils.requireParam(params, \"seeds\");",
+        "handleSemanticFieldComparison line 158: String seedsParam = HttpApiUtils.requireParam(params, \"seeds\");",
+        "Both variables hold the identical thing: the raw comma-separated seeds query-parameter string before it is parsed by parseSeedSet."
+      ],
+      "suggestion": "Standardise on one name — 'seedsParam' is already the name used by the private parseSeedSet method's parameter, so align handleSemanticFieldExploreMulti to also use 'seedsParam'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": null
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The ADJ/NOUN parameter naming in fetchExamples appears to be a historical residue from when the exploration API only supported ADJ_PREDICATE and ADJ_MODIFIER relations; the parameter names were never updated when support for SUBJECT_OF and OBJECT_OF was added.",
+      "The collectFrequenciesFromGroups name drift is a minor evolution artifact: POS collection was likely added to the method after it was named, and the name was not updated."
+    ],
+    "likely_symptoms": [
+      "fetch_examples_adj_noun_assumption",
+      "seeds_raw_vs_seeds_param_divergence"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -67,12 +67,12 @@ public final class RelationUtils {
             RelationType... primaryTypes) {
         if (grammarConfig == null) return fallback;
         Set<RelationType> primary = Set.of(primaryTypes);
-        return grammarConfig.getRelations().stream()
+        return grammarConfig.relations().stream()
             .filter(r -> r.relationType().map(primary::contains).orElse(false)
                 && r.collocatePosGroup() == posGroup)
             .findFirst()
             .map(r -> RelationPatternBuilder.buildCollocateReversePattern(r))
-            .orElseGet(() -> grammarConfig.getRelations().stream()
+            .orElseGet(() -> grammarConfig.relations().stream()
                 .filter(r -> r.collocatePosGroup() == posGroup && r.relationType().isPresent())
                 .findFirst()
                 .map(r -> RelationPatternBuilder.buildCollocateReversePattern(r))

@@ -27,29 +27,19 @@ public class QueryResults {
      */
     public sealed interface ConcordanceResult
             permits QueryResults.SnippetResult, QueryResults.CollocateResult {
-        String getSentence();
-        int getStartOffset();
-        int getEndOffset();
-        String getDocId();
+        String sentence();
+        int startOffset();
+        int endOffset();
+        String docId();
     }
 
     /** Plain concordance result carrying only sentence text and match position. */
     public record SnippetResult(String sentence, int startOffset, int endOffset, String docId)
-            implements ConcordanceResult {
-        @Override public String getSentence() { return sentence; }
-        @Override public int getStartOffset() { return startOffset; }
-        @Override public int getEndOffset() { return endOffset; }
-        @Override public String getDocId() { return docId; }
-    }
+            implements ConcordanceResult {}
 
     /** Scored collocate result produced by the BCQL scoring pipeline. */
     public record CollocateResult(String sentence, String rawXml,
                                    int startOffset, int endOffset, String docId,
                                    @Nullable String collocateLemma, long frequency, double logDice)
-            implements ConcordanceResult {
-        @Override public String getSentence() { return sentence; }
-        @Override public int getStartOffset() { return startOffset; }
-        @Override public int getEndOffset() { return endOffset; }
-        @Override public String getDocId() { return docId; }
-    }
+            implements ConcordanceResult {}
 }

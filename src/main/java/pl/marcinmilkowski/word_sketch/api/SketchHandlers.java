@@ -49,6 +49,9 @@ class SketchHandlers {
         }
 
         String lemma = parts[0];
+        if (lemma.length() > HttpApiUtils.MAX_PARAM_LENGTH) {
+            throw new IllegalArgumentException("Lemma exceeds maximum length of " + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
+        }
 
         if (parts.length > 1 && "dep".equals(parts[1])) {
             String specificDeprel = parts.length > 2 ? parts[2] : null;
@@ -78,7 +81,7 @@ class SketchHandlers {
 
     private void handleRelationsForType(HttpExchange exchange, RelationType relationType) throws IOException {
         JSONArray relationsArray = new JSONArray();
-        for (var rel : grammarConfig.getRelations()) {
+        for (var rel : grammarConfig.relations()) {
             var rt = rel.relationType().orElse(null);
             if (rt == relationType) {
                 Map<String, Object> obj = new HashMap<>();
@@ -176,7 +179,7 @@ class SketchHandlers {
             Map<String, Object> byRelation,
             List<String> relationErrors,
             BiFunction<pl.marcinmilkowski.word_sketch.config.RelationConfig, ExecutedSketch, Map<String, Object>> builder) {
-        for (var rel : grammarConfig.getRelations()) {
+        for (var rel : grammarConfig.relations()) {
             if (rel.relationType().orElse(null) != relationType) continue;
             if (!extraFilter.test(rel)) continue;
             try {
@@ -199,7 +202,7 @@ class SketchHandlers {
     }
 
     private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {
-        var rel = grammarConfig.getRelation(relationId).orElse(null);
+        var rel = grammarConfig.relation(relationId).orElse(null);
         if (rel == null) {
             throw new IllegalArgumentException("Unknown relation: " + relationId);
         }

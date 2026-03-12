@@ -18,10 +18,10 @@ class HybridAlgorithmTest {
     void testGrammarConfigLoads() {
         GrammarConfig grammarConfig = GrammarConfigLoader.createDefaultEnglish();
         assertNotNull(grammarConfig, "Grammar config should load");
-        assertFalse(grammarConfig.getRelations().isEmpty(), "Should have relations");
+        assertFalse(grammarConfig.relations().isEmpty(), "Should have relations");
 
         // Check noun_adj_predicates has full pattern with copula
-        var adjPredRel = grammarConfig.getRelation("noun_adj_predicates").orElse(null);
+        var adjPredRel = grammarConfig.relation("noun_adj_predicates").orElse(null);
         assertNotNull(adjPredRel, "noun_adj_predicates should exist");
         String pattern = adjPredRel.pattern();
         assertNotNull(pattern, "Should have pattern");
@@ -33,7 +33,7 @@ class HybridAlgorithmTest {
     void testNounModifiersRelation() {
         GrammarConfig grammarConfig = GrammarConfigLoader.createDefaultEnglish();
 
-        var rel = grammarConfig.getRelation("noun_modifiers").orElse(null);
+        var rel = grammarConfig.relation("noun_modifiers").orElse(null);
         assertNotNull(rel, "noun_modifiers relation should exist");
 
         // Check pattern contains adjective tag
@@ -47,7 +47,7 @@ class HybridAlgorithmTest {
     void testAdjPredicatesRelation() {
         GrammarConfig grammarConfig = GrammarConfigLoader.createDefaultEnglish();
 
-        var rel = grammarConfig.getRelation("noun_adj_predicates").orElse(null);
+        var rel = grammarConfig.relation("noun_adj_predicates").orElse(null);
         assertNotNull(rel, "noun_adj_predicates relation should exist");
 
         // Pattern should include copula lemmas like "be", "appear", "seem"
@@ -62,7 +62,7 @@ class HybridAlgorithmTest {
     void testAllRelationsHavePatterns() {
         GrammarConfig grammarConfig = GrammarConfigLoader.createDefaultEnglish();
 
-        for (RelationConfig rel : grammarConfig.getRelations()) {
+        for (RelationConfig rel : grammarConfig.relations()) {
             assertNotNull(rel.pattern(), "Relation " + rel.id() + " should have pattern");
             assertFalse(rel.pattern().isEmpty(), "Relation " + rel.id() + " pattern should not be empty");
         }
@@ -73,7 +73,7 @@ class HybridAlgorithmTest {
     void testRelationsHavePositions() {
         GrammarConfig grammarConfig = GrammarConfigLoader.createDefaultEnglish();
 
-        var rel = grammarConfig.getRelation("noun_adj_predicates").orElse(null);
+        var rel = grammarConfig.relation("noun_adj_predicates").orElse(null);
         assertNotNull(rel, "noun_adj_predicates should exist");
 
         // Check positions are valid

@@ -255,7 +255,7 @@ public class Main {
         try {
             var grammarPath = java.nio.file.Paths.get(grammarConfigPath);
             grammarConfig = GrammarConfigLoader.load(grammarPath);
-            System.out.println("Loaded grammar config: " + grammarConfig.getVersion());
+            System.out.println("Loaded grammar config: " + grammarConfig.version());
         } catch (IllegalArgumentException e) {
             logger.error("Invalid grammar config at '{}': {}", grammarConfigPath, e.getMessage());
             System.err.println("Error: invalid grammar config at '" + grammarConfigPath + "': " + e.getMessage());

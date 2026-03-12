@@ -100,10 +100,10 @@ class CorpusQueryHandlers {
         List<Map<String, Object>> resultsList = new ArrayList<>();
         for (QueryResults.CollocateResult r : results) {
             Map<String, Object> resultMap = new HashMap<>();
-            resultMap.put("sentence", r.getSentence());
+            resultMap.put("sentence", r.sentence());
             resultMap.put("raw", r.rawXml() != null ? r.rawXml() : "");
-            resultMap.put("match_start", r.getStartOffset());
-            resultMap.put("match_end", r.getEndOffset());
+            resultMap.put("match_start", r.startOffset());
+            resultMap.put("match_end", r.endOffset());
             resultMap.put("collocate_lemma", r.collocateLemma() != null ? r.collocateLemma() : "");
             resultMap.put("frequency", r.frequency());
             resultMap.put("log_dice", r.logDice());

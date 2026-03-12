@@ -189,19 +189,19 @@ class ExplorationHandlers {
     void handleSemanticFieldExamples(HttpExchange exchange) throws IOException {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
-        String adjective = HttpApiUtils.requireParam(params, "collocate");
-        String noun = HttpApiUtils.requireParam(params, "seed");
+        String collocate = HttpApiUtils.requireParam(params, "collocate");
+        String seed = HttpApiUtils.requireParam(params, "seed");
 
         int maxExamples = HttpApiUtils.parseIntParam(params, "top", 10);
 
         RelationConfig resolvedConfig = resolveRelationConfig(params);
 
-        List<String> examples = semanticFieldExplorer.fetchExamples(adjective, noun, resolvedConfig, new FetchExamplesOptions(maxExamples));
+        List<String> examples = semanticFieldExplorer.fetchExamples(collocate, seed, resolvedConfig, new FetchExamplesOptions(maxExamples));
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("collocate", adjective);
-        response.put("seed", noun);
+        response.put("collocate", collocate);
+        response.put("seed", seed);
         response.put("examples", examples);
         response.put("total_results", examples.size());
 
@@ -218,7 +218,6 @@ class ExplorationHandlers {
             Map<String, Object> extraParams) {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("relation_type", relationType);
 
         Map<String, Object> paramsUsed = new HashMap<>();
         paramsUsed.put("relation", relationType);
@@ -251,7 +250,7 @@ class ExplorationHandlers {
     private RelationConfig resolveRelationConfig(Map<String, String> params) {
         String relationId = RelationUtils.resolveRelationAlias(
             params.getOrDefault("relation", "noun_adj_predicates"));
-        var relationConfig = grammarConfig.getRelation(relationId);
+        var relationConfig = grammarConfig.relation(relationId);
         if (relationConfig.isEmpty()) {
             throw new IllegalArgumentException("Unknown relation: " + relationId);
         }

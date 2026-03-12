@@ -323,23 +323,23 @@ public class SemanticFieldExplorer {
     }
 
     /**
-     * Fetch example sentences for an adjective-noun pair using the provided relation pattern.
+     * Fetch example sentences for a collocate-headword pair using the provided relation pattern.
      *
-     * @param adjective      The adjective lemma
-     * @param noun           The noun lemma
-     * @param relationConfig The relation config defining how adjective and noun co-occur
+     * @param collocate      The collocate lemma (e.g. an adjective)
+     * @param headword       The headword lemma (e.g. a noun)
+     * @param relationConfig The relation config defining how collocate and headword co-occur
      * @param opts           Options controlling how many examples to fetch
-     * @return List of example sentences showing the adjective-noun combination
+     * @return List of example sentences showing the collocate-headword combination
      */
-    public @NonNull List<String> fetchExamples(@NonNull String adjective, @NonNull String noun,
+    public @NonNull List<String> fetchExamples(@NonNull String collocate, @NonNull String headword,
             @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)
             throws IOException {
-        String bcqlQuery = RelationPatternBuilder.buildFullPattern(relationConfig, noun.toLowerCase(), adjective.toLowerCase());
+        String bcqlQuery = RelationPatternBuilder.buildFullPattern(relationConfig, headword.toLowerCase(), collocate.toLowerCase());
 
         List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, opts.maxExamples());
 
         return results.stream()
-            .map(QueryResults.CollocateResult::getSentence)
+            .map(QueryResults.CollocateResult::sentence)
             .distinct()
             .limit(opts.maxExamples())
             .collect(Collectors.toList());

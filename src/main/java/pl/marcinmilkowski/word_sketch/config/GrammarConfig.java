@@ -29,12 +29,12 @@ public final class GrammarConfig {
     }
 
     /** @return all grammar relations in declaration order; never null, may be empty */
-    public List<RelationConfig> getRelations() {
+    public List<RelationConfig> relations() {
         return relations;
     }
 
     /** @return the relation config for the given ID, or empty if no relation with that ID is registered */
-    public Optional<RelationConfig> getRelation(String id) {
+    public Optional<RelationConfig> relation(String id) {
         return Optional.ofNullable(relationsById.get(id));
     }
 
@@ -42,12 +42,12 @@ public final class GrammarConfig {
      * @return the grammar version string from the config file (e.g. {@code "1.0"});
      *         never null — the loader rejects configs that omit the version field
      */
-    public @org.jspecify.annotations.NonNull String getVersion() {
+    public @org.jspecify.annotations.NonNull String version() {
         return version;
     }
 
     /** @return the path to the config file this grammar was loaded from, or null when loaded from the classpath */
-    public @org.jspecify.annotations.Nullable Path getConfigPath() {
+    public @org.jspecify.annotations.Nullable Path configPath() {
         return configPath;
     }
 }

@@ -1,0 +1,126 @@
+{
+  "batch": "convention_outlier",
+  "batch_index": 1,
+  "assessments": {
+    "convention_outlier": 72.0
+  },
+  "dimension_notes": {
+    "convention_outlier": {
+      "evidence": [
+        "ConcordanceResult interface (model/QueryResults.java) uses getSentence(), getStartOffset(), getEndOffset(), getDocId() — get-prefixed names — while model/package-info.java explicitly documents 'Traditional classes (non-records) also use un-prefixed accessors for consistency'; the implementing records SnippetResult and CollocateResult each carry boilerplate bridge methods (@Override public String getSentence() { return sentence; }) purely to satisfy the interface",
+        "GrammarConfig (config package) exposes getRelations(), getRelation(), getVersion(), getConfigPath() — JavaBean-style get-prefixed names — while the adjacent RelationConfig record uses id(), pattern(), description() without prefix; callers mix both styles in the same method body (e.g. SketchHandlers.java: for (var rel : grammarConfig.getRelations()) { ... rel.id() ... rel.pattern() ... })",
+        "ExplorationHandlers constructor signature is ExplorationHandlers(GrammarConfig, SemanticFieldExplorer) — grammarConfig first — while all sibling handler constructors (SketchHandlers, ConcordanceHandlers) use (QueryExecutor, GrammarConfig) — executor first; the inconsistency is visible at the construction site in WordSketchApiServer: new SketchHandlers(executor, grammarConfig) vs new ExplorationHandlers(grammarConfig, semanticFieldExplorer)",
+        "QueryResults is a pure namespace-container class (private constructor, no instance logic) holding inner types WordSketchResult, ConcordanceResult, SnippetResult, CollocateResult; every other domain type in the model package is a top-level class or record — QueryResults is the only namespace-container pattern, and it is not documented in model/package-info.java",
+        "Handler classes in the api package consistently follow the *Handlers naming pattern (SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers, ExplorationHandlers) with package-private visibility; utility/assembler classes also have package-private visibility (HttpApiUtils, ExploreResponseAssembler) except GrammarConfigSerializer which is public — justified by cross-package test use, but the asymmetry is locally surprising"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "convention_outlier": {
+      "strengths": [
+        "Package naming is consistently lowercase snake_case (api, config, exploration, model, query, utils, viz) with no drift across 8 packages",
+        "All HTTP handler classes follow the *Handlers suffix pattern uniformly across 5 sibling classes",
+        "Utility/static-factory classes follow the *Utils pattern (CqlUtils, LogDiceUtils, MathUtils) and are all final with private constructors",
+        "model/package-info.java explicitly documents the record-vs-class type strategy and the un-prefixed accessor convention, giving the module a written specification to measure drift against",
+        "Private record types (ExplorationParams, BcqlRequest, ConcordanceExamplesRequest, ExecutedSketch) are consistently co-located with their single consuming method rather than promoted to top-level types"
+      ],
+      "issue_character": "The issues are naming-style inconsistencies concentrated around accessor conventions — a get-prefixed interface in a no-prefix codebase, a get-prefixed class beside un-prefixed records — rather than broad structural drift; they are noticeable to a developer reading adjacent code but do not indicate failing conventions across the whole codebase.",
+      "score_rationale": "The codebase has genuinely strong conventions: consistent package naming, consistent handler and utility naming patterns, and a written type-strategy specification in package-info.java. What pulls the score down is that the documented un-prefixed accessor convention is violated in two places that developers encounter frequently — the ConcordanceResult interface forces boilerplate bridge methods onto its record implementors, and GrammarConfig presents a get-prefixed API surface right beside un-prefixed RelationConfig record accessors. These are real points of friction that erode the convention's authority. A score in the low 70s reflects a codebase that is broadly consistent but has meaningful drift in a central area."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "get_prefix_concordance_result",
+      "summary": "ConcordanceResult interface uses get-prefixed accessor names, violating the documented un-prefixed convention and forcing boilerplate bridge methods onto implementing records",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/package-info.java"
+      ],
+      "evidence": [
+        "ConcordanceResult interface declares getSentence(), getStartOffset(), getEndOffset(), getDocId()",
+        "model/package-info.java explicitly states: 'Record types omit the get prefix per Java record conventions. Traditional classes (non-records) also use un-prefixed accessors for consistency.'",
+        "SnippetResult and CollocateResult records each implement four boilerplate bridge methods solely to satisfy the interface (e.g. @Override public String getSentence() { return sentence; }) that would be unnecessary if the interface used sentence(), startOffset(), endOffset(), docId()"
+      ],
+      "suggestion": "Rename the ConcordanceResult interface methods to un-prefixed forms (sentence(), startOffset(), endOffset(), docId()) to match the documented codebase convention; remove the now-redundant bridge override methods from SnippetResult and CollocateResult, since Java records auto-generate the matching un-prefixed accessor methods",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "accessor_naming_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "get_prefix_grammar_config",
+      "summary": "GrammarConfig exposes get-prefixed accessor names inconsistent with the adjacent RelationConfig record's un-prefixed accessors, creating mixed calling style at every use site",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "GrammarConfig declares getRelations(), getRelation(String), getVersion(), getConfigPath()",
+        "RelationConfig (a record in the same package) uses id(), name(), description(), pattern(), relationType() — no get prefix",
+        "SketchHandlers.java line 81: for (var rel : grammarConfig.getRelations()) — then immediately accesses rel.id(), rel.name(), rel.pattern() without prefix, producing mixed calling style in the same loop body",
+        "model/package-info.java states un-prefixed accessors for both records and classes; GrammarConfig is the only non-record class in the production codebase that uses get-prefixed names"
+      ],
+      "suggestion": "Rename GrammarConfig accessors from getRelations/getRelation/getVersion/getConfigPath to relations/relation/version/configPath to align with the documented accessor convention and eliminate the mixed-style calling pattern at use sites",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "accessor_naming_drift"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "handler_constructor_param_order",
+      "summary": "ExplorationHandlers constructor puts GrammarConfig before SemanticFieldExplorer, reversing the (executor, grammarConfig) parameter order established by all sibling handler constructors",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "SketchHandlers constructor: SketchHandlers(QueryExecutor executor, GrammarConfig grammarConfig) — executor first",
+        "ConcordanceHandlers constructor: ConcordanceHandlers(QueryExecutor executor, GrammarConfig grammarConfig) — executor first",
+        "ExplorationHandlers constructor: ExplorationHandlers(GrammarConfig grammarConfig, SemanticFieldExplorer semanticFieldExplorer) — grammarConfig first",
+        "WordSketchApiServer construction site: new SketchHandlers(executor, grammarConfig) / new ExplorationHandlers(grammarConfig, semanticFieldExplorer) / new ConcordanceHandlers(executor, grammarConfig) — the ExplorationHandlers call breaks the visual parallel"
+      ],
+      "suggestion": "Reorder ExplorationHandlers constructor parameters to (SemanticFieldExplorer semanticFieldExplorer, GrammarConfig grammarConfig) or, if GrammarConfig must come first, document the rationale; update the construction call in WordSketchApiServer accordingly",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": null
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "query_results_namespace_container",
+      "summary": "QueryResults is a pure namespace-container class with no instance state or logic, a pattern unique in the model package with no documented rationale",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/package-info.java"
+      ],
+      "evidence": [
+        "QueryResults has only 'private QueryResults() {}' — no fields, no instance methods, no logic; it exists solely as a namespace for WordSketchResult, ConcordanceResult, SnippetResult, CollocateResult",
+        "Every other domain type in the package is top-level: AdjectiveProfile, CoreCollocate, DiscoveredNoun, Edge, ExplorationOptions, ExplorationResult, ComparisonResult etc.",
+        "package-info.java categorises model types as 'Pure DTOs' and 'Model objects with derived accessors' but does not mention the namespace-container pattern or explain why these four types are grouped rather than promoted",
+        "Callers reference types as QueryResults.WordSketchResult and QueryResults.CollocateResult while all other model types are referenced unqualified"
+      ],
+      "suggestion": "Promote WordSketchResult, ConcordanceResult, SnippetResult, and CollocateResult to top-level classes/records to match every other type in the package; if namespace grouping is intentional, add a sentence to package-info.java explaining the rationale",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": null
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "accessor_naming_drift: GrammarConfig was likely written before the un-prefixed accessor convention was established (or documented in package-info.java), and ConcordanceResult inherited JavaBean naming without being updated when the convention was documented",
+      "QueryResults may have been introduced early as a convenience grouping before the model package grew to its current size, and was never refactored to match the top-level type pattern"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

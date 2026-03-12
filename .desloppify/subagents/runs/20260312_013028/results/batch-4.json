@@ -1,0 +1,101 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 4,
+  "assessments": {
+    "logic_clarity": 76.0
+  },
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "OVER_FETCH_FACTOR=3 constant in CollocateQueryHelper is stated to 'request 3x as many hits as needed to compensate for scoring discards', but scoreHits() takes limit=Math.min(records.size(), maxResults) and only scores the first maxResults records, leaving the extra collected records unscored — the over-fetch achieves nothing",
+        "In buildAndRankCollocates, the expression 'posMap.isEmpty() ? UNKNOWN_POS : posMap.getOrDefault(collocateLemma, UNKNOWN_POS)' is equivalent to 'posMap.getOrDefault(collocateLemma, UNKNOWN_POS)' — the isEmpty guard is redundant because getOrDefault handles the empty map case identically",
+        "In the package-private SemanticFieldExplorer.exploreByPattern overload, opts.base().topCollocates() and related opts accesses are performed before the 'if (seed == null || seed.isEmpty())' null check — if opts is null a NPE fires instead of the meaningful IAE that would fire on seed; the method has no @NonNull annotations on its parameters",
+        "Control flow in all 14+ HTTP handler methods is consistently structured with early returns: missing params throw IAE before any I/O, which wrapWithErrorHandling maps cleanly to 400",
+        "ConlluConverter.processLines documents and upholds the invariant 'inSentence implies writer != null', and rotateChunkIfNeeded returns null/non-null as a rotation signal — clear and verifiable",
+        "BlackLabSnippetParser methods have explicit null guards at every entry point and @Nullable annotations on return types where null is possible; the fall-through path in findLabelTokenIndex is correctly annotated as unreachable"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses on public API boundaries are thorough and consistent: exploreByPattern(RelationConfig) validates relationType().isEmpty() and collocatePosGroup()==OTHER before delegating, and all HTTP handlers validate required params before any I/O",
+        "wrapWithErrorHandling centralises exception-to-HTTP-status mapping with a clear hierarchy (413 > IAE→400 > IOException→500 > Exception→500) that is unambiguous to follow",
+        "BlackLabSnippetParser applies explicit null guards at every entry point and @Nullable annotations on all nullable return types, making control paths predictable",
+        "ConlluConverter.processLines documents its key invariant in Javadoc and the chunk-rotation helper uses a null/non-null long[] signal that cleanly separates 'rotated' from 'not rotated' without boolean flags",
+        "Empty-result early returns are consistently applied throughout the query layer (executeCollocations, executeDependencyPattern, buildSketch) with clear debug log messages explaining the skip"
+      ],
+      "issue_character": "Issues are isolated oversights rather than systemic confusion: one real semantic bug where a stated over-fetch strategy is voided by a later truncation, one redundant boolean guard that is harmless, and one null-check ordering problem in a package-private method — none share a common root cause.",
+      "score_rationale": "The large majority of logic is clear, intentional, and provably correct: guard clauses, null handling, and control-flow delegation are consistently applied across all handler and query classes. The over-fetch bug in CollocateQueryHelper is the most significant finding — the constant, its comment, and the implementation directly contradict each other, making the scoring pipeline behave differently from what the code claims, but the impact is contained to executeBcqlQuery and the fix is a single-line change. The two minor issues (redundant isEmpty guard and null-check ordering) further prevent a fully clean score. Overall this is solidly in the 75–80 range: one genuine logic defect in a contained path, otherwise a codebase whose control flow accurately represents its intent."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "over_fetch_nullified",
+      "summary": "OVER_FETCH_FACTOR collects 3x hits but scoreHits truncates to maxResults before scoring, making the over-fetch a no-op",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "OVER_FETCH_FACTOR=3 constant comment: 'request 3x as many hits as needed to compensate for scoring discards'",
+        "executeBcqlQuery: sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR) — collects up to 3*maxResults records",
+        "collectHits(hits, sampleSize, ...) gathers up to sampleSize (e.g. 30) HitRecords",
+        "scoreHits(hitRecords, ..., maxResults): limit = Math.min(records.size(), maxResults) — iterates only the first maxResults (e.g. 10) records, leaving the extra 20 collected records unscored",
+        "The sorted().limit(maxResults) in the caller operates on the already-truncated list, so the intended 'discard-and-re-rank' effect never fires"
+      ],
+      "suggestion": "Remove the maxResults truncation from scoreHits so it processes all hitRecords: change 'int limit = Math.min(records.size(), maxResults)' to 'int limit = records.size()'. The caller's sorted().limit(maxResults) already enforces the final result cap. Alternatively, remove OVER_FETCH_FACTOR and sampleSize if over-fetching is not intended.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "redundant_posmap_empty_check",
+      "summary": "posMap.isEmpty() guard in buildAndRankCollocates is redundant — both branches of the ternary return the same value when the map is empty",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Line: 'String pos = posMap.isEmpty() ? QueryResults.WordSketchResult.UNKNOWN_POS : posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);'",
+        "When posMap is empty, posMap.getOrDefault(collocateLemma, UNKNOWN_POS) returns UNKNOWN_POS — identical to the then-branch",
+        "The ternary simplifies to: posMap.getOrDefault(collocateLemma, UNKNOWN_POS)"
+      ],
+      "suggestion": "Replace the ternary with: 'String pos = posMap.getOrDefault(collocateLemma, QueryResults.WordSketchResult.UNKNOWN_POS);'",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "seed_null_check_ordering",
+      "summary": "In the package-private SemanticFieldExplorer.exploreByPattern overload, opts is dereferenced before the seed null check, reversing the intended validation order",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Method signature has no @NonNull annotations on parameters",
+        "First lines call opts.base().topCollocates(), opts.nounsPerCollocate(), opts.base().minLogDice(), opts.base().minShared()",
+        "Only after those four accesses does the guard 'if (seed == null || seed.isEmpty()) throw new IllegalArgumentException(...)' fire",
+        "If opts is null and seed is non-null, an undescriptive NPE fires instead of a meaningful IAE; if both are null, the NPE on opts fires before the IAE on seed"
+      ],
+      "suggestion": "Move the seed null check (and optionally an opts null check) to the top of the method, before any field accesses. Add @NonNull annotations to the package-private method parameters to match the public overload, or reorder the guard so seed is validated first.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The over-fetch bug likely originated when scoreHits was originally written to be the final result cap and was later split from the scoring loop without updating the truncation logic to reflect the new caller-side limit",
+      "The redundant isEmpty check may have been added defensively at an earlier stage before getOrDefault was used, and was not cleaned up when the getOrDefault fallback was introduced"
+    ],
+    "likely_symptoms": [
+      "over_fetch_nullified — the OVER_FETCH_FACTOR constant and its comment are the visible symptom of an underlying implementation mismatch"
+    ],
+    "possible_false_positives": []
+  }
+}

@@ -37,10 +37,10 @@ public class BlackLabBcqlConcordanceTest {
             List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlPattern, 5);
 
             for (QueryResults.CollocateResult r : results) {
-                assertNotNull(r.getSentence(), "Sentence should not be null");
-                assertFalse(r.getSentence().isEmpty(), "Sentence should not be empty");
+                assertNotNull(r.sentence(), "Sentence should not be null");
+                assertFalse(r.sentence().isEmpty(), "Sentence should not be empty");
 
-                String sentence = r.getSentence();
+                String sentence = r.sentence();
                 boolean isFullSentence = sentence.contains(".") || sentence.split("\\s+").length > 10;
                 assertTrue(isFullSentence, "Should return full sentence, got: " + sentence);
 
@@ -63,11 +63,11 @@ public class BlackLabBcqlConcordanceTest {
             assertTrue(results.size() > 0, "Should find results for 'concept is <adj>'");
 
             for (QueryResults.CollocateResult r : results) {
-                String sentence = r.getSentence();
+                String sentence = r.sentence();
                 assertTrue(sentence.toLowerCase().contains("concept"),
                     "Sentence should contain 'concept', got: " + sentence);
-                assertTrue(r.getSentence().length() > 50,
-                    "Should return full sentence, got: " + r.getSentence().length() + " chars");
+                assertTrue(r.sentence().length() > 50,
+                    "Should return full sentence, got: " + r.sentence().length() + " chars");
             }
         }
     }

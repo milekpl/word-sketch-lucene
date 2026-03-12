@@ -1,0 +1,127 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 6,
+  "assessments": {
+    "test_strategy": 61.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "All handler tests (ExplorationHandlersTest, SketchHandlersTest, ConcordanceHandlersTest, CorpusQueryHandlersTest) use stub QueryExecutor anonymous classes — no live index required in CI",
+        "ExplorationHandlersTest covers both happy paths and 10+ negative/validation paths (missing params, unknown relation, single seed, invalid numeric param)",
+        "WordSketchApiServerTest starts a real server on ephemeral port 18080 with @BeforeEach/@AfterEach lifecycle — verifies HTTP binding and clean shutdown",
+        "CollocateQueryHelper's executeCollocateSearchImpl, collectHits, scoreHits are untested in CI — only buildAndRankCollocates and extractCollocateLemma have unit tests",
+        "BlackLabConllUIndexerTest is @Disabled at class level: requires conllu-sentences.blf.yaml not distributed with source; entire indexing pipeline has no CI coverage",
+        "Stub QueryExecutor anonymous class is copy-pasted in at least 7 test files: ExplorationHandlersTest, SketchHandlersTest, ConcordanceHandlersTest, CorpusQueryHandlersTest, WordSketchApiServerTest, SemanticFieldExplorerInternalTest, MultiSeedExplorerTest",
+        "SemanticFieldExplorer.fetchExamples business logic (RelationPatternBuilder.buildFullPattern + BCQL query) is only tested via handler test with an empty stub executor (returns empty list) — the pattern-building logic is not exercised",
+        "SemanticFieldExplorer.exploreMultiSeed is directly tested in SemanticFieldExplorerTest; compareCollocateProfiles has thorough dedicated tests",
+        "Live-index tests (BlackLabQueryExecutorTest.LiveIndex, DependencySketchTest, BlackLabBcqlConcordanceTest, BlackLabQueryExecutorIntegrationTest) are properly gated with @Disabled + Assumptions.assumeTrue with documented env-var instructions"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Stub QueryExecutor pattern enables all handler and exploration tests to run in CI without a live BlackLab index — correct isolation boundary for a corpus-dependent application",
+        "Handler tests cover both happy paths and validation/negative paths thoroughly (missing params, unknown relation, single seed, invalid numeric values, empty seeds)",
+        "WordSketchApiServerTest uses a real HTTP client against an ephemeral port to verify server lifecycle (start, route dispatch, clean stop) — this is a genuine cross-module integration test that runs in CI",
+        "Live-index integration tests exist and are properly gated: @Disabled with clear instructions and Assumptions.assumeTrue as a secondary guard; the indexer tests also document what config file is needed",
+        "SemanticFieldExplorer public API (exploreByPattern, exploreMultiSeed, compareCollocateProfiles) all have dedicated unit test classes covering edge cases and happy paths with stub executors"
+      ],
+      "issue_character": "The issues are concentrated in one pattern: the critical index-execution path (CollocateQueryHelper search methods, the full indexer pipeline) is structurally untestable in CI because BlackLab requires a real on-disk index, and no effort has been made to create a minimal in-memory test index fixture; additionally, stub duplication across 7 test files creates systemic coupling to the QueryExecutor interface.",
+      "score_rationale": "The codebase sits between a 60 (significant drag) and a 65 (solid in parts). The handler test coverage is genuinely strong — happy paths, error paths, lifecycle — and the test architecture (stub injection, interface-backed mocking) is well-considered. However, CollocateQueryHelper's actual BlackLab hit-collection code and the entire indexing pipeline have zero CI-runnable test coverage, which means the core business logic of the application (how it queries, samples, and scores collocates from the corpus) is dark in automated testing. The proliferating stub copies across 7 files add maintenance fragility but are not yet structural failures. The overall picture is a codebase that has built good scaffolding around its untestable core — solid foundation, but the most critical paths remain unverified in CI."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "query_exec_core_untested",
+      "summary": "CollocateQueryHelper's primary search path (executeCollocateSearchImpl, collectHits, scoreHits) has no CI-runnable test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelperTest.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelperTest only tests buildAndRankCollocates (called with a pre-built frequency map) and extractCollocateLemma — both are data-transformation methods, not the query-execution methods",
+        "executeCollocateSearchImpl (line 128) contains the OVER_FETCH_FACTOR=3 logic, InvalidQuery handling, and hit grouping — none of this is exercised by any CI test",
+        "collectHits and scoreHits (lines 233 and 281) contain the core result assembly and logDice-per-hit computation; only their inputs/outputs are indirectly verified via stub executors at higher layers"
+      ],
+      "suggestion": "Create a minimal BlackLab in-memory test index using BlackLab's test utilities or a small TempDir-based index seeded with 3–5 sentences, then test executeCollocateSearchImpl directly; alternatively, extract the hit-collection loop into a testable function that accepts a list of mock HitRecord objects",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "indexer_pipeline_disabled",
+      "summary": "BlackLabConllUIndexerTest is @Disabled at class level — the entire CoNLL-U indexing pipeline has no automated test coverage",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"
+      ],
+      "evidence": [
+        "BlackLabConllUIndexerTest is @Disabled with reason 'Requires conllu-sentences.blf.yaml format config in the project root — not distributed with source'",
+        "The test itself is well-written (uses @TempDir, seeds a minimal CONLLU string, calls ConlluConverter then BlackLabConllUIndexer) but will never run in CI",
+        "ConlluConverterTest does run (it has no @Disabled) and covers the WPL conversion step, but the BlackLab indexing step that consumes those WPL files is unverified"
+      ],
+      "suggestion": "Bundle a minimal conllu-sentences.blf.yaml format config as a test resource (src/test/resources) so the indexer test can be re-enabled; alternatively, expose a programmatic BlackLab format-registration API to avoid the filesystem dependency",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "stub_executor_proliferation",
+      "summary": "Stub QueryExecutor is copy-pasted as anonymous classes in 7+ test files, creating fragile test-production coupling to the QueryExecutor interface",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/SketchHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorerTest.java"
+      ],
+      "evidence": [
+        "Each test file defines its own anonymous QueryExecutor with all 6 interface methods — identical boilerplate except for which method returns data",
+        "When a new method is added to QueryExecutor (e.g., executeDependencyPattern was added after the initial 4 methods), every stub needed updating",
+        "No shared StubQueryExecutor or QueryExecutorBuilder exists in the test tree; the existing TestExchangeFactory.java could be the home for a shared stub"
+      ],
+      "suggestion": "Extract a reusable StubQueryExecutor test helper (e.g., in src/test with a builder or Mockito-style configurability) that returns empty lists by default and allows per-method overrides; this reduces per-file boilerplate and makes QueryExecutor interface evolution a single-file change",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "fetch_examples_logic_untested",
+      "summary": "SemanticFieldExplorer.fetchExamples' pattern-building logic is only exercised with an empty stub executor, so no test verifies the BCQL pattern passed to the executor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.fetchExamples (line 334) calls RelationPatternBuilder.buildFullPattern then executor.executeBcqlQuery — the pattern content and parameter substitution are the business logic",
+        "The only test that calls this path is handleSemanticFieldExamples_validParams_returns200 in ExplorationHandlersTest, which uses an emptyExecutor() stub that always returns List.of()",
+        "No test captures what BCQL pattern is passed to executeBcqlQuery, so incorrect pattern construction (e.g., wrong noun/adjective ordering) would go undetected"
+      ],
+      "suggestion": "Add a unit test for SemanticFieldExplorer.fetchExamples using a recording stub (similar to SemanticFieldExplorerInternalTest.RecordingExecutor) that captures the BCQL pattern and asserts it contains the expected noun and adjective lemmas",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab requires an on-disk index format config file (conllu-sentences.blf.yaml) not bundled with source — this single external dependency disables the entire indexer test class and forces all query-path tests to use stubs",
+      "The QueryExecutor interface was designed well for stub injection but no shared test utility was created alongside it, leading to copy-paste stub proliferation as test classes were added"
+    ],
+    "likely_symptoms": [
+      "stub_executor_proliferation — each new method on QueryExecutor requiring 7+ stub updates is a maintenance symptom, not a deep design failure"
+    ],
+    "possible_false_positives": []
+  }
+}

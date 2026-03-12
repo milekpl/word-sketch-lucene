@@ -91,7 +91,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, Long> freqMap = new LinkedHashMap<>();
         Map<String, String> lemmaPosMap = new HashMap<>();
 
-        collectFrequenciesFromGroups(groups, identity -> {
+        collectFrequenciesAndPosFromGroups(groups, identity -> {
             String collocateLemma = BlackLabSnippetParser.extractLemmaWithFallback(identity);
             return collocateLemma.isEmpty() ? null : collocateLemma;
         }, freqMap, lemmaPosMap);
@@ -184,7 +184,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, Long> freqMap = new HashMap<>();
         Map<String, String> lemmaPosMap = new HashMap<>();
 
-        collectFrequenciesFromGroups(groups,
+        collectFrequenciesAndPosFromGroups(groups,
             BlackLabSnippetParser::extractCollocateLemma,
             freqMap, lemmaPosMap);
 
@@ -195,7 +195,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
      * Iterates over HitGroups and populates frequency and POS maps using the provided lemma extractor.
      * Groups with empty identity or null/empty extracted lemmas are skipped.
      */
-    private void collectFrequenciesFromGroups(
+    private void collectFrequenciesAndPosFromGroups(
             HitGroups groups,
             Function<String, String> lemmaExtractor,
             Map<String, Long> freqMap,
@@ -234,7 +234,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, Long> freqMap = new HashMap<>();
         Map<String, String> lemmaPosMap = new HashMap<>();
 
-        collectFrequenciesFromGroups(groups,
+        collectFrequenciesAndPosFromGroups(groups,
                 identity -> {
                     String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos);
                     if (collocate == null || collocate.isEmpty()) {

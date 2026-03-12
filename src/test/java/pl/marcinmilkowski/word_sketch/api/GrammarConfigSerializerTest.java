@@ -40,7 +40,7 @@ class GrammarConfigSerializerTest {
     @Test
     void toJson_relationConfig_includesRelationType_whenPresent() {
         GrammarConfig config = GrammarConfigHelper.requireTestConfig();
-        config.getRelations().stream()
+        config.relations().stream()
             .filter(rel -> rel.relationType().isPresent())
             .findFirst()
             .ifPresent(rel -> {

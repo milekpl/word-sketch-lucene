@@ -1,0 +1,109 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 5,
+  "assessments": {"api_surface_coherence": 72.0},
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "HttpApiUtils centralises all parameter parsing (requireParam, parseIntParam, parseDoubleParam, parseQueryParams) and all response helpers (sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse) — every handler uses these uniformly.",
+        "Error contract is explicitly documented and consistently applied: wrapWithErrorHandling maps IllegalArgumentException→400, IOException→500, RequestEntityTooLargeException→413 across every registered route.",
+        "Options-object pattern (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) prevents parameter count explosion at exploration API boundaries.",
+        "QueryExecutor.executeSurfacePattern requires both `lemma` AND `bcqlPattern` even though lemma is already substituted into the pattern; the Javadoc explains the reason (TotalFrequency lookup) but callers must supply redundant data, leaking the implementation detail that scoring requires a separate frequency call.",
+        "buildCoreExploreResponse puts relation_type at the response top-level AND also sets parameters.relation to the same string value — the same datum appears under two different keys in the same response object.",
+        "The /api/semantic-field/compare response (populateComparisonResponse) omits the `relation` key from its `parameters` sub-map because it is cross-relational; explore and explore-multi include `parameters.relation`. Clients reading `parameters` get a structurally different map depending on which sibling endpoint they call.",
+        "ExploreResponseAssembler has two overloaded buildEdges static methods — one accepting ExplorationResult (produces SEED_ADJ/DISCOVERED_ADJ edges), one accepting ComparisonResult (produces MODIFIER edges). They share a name but produce semantically different graph representations; a caller reading the source must check the overload to understand which edge types will appear."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "HttpApiUtils provides a single, uniformly-used utility for all parameter parsing and response writing, eliminating divergent ad-hoc patterns across handler classes.",
+        "wrapWithErrorHandling enforces a consistent, documented error-to-HTTP-status contract for every registered endpoint.",
+        "Options-record types (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) keep public-API argument counts low and extendable without breaking callers.",
+        "Handler classes are decomposed along clear functional boundaries (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) with no obvious overlaps.",
+        "QueryExecutor Javadoc explicitly distinguishes four similar-sounding methods (executeCollocations, executeCqlQuery, executeBcqlQuery, executeSurfacePattern), reducing the risk of callers choosing the wrong overload."
+      ],
+      "issue_character": "The issues are mostly surface-level shape inconsistencies — duplicated response fields and diverging parameter maps across sibling endpoints — rather than deep structural problems, but they are systemic enough to create friction for any client that must consume more than one exploration endpoint.",
+      "score_rationale": "The codebase has invested meaningfully in API coherence: uniform utilities, explicit error contracts, and options objects all push the score toward the 'solid but uneven' range. What pulls the score down is a cluster of response-shape inconsistencies across the three sibling /api/semantic-field/* endpoints (relation_type duplicated in the explore response, parameters map missing the relation key on compare), plus the leaky abstraction in QueryExecutor.executeSurfacePattern where callers must pass lemma redundantly. These are real friction points for consumers but are fixable without architectural change, placing the overall score around 72 — above the 'significant drag' threshold but short of 'solid and consistent'."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "surface_pattern_redundant_lemma",
+      "summary": "QueryExecutor.executeSurfacePattern requires both `lemma` and `bcqlPattern` even though lemma is already substituted into the pattern, leaking the TotalFrequency implementation detail to callers",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "Javadoc for executeSurfacePattern states: 'Both lemma and bcqlPattern are required even though lemma has already been substituted into bcqlPattern: lemma is used to look up the head-word's total corpus frequency for logDice scoring, while bcqlPattern drives the Lucene span search.'",
+        "The caller must construct and pass the same lemma value twice — once embedded in the pattern string and once as a standalone parameter — to satisfy an internal scoring concern that should not be visible at the interface boundary."
+      ],
+      "suggestion": "Encapsulate the frequency-lookup behind the interface by having executeSurfacePattern extract the head lemma from the labeled bcqlPattern (position 1:) internally, or introduce a SurfacePatternRequest value object that carries both pieces of data together and documents the relationship explicitly. Alternatively, split the concern: add a separate getHeadFrequency call that the implementation makes internally so callers need not supply lemma twice.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_response_relation_type_duplicate",
+      "summary": "Explore and explore-multi responses emit `relation_type` at the top level AND `parameters.relation` with the same value, producing redundant and potentially confusing response keys",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "In buildCoreExploreResponse: response.put(\"relation_type\", relationType) sets the top-level field.",
+        "In the same method: paramsUsed.put(\"relation\", relationType) places the identical string inside the parameters sub-map.",
+        "A client reading both keys receives the same value under two different paths (response.relation_type and response.parameters.relation), but with different names, which implies they might carry different meanings."
+      ],
+      "suggestion": "Remove the top-level `relation_type` field and rely solely on `parameters.relation`, or rename one to make the duplication intentional and document it. Choosing one canonical location eliminates the ambiguity.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "compare_parameters_map_missing_relation",
+      "summary": "The /api/semantic-field/compare `parameters` sub-map omits the `relation` key that /api/semantic-field/explore and /api/semantic-field/explore-multi include, making sibling-endpoint response shapes inconsistent",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "populateComparisonResponse builds: paramsUsed.put(\"top\", ...), paramsUsed.put(\"min_logdice\", ...), paramsUsed.put(\"min_shared\", ...) — three keys.",
+        "buildCoreExploreResponse (used by explore and explore-multi) builds the same three keys plus paramsUsed.put(\"relation\", relationType) — four keys.",
+        "A client that inspects the parameters sub-map to log or forward query parameters will silently drop the relation for compare responses while capturing it for explore responses."
+      ],
+      "suggestion": "Add a note in the compare response parameters (e.g. `\"relation\": \"all\"` or `\"relation\": null`) to make the cross-relational nature of the compare endpoint explicit and give the `parameters` map a consistent shape across all three sibling endpoints.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "build_edges_overload_semantic_mismatch",
+      "summary": "Two overloaded `buildEdges` static methods in ExploreResponseAssembler produce structurally identical List<Edge> but semantically different edge-type sets (SEED_ADJ/DISCOVERED_ADJ vs MODIFIER), making the overload resolution non-obvious",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"],
+      "evidence": [
+        "buildEdges(ExplorationResult) produces edges of type SEED_ADJ and DISCOVERED_ADJ.",
+        "buildEdges(ComparisonResult) produces edges of type MODIFIER.",
+        "Both return List<Edge> with the same structure, so the caller cannot tell which edge types will appear without inspecting the input type or the method body."
+      ],
+      "suggestion": "Rename the two methods to make intent explicit: buildExplorationEdges(ExplorationResult) and buildComparisonEdges(ComparisonResult). This removes the need to inspect the overload to understand what edge types the result will contain.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The three exploration endpoints (explore, explore-multi, compare) evolved independently and their response shapes were not subsequently normalised against a common schema.",
+      "QueryExecutor grew methods to match implementation needs (separate TotalFrequency lookup path) rather than being designed from the caller's perspective, leaking internal scoring concerns through the interface."
+    ],
+    "likely_symptoms": [
+      "explore_response_relation_type_duplicate",
+      "compare_parameters_map_missing_relation"
+    ],
+    "possible_false_positives": []
+  }
+}

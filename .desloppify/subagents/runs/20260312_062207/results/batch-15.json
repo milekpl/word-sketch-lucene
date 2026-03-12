@@ -1,0 +1,84 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 15,
+  "assessments": {
+    "cross_module_architecture": 83.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is consistently downward: model (no internal deps) → utils → config → query → exploration → api; no upward references found anywhere",
+        "QueryExecutor and ExplorationService interfaces create explicit testability seams at the query/api and exploration/api boundaries",
+        "api/WordSketchApiServer.java imports concrete exploration.SemanticFieldExplorer (line 8, line 56) in its convenience constructor, bypassing the ExplorationService interface — the api package has a compile-time dependency on the concrete implementation even though the interface was introduced as a boundary",
+        "api/RadialPlot.java is a pure SVG-rendering utility with no HTTP or API imports (only java.util.*) yet it lives in the api package; CLAUDE.md architecture table lists it as viz/RadialPlot.java, indicating deliberate prior placement in a separate package",
+        "indexer/blacklab package has zero internal package imports — fully standalone, no coupling to query/exploration/api layers",
+        "model package is completely clean: no internal imports beyond model.exploration subpackage inter-references",
+        "GrammarConfigSerializer lives in api and pulls config types in, keeping JSON serialisation separated from domain objects — intentional and correct boundary design",
+        "No import cycles detected across any package boundary"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Two boundary issues prevent a higher score: (1) api/WordSketchApiServer leaks a compile-time dependency on the concrete SemanticFieldExplorer even though the ExplorationService interface was created precisely to seal that boundary; (2) RadialPlot (zero HTTP/API imports) is misplaced in the api package rather than a separate viz or rendering package, blurring the api package's stated purpose."
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "Dependency direction is uniformly downward across all six packages (model → utils → config → query → exploration → api) with no upward references anywhere",
+        "QueryExecutor and ExplorationService interfaces act as clean architectural seams between layers, supporting testability and future substitution",
+        "indexer/blacklab is fully decoupled from query, exploration, and api — changes to indexing cannot ripple into the serving stack",
+        "model package is a pure data layer with no internal coupling to config, query, or api concerns, exactly as documented in its package-info",
+        "GrammarConfigSerializer is correctly located in api to keep JSON library usage out of domain objects"
+      ],
+      "issue_character": "The issues are isolated boundary leaks rather than systemic design breakdowns: one concrete-class import that pierces a deliberately-designed interface seam, and one misplaced utility class that pollutes a package boundary without causing coupling harm.",
+      "score_rationale": "The overall dependency structure is well-designed and consistently enforced — a developer navigating the codebase finds a predictable layered graph with no cycles and documented interfaces at key seams. Two boundary issues push the score below 90: the api package holding a compile-time reference to the concrete SemanticFieldExplorer (defeating the ExplorationService interface as a true boundary) and RadialPlot living in api despite having no API concerns. These are isolated rather than recurring, keeping the score in solid-but-uneven territory at 83 rather than dropping to the mixed-quality 70 range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_imports_concrete_explorer",
+      "summary": "WordSketchApiServer imports concrete SemanticFieldExplorer, piercing the ExplorationService interface boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 8: import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;",
+        "Line 56: this(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig);",
+        "The full constructor (line 60) accepts ExplorationService, confirming the interface exists as a seam — but the api package still carries a compile-time dependency on the concrete class via the convenience constructor"
+      ],
+      "suggestion": "Move the convenience-constructor factory logic out of WordSketchApiServer. Either (a) delete the convenience constructor and let Main.java (which already wires dependencies) create the SemanticFieldExplorer before passing it in, or (b) introduce a static factory in the exploration package (e.g. ExplorationService.defaultFor(executor, config)) and expose only that, so the api package never imports the concrete class. Either option means api compiles against the ExplorationService interface alone.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "interface_seam_bypass"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "radial_plot_misplaced_in_api",
+      "summary": "RadialPlot is a pure SVG-math utility with no HTTP imports but lives in the api package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java"
+      ],
+      "evidence": [
+        "RadialPlot.java imports only java.util.ArrayList, java.util.List, java.util.Locale — no com.sun.net.httpserver, no api-layer types",
+        "CLAUDE.md architecture table lists the file as viz/RadialPlot.java, indicating it was originally in a separate visualization package",
+        "VisualizationHandlers in the api package uses RadialPlot, but consuming a utility is not sufficient reason to co-locate it"
+      ],
+      "suggestion": "Move RadialPlot.java to a new src/main/java/pl/marcinmilkowski/word_sketch/viz/ package (restoring the original layout documented in CLAUDE.md). Update the import in VisualizationHandlers.java. This keeps the api package scoped to HTTP request/response concerns and gives SVG rendering its own home.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "package_boundary_drift"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Convenience constructors that instantiate concrete dependencies are an easy shortcut during initial development but defeat interface seams when the interface is intended as a module boundary rather than just a test mock",
+      "The RadialPlot migration from viz/ to api/ was likely driven by co-location convenience but was never reversed after the viz package was removed"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

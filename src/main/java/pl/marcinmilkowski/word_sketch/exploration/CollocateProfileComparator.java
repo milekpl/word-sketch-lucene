@@ -131,7 +131,7 @@ class CollocateProfileComparator {
                 if (s > maxScore) maxScore = s;
                 if (s < minScore) minScore = s;
             }
-            double avgScore = scores.length > 0 ? sum / scores.length : 0.0;
+            double avgScore = sum / scores.length;
 
             // Second pass for variance (requires the mean — unavoidable two-pass for numerical stability)
             double variance = 0.0;

@@ -1,0 +1,98 @@
+{
+  "batch": "type_safety",
+  "batch_index": 9,
+  "assessments": {"type_safety": 72.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "Systematic use of org.jspecify @NonNull/@Nullable annotations on all public interface methods (ExplorationService, QueryExecutor) and on helper return types (BlackLabSnippetParser.extractCollocateLemma, extractLemmaFromMatch, extractPosFromMatch).",
+        "Optional<T> used appropriately for absent-or-present fields: RelationConfig.relationType() returns Optional<RelationType>, GrammarConfig.relation(id) returns Optional<RelationConfig>, and all call sites handle the absent case explicitly.",
+        "Java records used for internal typed data carriers: CollocateSearch, HitRecord, ExplorationParams, BcqlRequest, ConcordanceExamplesRequest, SeedCollocateData — enforcing structural type safety at construction sites.",
+        "VisualizationHandlers defines a RenderMode enum with isValid(String) but the validated mode String is then passed as a raw String to RadialPlot.renderFromItems(…, String mode). The enum acts only as a validation guard, never as a typed parameter — a classic enum bypass.",
+        "API response objects are universally built as Map<String, Object> / HashMap<String, Object> across ExploreResponseAssembler, SketchHandlers, ConcordanceHandlers, ExplorationHandlers, CorpusQueryHandlers. No typed response DTOs/records exist, so the shape of every response is invisible to the compiler.",
+        "CollocateQueryHelper.index field is declared as 'private final BlackLabIndex index' (unannotated) but is assigned null in the no-arg test constructor. The field lacks a @Nullable annotation, making the nullable invariant implicit rather than declared. Runtime guards (Objects.requireNonNull at use sites) prevent misuse but the declared type does not capture the possibility.",
+        "GrammarConfigSerializer.toJson(GrammarConfig config) and toJson(RelationConfig rel) are public methods whose Javadoc says 'must not be null' but have no @NonNull annotation on the parameters.",
+        "Enum PosGroup, RelationType, RelationEdgeType are used properly throughout the production code path — no raw string comparisons bypass these enums in core logic."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "Systematic @NonNull/@Nullable annotations from jspecify applied consistently across public interface methods and helper return types throughout the codebase.",
+        "Optional<T> used correctly for optional domain values (relationType, relation lookup), with callers explicitly handling the absent case at every call site.",
+        "Java records used as typed internal data carriers (HitRecord, BcqlRequest, ExplorationParams, etc.), providing compile-time structural safety for data passed between phases.",
+        "Core enum types (PosGroup, RelationType, RelationEdgeType) used correctly in production logic — no raw string comparisons bypass them in the primary code paths."
+      ],
+      "issue_character": "The type safety issues are two-tier: a single localized enum bypass in VisualizationHandlers (RenderMode defined but downgraded to String before being passed downstream), and a systemic pattern across the entire API layer where all response objects are Map<String, Object> with no typed DTOs, leaving response shape invisible to the compiler and consumers.",
+      "score_rationale": "The codebase demonstrates disciplined null-safety annotation and strong use of records and Optional for internal data passing — well above the 60-point threshold where type discipline is a significant drag. However, the universal Map<String, Object> pattern for API responses is a systemic type gap: the same codebase that correctly uses typed records for CollocateSearch and BcqlRequest abandons type discipline entirely at the boundary where it matters most to external consumers. The RenderMode enum bypass adds a secondary issue of lower severity. These issues pull the score below 80 (solid but uneven), landing at 72: strong type discipline internally, with meaningful and widespread gaps at the API response boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "render_mode_enum_bypass",
+      "summary": "RenderMode enum defined in VisualizationHandlers but mode flows to RadialPlot.renderFromItems as a raw String",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "RenderMode enum is defined at line 27 with isValid(String) validation, but at line 74 the raw String 'mode' is passed to RadialPlot.renderFromItems(center, items, width, height, mode) without conversion to the enum.",
+        "RadialPlot.renderFromItems accepts 'String mode' (line 145), so the enum type is never used as a parameter type in the downstream call."
+      ],
+      "suggestion": "Convert the validated mode string to a RenderMode enum value before passing it downstream, and update RadialPlot.renderFromItems to accept RenderMode instead of String. This ensures the compiler enforces valid modes rather than relying on a runtime string comparison.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "api_response_untyped_maps",
+      "summary": "All API response objects are Map<String, Object> with no typed DTOs, leaving response shape invisible to the compiler",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.populateExploreResponse, formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, and serializeEdge all return or mutate Map<String, Object>.",
+        "SketchHandlers.formatWordSketchResult returns Map<String, Object> with keys 'lemma', 'frequency', 'log_dice', 'pos' — no compile-time guarantee these keys or their types are correct.",
+        "ConcordanceHandlers builds response as HashMap<String, Object>, same for ExplorationHandlers and CorpusQueryHandlers. In contrast, internal data carriers (BcqlRequest, ExplorationParams, HitRecord) correctly use typed records."
+      ],
+      "suggestion": "Introduce typed response record classes for the stable public API responses (e.g., WordSketchResponse, ExploreResponse, ConcordanceResponse) and serialize them via fastjson2. This aligns the API boundary with the same type discipline used for internal data passing and makes response shape verifiable at compile time.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_query_helper_nullable_field",
+      "summary": "CollocateQueryHelper.index field assigned null in test constructor but lacks @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Field declared as 'private final BlackLabIndex index' (line 57) without any nullability annotation.",
+        "No-arg constructor (line 74) assigns this.index = null for test subclasses, making the field de facto nullable.",
+        "Callers guard with Objects.requireNonNull at the use sites (lines 89, 138), but the field type does not declare this invariant."
+      ],
+      "suggestion": "Add @Nullable to the field declaration and document the invariant that null is only valid in the test-subclass constructor. Alternatively, use a NullObject or abstract the I/O methods into an overridable protected dependency so the field can remain @NonNull in all paths.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The API response layer was built with quick HashMap assembly rather than typed DTOs, likely prioritising iteration speed. The internal data-passing layer (records) shows the team knows the alternative but did not apply it at the boundary.",
+      "The RenderMode enum was introduced for validation but its use was not extended to the downstream call site, leaving an incomplete refactor."
+    ],
+    "likely_symptoms": ["api_response_untyped_maps"],
+    "possible_false_positives": []
+  }
+}

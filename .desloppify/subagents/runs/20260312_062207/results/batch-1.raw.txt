@@ -1,0 +1,85 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {
+    "high_level_elegance": 74.0
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages — api, config, exploration, model, query, indexer, utils — each correspond to a distinct domain capability; a new engineer can predict where to look for config parsing, HTTP routing, or corpus querying without browsing.",
+        "Handler classes in api/ are split by concern (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) with a single routing/bootstrap class (WordSketchApiServer) that lists all endpoints in its Javadoc; the public API surface of the server package is small and consistent.",
+        "Config subsystem cleanly separates data from loading: GrammarConfig is a pure value object, GrammarConfigLoader owns all file-IO and JSON concerns, RelationConfig is a record — callers depend only on what they need.",
+        "ExplorationService interface creates a testable seam between the HTTP layer and domain logic, enabling injection in tests and keeping the api/ layer free of exploration-algorithm concerns.",
+        "RadialPlot.java lives in api/ but is a spiral-layout SVG builder (a visualization model concern), not an HTTP handler. Its package-level Javadoc says nothing about it; a developer looking for rendering logic would not think to look in api/.",
+        "model/ contains a heterogeneous set of types: QueryResults (result DTOs), PosGroup (domain enum), RelationType (domain enum), FetchExamplesOptions (options object), and an exploration/ sub-package. The package acts as a residual home for types that don't fit elsewhere, blurring its ownership boundary compared to the tighter packages around it.",
+        "ExploreResponseAssembler in api/ is correctly placed: it is a model-to-presentation converter that belongs close to the HTTP layer."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package layout maps directly to domain capabilities (api, config, exploration, query, indexer) — no historical-accident names; a new engineer can explain each package's purpose in one sentence.",
+        "API layer decomposes cleanly into five single-concern handler classes, with WordSketchApiServer acting as a concise router whose Javadoc lists the full endpoint surface.",
+        "Config subsystem enforces a data/loader split — GrammarConfig never carries IO machinery; callers that only query config depend only on the value object.",
+        "ExplorationService interface provides a clean, injected seam between HTTP routing and domain exploration logic, enabling test isolation without mocking the filesystem.",
+        "Change boundaries are predictable: adding a new grammatical relation requires only config + one handler; adding a new API route touches only WordSketchApiServer + a new handler class."
+      ],
+      "issue_character": "Issues are isolated ownership slips rather than systemic design failures: one misplaced class (RadialPlot in api/) and one slightly catch-all package (model/) in an otherwise well-decomposed structure.",
+      "score_rationale": "The codebase scores well against the rubric's core criteria: packages align with domain capabilities, change boundaries are predictable, the public surface is small, and the handler/service/model layering is applied consistently. What prevents a higher score is that RadialPlot (SVG/layout generation) lives in api/ where handlers live, creating an ownership blur that would surprise a developer, and model/ acts partly as a residual catch-all. These are real navigability costs but are localized, not systemic — a new engineer would encounter them once and adapt quickly. At 60-65 a codebase has significant structural drag; at 80+ decomposition is exemplary throughout. This sits comfortably above the midpoint at ~74: solid and consistent with small, fixable deviations."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "radial_plot_in_api",
+      "summary": "RadialPlot (SVG layout builder) placed in api/ alongside HTTP handlers, blurring the package's stated responsibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java"
+      ],
+      "evidence": [
+        "RadialPlot.java generates spiral-layout SVG with guide circles, connector lines, and collocate circles — none of these are HTTP concerns.",
+        "All other classes in api/ are either HTTP handlers (SketchHandlers, ExplorationHandlers, etc.), HTTP utilities (HttpApiUtils, HttpApiUtils.wrapWithErrorHandling), or response assemblers (ExploreResponseAssembler). RadialPlot fits none of these roles.",
+        "A developer investigating rendering/visualization logic would look in a viz or model sub-package, not api/."
+      ],
+      "suggestion": "Move RadialPlot to a dedicated viz/ or model/viz/ package. The VisualizationHandlers class in api/ can retain a dependency on the moved class without blurring api/'s ownership.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "model_catch_all",
+      "summary": "model/ package lacks a crisp ownership boundary, mixing result DTOs, domain enums, options objects, and an exploration sub-package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/FetchExamplesOptions.java"
+      ],
+      "evidence": [
+        "model/ contains QueryResults (result DTOs), PosGroup (enum), RelationType (enum), FetchExamplesOptions (options value object), and an exploration/ sub-package — four different concerns under one roof.",
+        "By contrast, config/, exploration/, and query/ each have tighter, single-sentence ownership descriptions. model/ cannot be described as cleanly.",
+        "FetchExamplesOptions is an exploration-layer options object that would be better co-located with the SingleSeedExplorationOptions and ExplorationOptions in model/exploration/, or in the exploration/ service package."
+      ],
+      "suggestion": "Sharpen model/ to domain-neutral value types (QueryResults, PosGroup, RelationType). Move FetchExamplesOptions to model/exploration/ alongside SingleSeedExplorationOptions and ExplorationOptions — all three are options objects for the same feature. Add a package-info.java to model/ stating its narrowed scope.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Organic extraction pattern: classes are moved out of a god-class into the most convenient nearby package rather than the most semantically correct one — RadialPlot likely started as a method in VisualizationHandlers and was extracted to api/ for convenience.",
+      "model/ used as a default landing zone for types that are not clearly api/, config/, or exploration/ — a common symptom of incremental growth without periodic package-level review."
+    ],
+    "likely_symptoms": [
+      "radial_plot_in_api"
+    ],
+    "possible_false_positives": []
+  }
+}

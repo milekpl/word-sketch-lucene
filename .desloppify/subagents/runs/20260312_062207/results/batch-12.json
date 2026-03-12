@@ -1,0 +1,89 @@
+{
+  "batch": "stale_migration",
+  "batch_index": 12,
+  "assessments": {
+    "stale_migration": 62.0
+  },
+  "dimension_notes": {
+    "stale_migration": {
+      "evidence": [
+        "webapp/index.html line 611: fetch(`${apiUrl}/api/semantic-field/examples?adjective=${...}&noun=${...}&max=${max}`) — server handler (ExplorationHandlers.java:194-197) requires params 'collocate', 'seed', 'top'; the webapp sends old names 'adjective', 'noun', 'max', causing requireParam('collocate') to throw a 400 for every examples call in the comparison panel",
+        "ExplorationHandlers.java line 131 Javadoc: 'Also reachable at the legacy path /api/semantic-field' — but WordSketchApiServer registers no such route; it was removed in a prior cleanup commit (5666688) and the claim is now false",
+        "RelationType.java: four constants (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) explicitly documented as 'no longer set in any grammar config'; GrammarConfigLoader.parseRelationType() accepts them silently; they exist only to avoid breaking tests — dead production constants retained in the enum",
+        "ExplorationResult 5-arg constructor (line 40-43) delegates to the 6-arg constructor with Map.of() for perSeedCollocates; ExploreResponseAssembler has an explicit 'Legacy fallback for ExplorationResult instances without per-seed data' branch (line 49) that fires exclusively for test-created instances, never in production"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "stale_migration": {
+      "strengths": [
+        "The codebase has undergone active cleanup of legacy artifacts: the old /api/semantic-field route was removed, AdjectiveProfile was renamed to CollocateProfile, and a startup deprecation warning was eliminated — desloppify commit 5666688 shows organised migration work",
+        "Legacy RelationType constants are clearly documented in the class Javadoc with explicit 'Not set in grammar config' labels on each constant, preventing silent confusion",
+        "GrammarConfigLoader.validateNoLegacyKeys() proactively rejects old 'copulas' config key with an actionable error message, preventing old-format configs from loading silently"
+      ],
+      "issue_character": "Issues are migration artifacts from a partially-completed API rename: the server-side parameters were updated but the client (webapp) and some documentation were not, leaving one broken feature and one stale doc claim alongside genuinely dead enum constants.",
+      "score_rationale": "The webapp API mismatch (wrong param names for /api/semantic-field/examples) is a concrete broken feature — the comparison panel examples call will always receive a 400 error because requireParam('collocate') fails. This pulls the score below 70. The stale Javadoc and dead RelationType constants are minor but real migration residue. Against global anchors: 80 = solid but uneven, 60 = significant drag. The codebase is clearly in an active migration posture with good cleanup, but one broken client path and surviving dead-code constants place it between these anchors at 62."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "stale_migration",
+      "identifier": "webapp-examples-stale-params",
+      "summary": "webapp calls /api/semantic-field/examples with old param names, always returns 400",
+      "related_files": ["webapp/index.html"],
+      "evidence": [
+        "webapp/index.html line 611: fetch(`…/api/semantic-field/examples?adjective=${adj}&noun=${noun}&max=${max}`)",
+        "ExplorationHandlers.java lines 194-197: handler requires 'collocate' and 'seed' via requireParam(), and reads 'top' (not 'max') for the limit — sending 'adjective'/'noun'/'max' will trigger a 400 Bad Request on every invocation"
+      ],
+      "suggestion": "Update the fetch call in webapp/index.html line 611 to use the current parameter names: `?collocate=${encodeURIComponent(adj)}&seed=${encodeURIComponent(noun)}&top=${max}` (also update any local variable names from adj/noun to collocate/headword for clarity)",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "webapp_api_param_drift"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "stale-javadoc-legacy-path",
+      "summary": "ExplorationHandlers Javadoc claims /api/semantic-field legacy path still exists but it was removed",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "ExplorationHandlers.java line 131: '<p>Also reachable at the legacy path {@code /api/semantic-field}.</p>'",
+        "WordSketchApiServer.java registers no handler for '/api/semantic-field' (only '/api/semantic-field/explore', '/api/semantic-field/explore-multi', '/api/semantic-field/compare', '/api/semantic-field/examples')",
+        "Git commit 5666688 message: 'Remove deprecated /api/semantic-field route and startup warning'"
+      ],
+      "suggestion": "Remove the sentence '<p>Also reachable at the legacy path {@code /api/semantic-field}.</p>' from the handleSemanticFieldComparison Javadoc in ExplorationHandlers.java line 131",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "webapp_api_param_drift"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "dead-legacy-relation-type-constants",
+      "summary": "RelationType enum retains 4 dead legacy constants (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) only referenced by tests",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java"],
+      "evidence": [
+        "RelationType.java lines 22-29: four constants labeled 'Not set in grammar config' in their Javadoc",
+        "Class Javadoc (line 11-15): 'legacy labels from an earlier exploration subsystem design... Priority-hint usages in the exploration layer were removed — only the fallback (POS-group matching) fires in practice'",
+        "grep shows no production code references to ADJ_PREDICATE/ADJ_MODIFIER/SUBJECT_OF/OBJECT_OF in src/main/java (only in src/test/java)"
+      ],
+      "suggestion": "Remove ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF from RelationType; update the three test references in RelationPatternBuilderTest and RelationUtilsTest to construct RelationConfig instances with RelationType.SURFACE or RelationType.DEP, removing the dependency on the dead constants",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "API parameter rename (adjective/noun/max → collocate/seed/top) was applied to the server-side handler but not propagated to the webapp client, a classic partial-migration artifact",
+      "Removal of the /api/semantic-field legacy route was not accompanied by a Javadoc update in the handler that still references it"
+    ],
+    "likely_symptoms": [
+      "webapp-examples-stale-params is the root failure; stale-javadoc-legacy-path is a documentation symptom of the same removal operation"
+    ],
+    "possible_false_positives": []
+  }
+}

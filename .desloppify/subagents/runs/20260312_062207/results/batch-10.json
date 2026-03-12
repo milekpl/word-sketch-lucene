@@ -1,0 +1,95 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 10,
+  "assessments": {
+    "test_strategy": 79.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "34 test files, 278 @Test methods covering all major packages: api, config, exploration, indexer, query, utils, viz",
+        "StubQueryExecutor base class in src/test/ with override-friendly methods — anonymous subclasses used throughout to provide canned data per test",
+        "TestExchangeFactory.MockExchange provides a reusable fake HttpExchange for all handler tests",
+        "Happy-path AND validation/400-error paths tested for every API handler (ExplorationHandlersTest, ConcordanceHandlersTest, SketchHandlersTest, etc.)",
+        "5 test classes marked @Disabled because they require a live BlackLab index — all clearly documented with env var instructions (CONCEPT_SKETCH_TEST_INDEX)",
+        "All integration-gated tests additionally use Assumptions.assumeTrue so they skip gracefully rather than fail if env var is absent",
+        "ExplorationService interface is never used as the declared type in any test — all tests inject SemanticFieldExplorer directly, tightly coupling tests to the concrete class rather than the abstraction",
+        "BcqlPatternUtils static utility methods are tested inside BlackLabSnippetParserTest rather than a dedicated file — discoverable but misnamed for navigation",
+        "No runnable integration tests across module boundaries exist in CI — all cross-module paths (indexer → executor → explorer → handler) are only exercised end-to-end with a live index"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "Extensible StubQueryExecutor base class enables concise, targeted anonymous overrides in every unit test without test-specific mocking frameworks",
+        "API handler tests cover both success (200) and validation-failure (400) paths for every handler, including multi-parameter and cross-field validations",
+        "Integration tests requiring a live index are properly isolated with @Disabled + Assumptions.assumeTrue, so they fail neither in CI nor silently skip",
+        "Core business logic classes (SemanticFieldExplorer, MultiSeedExplorer, CollocateQueryHelper, CollocateProfileComparator, BcqlPatternUtils) all have dedicated unit test coverage",
+        "Model-layer records and trivial constants are correctly left untested — the strategy correctly avoids low-value test noise"
+      ],
+      "issue_character": "The unit test layer is solid and consistent; the strategic gap is that all cross-module integration paths are disabled and can only be run in specific environments, leaving the full request pipeline (handler → explorer → executor → index) unverifiable in CI.",
+      "score_rationale": "The codebase sits solidly in the 80-range: a developer making changes to the unit-tested core (exploration logic, CQL patterns, API validation) will have good confidence. However, there is a persistent blind spot — no integration test runs unconditionally in CI, meaning regressions in the BlackLabQueryExecutor or indexer pipelines can only be caught manually. Tests are also coupled to SemanticFieldExplorer as a concrete class rather than the ExplorationService interface, which weakens contract enforcement. These gaps push the score from ~85 down to ~79: the strategy is good but a developer working on the corpus-query layer has no automated safety net."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "no_ci_integration_test",
+      "summary": "All integration tests that touch BlackLabQueryExecutor or the indexer are @Disabled — no CI-runnable cross-module path exists",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorIntegrationTest is annotated @Disabled with 'Requires a live BlackLab index'",
+        "DependencySketchTest is annotated @Disabled with same rationale",
+        "BlackLabConllUIndexerTest is annotated @Disabled because conllu-sentences.blf.yaml is not distributed with source",
+        "BlackLabQueryExecutorTest's LiveIndex nested class is also @Disabled",
+        "No alternative lightweight integration test (e.g. an in-memory Lucene index) exists to replace these"
+      ],
+      "suggestion": "Create a small self-contained integration test module (or test profile) that builds a minimal BlackLab in-memory or TempDir index from a 3–5 sentence CoNLL-U fixture, then exercises BlackLabQueryExecutor.executeCollocations and executeSurfacePattern end-to-end. This can run in CI without the production corpus, providing a runnable cross-module safety net. Alternatively, mark the existing disabled tests as a manual-only profile and document clearly in the README that CI coverage stops at the stub layer.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_test_gap"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "concrete_class_coupling_in_tests",
+      "summary": "Tests inject SemanticFieldExplorer directly rather than through ExplorationService, bypassing contract enforcement",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "ExplorationHandlersTest creates 'new SemanticFieldExplorer(emptyExecutor(), config)' and passes it directly to handlers, not as ExplorationService",
+        "SemanticFieldExplorerTest declares its test class against SemanticFieldExplorer, not ExplorationService",
+        "ExplorationHandlers constructor accepts ExplorationService but tests never exercise this as the declared type — a second implementation would need new tests from scratch",
+        "No test exercises the compareCollocateProfiles or exploreMultiSeed contract via the ExplorationService interface type"
+      ],
+      "suggestion": "Declare test variables as 'ExplorationService explorer = new SemanticFieldExplorer(...)' instead of 'SemanticFieldExplorer explorer = ...'. This is a one-line change per test that costs nothing but will catch any future contract divergence between implementations.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "integration_test_gap"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The project depends on a large external corpus index (74M sentences) which cannot be bundled with the source — this is the root cause of all @Disabled integration tests and is an inherent operational constraint",
+      "Tests were written after the code and focused on validating correctness of already-built units rather than driving design through the interface layer, leading to concrete-class coupling"
+    ],
+    "likely_symptoms": [
+      "concrete_class_coupling_in_tests"
+    ],
+    "possible_false_positives": []
+  }
+}

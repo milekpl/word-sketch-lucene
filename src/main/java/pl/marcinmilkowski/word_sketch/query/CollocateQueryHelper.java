@@ -173,11 +173,17 @@ class CollocateQueryHelper {
             double minLogDice,
             int maxResults,
             Map<String, String> posMap) throws IOException {
+        // Pre-fetch corpus frequency for each unique collocate to avoid one I/O call per entry.
+        Map<String, Long> collocateCorpusFreqs = new HashMap<>();
+        for (String lemma : freqMap.keySet()) {
+            collocateCorpusFreqs.put(lemma, getTotalFrequency(lemma));
+        }
+
         List<QueryResults.WordSketchResult> results = new ArrayList<>();
         for (Map.Entry<String, Long> entry : freqMap.entrySet()) {
             String collocateLemma = entry.getKey();
             long jointFreq = entry.getValue();
-            long collocateFreq = getTotalFrequency(collocateLemma);
+            long collocateFreq = collocateCorpusFreqs.getOrDefault(collocateLemma, 0L);
 
             double logDice = (headwordFreq > 0 && collocateFreq > 0)
                     ? LogDiceUtils.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
@@ -334,6 +340,6 @@ class CollocateQueryHelper {
             String extracted = BlackLabSnippetParser.extractCollocateFromXmlByPosition(matchXml, collocatePos);
             if (extracted != null && !extracted.isEmpty()) return extracted;
         }
-        return BlackLabSnippetParser.extractCollocateLemma(matchXml);
+        return BlackLabSnippetParser.extractLastLemma(matchXml);
     }
 }

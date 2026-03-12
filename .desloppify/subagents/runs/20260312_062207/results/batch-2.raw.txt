@@ -1,0 +1,75 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {"abstraction_fitness": 76.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface (single impl: BlackLabQueryExecutor) is self-documented as a testability seam; its Javadoc explicitly states it 'acts primarily as a testability seam rather than an abstraction boundary' — not a surprise interface.",
+        "ExplorationService interface (single impl: SemanticFieldExplorer) similarly documents why a single-impl interface exists; it is used via injection in WordSketchApiServer's full constructor to enable test substitution.",
+        "SemanticFieldExplorer.exploreMultiSeed is a one-line delegation: 'return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared())' — the only value added is unpacking ExplorationOptions fields.",
+        "SemanticFieldExplorer.compareCollocateProfiles is similarly a one-line delegation: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates())' — again, only ExplorationOptions unpacking.",
+        "SemanticFieldExplorer directly implements exploreByPattern (the full single-seed algorithm, ~100 lines) but delegates 2 of its other 3 interface methods as pure pass-throughs, creating an asymmetric implementation where one method owns logic and two are thin forwarders.",
+        "HttpApiUtils is a package-private static utility class combining HTTP response writing and request parameter parsing; it is cohesive (both sets serve the HTTP layer exclusively) with explicit Javadoc explaining why combining them avoids unnecessary split.",
+        "ExploreResponseAssembler, GrammarConfigSerializer, and RelationPatternBuilder are all static-only classes with no instance state, each clearly scoped to one transformation concern (response assembly, JSON serialization, pattern string construction respectively).",
+        "No util dumping grounds: util_files is empty per scan; no package labeled 'util' or 'helper' accumulates unrelated concerns.",
+        "No delegation-heavy classes: mechanical scan reports delegation_heavy_class_count = 0.",
+        "CollocateQueryHelper and CollocateProfileComparator are package-private helpers with single focused responsibilities; their limited visibility correctly prevents callers from bypassing the intended interface."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 82.0,
+        "indirection_cost": 68.0,
+        "interface_honesty": 84.0,
+        "delegation_density": 95.0,
+        "definition_directness": 85.0,
+        "type_discipline": 92.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "Both single-implementation interfaces (QueryExecutor, ExplorationService) are self-aware about their single-impl status and explicitly documented as testability seams, not pretending to be extensibility points.",
+        "Static helpers (HttpApiUtils, ExploreResponseAssembler, GrammarConfigSerializer, RelationPatternBuilder) are all cohesive with documented rationale — none are catch-all dumping grounds.",
+        "Package-private scoping of CollocateQueryHelper, MultiSeedExplorer, and CollocateProfileComparator correctly enforces that callers use the intended interface boundaries rather than bypassing them.",
+        "QueryExecutor adds two default methods (executeSurfacePatternForRelation, executeBcqlQueryForRelation) that reduce caller boilerplate with real, shared pattern-building logic."
+      ],
+      "issue_character": "The issues are localized to the SemanticFieldExplorer coordination facade, where two of its four interface methods are thin single-line delegations whose only contribution is unpacking ExplorationOptions into individual parameters — a modest indirection cost for low added value.",
+      "score_rationale": "The codebase sits solidly above the 'significant drag' threshold (60) and approaches the 'solid but uneven' range (80): abstractions are intentionally placed, honestly documented, and package encapsulation is used correctly rather than reflexively. The deduction from the upper range comes from SemanticFieldExplorer implementing ExplorationService while delegating 2 of 4 methods as near-transparent forwarders — the facade layer earns its keep on the single-seed method but is thinner than expected on the others. This is a real but contained issue, confined to the exploration subsystem with no systemic spread across the codebase."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "thin_explorer_delegation",
+      "summary": "SemanticFieldExplorer delegates 2 of 4 ExplorationService methods as single-line forwarders with no added behavior beyond ExplorationOptions field unpacking",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed (line ~300): 'return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());' — entire method body is one line unpacking ExplorationOptions.",
+        "SemanticFieldExplorer.compareCollocateProfiles: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates());' — same pattern, no logic added.",
+        "SemanticFieldExplorer.fetchExamples adds pattern building and stream mapping, but these are 4 lines of plumbing rather than domain logic.",
+        "The class Javadoc honestly names itself a 'coordination facade' but only one of four interface methods (exploreByPattern) genuinely owns non-trivial algorithmic logic."
+      ],
+      "suggestion": "Promote ExplorationOptions as a first-class parameter into MultiSeedExplorer.findCollocateIntersection and CollocateProfileComparator.compareCollocateProfiles, then have SemanticFieldExplorer pass ExplorationOptions directly so each delegation becomes a true interface adaptor rather than a parameter-unpacker. Alternatively, if the package-encapsulation boundary is the primary goal, document that SemanticFieldExplorer is intentionally a thin coordinator for MultiSeedExplorer and CollocateProfileComparator and accept the pattern explicitly.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationOptions was introduced as a parameter object to simplify the ExplorationService interface, but its fields are unpacked immediately on entry into each delegate — the options object stops at the facade rather than flowing through to the algorithm classes.",
+      "The package-private visibility of MultiSeedExplorer and CollocateProfileComparator forces SemanticFieldExplorer to act as the sole exposure point, which makes the delegation pattern load-bearing for encapsulation even when it adds little algorithmic weight."
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

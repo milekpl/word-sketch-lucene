@@ -1,0 +1,77 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 7,
+  "assessments": {
+    "contract_coherence": 83.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface documents all methods precisely: error contracts (IOException paths), null/empty lemma behavior ('returns an empty list silently if null or empty'), and throws IllegalArgumentException for bad pattern format — all upheld by BlackLabQueryExecutor",
+        "BlackLabQueryExecutor.executeSurfacePattern extracts lemma internally from the pattern via BcqlPatternUtils.extractHeadword() and returns emptyList() silently when extraction fails, consistent with its documented contract",
+        "CollocateQueryHelper no-arg constructor sets final BlackLabIndex index = null with no @Nullable annotation on the field; Javadoc says it is for test subclasses that override all I/O methods, but a partial override would get a non-descriptive NPE from Objects.requireNonNull rather than a documented failure mode",
+        "SemanticFieldExplorer has two overloads of exploreByPattern: the public one validates RelationConfig (relationType empty, collocatePosGroup OTHER) and throws IllegalArgumentException; the package-private test seam skips those pre-checks — different validation contracts for the same conceptual operation, documented but divergent",
+        "GrammarConfigLoader.createDefaultEnglish() explicitly documents its two-tier exception contract (wraps IOException into IllegalStateException for callers that cannot handle checked exceptions)",
+        "RelationPatternBuilder.buildCollocateReversePattern throws IllegalStateException when relationType is absent or POS group is OTHER, matching the @throws documentation exactly",
+        "executeBcqlQuery on QueryExecutor interface omits documenting null/blank behavior for bcqlPattern, unlike executeCollocations which explicitly states lemma null/empty behavior — minor contract asymmetry between sibling methods",
+        "HttpApiUtils.wrapWithErrorHandling documents its error mapping (IAE → 400, IOException → 500) and every handler relies on this; explorationHandlers throws IAE for param validation errors and IllegalStateException-wrapped errors propagate as 500 — consistent throughout",
+        "ExplorationService interface method signatures, annotations (@NonNull), and return types match SemanticFieldExplorer implementation precisely — no declared-vs-actual divergence"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface documents all four major methods with precise null/empty lemma behavior, IOException paths, and IllegalArgumentException conditions — all faithfully upheld in BlackLabQueryExecutor",
+        "Error propagation chain is explicitly documented end-to-end: handlers throw IllegalArgumentException for 400-class errors, wrapWithErrorHandling documents its mapping, and every handler relies on it consistently",
+        "GrammarConfigLoader.createDefaultEnglish() is a textbook two-tier exception contract: the divergence from load() (checked vs unchecked) is documented with the rationale",
+        "RelationPatternBuilder.buildFullPattern documents the null/blank passthrough contract and NullPointerException on null pattern — both upheld exactly by the implementation",
+        "@NonNull/@Nullable annotations on interface and implementation boundaries are used systematically and match actual method behavior"
+      ],
+      "issue_character": "Issues are isolated and minor: a partially-undocumented null-index constructor, a validation asymmetry between public and package-private overloads of the same conceptual method, and a small documentation gap in a sibling interface method — none represent systematic contract violations.",
+      "score_rationale": "The codebase scores solidly above 80. Method contracts are stated with unusual precision throughout the QueryExecutor interface and its implementation, error contracts are consistently documented and honored, and return-type honesty is strong with no getter-disguised mutations. Two issues pull it below 90: the CollocateQueryHelper null-index constructor creates a partially-undocumented failure mode, and the public/package-private exploreByPattern pair has divergent validation contracts that are only explained in prose rather than enforced at the boundary. These are minor and localized, not systemic — bringing the score to 83."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "null_index_constructor_undocumented_failure",
+      "summary": "CollocateQueryHelper no-arg constructor leaves final BlackLabIndex field null without @Nullable, so partial test subclasses receive an opaque NPE instead of a documented failure",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "Constructor at line 74 assigns this.index = null with no @Nullable annotation on the field",
+        "getTotalFrequency (line 89) and executeCollocateSearchImpl (line 138) guard with Objects.requireNonNull(...), which produces a NullPointerException with the message 'BlackLabIndex must not be null' — this is a runtime guard, not a constructor-level contract statement",
+        "A test subclass that overrides only getTotalFrequency but not executeCollocateSearchImpl would get an NPE from the second guard, with no docstring warning about this pitfall"
+      ],
+      "suggestion": "Add @Nullable to the field declaration (or change it to Optional<BlackLabIndex>), or add an explicit precondition in the no-arg constructor body: 'Subclasses must override all methods that access this.index or NullPointerException will result'. Alternatively, expose the field as protected so subclasses can check it, or guard only the production constructor with @NonNull and document that the no-arg path intentionally leaves index null for test-override use.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "explore_by_pattern_validation_asymmetry",
+      "summary": "Public and package-private overloads of exploreByPattern apply different validation: the public one rejects invalid RelationConfig eagerly, the test seam silently skips those checks",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Public overload (line 118) throws IllegalArgumentException when relationType is empty or collocatePosGroup is OTHER, before delegating",
+        "Package-private overload (line 155) accepts String pattern arguments directly and only validates that seed is not blank — RelationConfig validity checks do not exist here",
+        "The Javadoc on the test seam says 'Production code should always call the public overload', but a caller who finds the package-private method through IDE completion can construct a test scenario that would fail in production without any contract warning"
+      ],
+      "suggestion": "Add a note to the package-private overload's Javadoc explicitly stating which validations are intentionally absent (relationType/POS group checks), and why. Alternatively, extract the validation into a private static validateRelationConfig(RelationConfig) method and call it from both the public overload and optionally from the test seam when a RelationConfig is available, making the contract gap visible and intentional.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Test seam design pattern (separate constructor/overload for testing) slightly weakens contract strictness because the test path intentionally omits production validations without making the omission explicit in the contract"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 4,
+  "assessments": {"mid_level_elegance": 68.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler centralises model-to-presentation translation for exploration results; HTTP handlers delegate all field population to it via populateExploreResponse/populateComparisonResponse.",
+        "GrammarConfig/GrammarConfigLoader split: callers receive an immutable GrammarConfig and never reference the loader; boundary is clean.",
+        "HttpApiUtils.wrapWithErrorHandling provides uniform error-to-HTTP translation for every registered endpoint, keeping lifecycle propagation consistent across all handlers.",
+        "ExplorationService interface uses typed options records (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) as inputs and typed result objects as outputs; the seam is explicit and minimal.",
+        "QueryExecutor default methods executeSurfacePatternForRelation and executeBcqlQueryForRelation keep HTTP handlers free of pattern-construction logic.",
+        "ExploreResponseAssembler.buildExplorationEdges has a legacy fallback branch ('Legacy fallback for ExplorationResult instances without per-seed data') that silently produces incorrect duplicate edges in multi-seed mode if perSeedCollocates is empty, creating an unsafe internal boundary state.",
+        "ExplorationResult has two constructors (5-arg legacy and 6-arg current), allowing callers to construct an instance without perSeedCollocates data, which feeds the unsafe legacy branch in the assembler.",
+        "handleSemanticFieldComparison assembles the 'parameters' sub-map inline instead of via the shared buildCoreExploreResponse helper used by the other two explore handlers, creating three distinct response-assembly patterns within the same class.",
+        "ConcordanceHandlers.handleConcordanceExamples assembles the examples list inline (loop building examplesList), while CorpusQueryHandlers extracts an equivalent loop into a static buildBcqlResponse helper; inconsistent boundary translation convention.",
+        "handleSemanticFieldExplore manually appends 'seed' to the response map after calling buildCoreExploreResponse, bypassing the encapsulation implied by ExploreResponseAssembler — this field is not populated by the assembler itself, so callers must know to add it separately."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler is a well-placed, explicit translation layer that keeps ExplorationResult and ComparisonResult free of presentation concerns; handlers compose it cleanly.",
+        "GrammarConfigLoader/GrammarConfig separation ensures that data consumers at integration seams never carry a reference to file-IO machinery.",
+        "HttpApiUtils.wrapWithErrorHandling provides a single, uniform error-propagation contract applied consistently across all handler boundaries.",
+        "QueryExecutor's convenience default methods (executeSurfacePatternForRelation, executeBcqlQueryForRelation) keep pattern-construction logic out of the HTTP layer entirely.",
+        "ExplorationService interface uses typed, named options records at the seam rather than primitive parameter bags, making the handoff explicit and unsurprising."
+      ],
+      "issue_character": "Issues are concentrated at the presentation/model seam within the API package: inconsistent use of the shared assembler and response-builder helpers across sibling handlers creates small but accumulating entropy, and a legacy backward-compat path in ExploreResponseAssembler introduces a silently unsafe internal state that handlers cannot detect.",
+      "score_rationale": "The codebase shows real investment in seam hygiene — dedicated assembler, clean config loading split, uniform error wrapping, and typed boundary contracts. These push the score solidly above the 'significant drag' range. However, three distinct response-assembly patterns across three sibling handlers in ExplorationHandlers, an inconsistent result-mapping convention between ConcordanceHandlers and CorpusQueryHandlers, and a legacy compat branch in the assembler that can silently produce wrong output represent genuine integration seam entropy. The issues are module-scoped and fixable with a multi-file refactor, not deep architectural problems, but they visibly undercut the otherwise clean handoff discipline. This places the codebase in the 65-70 range: better than 'significant drag' but short of the 'solid but uneven' 80 anchor due to the recurring inconsistency pattern."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "legacy_assembler_branch",
+      "summary": "ExploreResponseAssembler has a legacy fallback that silently emits duplicate SEED_ADJ edges in multi-seed mode when perSeedCollocates is empty",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "buildExplorationEdges checks `if (!perSeed.isEmpty())` and falls through to a branch that iterates all seedList × all collocates, which in multi-seed mode would produce N_seeds × N_collocates duplicate edges.",
+        "ExplorationResult has a 5-arg constructor that sets perSeedCollocates to Map.of(), so any caller using the legacy constructor produces an ExplorationResult that silently triggers this branch.",
+        "The two constructors create an ambiguous seam: callers cannot tell from the interface whether per-seed data is present without inspecting the result object."
+      ],
+      "suggestion": "Deprecate the 5-arg constructor and make perSeedCollocates a required parameter. In buildExplorationEdges, remove the legacy fallback branch and throw IllegalStateException (or replace with an assertion) when perSeedCollocates is empty, surfacing the contract violation at the call site rather than silently producing wrong output.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "assembler_seam_inconsistency"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "divergent_explore_response_assembly",
+      "summary": "Three sibling explore handlers in ExplorationHandlers use three different response-assembly patterns, undermining predictability at the HTTP boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore calls buildCoreExploreResponse then manually appends 'seed' to the map, then delegates to ExploreResponseAssembler.populateExploreResponse.",
+        "handleSemanticFieldExploreMulti calls buildCoreExploreResponse then manually appends 'seeds' and 'seed_count', then delegates to ExploreResponseAssembler.populateExploreResponse.",
+        "handleSemanticFieldComparison builds paramsUsed inline (with 'relation: all') rather than via buildCoreExploreResponse, then delegates to ExploreResponseAssembler.populateComparisonResponse — a third distinct pattern.",
+        "The seed/seeds field is added ad-hoc by each handler rather than being part of a typed response builder, so the envelope structure is not enforced at the seam."
+      ],
+      "suggestion": "Extend ExploreResponseAssembler with populateExploreEnvelope(response, seed, relationType, params) and populateComparisonEnvelope(response, seeds, params) helpers that handle the full envelope including seed/seeds fields. Handlers should call these once and pass through, eliminating the per-handler ad-hoc map mutations.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "assembler_seam_inconsistency"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "inconsistent_result_mapping_convention",
+      "summary": "ConcordanceHandlers inlines CollocateResult-to-map translation while CorpusQueryHandlers extracts it to a static helper, creating an inconsistent boundary convention within the api package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlers.handleConcordanceExamples builds examplesList inline with a for-loop inside the handler method.",
+        "CorpusQueryHandlers extracts the equivalent loop into a private static buildBcqlResponse method, keeping the handler method focused on orchestration.",
+        "Both map QueryResults.CollocateResult fields to JSON maps but apply different field subsets (ConcordanceHandlers omits match_start/match_end/collocate_lemma/frequency/log_dice), so the translation logic is similar in structure but inconsistently placed."
+      ],
+      "suggestion": "Move the examplesList assembly loop in ConcordanceHandlers into a private static buildConcordanceExamplesResponse(ConcordanceExamplesRequest, List<CollocateResult>, boolean, String) method following the same convention as CorpusQueryHandlers.buildBcqlResponse, keeping the handler method a pure orchestrator.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "assembler_seam_inconsistency"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The ExploreResponseAssembler was introduced as a deliberate translation layer but was not consistently extended as new handlers were added — resulting in partial delegation and handler-level ad-hoc mutations at the same boundary.",
+      "The legacy ExplorationResult constructor was retained for backward compatibility without guarding the assembler against its unsafe state, creating a latent cross-seam contract violation."
+    ],
+    "likely_symptoms": [
+      "divergent_explore_response_assembly may manifest in subtle response-shape differences between explore, explore-multi, and compare endpoints that client code has to work around."
+    ],
+    "possible_false_positives": []
+  }
+}

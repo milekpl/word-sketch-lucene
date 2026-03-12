@@ -190,7 +190,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         Map<String, String> lemmaPosMap = new HashMap<>();
 
         collectFrequenciesAndPosFromGroups(groups,
-            BlackLabSnippetParser::extractCollocateLemma,
+            BlackLabSnippetParser::extractLastLemma,
             freqMap, lemmaPosMap);
 
         return collocateQueryHelper.buildAndRankCollocates(freqMap, headwordFreq, minLogDice, maxResults, lemmaPosMap);

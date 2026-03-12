@@ -17,7 +17,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -108,18 +110,11 @@ public class Main {
     }
 
     private static void handleBlackLabIndexCommand(String[] args) throws IOException {
-        String inputPath = null;
-        String outputPath = null;
-        String formatDir = ".";
-
-        for (int i = 1; i < args.length; i++) {
-            switch (args[i]) {
-                case "--input": case "-i": inputPath = requireNextArg(args, ++i, "--input"); break;
-                case "--output": case "-o": outputPath = requireNextArg(args, ++i, "--output"); break;
-                case "--format-dir": formatDir = requireNextArg(args, ++i, "--format-dir"); break;
-                default: System.err.println("Unknown option: " + args[i]);
-            }
-        }
+        Map<String, String> params = parseCommandArguments(args, "blacklab-index");
+        String inputPath = getParam(params, "--input", "-i");
+        String outputPath = getParam(params, "--output", "-o");
+        String formatDir = getParam(params, "--format-dir");
+        if (formatDir == null) formatDir = ".";
 
         if (inputPath == null || outputPath == null) {
             System.err.println("Error: --input and --output are required");
@@ -168,40 +163,12 @@ public class Main {
     }
 
     private static void handleBlackLabQueryCommand(String[] args) throws IOException {
-        String indexPath = null;
-        String lemma = null;
-        String deprel = null;
-        double minLogDice = 0;
-        int limit = 20;
-
-        for (int i = 1; i < args.length; i++) {
-            switch (args[i]) {
-                case "--index": case "-i": indexPath = requireNextArg(args, ++i, "--index"); break;
-                case "--lemma": case "-w": lemma = requireNextArg(args, ++i, "--lemma"); break;
-                case "--deprel": deprel = requireNextArg(args, ++i, "--deprel"); break;
-                case "--min-logdice": {
-                    String val = requireNextArg(args, ++i, "--min-logdice");
-                    try {
-                        minLogDice = Double.parseDouble(val);
-                    } catch (NumberFormatException e) {
-                        System.err.println("Invalid value for --min-logdice: '" + val + "' is not a valid number.");
-                        System.exit(1);
-                    }
-                    break;
-                }
-                case "--limit": {
-                    String val = requireNextArg(args, ++i, "--limit");
-                    try {
-                        limit = Integer.parseInt(val);
-                    } catch (NumberFormatException e) {
-                        System.err.println("Invalid value for --limit: '" + val + "' is not a valid integer.");
-                        System.exit(1);
-                    }
-                    break;
-                }
-                default: System.err.println("Unknown option: " + args[i]);
-            }
-        }
+        Map<String, String> params = parseCommandArguments(args, "blacklab-query");
+        String indexPath = getParam(params, "--index", "-i");
+        String lemma = getParam(params, "--lemma", "-w");
+        String deprel = getParam(params, "--deprel");
+        double minLogDice = parseDoubleParam(params, "--min-logdice", 0.0);
+        int limit = parseIntParam(params, "--limit", 20);
 
         if (indexPath == null || lemma == null) {
             System.err.println("Error: --index and --lemma are required");
@@ -242,23 +209,16 @@ public class Main {
     }
 
     private static void handleBlackLabServerCommand(String[] args) throws IOException {
-        String indexPath = null;
+        Map<String, String> params = parseCommandArguments(args, "server");
+        String indexPath = getParam(params, "--index", "-i");
+        String portVal = getParam(params, "--port", "-p");
         int port = 8080;
-
-        for (int i = 1; i < args.length; i++) {
-            switch (args[i]) {
-                case "--index": case "-i": indexPath = requireNextArg(args, ++i, "--index"); break;
-                case "--port": case "-p": {
-                    String val = requireNextArg(args, ++i, "--port");
-                    try {
-                        port = Integer.parseInt(val);
-                    } catch (NumberFormatException e) {
-                        System.err.println("Invalid value for --port: '" + val + "' is not a valid integer.");
-                        System.exit(1);
-                    }
-                    break;
-                }
-                default: System.err.println("Unknown option: " + args[i]);
+        if (portVal != null) {
+            try {
+                port = Integer.parseInt(portVal);
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid value for --port: '" + portVal + "' is not a valid integer.");
+                System.exit(1);
             }
         }
 
@@ -320,6 +280,57 @@ public class Main {
             Thread.currentThread().join();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Parses {@code args[1..]} into a flag→value map. Consecutive pairs of {@code --flag value}
+     * are stored as-is; a trailing flag with no value emits a warning and is skipped.
+     */
+    private static Map<String, String> parseCommandArguments(String[] args, String commandName) {
+        Map<String, String> params = new LinkedHashMap<>();
+        for (int i = 1; i < args.length; i++) {
+            String flag = args[i];
+            if (i + 1 < args.length) {
+                params.put(flag, args[++i]);
+            } else {
+                System.err.println("[" + commandName + "] Option '" + flag + "' requires a value but none was provided.");
+            }
+        }
+        return params;
+    }
+
+    /** Returns the first non-null value for any of the given keys, or {@code null}. */
+    private static String getParam(Map<String, String> params, String... keys) {
+        for (String key : keys) {
+            if (params.containsKey(key)) return params.get(key);
+        }
+        return null;
+    }
+
+    /** Parses an integer parameter from the map, returning {@code defaultValue} if absent. */
+    private static int parseIntParam(Map<String, String> params, String option, int defaultValue) {
+        String val = params.get(option);
+        if (val == null) return defaultValue;
+        try {
+            return Integer.parseInt(val);
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid value for " + option + ": '" + val + "' is not a valid integer.");
+            System.exit(1);
+            throw new AssertionError("unreachable");
+        }
+    }
+
+    /** Parses a double parameter from the map, returning {@code defaultValue} if absent. */
+    private static double parseDoubleParam(Map<String, String> params, String option, double defaultValue) {
+        String val = params.get(option);
+        if (val == null) return defaultValue;
+        try {
+            return Double.parseDouble(val);
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid value for " + option + ": '" + val + "' is not a valid number.");
+            System.exit(1);
+            throw new AssertionError("unreachable");
         }
     }
 

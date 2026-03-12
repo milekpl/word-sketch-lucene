@@ -179,20 +179,8 @@ class BlackLabSnippetParser {
 
 
 
-    /**
-     * Finds the last {@code lemma="..."} attribute in the match XML fragment.
-     * In typical patterns the collocate appears last, so this returns the collocate lemma.
-     *
-     * @param matchXml The match XML fragment (e.g., parts[1] from a concordance)
-     * @return The last lemma attribute value (original case), or {@code null} if none found
-     */
-    @Nullable
-    static String extractCollocateLemma(String matchXml) {
-        return extractLastLemma(matchXml);
-    }
-
     /** Returns the last {@code lemma="..."} value in {@code xml}, or {@code null}. */
-    private static String extractLastLemma(String xml) {
+    static String extractLastLemma(String xml) {
         if (xml == null || xml.isEmpty()) return null;
         java.util.regex.Matcher m = LEMMA_ATTR.matcher(xml);
         String last = null;

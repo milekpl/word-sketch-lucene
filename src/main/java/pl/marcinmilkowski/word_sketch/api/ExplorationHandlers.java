@@ -128,8 +128,6 @@ class ExplorationHandlers {
      *
      * <p>GET /api/semantic-field/compare?seeds=theory,model,hypothesis&amp;min_logdice=3.0</p>
      *
-     * <p>Also reachable at the legacy path {@code /api/semantic-field}.</p>
-     *
      * <p>Cardinality: requires at least 2 comma-separated {@code seeds} values; works with 2 or
      * more nouns, enabling pairwise and multi-way adjective profile comparison.
      * This endpoint does not accept a {@code relation} parameter because
@@ -233,7 +231,6 @@ class ExplorationHandlers {
 
     /** Parses a comma-separated seeds parameter into a cleaned, lowercased ordered set. */
     private static Set<String> parseSeedSet(@NonNull String seedsParam) {
-        if (seedsParam.isEmpty()) return Set.of();
         Set<String> seeds = new LinkedHashSet<>();
         for (String s : seedsParam.split(",")) {
             String cleaned = s.trim().toLowerCase();

@@ -1,0 +1,97 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 5,
+  "assessments": {"incomplete_migration": 76.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "RelationType enum (model/RelationType.java) retains four constants — ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF — explicitly documented as 'legacy labels from an earlier exploration subsystem design… no longer set in any grammar config'. They exist only because tests reference them; no production grammar config uses them.",
+        "ExplorationResult (model/exploration/ExplorationResult.java) has a 5-arg constructor documented as a 'legacy backward-compat path'; it delegates to the 6-arg constructor with an empty map. Active test code (ExploreResponseAssemblerTest) still calls the 5-arg constructor rather than the canonical 6-arg form.",
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc states 'Also reachable at the legacy path /api/semantic-field' but WordSketchApiServer registers no such bare path — only '/api/semantic-field/compare'. This is a stale doc claim about a path that no longer exists.",
+        "GrammarConfigLoader.validateNoLegacyKeys actively rejects a 'copulas' key with a clear error message; the comment 'Canonical field name is \"pattern\"; cql_pattern is no longer supported' appears inline. Both indicate completed, enforced migrations with guards rather than open coexistence.",
+        "RelationUtils.RELATION_ALIASES maps old semantic-role names (adj_predicate, subject_of, object_of, adj_modifier) to canonical grammar-config IDs. This is used by active production code (ExplorationHandlers.resolveRelationConfig) to accept old-style HTTP query parameters — intentional backward-compat for external callers, not dead shims.",
+        "No mixed JS/TS files, no @Deprecated annotations in production code, no FIXME/TODO referencing 'migrate' or 'remove after', no two concurrent implementations of the same interface. The old query executors and Lucene-only path have been fully replaced by BlackLab."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "Completed migrations are actively enforced: GrammarConfigLoader rejects both 'copulas' and 'cql_pattern' with clear error messages, preventing reversion to old config patterns.",
+        "The RelationUtils alias map is intentional, documented backward-compat for HTTP query params — not an accidental shim — and its scope is clearly bounded to a single resolver method.",
+        "No two competing implementations of the same interface coexist in production code: BlackLab is the sole query executor, and the old Lucene-only path is gone entirely.",
+        "The RelationType constants' legacy status is explicitly documented inline with a precise explanation of why they remain and what has changed, reducing developer confusion."
+      ],
+      "issue_character": "The remaining migration residue is contained and self-consistent: dead enum constants retained for test convenience, one stale Javadoc path claim, and a 5-arg convenience constructor that tests haven't yet migrated to the 6-arg form — all localized, none blocking active functionality.",
+      "score_rationale": "The codebase has completed its major migration (old query executor gone, grammar config keys enforced) and the remaining issues are minor: four dead enum constants only referenced by tests (documented but not removed), a stale Javadoc path reference, and a convenience constructor used only in tests. These are cleanup tasks, not active coexistence problems. Against global anchors this sits solidly above 'significant drag' (60) — the migration is functionally complete — but falls short of 'solid with minor rough edges' (80–85) because the dead enum constants are named members of a public API enum and the stale Javadoc makes a false claim about a live route. Score of 76 reflects a well-finished migration with identifiable but low-risk remnants."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead_legacy_relation_type_constants",
+      "summary": "Four RelationType enum constants are documented dead legacy values retained only for test compatibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/config/RelationPatternBuilderTest.java"
+      ],
+      "evidence": [
+        "RelationType.ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF are all marked in their Javadoc as 'legacy labels from an earlier exploration subsystem design… no longer set in any grammar config'.",
+        "Production grammar config does not use these constants; they are only referenced by test code (RelationPatternBuilderTest lines 120, 128, 136; RelationUtilsTest lines 61, 65).",
+        "Their presence in the public enum risks developers using them in new grammar configs or exploration logic under the false impression they are valid relation types."
+      ],
+      "suggestion": "Update the tests to use SURFACE or DEP (which are the actual types used), then remove ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF from the enum. If the semantic role distinction is needed for future work, introduce a separate SemanticRole enum rather than mixing concerns in RelationType.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "stale_legacy_path_javadoc",
+      "summary": "handleSemanticFieldComparison Javadoc claims a legacy path '/api/semantic-field' exists but the server never registers it",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc (line 131): 'Also reachable at the legacy path /api/semantic-field'.",
+        "WordSketchApiServer registers only '/api/semantic-field/compare', '/api/semantic-field/explore', '/api/semantic-field/explore-multi', '/api/semantic-field/examples' — no bare '/api/semantic-field' path exists."
+      ],
+      "suggestion": "Remove the 'Also reachable at the legacy path /api/semantic-field' sentence from the Javadoc; the legacy route was apparently cleaned up from the server but the doc was not updated.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy_compat_constructor_in_tests",
+      "summary": "ExplorationResult 5-arg 'legacy backward-compat' constructor is still used by test code instead of the canonical 6-arg form",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssemblerTest.java"
+      ],
+      "evidence": [
+        "ExplorationResult.java lines 40–43: a 5-arg constructor labelled in its Javadoc comment as 'legacy backward-compat path', delegating to the 6-arg constructor with Map.of().",
+        "ExploreResponseAssemblerTest.java lines 25 and 34 call this 5-arg constructor — active test code has not been updated to the 6-arg canonical form."
+      ],
+      "suggestion": "Update ExploreResponseAssemblerTest to call the 6-arg constructor directly (passing Map.of() explicitly), then remove the 5-arg constructor from ExplorationResult.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The migration from the older exploration subsystem was completed functionally but not cleaned up: dead enum constants, a removed route whose Javadoc was not updated, and a convenience constructor added for compat were left in place rather than removed once no longer needed.",
+      "Tests were not updated in step with production code changes, preserving references to deprecated paths (5-arg constructor, legacy RelationType constants) that would otherwise have been removed."
+    ],
+    "likely_symptoms": [
+      "dead_legacy_relation_type_constants — localized to the enum and tests, not a systemic design problem",
+      "legacy_compat_constructor_in_tests — test-only, no runtime impact"
+    ],
+    "possible_false_positives": []
+  }
+}

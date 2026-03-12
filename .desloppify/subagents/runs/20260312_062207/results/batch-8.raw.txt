@@ -1,0 +1,76 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 8,
+  "assessments": {"logic_clarity": 76.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "ExplorationHandlers.parseSeedSet: first line is `if (seedsParam.isEmpty()) return Set.of()`, but every call site passes the return value of HttpApiUtils.requireParam() which already throws on blank — the isEmpty() condition is never true in production",
+        "CollocateProfileComparator.buildAdjectiveProfileList: `avgScore = scores.length > 0 ? sum / scores.length : 0.0` — scores is always non-empty because adjectiveProfiles entries are only created via computeIfAbsent followed immediately by .put(), so scores.length is guaranteed >= 1; the ternary's false branch is dead",
+        "SemanticFieldExplorer.exploreByPattern (package-private overload): `if (seed == null || seed.isEmpty()) throw ...` is unreachable from the only production caller (the @NonNull-annotated public overload which has already validated seed); it is a test-safety guard but is not labelled as such",
+        "CollocateQueryHelper.collectHits: null/empty concordance-parts guards (`if (conc == null)`, `if (parts == null || parts.length < 3)`) correctly produce empty HitRecords and continue processing — these are deliberate defensive guards, not logic errors",
+        "All boolean expressions in the scoring pipeline (logDice condition, validCollocate guard, headwordFreq > 0 && collocateFreq > 0) map cleanly to their intent with no simplifiable patterns",
+        "No identical if/else branches or ternary arms observed anywhere in the reviewed files",
+        "No unreachable code after unconditional returns or throws was found — all early-exit paths are the final statement in their branches"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses are consistently placed at method entry and clearly explained (null/empty lemma guards in executeCollocations, executeDependencyPattern, executeSurfacePattern each include a debug-level log that names the skip reason)",
+        "Null-safety in the scoring pipeline is explicit and correct: the headwordFreq > 0 && collocateFreq > 0 guard in buildAndRankCollocates and scoreHits prevents divide-by-zero without hiding the condition behind an implicit fallback",
+        "No identical if/else or ternary branches found across any of the 23 reviewed files",
+        "Control flow across all HTTP handlers is strictly linear: parse → validate → query → assemble → respond, with no branch that rejoins a previous path in a confusing way",
+        "The two-phase BCQL pipeline (collectHits → scoreHits) in CollocateQueryHelper is structured so each phase does exactly one thing, making the logic easy to trace"
+      ],
+      "issue_character": "The issues are isolated, harmless over-defensiveness: a small number of conditions whose false branches can never be reached because caller contracts are stronger than the check implies, leaving redundant code that misleads about what the method can actually receive.",
+      "score_rationale": "The codebase sits solidly above the 'significant drag' threshold (60) and approaches 'solid but uneven' (80). Logic across the query, exploration, and API layers is clean, linear, and free of the most common pitfalls (dead arms, always-true gates, boolean simplification failures). Three redundant conditions pull the score below 80: the always-false isEmpty() guard in parseSeedSet, the always-true scores.length > 0 ternary guard, and the null check in the package-private exploreByPattern overload that the production call path cannot reach. These are minor in isolation but reflect a pattern of adding guards without verifying that the surrounding contract already covers them, which slightly reduces trust in what the conditions are actually communicating."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "parseseedset_dead_empty_guard",
+      "summary": "parseSeedSet's isEmpty() guard is always false — requireParam already enforces non-blank",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"],
+      "evidence": [
+        "parseSeedSet is only called after `HttpApiUtils.requireParam(params, \"seeds\")` which throws IllegalArgumentException when the value is blank",
+        "The first line `if (seedsParam.isEmpty()) return Set.of()` therefore can never evaluate to true at runtime",
+        "If a caller ever did pass an empty string directly, the returned empty Set would immediately trigger the `seeds.size() < 2` check two lines later, so the guard provides no unique behaviour"
+      ],
+      "suggestion": "Remove the `if (seedsParam.isEmpty()) return Set.of();` line from parseSeedSet; the contract is already enforced by requireParam, and removing the dead guard clarifies that the method expects a non-empty string.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "avgScore_dead_ternary_branch",
+      "summary": "scores.length > 0 guard in buildAdjectiveProfileList is always true — nounScores is never empty",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"],
+      "evidence": [
+        "adjectiveProfiles entries are only created via `computeIfAbsent(..., k -> new LinkedHashMap<>()).put(noun, logDice)` in buildRawAdjectiveProfiles, so every map in adjectiveProfiles contains at least one entry",
+        "`double[] scores = nounScores.values().stream().mapToDouble(...).toArray()` therefore produces an array of length >= 1",
+        "`scores.length > 0 ? sum / scores.length : 0.0` — the false branch (returning 0.0) is dead code; the ternary implies a zero-length case that cannot occur"
+      ],
+      "suggestion": "Replace the ternary with a direct division `double avgScore = sum / scores.length;` and add a comment noting that scores is guaranteed non-empty by construction, making the intent explicit.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Defensive over-checking: guards are added to methods without verifying that the caller's contract already covers the guarded case, resulting in conditions that are always true or always false"
+    ],
+    "likely_symptoms": [
+      "parseseedset_dead_empty_guard",
+      "avgScore_dead_ternary_branch"
+    ],
+    "possible_false_positives": []
+  }
+}

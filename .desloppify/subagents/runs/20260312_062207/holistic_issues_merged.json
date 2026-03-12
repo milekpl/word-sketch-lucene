@@ -1,0 +1,1117 @@
+{
+  "assessments": {
+    "abstraction_fitness": {
+      "score": 71.5,
+      "components": [
+        "Abstraction Leverage",
+        "Indirection Cost",
+        "Interface Honesty",
+        "Delegation Density",
+        "Definition Directness",
+        "Type Discipline"
+      ],
+      "component_scores": {
+        "Abstraction Leverage": 82.0,
+        "Indirection Cost": 68.0,
+        "Interface Honesty": 84.0,
+        "Delegation Density": 95.0,
+        "Definition Directness": 85.0,
+        "Type Discipline": 92.0
+      }
+    },
+    "contract_coherence": 77.8,
+    "cross_module_architecture": 73.3,
+    "high_level_elegance": 65.0,
+    "incomplete_migration": 63.9,
+    "logic_clarity": 69.9,
+    "low_level_elegance": 66.1,
+    "mid_level_elegance": 55.3,
+    "naming_quality": 64.6,
+    "package_organization": 65.0,
+    "stale_migration": 49.8,
+    "structure_nav": 82.4,
+    "test_strategy": 69.0,
+    "type_discipline": 58.8,
+    "type_safety": 60.7
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Top-level packages \u2014 api, config, exploration, model, query, indexer, utils \u2014 each correspond to a distinct domain capability; a new engineer can predict where to look for config parsing, HTTP routing, or corpus querying without browsing.",
+        "Handler classes in api/ are split by concern (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) with a single routing/bootstrap class (WordSketchApiServer) that lists all endpoints in its Javadoc; the public API surface of the server package is small and consistent.",
+        "Config subsystem cleanly separates data from loading: GrammarConfig is a pure value object, GrammarConfigLoader owns all file-IO and JSON concerns, RelationConfig is a record \u2014 callers depend only on what they need.",
+        "ExplorationService interface creates a testable seam between the HTTP layer and domain logic, enabling injection in tests and keeping the api/ layer free of exploration-algorithm concerns.",
+        "RadialPlot.java lives in api/ but is a spiral-layout SVG builder (a visualization model concern), not an HTTP handler. Its package-level Javadoc says nothing about it; a developer looking for rendering logic would not think to look in api/.",
+        "model/ contains a heterogeneous set of types: QueryResults (result DTOs), PosGroup (domain enum), RelationType (domain enum), FetchExamplesOptions (options object), and an exploration/ sub-package. The package acts as a residual home for types that don't fit elsewhere, blurring its ownership boundary compared to the tighter packages around it.",
+        "ExploreResponseAssembler in api/ is correctly placed: it is a model-to-presentation converter that belongs close to the HTTP layer."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface (single impl: BlackLabQueryExecutor) is self-documented as a testability seam; its Javadoc explicitly states it 'acts primarily as a testability seam rather than an abstraction boundary' \u2014 not a surprise interface.",
+        "ExplorationService interface (single impl: SemanticFieldExplorer) similarly documents why a single-impl interface exists; it is used via injection in WordSketchApiServer's full constructor to enable test substitution.",
+        "SemanticFieldExplorer.exploreMultiSeed is a one-line delegation: 'return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared())' \u2014 the only value added is unpacking ExplorationOptions fields.",
+        "SemanticFieldExplorer.compareCollocateProfiles is similarly a one-line delegation: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates())' \u2014 again, only ExplorationOptions unpacking.",
+        "SemanticFieldExplorer directly implements exploreByPattern (the full single-seed algorithm, ~100 lines) but delegates 2 of its other 3 interface methods as pure pass-throughs, creating an asymmetric implementation where one method owns logic and two are thin forwarders.",
+        "HttpApiUtils is a package-private static utility class combining HTTP response writing and request parameter parsing; it is cohesive (both sets serve the HTTP layer exclusively) with explicit Javadoc explaining why combining them avoids unnecessary split.",
+        "ExploreResponseAssembler, GrammarConfigSerializer, and RelationPatternBuilder are all static-only classes with no instance state, each clearly scoped to one transformation concern (response assembly, JSON serialization, pattern string construction respectively).",
+        "No util dumping grounds: util_files is empty per scan; no package labeled 'util' or 'helper' accumulates unrelated concerns.",
+        "No delegation-heavy classes: mechanical scan reports delegation_heavy_class_count = 0.",
+        "CollocateQueryHelper and CollocateProfileComparator are package-private helpers with single focused responsibilities; their limited visibility correctly prevents callers from bypassing the intended interface."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "",
+      "sub_axes": {
+        "abstraction_leverage": 82.0,
+        "indirection_cost": 68.0,
+        "interface_honesty": 84.0,
+        "delegation_density": 95.0,
+        "definition_directness": 85.0,
+        "type_discipline": 92.0
+      }
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "Main.java: handleBlackLabIndexCommand, handleBlackLabQueryCommand, and handleBlackLabServerCommand each contain an identical for-loop over args with a switch dispatch and identical try/catch blocks for integer/double parsing \u2014 the pattern is copy-pasted three times with no shared extraction beyond requireNextArg.",
+        "CollocateQueryHelper.buildAndRankCollocates calls getTotalFrequency(collocateLemma) once per collocate inside the loop (N separate index I/O calls), while the sibling method scoreHits pre-fetches all corpus frequencies into a local map before iterating \u2014 inconsistent handling of the same sub-problem within the same class.",
+        "BlackLabSnippetParser.extractCollocateLemma delegates to extractLastLemma in a single line with no additional logic \u2014 a zero-cost wrapper that adds one indirection layer with no benefit.",
+        "SemanticFieldExplorer breaks the single-seed algorithm into four clearly named phase helpers (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates), each focused and proportionate.",
+        "CollocateQueryHelper two-phase pipeline (collectHits / scoreHits) with a clear record type (HitRecord) to carry phase-1 data into phase-2 \u2014 state mutation is explicit and bounded to the freqMapOut out-parameter.",
+        "ExplorationHandlers.parseExplorationParams extracts all four common parameter reads into a single place; each handler reads it once and destructures \u2014 avoids repetition across three sibling handlers.",
+        "VisualizationHandlers.RenderMode enum has one member (SIGNED) and an isValid helper that iterates over it \u2014 slightly over-engineered for a single-value enum.",
+        "ExploreResponseAssembler uses void populate* methods that mutate a passed-in map, while buildBcqlResponse (CorpusQueryHandlers) builds and returns a new map \u2014 inconsistent mutating vs returning idiom across sibling assembler paths."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler centralises model-to-presentation translation for exploration results; HTTP handlers delegate all field population to it via populateExploreResponse/populateComparisonResponse.",
+        "GrammarConfig/GrammarConfigLoader split: callers receive an immutable GrammarConfig and never reference the loader; boundary is clean.",
+        "HttpApiUtils.wrapWithErrorHandling provides uniform error-to-HTTP translation for every registered endpoint, keeping lifecycle propagation consistent across all handlers.",
+        "ExplorationService interface uses typed options records (ExplorationOptions, SingleSeedExplorationOptions, FetchExamplesOptions) as inputs and typed result objects as outputs; the seam is explicit and minimal.",
+        "QueryExecutor default methods executeSurfacePatternForRelation and executeBcqlQueryForRelation keep HTTP handlers free of pattern-construction logic.",
+        "ExploreResponseAssembler.buildExplorationEdges has a legacy fallback branch ('Legacy fallback for ExplorationResult instances without per-seed data') that silently produces incorrect duplicate edges in multi-seed mode if perSeedCollocates is empty, creating an unsafe internal boundary state.",
+        "ExplorationResult has two constructors (5-arg legacy and 6-arg current), allowing callers to construct an instance without perSeedCollocates data, which feeds the unsafe legacy branch in the assembler.",
+        "handleSemanticFieldComparison assembles the 'parameters' sub-map inline instead of via the shared buildCoreExploreResponse helper used by the other two explore handlers, creating three distinct response-assembly patterns within the same class.",
+        "ConcordanceHandlers.handleConcordanceExamples assembles the examples list inline (loop building examplesList), while CorpusQueryHandlers extracts an equivalent loop into a static buildBcqlResponse helper; inconsistent boundary translation convention.",
+        "handleSemanticFieldExplore manually appends 'seed' to the response map after calling buildCoreExploreResponse, bypassing the encapsulation implied by ExploreResponseAssembler \u2014 this field is not populated by the assembler itself, so callers must know to add it separately."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "incomplete_migration": {
+      "evidence": [
+        "RelationType enum (model/RelationType.java) retains four constants \u2014 ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF \u2014 explicitly documented as 'legacy labels from an earlier exploration subsystem design\u2026 no longer set in any grammar config'. They exist only because tests reference them; no production grammar config uses them.",
+        "ExplorationResult (model/exploration/ExplorationResult.java) has a 5-arg constructor documented as a 'legacy backward-compat path'; it delegates to the 6-arg constructor with an empty map. Active test code (ExploreResponseAssemblerTest) still calls the 5-arg constructor rather than the canonical 6-arg form.",
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc states 'Also reachable at the legacy path /api/semantic-field' but WordSketchApiServer registers no such bare path \u2014 only '/api/semantic-field/compare'. This is a stale doc claim about a path that no longer exists.",
+        "GrammarConfigLoader.validateNoLegacyKeys actively rejects a 'copulas' key with a clear error message; the comment 'Canonical field name is \"pattern\"; cql_pattern is no longer supported' appears inline. Both indicate completed, enforced migrations with guards rather than open coexistence.",
+        "RelationUtils.RELATION_ALIASES maps old semantic-role names (adj_predicate, subject_of, object_of, adj_modifier) to canonical grammar-config IDs. This is used by active production code (ExplorationHandlers.resolveRelationConfig) to accept old-style HTTP query parameters \u2014 intentional backward-compat for external callers, not dead shims.",
+        "No mixed JS/TS files, no @Deprecated annotations in production code, no FIXME/TODO referencing 'migrate' or 'remove after', no two concurrent implementations of the same interface. The old query executors and Lucene-only path have been fully replaced by BlackLab."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "package_organization": {
+      "evidence": [
+        "RadialPlot.java lives in api/ but imports zero HTTP classes (no com.sun.net.httpserver usage); it is a pure SVG-rendering utility whose own test file is placed in src/test/java/.../viz/RadialPlotTest.java \u2014 a different test package from api/ \u2014 signalling the intended home is viz/, not api/.",
+        "api/ has 11 production files plus package-info (12 total, above the >10 threshold): WordSketchApiServer, HttpApiUtils, RequestEntityTooLargeException (HTTP infra), ConcordanceHandlers, CorpusQueryHandlers, ExplorationHandlers, SketchHandlers, VisualizationHandlers (domain handlers), ExploreResponseAssembler, GrammarConfigSerializer (response/serialization), and RadialPlot (visualization). Five distinct responsibilities in one flat package.",
+        "GrammarConfigSerializer lives in api/ but GrammarConfigLoaderTest (in config/ test package) imports it directly: 'import pl.marcinmilkowski.word_sketch.api.GrammarConfigSerializer' \u2014 a cross-package test dependency suggesting the serializer's natural home is closer to config/ or a neutral codec/ package.",
+        "directory_profiles show api/ at 1794 LOC with 12 files, exploration/ at 762 LOC with 5 files, model/exploration/ at 472 LOC with 11 files \u2014 api/ is the only directory above the 10-file mixed-concern threshold.",
+        "All other packages are well-scoped and appropriately sized: config/ (6 files, grammar loading/building), query/ (6 files, Lucene execution), exploration/ (5 files, exploration service logic), model/ (5 files, shared types), model/exploration/ (11 files, exploration-specific DTOs), utils/ (4 files), indexer/blacklab/ (3 files).",
+        "model/exploration/ sub-package is a deliberate and well-executed split: exploration DTOs are cleanly separated from general model types (RelationType, PosGroup, QueryResults, FetchExamplesOptions) in model/."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "contract_coherence": {
+      "evidence": [
+        "QueryExecutor interface documents all methods precisely: error contracts (IOException paths), null/empty lemma behavior ('returns an empty list silently if null or empty'), and throws IllegalArgumentException for bad pattern format \u2014 all upheld by BlackLabQueryExecutor",
+        "BlackLabQueryExecutor.executeSurfacePattern extracts lemma internally from the pattern via BcqlPatternUtils.extractHeadword() and returns emptyList() silently when extraction fails, consistent with its documented contract",
+        "CollocateQueryHelper no-arg constructor sets final BlackLabIndex index = null with no @Nullable annotation on the field; Javadoc says it is for test subclasses that override all I/O methods, but a partial override would get a non-descriptive NPE from Objects.requireNonNull rather than a documented failure mode",
+        "SemanticFieldExplorer has two overloads of exploreByPattern: the public one validates RelationConfig (relationType empty, collocatePosGroup OTHER) and throws IllegalArgumentException; the package-private test seam skips those pre-checks \u2014 different validation contracts for the same conceptual operation, documented but divergent",
+        "GrammarConfigLoader.createDefaultEnglish() explicitly documents its two-tier exception contract (wraps IOException into IllegalStateException for callers that cannot handle checked exceptions)",
+        "RelationPatternBuilder.buildCollocateReversePattern throws IllegalStateException when relationType is absent or POS group is OTHER, matching the @throws documentation exactly",
+        "executeBcqlQuery on QueryExecutor interface omits documenting null/blank behavior for bcqlPattern, unlike executeCollocations which explicitly states lemma null/empty behavior \u2014 minor contract asymmetry between sibling methods",
+        "HttpApiUtils.wrapWithErrorHandling documents its error mapping (IAE \u2192 400, IOException \u2192 500) and every handler relies on this; explorationHandlers throws IAE for param validation errors and IllegalStateException-wrapped errors propagate as 500 \u2014 consistent throughout",
+        "ExplorationService interface method signatures, annotations (@NonNull), and return types match SemanticFieldExplorer implementation precisely \u2014 no declared-vs-actual divergence"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "logic_clarity": {
+      "evidence": [
+        "ExplorationHandlers.parseSeedSet: first line is `if (seedsParam.isEmpty()) return Set.of()`, but every call site passes the return value of HttpApiUtils.requireParam() which already throws on blank \u2014 the isEmpty() condition is never true in production",
+        "CollocateProfileComparator.buildAdjectiveProfileList: `avgScore = scores.length > 0 ? sum / scores.length : 0.0` \u2014 scores is always non-empty because adjectiveProfiles entries are only created via computeIfAbsent followed immediately by .put(), so scores.length is guaranteed >= 1; the ternary's false branch is dead",
+        "SemanticFieldExplorer.exploreByPattern (package-private overload): `if (seed == null || seed.isEmpty()) throw ...` is unreachable from the only production caller (the @NonNull-annotated public overload which has already validated seed); it is a test-safety guard but is not labelled as such",
+        "CollocateQueryHelper.collectHits: null/empty concordance-parts guards (`if (conc == null)`, `if (parts == null || parts.length < 3)`) correctly produce empty HitRecords and continue processing \u2014 these are deliberate defensive guards, not logic errors",
+        "All boolean expressions in the scoring pipeline (logDice condition, validCollocate guard, headwordFreq > 0 && collocateFreq > 0) map cleanly to their intent with no simplifiable patterns",
+        "No identical if/else branches or ternary arms observed anywhere in the reviewed files",
+        "No unreachable code after unconditional returns or throws was found \u2014 all early-exit paths are the final statement in their branches"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "type_safety": {
+      "evidence": [
+        "Systematic use of org.jspecify @NonNull/@Nullable annotations on all public interface methods (ExplorationService, QueryExecutor) and on helper return types (BlackLabSnippetParser.extractCollocateLemma, extractLemmaFromMatch, extractPosFromMatch).",
+        "Optional<T> used appropriately for absent-or-present fields: RelationConfig.relationType() returns Optional<RelationType>, GrammarConfig.relation(id) returns Optional<RelationConfig>, and all call sites handle the absent case explicitly.",
+        "Java records used for internal typed data carriers: CollocateSearch, HitRecord, ExplorationParams, BcqlRequest, ConcordanceExamplesRequest, SeedCollocateData \u2014 enforcing structural type safety at construction sites.",
+        "VisualizationHandlers defines a RenderMode enum with isValid(String) but the validated mode String is then passed as a raw String to RadialPlot.renderFromItems(\u2026, String mode). The enum acts only as a validation guard, never as a typed parameter \u2014 a classic enum bypass.",
+        "API response objects are universally built as Map<String, Object> / HashMap<String, Object> across ExploreResponseAssembler, SketchHandlers, ConcordanceHandlers, ExplorationHandlers, CorpusQueryHandlers. No typed response DTOs/records exist, so the shape of every response is invisible to the compiler.",
+        "CollocateQueryHelper.index field is declared as 'private final BlackLabIndex index' (unannotated) but is assigned null in the no-arg test constructor. The field lacks a @Nullable annotation, making the nullable invariant implicit rather than declared. Runtime guards (Objects.requireNonNull at use sites) prevent misuse but the declared type does not capture the possibility.",
+        "GrammarConfigSerializer.toJson(GrammarConfig config) and toJson(RelationConfig rel) are public methods whose Javadoc says 'must not be null' but have no @NonNull annotation on the parameters.",
+        "Enum PosGroup, RelationType, RelationEdgeType are used properly throughout the production code path \u2014 no raw string comparisons bypass these enums in core logic."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "test_strategy": {
+      "evidence": [
+        "34 test files, 278 @Test methods covering all major packages: api, config, exploration, indexer, query, utils, viz",
+        "StubQueryExecutor base class in src/test/ with override-friendly methods \u2014 anonymous subclasses used throughout to provide canned data per test",
+        "TestExchangeFactory.MockExchange provides a reusable fake HttpExchange for all handler tests",
+        "Happy-path AND validation/400-error paths tested for every API handler (ExplorationHandlersTest, ConcordanceHandlersTest, SketchHandlersTest, etc.)",
+        "5 test classes marked @Disabled because they require a live BlackLab index \u2014 all clearly documented with env var instructions (CONCEPT_SKETCH_TEST_INDEX)",
+        "All integration-gated tests additionally use Assumptions.assumeTrue so they skip gracefully rather than fail if env var is absent",
+        "ExplorationService interface is never used as the declared type in any test \u2014 all tests inject SemanticFieldExplorer directly, tightly coupling tests to the concrete class rather than the abstraction",
+        "BcqlPatternUtils static utility methods are tested inside BlackLabSnippetParserTest rather than a dedicated file \u2014 discoverable but misnamed for navigation",
+        "No runnable integration tests across module boundaries exist in CI \u2014 all cross-module paths (indexer \u2192 executor \u2192 explorer \u2192 handler) are only exercised end-to-end with a live index"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "naming_quality": {
+      "evidence": [
+        "CollocateProfile record has field 'adjective' but Javadoc says 'Profile of one collocate across all seed nouns'; the primary field should be 'collocate'",
+        "ComparisonResult stores List<CollocateProfile> in a private field named 'adjectives' but exposes it via public method 'collocates()'; the private/public name divergence persists in Javadoc comments ('Returns adjectives that occur only in...')",
+        "buildBcqlWithLemmaSubstitution in BlackLabQueryExecutor does not substitute \u2014 it prepends a quoted lemma token before a CQL constraint; CqlUtils.substituteAtPosition is the actual substitution. The name implies the wrong operation",
+        "The 'nouns_per' URL parameter, ExplorationParams.collocatesPerSeed field, SingleSeedExplorationOptions.reverseExpansionLimit accessor, and local variable nounsPerPredicate all refer to the same tuning knob with four different names across the stack",
+        "Domain vocabulary (seed, collocate, headword, lemma, logDice, relation) is precise and used consistently across all packages",
+        "Phase-named private methods in SemanticFieldExplorer (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) communicate algorithm structure directly",
+        "Handler classes named after their route concerns (ConcordanceHandlers, ExplorationHandlers, SketchHandlers, CorpusQueryHandlers, VisualizationHandlers) \u2014 direct naming",
+        "ExplorationHandlers.semanticFieldExplorer field is typed as ExplorationService but named after the concrete SemanticFieldExplorer class \u2014 minor coupling of name to implementation"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "stale_migration": {
+      "evidence": [
+        "webapp/index.html line 611: fetch(`${apiUrl}/api/semantic-field/examples?adjective=${...}&noun=${...}&max=${max}`) \u2014 server handler (ExplorationHandlers.java:194-197) requires params 'collocate', 'seed', 'top'; the webapp sends old names 'adjective', 'noun', 'max', causing requireParam('collocate') to throw a 400 for every examples call in the comparison panel",
+        "ExplorationHandlers.java line 131 Javadoc: 'Also reachable at the legacy path /api/semantic-field' \u2014 but WordSketchApiServer registers no such route; it was removed in a prior cleanup commit (5666688) and the claim is now false",
+        "RelationType.java: four constants (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) explicitly documented as 'no longer set in any grammar config'; GrammarConfigLoader.parseRelationType() accepts them silently; they exist only to avoid breaking tests \u2014 dead production constants retained in the enum",
+        "ExplorationResult 5-arg constructor (line 40-43) delegates to the 6-arg constructor with Map.of() for perSeedCollocates; ExploreResponseAssembler has an explicit 'Legacy fallback for ExplorationResult instances without per-seed data' branch (line 49) that fires exclusively for test-created instances, never in production"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "type_discipline": {
+      "evidence": [
+        "JSpecify @NonNull/@Nullable annotations used at 82 sites across the codebase \u2014 on method parameters, return types, and record fields (e.g. RelationConfig components, ExplorationResult fields, HttpApiUtils method signatures).",
+        "Sealed interface QueryResults.ConcordanceResult with 'permits QueryResults.SnippetResult, QueryResults.CollocateResult' \u2014 correct use of algebraic sum types.",
+        "Records used consistently for immutable value objects: CollocateProfile, CoreCollocate, Edge, FetchExamplesOptions, ExplorationOptions, SingleSeedExplorationOptions, RelationConfig, DiscoveredNoun, ComparisonResult.SummaryCounts.",
+        "Enums (RelationEdgeType, SharingCategory, PosGroup) carry separate stable string labels distinct from their Java constant names, preventing API-consumer coupling to Java identifier conventions.",
+        "Optional used appropriately as return types: GrammarConfig.relation(), RelationConfig.relationType(), CollocateProfile.strongestNoun() \u2014 not as field storage in most places.",
+        "Pervasive Map<String, Object> for HTTP response construction across all API handlers (56 occurrences in api/ package). Field names are stringly-typed string literals; no typed response DTOs or records exist at the API boundary.",
+        "RelationConfig record contains 'Optional<RelationType> relationType' as a record component \u2014 using Optional as a stored field value rather than a return type is a documented Java anti-pattern (Optional is not Serializable and is intended for use as a return type only).",
+        "CollocateQueryHelper has a test-only no-arg constructor that sets 'this.index = null' while the field is declared as 'private final BlackLabIndex index' without @Nullable annotation \u2014 the field type does not reflect the nullable production invariant.",
+        "RelationType enum contains four legacy semantic-role constants (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) documented as 'not set in grammar config' \u2014 the enum type's precision is diluted by dead constants that live alongside the active SURFACE/DEP dispatch values.",
+        "ExplorationResult passes Map<String, Double> and Map<String, Map<String, Double>> as constructor arguments without defensive copies for seedCollocates/perSeedCollocates, so external mutation of the maps passed in would corrupt the 'immutable' result object."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": ""
+    },
+    "structure_nav": {
+      "evidence": [
+        "Every package has a package-info.java with a crisp one-line description: api/ = 'HTTP request handlers, routing utilities, and response assembly'; config/ = 'Grammar configuration loading, serialization, and relation pattern building'; exploration/ = 'Multi-seed semantic field exploration and collocation profile analysis'; query/ = 'Query execution, BCQL pattern utilities, and collocation query helpers'; utils/ = 'Shared utility classes: CQL pattern manipulation, logDice scoring, and compact hash maps'",
+        "model/package-info.java gives detailed structural rationale explaining the two kinds of types (pure DTOs vs model objects with derived accessors) and naming conventions \u2014 unusually thorough for package documentation",
+        "model/exploration/ sub-package correctly groups exploration-specific DTOs away from top-level query-result types",
+        "api/ handler split is purposeful: SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers each own one bounded concern",
+        "QueryExecutor and ExplorationService interfaces document design rationale in Javadoc (e.g., 'The single production implementation means the interface acts primarily as a testability seam')",
+        "RadialPlot.java (an SVG renderer, 242 lines) resides in api/ alongside HTTP handlers. Its test lives in src/test/.../viz/RadialPlotTest.java, and CLAUDE.md lists its original home as viz/RadialPlot.java \u2014 confirming the intended package was viz/, not api/. The class has no HTTP dependencies and generates pure SVG markup."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "RadialPlot.java is a pure SVG rendering class placed in the api/ package alongside HTTP handlers; its own test package (viz/) and project documentation (CLAUDE.md) both point to viz/ as the intended location, creating a minor but clear placement mismatch that a developer navigating the api/ package would not expect."
+    },
+    "cross_module_architecture": {
+      "evidence": [
+        "Dependency direction is consistently downward: model (no internal deps) \u2192 utils \u2192 config \u2192 query \u2192 exploration \u2192 api; no upward references found anywhere",
+        "QueryExecutor and ExplorationService interfaces create explicit testability seams at the query/api and exploration/api boundaries",
+        "api/WordSketchApiServer.java imports concrete exploration.SemanticFieldExplorer (line 8, line 56) in its convenience constructor, bypassing the ExplorationService interface \u2014 the api package has a compile-time dependency on the concrete implementation even though the interface was introduced as a boundary",
+        "api/RadialPlot.java is a pure SVG-rendering utility with no HTTP or API imports (only java.util.*) yet it lives in the api package; CLAUDE.md architecture table lists it as viz/RadialPlot.java, indicating deliberate prior placement in a separate package",
+        "indexer/blacklab package has zero internal package imports \u2014 fully standalone, no coupling to query/exploration/api layers",
+        "model package is completely clean: no internal imports beyond model.exploration subpackage inter-references",
+        "GrammarConfigSerializer lives in api and pulls config types in, keeping JSON serialisation separated from domain objects \u2014 intentional and correct boundary design",
+        "No import cycles detected across any package boundary"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "issues_preventing_higher_score": "Two boundary issues prevent a higher score: (1) api/WordSketchApiServer leaks a compile-time dependency on the concrete SemanticFieldExplorer even though the ExplorationService interface was created precisely to seal that boundary; (2) RadialPlot (zero HTTP/API imports) is misplaced in the api package rather than a separate viz or rendering package, blurring the api package's stated purpose."
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Package layout maps directly to domain capabilities (api, config, exploration, query, indexer) \u2014 no historical-accident names; a new engineer can explain each package's purpose in one sentence.",
+        "API layer decomposes cleanly into five single-concern handler classes, with WordSketchApiServer acting as a concise router whose Javadoc lists the full endpoint surface.",
+        "Config subsystem enforces a data/loader split \u2014 GrammarConfig never carries IO machinery; callers that only query config depend only on the value object.",
+        "ExplorationService interface provides a clean, injected seam between HTTP routing and domain exploration logic, enabling test isolation without mocking the filesystem.",
+        "Change boundaries are predictable: adding a new grammatical relation requires only config + one handler; adding a new API route touches only WordSketchApiServer + a new handler class."
+      ],
+      "issue_character": "Issues are isolated ownership slips rather than systemic design failures: one misplaced class (RadialPlot in api/) and one slightly catch-all package (model/) in an otherwise well-decomposed structure.",
+      "score_rationale": "The codebase scores well against the rubric's core criteria: packages align with domain capabilities, change boundaries are predictable, the public surface is small, and the handler/service/model layering is applied consistently. What prevents a higher score is that RadialPlot (SVG/layout generation) lives in api/ where handlers live, creating an ownership blur that would surprise a developer, and model/ acts partly as a residual catch-all. These are real navigability costs but are localized, not systemic \u2014 a new engineer would encounter them once and adapt quickly. At 60-65 a codebase has significant structural drag; at 80+ decomposition is exemplary throughout. This sits comfortably above the midpoint at ~74: solid and consistent with small, fixable deviations."
+    },
+    "abstraction_fitness": {
+      "strengths": [
+        "Both single-implementation interfaces (QueryExecutor, ExplorationService) are self-aware about their single-impl status and explicitly documented as testability seams, not pretending to be extensibility points.",
+        "Static helpers (HttpApiUtils, ExploreResponseAssembler, GrammarConfigSerializer, RelationPatternBuilder) are all cohesive with documented rationale \u2014 none are catch-all dumping grounds.",
+        "Package-private scoping of CollocateQueryHelper, MultiSeedExplorer, and CollocateProfileComparator correctly enforces that callers use the intended interface boundaries rather than bypassing them.",
+        "QueryExecutor adds two default methods (executeSurfacePatternForRelation, executeBcqlQueryForRelation) that reduce caller boilerplate with real, shared pattern-building logic."
+      ],
+      "issue_character": "The issues are localized to the SemanticFieldExplorer coordination facade, where two of its four interface methods are thin single-line delegations whose only contribution is unpacking ExplorationOptions into individual parameters \u2014 a modest indirection cost for low added value.",
+      "score_rationale": "The codebase sits solidly above the 'significant drag' threshold (60) and approaches the 'solid but uneven' range (80): abstractions are intentionally placed, honestly documented, and package encapsulation is used correctly rather than reflexively. The deduction from the upper range comes from SemanticFieldExplorer implementing ExplorationService while delegating 2 of 4 methods as near-transparent forwarders \u2014 the facade layer earns its keep on the single-seed method but is thinner than expected on the others. This is a real but contained issue, confined to the exploration subsystem with no systemic spread across the codebase."
+    },
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer decomposes the single-seed exploration algorithm into four focused phase helpers (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) \u2014 each is proportionate and intention-revealing.",
+        "CollocateQueryHelper's two-phase pipeline (collectHits \u2192 scoreHits) uses a typed record (HitRecord) to carry state between phases, making data flow explicit and bounded.",
+        "ExplorationHandlers consolidates all repeated parameter extraction into a single parseExplorationParams method, avoiding copy-paste across three sibling handlers.",
+        "Guard clauses and early returns are used consistently: null/empty lemma checks in BlackLabQueryExecutor methods exit cleanly before any index I/O.",
+        "BlackLabSnippetParser's null guards on every public method are consistent and keep callers free of defensive boilerplate."
+      ],
+      "issue_character": "The issues are concentrated in two patterns: copy-paste expansion of argument-parsing boilerplate in Main and an inconsistency in how frequency pre-fetching is handled within CollocateQueryHelper \u2014 neither is pervasive, but both represent visible lapses in an otherwise well-extracted codebase.",
+      "score_rationale": "Most function internals are proportionate, phased, and intention-revealing; a developer reading SemanticFieldExplorer or CollocateQueryHelper would find the logic easy to follow. The main drag is Main.java, where three command handlers share an identical arg-loop/try-catch skeleton that was copy-pasted rather than extracted, and a performance-inconsistency in CollocateQueryHelper where buildAndRankCollocates makes N sequential I/O calls while the sibling scoreHits pre-fetches. These are real recurring friction points but are localized rather than pervasive, placing the codebase closer to the 80 (solid but uneven) anchor than the 70 (mixed) anchor \u2014 but below 80 because the same structural shortcut recurs across multiple command handlers."
+    },
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler is a well-placed, explicit translation layer that keeps ExplorationResult and ComparisonResult free of presentation concerns; handlers compose it cleanly.",
+        "GrammarConfigLoader/GrammarConfig separation ensures that data consumers at integration seams never carry a reference to file-IO machinery.",
+        "HttpApiUtils.wrapWithErrorHandling provides a single, uniform error-propagation contract applied consistently across all handler boundaries.",
+        "QueryExecutor's convenience default methods (executeSurfacePatternForRelation, executeBcqlQueryForRelation) keep pattern-construction logic out of the HTTP layer entirely.",
+        "ExplorationService interface uses typed, named options records at the seam rather than primitive parameter bags, making the handoff explicit and unsurprising."
+      ],
+      "issue_character": "Issues are concentrated at the presentation/model seam within the API package: inconsistent use of the shared assembler and response-builder helpers across sibling handlers creates small but accumulating entropy, and a legacy backward-compat path in ExploreResponseAssembler introduces a silently unsafe internal state that handlers cannot detect.",
+      "score_rationale": "The codebase shows real investment in seam hygiene \u2014 dedicated assembler, clean config loading split, uniform error wrapping, and typed boundary contracts. These push the score solidly above the 'significant drag' range. However, three distinct response-assembly patterns across three sibling handlers in ExplorationHandlers, an inconsistent result-mapping convention between ConcordanceHandlers and CorpusQueryHandlers, and a legacy compat branch in the assembler that can silently produce wrong output represent genuine integration seam entropy. The issues are module-scoped and fixable with a multi-file refactor, not deep architectural problems, but they visibly undercut the otherwise clean handoff discipline. This places the codebase in the 65-70 range: better than 'significant drag' but short of the 'solid but uneven' 80 anchor due to the recurring inconsistency pattern."
+    },
+    "incomplete_migration": {
+      "strengths": [
+        "Completed migrations are actively enforced: GrammarConfigLoader rejects both 'copulas' and 'cql_pattern' with clear error messages, preventing reversion to old config patterns.",
+        "The RelationUtils alias map is intentional, documented backward-compat for HTTP query params \u2014 not an accidental shim \u2014 and its scope is clearly bounded to a single resolver method.",
+        "No two competing implementations of the same interface coexist in production code: BlackLab is the sole query executor, and the old Lucene-only path is gone entirely.",
+        "The RelationType constants' legacy status is explicitly documented inline with a precise explanation of why they remain and what has changed, reducing developer confusion."
+      ],
+      "issue_character": "The remaining migration residue is contained and self-consistent: dead enum constants retained for test convenience, one stale Javadoc path claim, and a 5-arg convenience constructor that tests haven't yet migrated to the 6-arg form \u2014 all localized, none blocking active functionality.",
+      "score_rationale": "The codebase has completed its major migration (old query executor gone, grammar config keys enforced) and the remaining issues are minor: four dead enum constants only referenced by tests (documented but not removed), a stale Javadoc path reference, and a convenience constructor used only in tests. These are cleanup tasks, not active coexistence problems. Against global anchors this sits solidly above 'significant drag' (60) \u2014 the migration is functionally complete \u2014 but falls short of 'solid with minor rough edges' (80\u201385) because the dead enum constants are named members of a public API enum and the stale Javadoc makes a false claim about a live route. Score of 76 reflects a well-finished migration with identifiable but low-risk remnants."
+    },
+    "package_organization": {
+      "strengths": [
+        "Clear domain package separation: config, query, exploration, model, model/exploration, utils, and indexer/blacklab each have coherent, non-overlapping ownership that matches the conceptual layers of the system.",
+        "model/exploration/ sub-package is a purposeful and clean split \u2014 exploration-specific DTOs (CollocateProfile, ExplorationOptions, ExplorationResult, Edge, etc.) are kept separate from cross-cutting model types without creating circular imports.",
+        "All packages under the threshold (config, query, exploration, utils, indexer/blacklab) are single-concern and navigable; a developer can predict where to find indexing logic, query execution, or scoring utilities without checking multiple directories.",
+        "Package-info.java files are present in every package, providing explicit documentation of each package's responsibility."
+      ],
+      "issue_character": "The issues are confined to a single package (api/) that has grown to bundle HTTP infrastructure, domain handlers, response assemblers, serialization utilities, and a pure-visualization class together, with the RadialPlot misplacement being the clearest concrete evidence (evidenced by its own test file sitting in a different test package).",
+      "score_rationale": "The backbone structure is solid \u2014 seven well-named, right-sized packages each with coherent ownership and no circular dependencies. The drag comes from api/ crossing the 10-file/mixed-concern threshold: it bundles five distinct responsibilities (HTTP infra, domain handlers, response assembly, config serialization, visualization) in 11 production files, and RadialPlot is a concrete misplacement confirmed by its own test file living in viz/. These are real navigability and ownership problems but they are localized to one package and do not reflect deep architectural confusion, placing this comfortably in the 70\u201378 band rather than lower."
+    },
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface documents all four major methods with precise null/empty lemma behavior, IOException paths, and IllegalArgumentException conditions \u2014 all faithfully upheld in BlackLabQueryExecutor",
+        "Error propagation chain is explicitly documented end-to-end: handlers throw IllegalArgumentException for 400-class errors, wrapWithErrorHandling documents its mapping, and every handler relies on it consistently",
+        "GrammarConfigLoader.createDefaultEnglish() is a textbook two-tier exception contract: the divergence from load() (checked vs unchecked) is documented with the rationale",
+        "RelationPatternBuilder.buildFullPattern documents the null/blank passthrough contract and NullPointerException on null pattern \u2014 both upheld exactly by the implementation",
+        "@NonNull/@Nullable annotations on interface and implementation boundaries are used systematically and match actual method behavior"
+      ],
+      "issue_character": "Issues are isolated and minor: a partially-undocumented null-index constructor, a validation asymmetry between public and package-private overloads of the same conceptual method, and a small documentation gap in a sibling interface method \u2014 none represent systematic contract violations.",
+      "score_rationale": "The codebase scores solidly above 80. Method contracts are stated with unusual precision throughout the QueryExecutor interface and its implementation, error contracts are consistently documented and honored, and return-type honesty is strong with no getter-disguised mutations. Two issues pull it below 90: the CollocateQueryHelper null-index constructor creates a partially-undocumented failure mode, and the public/package-private exploreByPattern pair has divergent validation contracts that are only explained in prose rather than enforced at the boundary. These are minor and localized, not systemic \u2014 bringing the score to 83."
+    },
+    "logic_clarity": {
+      "strengths": [
+        "Guard clauses are consistently placed at method entry and clearly explained (null/empty lemma guards in executeCollocations, executeDependencyPattern, executeSurfacePattern each include a debug-level log that names the skip reason)",
+        "Null-safety in the scoring pipeline is explicit and correct: the headwordFreq > 0 && collocateFreq > 0 guard in buildAndRankCollocates and scoreHits prevents divide-by-zero without hiding the condition behind an implicit fallback",
+        "No identical if/else or ternary branches found across any of the 23 reviewed files",
+        "Control flow across all HTTP handlers is strictly linear: parse \u2192 validate \u2192 query \u2192 assemble \u2192 respond, with no branch that rejoins a previous path in a confusing way",
+        "The two-phase BCQL pipeline (collectHits \u2192 scoreHits) in CollocateQueryHelper is structured so each phase does exactly one thing, making the logic easy to trace"
+      ],
+      "issue_character": "The issues are isolated, harmless over-defensiveness: a small number of conditions whose false branches can never be reached because caller contracts are stronger than the check implies, leaving redundant code that misleads about what the method can actually receive.",
+      "score_rationale": "The codebase sits solidly above the 'significant drag' threshold (60) and approaches 'solid but uneven' (80). Logic across the query, exploration, and API layers is clean, linear, and free of the most common pitfalls (dead arms, always-true gates, boolean simplification failures). Three redundant conditions pull the score below 80: the always-false isEmpty() guard in parseSeedSet, the always-true scores.length > 0 ternary guard, and the null check in the package-private exploreByPattern overload that the production call path cannot reach. These are minor in isolation but reflect a pattern of adding guards without verifying that the surrounding contract already covers them, which slightly reduces trust in what the conditions are actually communicating."
+    },
+    "type_safety": {
+      "strengths": [
+        "Systematic @NonNull/@Nullable annotations from jspecify applied consistently across public interface methods and helper return types throughout the codebase.",
+        "Optional<T> used correctly for optional domain values (relationType, relation lookup), with callers explicitly handling the absent case at every call site.",
+        "Java records used as typed internal data carriers (HitRecord, BcqlRequest, ExplorationParams, etc.), providing compile-time structural safety for data passed between phases.",
+        "Core enum types (PosGroup, RelationType, RelationEdgeType) used correctly in production logic \u2014 no raw string comparisons bypass them in the primary code paths."
+      ],
+      "issue_character": "The type safety issues are two-tier: a single localized enum bypass in VisualizationHandlers (RenderMode defined but downgraded to String before being passed downstream), and a systemic pattern across the entire API layer where all response objects are Map<String, Object> with no typed DTOs, leaving response shape invisible to the compiler and consumers.",
+      "score_rationale": "The codebase demonstrates disciplined null-safety annotation and strong use of records and Optional for internal data passing \u2014 well above the 60-point threshold where type discipline is a significant drag. However, the universal Map<String, Object> pattern for API responses is a systemic type gap: the same codebase that correctly uses typed records for CollocateSearch and BcqlRequest abandons type discipline entirely at the boundary where it matters most to external consumers. The RenderMode enum bypass adds a secondary issue of lower severity. These issues pull the score below 80 (solid but uneven), landing at 72: strong type discipline internally, with meaningful and widespread gaps at the API response boundary."
+    },
+    "test_strategy": {
+      "strengths": [
+        "Extensible StubQueryExecutor base class enables concise, targeted anonymous overrides in every unit test without test-specific mocking frameworks",
+        "API handler tests cover both success (200) and validation-failure (400) paths for every handler, including multi-parameter and cross-field validations",
+        "Integration tests requiring a live index are properly isolated with @Disabled + Assumptions.assumeTrue, so they fail neither in CI nor silently skip",
+        "Core business logic classes (SemanticFieldExplorer, MultiSeedExplorer, CollocateQueryHelper, CollocateProfileComparator, BcqlPatternUtils) all have dedicated unit test coverage",
+        "Model-layer records and trivial constants are correctly left untested \u2014 the strategy correctly avoids low-value test noise"
+      ],
+      "issue_character": "The unit test layer is solid and consistent; the strategic gap is that all cross-module integration paths are disabled and can only be run in specific environments, leaving the full request pipeline (handler \u2192 explorer \u2192 executor \u2192 index) unverifiable in CI.",
+      "score_rationale": "The codebase sits solidly in the 80-range: a developer making changes to the unit-tested core (exploration logic, CQL patterns, API validation) will have good confidence. However, there is a persistent blind spot \u2014 no integration test runs unconditionally in CI, meaning regressions in the BlackLabQueryExecutor or indexer pipelines can only be caught manually. Tests are also coupled to SemanticFieldExplorer as a concrete class rather than the ExplorationService interface, which weakens contract enforcement. These gaps push the score from ~85 down to ~79: the strategy is good but a developer working on the corpus-query layer has no automated safety net."
+    },
+    "naming_quality": {
+      "strengths": [
+        "Domain vocabulary (seed, collocate, headword, lemma, logDice, relation) is precise and applied uniformly across all layers \u2014 API params, model fields, and method signatures share the same terms",
+        "Phase-named private methods in SemanticFieldExplorer (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) make the multi-step algorithm self-documenting",
+        "Handler class names are structurally honest: ConcordanceHandlers, ExplorationHandlers, SketchHandlers, CorpusQueryHandlers, VisualizationHandlers each contain exactly the concern the name implies",
+        "Model record field names are precise: WordSketchResult(lemma, pos, frequency, logDice, relativeFrequency) and CoreCollocate(collocate, sharedByCount, totalNouns, seedLogDice, avgLogDice) leave no guessing",
+        "ExplorationService/SemanticFieldExplorer correctly separates the interface abstraction from the implementation name"
+      ],
+      "issue_character": "The issues are concentrated around one design scar \u2014 the residual 'adjective' vocabulary in CollocateProfile and ComparisonResult from when the comparison feature was adj-specific \u2014 plus two secondary cases of name/behavior mismatch (buildBcqlWithLemmaSubstitution) and vocabulary fragmentation (nouns_per/collocatesPerSeed/reverseExpansionLimit) that each arise from a single concept tracked differently across layers.",
+      "score_rationale": "This codebase sits above the 'significant drag' threshold: the broad naming is genuinely strong, with consistent domain vocabulary and mostly accurate method names at all visibility levels. The main drag comes from the adjective/collocate terminology conflict in the model layer \u2014 CollocateProfile.adjective and ComparisonResult.adjectives are misnomers for a now-generic type, and the split between the private field 'adjectives' and public method 'collocates()' adds confusion. The buildBcqlWithLemmaSubstitution name/behavior mismatch is isolated but would mislead a developer reading that code path. These issues are contained rather than systemic, keeping the score in the 'solid but uneven' range rather than dropping lower."
+    },
+    "stale_migration": {
+      "strengths": [
+        "The codebase has undergone active cleanup of legacy artifacts: the old /api/semantic-field route was removed, AdjectiveProfile was renamed to CollocateProfile, and a startup deprecation warning was eliminated \u2014 desloppify commit 5666688 shows organised migration work",
+        "Legacy RelationType constants are clearly documented in the class Javadoc with explicit 'Not set in grammar config' labels on each constant, preventing silent confusion",
+        "GrammarConfigLoader.validateNoLegacyKeys() proactively rejects old 'copulas' config key with an actionable error message, preventing old-format configs from loading silently"
+      ],
+      "issue_character": "Issues are migration artifacts from a partially-completed API rename: the server-side parameters were updated but the client (webapp) and some documentation were not, leaving one broken feature and one stale doc claim alongside genuinely dead enum constants.",
+      "score_rationale": "The webapp API mismatch (wrong param names for /api/semantic-field/examples) is a concrete broken feature \u2014 the comparison panel examples call will always receive a 400 error because requireParam('collocate') fails. This pulls the score below 70. The stale Javadoc and dead RelationType constants are minor but real migration residue. Against global anchors: 80 = solid but uneven, 60 = significant drag. The codebase is clearly in an active migration posture with good cleanup, but one broken client path and surviving dead-code constants place it between these anchors at 62."
+    },
+    "type_discipline": {
+      "strengths": [
+        "Consistent, broad use of JSpecify @NonNull/@Nullable annotations (82 sites) signals a genuine commitment to nullability contracts at public boundaries.",
+        "Sealed interface QueryResults.ConcordanceResult with explicit permits clause is a textbook algebraic sum type \u2014 compiler-enforced exhaustiveness rather than ad-hoc instanceof chains.",
+        "Records adopted uniformly for all immutable value objects in model.exploration, model, and config packages, leveraging structural typing and automatic equals/hashCode.",
+        "Enums carry stable API-safe labels separate from Java constant names, preventing serialization coupling and enabling safe renaming.",
+        "Optional used exclusively as return types, not as parameter types, following the intended design of java.util.Optional."
+      ],
+      "issue_character": "The codebase has strong type discipline in its domain/model layer but systematically abandons it at the API boundary, where all HTTP response objects are assembled as untyped Map<String, Object> with stringly-typed field names rather than typed response records; secondary issues are using Optional as a record component field and a nullable field undeclared as @Nullable.",
+      "score_rationale": "The model and config layers score near the top of the range \u2014 sealed types, records, enums with labels, and pervasive nullability annotations represent deliberate, well-executed type discipline. The score is pulled down materially by the API layer's systematic reliance on Map<String, Object> for response construction (56 occurrences), which erases all compile-time guarantees for the outbound API shape and creates a stringly-typed surface across the entire HTTP boundary. This pattern is idiomatic in simple Java HTTP handlers but, given the codebase's otherwise high type discipline, represents a gap that would score around 45-50 in isolation, landing the overall dimension at 72."
+    },
+    "structure_nav": {
+      "strengths": [
+        "Every package has a package-info.java with a meaningful, non-boilerplate description \u2014 a developer can read the directory tree and immediately understand each package's role",
+        "model/exploration/ sub-package demonstrates correct granularity: exploration-domain DTOs are grouped away from the top-level query-result types, making navigation predictable",
+        "The api/ handler split (Sketch, Exploration, Concordance, CorpusQuery, Visualization) gives each handler a single named concern so a developer knows exactly which file to open for any endpoint",
+        "QueryExecutor and ExplorationService interfaces document their own design rationale in Javadoc, reducing the need to trace implementations to understand architecture",
+        "GrammarConfigSerializer and ExploreResponseAssembler are correctly placed in api/ with explicit comments explaining why serialization logic lives alongside handlers rather than on the value objects"
+      ],
+      "issue_character": "There is a single isolated structural outlier: RadialPlot.java (an SVG renderer) lives in api/ but its test, documentation, and original intent all point to a separate viz/ package; the mismatch is bounded to one file.",
+      "score_rationale": "This codebase is close to the 90-anchor ('mostly coherent with minor placement outliers that don't cause real confusion'): the package hierarchy is intentional and well-documented at every level, interfaces carry their own design rationale, and sub-packages are used appropriately. The one concrete misplacement \u2014 RadialPlot.java in api/ when its test lives in viz/ and CLAUDE.md lists it under viz/ \u2014 is exactly the minor outlier the 90-anchor describes. It prevents a 90 because it creates a genuine navigation surprise (a developer hunting for SVG rendering code would not think to look in the HTTP handler package), but the rest of the structure is strong enough that 85 comfortably exceeds the 80-anchor ('structural mismatches, flat directories mixing unrelated concerns')."
+    },
+    "cross_module_architecture": {
+      "strengths": [
+        "Dependency direction is uniformly downward across all six packages (model \u2192 utils \u2192 config \u2192 query \u2192 exploration \u2192 api) with no upward references anywhere",
+        "QueryExecutor and ExplorationService interfaces act as clean architectural seams between layers, supporting testability and future substitution",
+        "indexer/blacklab is fully decoupled from query, exploration, and api \u2014 changes to indexing cannot ripple into the serving stack",
+        "model package is a pure data layer with no internal coupling to config, query, or api concerns, exactly as documented in its package-info",
+        "GrammarConfigSerializer is correctly located in api to keep JSON library usage out of domain objects"
+      ],
+      "issue_character": "The issues are isolated boundary leaks rather than systemic design breakdowns: one concrete-class import that pierces a deliberately-designed interface seam, and one misplaced utility class that pollutes a package boundary without causing coupling harm.",
+      "score_rationale": "The overall dependency structure is well-designed and consistently enforced \u2014 a developer navigating the codebase finds a predictable layered graph with no cycles and documented interfaces at key seams. Two boundary issues push the score below 90: the api package holding a compile-time reference to the concrete SemanticFieldExplorer (defeating the ExplorationService interface as a true boundary) and RadialPlot living in api despite having no API concerns. These are isolated rather than recurring, keeping the score in solid-but-uneven territory at 83 rather than dropping to the mixed-quality 70 range."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "radial_plot_in_api",
+      "summary": "RadialPlot (SVG layout builder) placed in api/ alongside HTTP handlers, blurring the package's stated responsibility",
+      "confidence": "high",
+      "suggestion": "Move RadialPlot to a dedicated viz/ or model/viz/ package. The VisualizationHandlers class in api/ can retain a dependency on the moved class without blurring api/'s ownership.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java"
+      ],
+      "evidence": [
+        "RadialPlot.java generates spiral-layout SVG with guide circles, connector lines, and collocate circles \u2014 none of these are HTTP concerns.",
+        "All other classes in api/ are either HTTP handlers (SketchHandlers, ExplorationHandlers, etc.), HTTP utilities (HttpApiUtils, HttpApiUtils.wrapWithErrorHandling), or response assemblers (ExploreResponseAssembler). RadialPlot fits none of these roles.",
+        "A developer investigating rendering/visualization logic would look in a viz or model sub-package, not api/."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "model_catch_all",
+      "summary": "model/ package lacks a crisp ownership boundary, mixing result DTOs, domain enums, options objects, and an exploration sub-package",
+      "confidence": "medium",
+      "suggestion": "Sharpen model/ to domain-neutral value types (QueryResults, PosGroup, RelationType). Move FetchExamplesOptions to model/exploration/ alongside SingleSeedExplorationOptions and ExplorationOptions \u2014 all three are options objects for the same feature. Add a package-info.java to model/ stating its narrowed scope.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/QueryResults.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/FetchExamplesOptions.java"
+      ],
+      "evidence": [
+        "model/ contains QueryResults (result DTOs), PosGroup (enum), RelationType (enum), FetchExamplesOptions (options value object), and an exploration/ sub-package \u2014 four different concerns under one roof.",
+        "By contrast, config/, exploration/, and query/ each have tighter, single-sentence ownership descriptions. model/ cannot be described as cleanly.",
+        "FetchExamplesOptions is an exploration-layer options object that would be better co-located with the SingleSeedExplorationOptions and ExplorationOptions in model/exploration/, or in the exploration/ service package."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "thin_explorer_delegation",
+      "summary": "SemanticFieldExplorer delegates 2 of 4 ExplorationService methods as single-line forwarders with no added behavior beyond ExplorationOptions field unpacking",
+      "confidence": "high",
+      "suggestion": "Promote ExplorationOptions as a first-class parameter into MultiSeedExplorer.findCollocateIntersection and CollocateProfileComparator.compareCollocateProfiles, then have SemanticFieldExplorer pass ExplorationOptions directly so each delegation becomes a true interface adaptor rather than a parameter-unpacker. Alternatively, if the package-encapsulation boundary is the primary goal, document that SemanticFieldExplorer is intentionally a thin coordinator for MultiSeedExplorer and CollocateProfileComparator and accept the pattern explicitly.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed (line ~300): 'return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared());' \u2014 entire method body is one line unpacking ExplorationOptions.",
+        "SemanticFieldExplorer.compareCollocateProfiles: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates());' \u2014 same pattern, no logic added.",
+        "SemanticFieldExplorer.fetchExamples adds pattern building and stream mapping, but these are 4 lines of plumbing rather than domain logic.",
+        "The class Javadoc honestly names itself a 'coordination facade' but only one of four interface methods (exploreByPattern) genuinely owns non-trivial algorithmic logic."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "main_argparse_triple_duplication",
+      "summary": "Identical argument-parsing loop and try/catch blocks copy-pasted across three command handlers in Main.java",
+      "confidence": "high",
+      "suggestion": "Extract a shared ArgParser helper or a simple varargs-style flag-parsing method that maps flag names to typed consumers (e.g. `parseArgs(args, \"--port\", v -> port = Integer.parseInt(v), ...)`). Alternatively, introduce a small record-based CliArgs accumulator and a single `parseArgs(String[] args, CliArgs target)` method that all three handlers call. This eliminates the repeated loop and centralises the integer/double error messages.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "handleBlackLabIndexCommand, handleBlackLabQueryCommand, and handleBlackLabServerCommand each contain the same `for (int i = 1; i < args.length; i++) { switch (args[i]) { ... } }` skeleton with identical try/catch for Integer.parseInt and Double.parseDouble; only the option names and target variables differ.",
+        "The --port, --limit, and --min-logdice number-parsing blocks all use the same pattern: requireNextArg + try/catch NumberFormatException + System.exit(1), repeated verbatim three times."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "build_rank_collocates_per_entry_io",
+      "summary": "buildAndRankCollocates makes one getTotalFrequency I/O call per collocate in a loop, while the sibling scoreHits pre-fetches all frequencies first",
+      "confidence": "high",
+      "suggestion": "Apply the same pre-fetch pattern used in scoreHits to buildAndRankCollocates: before the scoring loop, iterate freqMap.keySet(), call getTotalFrequency once per unique collocate, store results in a local Map<String,Long>, then use that map inside the loop. This aligns the two methods and eliminates the per-entry I/O calls.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "In buildAndRankCollocates (line ~170): `long collocateFreq = getTotalFrequency(collocateLemma);` is called for every entry in freqMap, performing N sequential index lookups.",
+        "In scoreHits (line ~230): a dedicated pre-fetch loop collects all unique collocate corpus frequencies into collocateCorpusFreqs before the main scoring loop \u2014 explicitly commented as 'Pre-compute corpus frequency for each unique collocate to avoid one call per hit.'",
+        "Both methods solve the same sub-problem (collocate corpus frequency lookup for logDice scoring) with inconsistent strategies in the same class."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "snippet_parser_zero_logic_delegate",
+      "summary": "extractCollocateLemma is a zero-logic single-line wrapper over extractLastLemma with no distinguishing behaviour",
+      "confidence": "medium",
+      "suggestion": "Inline extractCollocateLemma: remove the wrapper method and have callers call extractLastLemma directly, OR promote extractLastLemma to package-private and delete extractCollocateLemma. If the semantic distinction ('collocate is always the last lemma') is worth preserving as a comment, add it to extractLastLemma's Javadoc instead of as a separate delegation method.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "`static String extractCollocateLemma(String matchXml) { return extractLastLemma(matchXml); }` \u2014 no pre-condition, no transformation, no added contract beyond a different name.",
+        "All callers could reference extractLastLemma directly, or extractCollocateLemma could be renamed extractLastLemma and the private helper removed; either way one indirection level disappears."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "legacy_assembler_branch",
+      "summary": "ExploreResponseAssembler has a legacy fallback that silently emits duplicate SEED_ADJ edges in multi-seed mode when perSeedCollocates is empty",
+      "confidence": "high",
+      "suggestion": "Deprecate the 5-arg constructor and make perSeedCollocates a required parameter. In buildExplorationEdges, remove the legacy fallback branch and throw IllegalStateException (or replace with an assertion) when perSeedCollocates is empty, surfacing the contract violation at the call site rather than silently producing wrong output.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "buildExplorationEdges checks `if (!perSeed.isEmpty())` and falls through to a branch that iterates all seedList \u00d7 all collocates, which in multi-seed mode would produce N_seeds \u00d7 N_collocates duplicate edges.",
+        "ExplorationResult has a 5-arg constructor that sets perSeedCollocates to Map.of(), so any caller using the legacy constructor produces an ExplorationResult that silently triggers this branch.",
+        "The two constructors create an ambiguous seam: callers cannot tell from the interface whether per-seed data is present without inspecting the result object."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "divergent_explore_response_assembly",
+      "summary": "Three sibling explore handlers in ExplorationHandlers use three different response-assembly patterns, undermining predictability at the HTTP boundary",
+      "confidence": "high",
+      "suggestion": "Extend ExploreResponseAssembler with populateExploreEnvelope(response, seed, relationType, params) and populateComparisonEnvelope(response, seeds, params) helpers that handle the full envelope including seed/seeds fields. Handlers should call these once and pass through, eliminating the per-handler ad-hoc map mutations.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore calls buildCoreExploreResponse then manually appends 'seed' to the map, then delegates to ExploreResponseAssembler.populateExploreResponse.",
+        "handleSemanticFieldExploreMulti calls buildCoreExploreResponse then manually appends 'seeds' and 'seed_count', then delegates to ExploreResponseAssembler.populateExploreResponse.",
+        "handleSemanticFieldComparison builds paramsUsed inline (with 'relation: all') rather than via buildCoreExploreResponse, then delegates to ExploreResponseAssembler.populateComparisonResponse \u2014 a third distinct pattern.",
+        "The seed/seeds field is added ad-hoc by each handler rather than being part of a typed response builder, so the envelope structure is not enforced at the seam."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "inconsistent_result_mapping_convention",
+      "summary": "ConcordanceHandlers inlines CollocateResult-to-map translation while CorpusQueryHandlers extracts it to a static helper, creating an inconsistent boundary convention within the api package",
+      "confidence": "medium",
+      "suggestion": "Move the examplesList assembly loop in ConcordanceHandlers into a private static buildConcordanceExamplesResponse(ConcordanceExamplesRequest, List<CollocateResult>, boolean, String) method following the same convention as CorpusQueryHandlers.buildBcqlResponse, keeping the handler method a pure orchestrator.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlers.handleConcordanceExamples builds examplesList inline with a for-loop inside the handler method.",
+        "CorpusQueryHandlers extracts the equivalent loop into a private static buildBcqlResponse method, keeping the handler method focused on orchestration.",
+        "Both map QueryResults.CollocateResult fields to JSON maps but apply different field subsets (ConcordanceHandlers omits match_start/match_end/collocate_lemma/frequency/log_dice), so the translation logic is similar in structure but inconsistently placed."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "dead_legacy_relation_type_constants",
+      "summary": "Four RelationType enum constants are documented dead legacy values retained only for test compatibility",
+      "confidence": "high",
+      "suggestion": "Update the tests to use SURFACE or DEP (which are the actual types used), then remove ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF from the enum. If the semantic role distinction is needed for future work, introduce a separate SemanticRole enum rather than mixing concerns in RelationType.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/config/RelationPatternBuilderTest.java"
+      ],
+      "evidence": [
+        "RelationType.ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF are all marked in their Javadoc as 'legacy labels from an earlier exploration subsystem design\u2026 no longer set in any grammar config'.",
+        "Production grammar config does not use these constants; they are only referenced by test code (RelationPatternBuilderTest lines 120, 128, 136; RelationUtilsTest lines 61, 65).",
+        "Their presence in the public enum risks developers using them in new grammar configs or exploration logic under the false impression they are valid relation types."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "stale_legacy_path_javadoc",
+      "summary": "handleSemanticFieldComparison Javadoc claims a legacy path '/api/semantic-field' exists but the server never registers it",
+      "confidence": "high",
+      "suggestion": "Remove the 'Also reachable at the legacy path /api/semantic-field' sentence from the Javadoc; the legacy route was apparently cleaned up from the server but the doc was not updated.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison Javadoc (line 131): 'Also reachable at the legacy path /api/semantic-field'.",
+        "WordSketchApiServer registers only '/api/semantic-field/compare', '/api/semantic-field/explore', '/api/semantic-field/explore-multi', '/api/semantic-field/examples' \u2014 no bare '/api/semantic-field' path exists."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "legacy_compat_constructor_in_tests",
+      "summary": "ExplorationResult 5-arg 'legacy backward-compat' constructor is still used by test code instead of the canonical 6-arg form",
+      "confidence": "high",
+      "suggestion": "Update ExploreResponseAssemblerTest to call the 6-arg constructor directly (passing Map.of() explicitly), then remove the 5-arg constructor from ExplorationResult.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssemblerTest.java"
+      ],
+      "evidence": [
+        "ExplorationResult.java lines 40\u201343: a 5-arg constructor labelled in its Javadoc comment as 'legacy backward-compat path', delegating to the 6-arg constructor with Map.of().",
+        "ExploreResponseAssemblerTest.java lines 25 and 34 call this 5-arg constructor \u2014 active test code has not been updated to the 6-arg canonical form."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "radial_plot_in_api",
+      "summary": "RadialPlot (pure SVG renderer) lives in api/ but has no HTTP dependencies and its own test file is in the viz/ test package",
+      "confidence": "high",
+      "suggestion": "Move RadialPlot.java to a new src/main/java/pl/marcinmilkowski/word_sketch/viz/ package. Steps: (1) create the directory; (2) change 'package pl.marcinmilkowski.word_sketch.api;' to 'package pl.marcinmilkowski.word_sketch.viz;'; (3) add 'import pl.marcinmilkowski.word_sketch.viz.RadialPlot;' in VisualizationHandlers.java and remove it from the api package-info scope; (4) the test already lives in viz/ so no test-file moves are needed; (5) run 'mvn test' to confirm no broken imports.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/viz/RadialPlotTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "RadialPlot.java declares 'package pl.marcinmilkowski.word_sketch.api' but imports no com.sun.net.httpserver classes \u2014 it is a self-contained SVG builder with zero HTTP coupling.",
+        "Its test file is placed at src/test/java/pl/marcinmilkowski/word_sketch/viz/RadialPlotTest.java (package viz), not in the api/ test package where all other api-package tests reside \u2014 an explicit signal of intended home.",
+        "VisualizationHandlers is the sole production caller, and it would only need to import RadialPlot from a viz/ package \u2014 a trivial one-line import change."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "api_package_mixed_concerns",
+      "summary": "api/ bundles HTTP infrastructure, domain handlers, response assemblers, config serialization, and visualization in 11 files \u2014 five distinct responsibilities in one flat package",
+      "confidence": "medium",
+      "suggestion": "Stage a reorg in two phases. Phase 1 (low risk, move non-handler classes): (a) move GrammarConfigSerializer.java into config/ (change package declaration, update the one import in GrammarConfigLoaderTest); (b) move RadialPlot.java into viz/ as described in radial_plot_in_api. Phase 2 (optional, only if api/ still feels crowded): introduce api/handlers/ for the 5 handler classes and api/response/ for ExploreResponseAssembler, keeping WordSketchApiServer, HttpApiUtils, and RequestEntityTooLargeException in api/. Validate after each phase with 'mvn test'. The package-info.java description ('HTTP request handlers, routing utilities, and response assembly') should be updated to reflect the narrowed scope after Phase 1.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RequestEntityTooLargeException.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/GrammarConfigSerializer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "api/ contains 11 production classes (+ package-info): server bootstrap (WordSketchApiServer), HTTP infra (HttpApiUtils, RequestEntityTooLargeException), 5 domain handler classes, response assembly (ExploreResponseAssembler), config JSON serialization (GrammarConfigSerializer), and after the RadialPlot move, visualization routing (VisualizationHandlers) \u2014 five distinct responsibilities.",
+        "GrammarConfigSerializer is imported from outside the api/ package: GrammarConfigLoaderTest (config/ test package) references 'pl.marcinmilkowski.word_sketch.api.GrammarConfigSerializer', indicating this class's change affinity is with config/, not HTTP handling.",
+        "ExploreResponseAssembler assembles model-to-JSON responses and imports 7 model.exploration types but no HTTP infrastructure \u2014 its concern is response-body assembly, not HTTP request/response handling."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "null_index_constructor_undocumented_failure",
+      "summary": "CollocateQueryHelper no-arg constructor leaves final BlackLabIndex field null without @Nullable, so partial test subclasses receive an opaque NPE instead of a documented failure",
+      "confidence": "medium",
+      "suggestion": "Add @Nullable to the field declaration (or change it to Optional<BlackLabIndex>), or add an explicit precondition in the no-arg constructor body: 'Subclasses must override all methods that access this.index or NullPointerException will result'. Alternatively, expose the field as protected so subclasses can check it, or guard only the production constructor with @NonNull and document that the no-arg path intentionally leaves index null for test-override use.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Constructor at line 74 assigns this.index = null with no @Nullable annotation on the field",
+        "getTotalFrequency (line 89) and executeCollocateSearchImpl (line 138) guard with Objects.requireNonNull(...), which produces a NullPointerException with the message 'BlackLabIndex must not be null' \u2014 this is a runtime guard, not a constructor-level contract statement",
+        "A test subclass that overrides only getTotalFrequency but not executeCollocateSearchImpl would get an NPE from the second guard, with no docstring warning about this pitfall"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "explore_by_pattern_validation_asymmetry",
+      "summary": "Public and package-private overloads of exploreByPattern apply different validation: the public one rejects invalid RelationConfig eagerly, the test seam silently skips those checks",
+      "confidence": "medium",
+      "suggestion": "Add a note to the package-private overload's Javadoc explicitly stating which validations are intentionally absent (relationType/POS group checks), and why. Alternatively, extract the validation into a private static validateRelationConfig(RelationConfig) method and call it from both the public overload and optionally from the test seam when a RelationConfig is available, making the contract gap visible and intentional.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Public overload (line 118) throws IllegalArgumentException when relationType is empty or collocatePosGroup is OTHER, before delegating",
+        "Package-private overload (line 155) accepts String pattern arguments directly and only validates that seed is not blank \u2014 RelationConfig validity checks do not exist here",
+        "The Javadoc on the test seam says 'Production code should always call the public overload', but a caller who finds the package-private method through IDE completion can construct a test scenario that would fail in production without any contract warning"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "parseseedset_dead_empty_guard",
+      "summary": "parseSeedSet's isEmpty() guard is always false \u2014 requireParam already enforces non-blank",
+      "confidence": "high",
+      "suggestion": "Remove the `if (seedsParam.isEmpty()) return Set.of();` line from parseSeedSet; the contract is already enforced by requireParam, and removing the dead guard clarifies that the method expects a non-empty string.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "parseSeedSet is only called after `HttpApiUtils.requireParam(params, \"seeds\")` which throws IllegalArgumentException when the value is blank",
+        "The first line `if (seedsParam.isEmpty()) return Set.of()` therefore can never evaluate to true at runtime",
+        "If a caller ever did pass an empty string directly, the returned empty Set would immediately trigger the `seeds.size() < 2` check two lines later, so the guard provides no unique behaviour"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "avgScore_dead_ternary_branch",
+      "summary": "scores.length > 0 guard in buildAdjectiveProfileList is always true \u2014 nounScores is never empty",
+      "confidence": "high",
+      "suggestion": "Replace the ternary with a direct division `double avgScore = sum / scores.length;` and add a comment noting that scores is guaranteed non-empty by construction, making the intent explicit.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "adjectiveProfiles entries are only created via `computeIfAbsent(..., k -> new LinkedHashMap<>()).put(noun, logDice)` in buildRawAdjectiveProfiles, so every map in adjectiveProfiles contains at least one entry",
+        "`double[] scores = nounScores.values().stream().mapToDouble(...).toArray()` therefore produces an array of length >= 1",
+        "`scores.length > 0 ? sum / scores.length : 0.0` \u2014 the false branch (returning 0.0) is dead code; the ternary implies a zero-length case that cannot occur"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "render_mode_enum_bypass",
+      "summary": "RenderMode enum defined in VisualizationHandlers but mode flows to RadialPlot.renderFromItems as a raw String",
+      "confidence": "high",
+      "suggestion": "Convert the validated mode string to a RenderMode enum value before passing it downstream, and update RadialPlot.renderFromItems to accept RenderMode instead of String. This ensures the compiler enforces valid modes rather than relying on a runtime string comparison.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "RenderMode enum is defined at line 27 with isValid(String) validation, but at line 74 the raw String 'mode' is passed to RadialPlot.renderFromItems(center, items, width, height, mode) without conversion to the enum.",
+        "RadialPlot.renderFromItems accepts 'String mode' (line 145), so the enum type is never used as a parameter type in the downstream call."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "api_response_untyped_maps",
+      "summary": "All API response objects are Map<String, Object> with no typed DTOs, leaving response shape invisible to the compiler",
+      "confidence": "high",
+      "suggestion": "Introduce typed response record classes for the stable public API responses (e.g., WordSketchResponse, ExploreResponse, ConcordanceResponse) and serialize them via fastjson2. This aligns the API boundary with the same type discipline used for internal data passing and makes response shape verifiable at compile time.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.populateExploreResponse, formatSeedCollocates, formatDiscoveredNouns, formatCoreCollocates, and serializeEdge all return or mutate Map<String, Object>.",
+        "SketchHandlers.formatWordSketchResult returns Map<String, Object> with keys 'lemma', 'frequency', 'log_dice', 'pos' \u2014 no compile-time guarantee these keys or their types are correct.",
+        "ConcordanceHandlers builds response as HashMap<String, Object>, same for ExplorationHandlers and CorpusQueryHandlers. In contrast, internal data carriers (BcqlRequest, ExplorationParams, HitRecord) correctly use typed records."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_query_helper_nullable_field",
+      "summary": "CollocateQueryHelper.index field assigned null in test constructor but lacks @Nullable annotation",
+      "confidence": "high",
+      "suggestion": "Add @Nullable to the field declaration and document the invariant that null is only valid in the test-subclass constructor. Alternatively, use a NullObject or abstract the I/O methods into an overridable protected dependency so the field can remain @NonNull in all paths.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Field declared as 'private final BlackLabIndex index' (line 57) without any nullability annotation.",
+        "No-arg constructor (line 74) assigns this.index = null for test subclasses, making the field de facto nullable.",
+        "Callers guard with Objects.requireNonNull at the use sites (lines 89, 138), but the field type does not declare this invariant."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "no_ci_integration_test",
+      "summary": "All integration tests that touch BlackLabQueryExecutor or the indexer are @Disabled \u2014 no CI-runnable cross-module path exists",
+      "confidence": "high",
+      "suggestion": "Create a small self-contained integration test module (or test profile) that builds a minimal BlackLab in-memory or TempDir index from a 3\u20135 sentence CoNLL-U fixture, then exercises BlackLabQueryExecutor.executeCollocations and executeSurfacePattern end-to-end. This can run in CI without the production corpus, providing a runnable cross-module safety net. Alternatively, mark the existing disabled tests as a manual-only profile and document clearly in the README that CI coverage stops at the stub layer.",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabBcqlConcordanceTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexerTest.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorIntegrationTest is annotated @Disabled with 'Requires a live BlackLab index'",
+        "DependencySketchTest is annotated @Disabled with same rationale",
+        "BlackLabConllUIndexerTest is annotated @Disabled because conllu-sentences.blf.yaml is not distributed with source",
+        "BlackLabQueryExecutorTest's LiveIndex nested class is also @Disabled",
+        "No alternative lightweight integration test (e.g. an in-memory Lucene index) exists to replace these"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "concrete_class_coupling_in_tests",
+      "summary": "Tests inject SemanticFieldExplorer directly rather than through ExplorationService, bypassing contract enforcement",
+      "confidence": "medium",
+      "suggestion": "Declare test variables as 'ExplorationService explorer = new SemanticFieldExplorer(...)' instead of 'SemanticFieldExplorer explorer = ...'. This is a one-line change per test that costs nothing but will catch any future contract divergence between implementations.",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "ExplorationHandlersTest creates 'new SemanticFieldExplorer(emptyExecutor(), config)' and passes it directly to handlers, not as ExplorationService",
+        "SemanticFieldExplorerTest declares its test class against SemanticFieldExplorer, not ExplorationService",
+        "ExplorationHandlers constructor accepts ExplorationService but tests never exercise this as the declared type \u2014 a second implementation would need new tests from scratch",
+        "No test exercises the compareCollocateProfiles or exploreMultiSeed contract via the ExplorationService interface type"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "collocate_profile_adjective_field",
+      "summary": "CollocateProfile.adjective field and ComparisonResult.adjectives internal field use an adjective-specific name for a generic collocate concept",
+      "confidence": "high",
+      "suggestion": "Rename CollocateProfile.adjective to CollocateProfile.collocate; rename ComparisonResult's internal field 'adjectives' to 'collocates'; update all Javadoc references from 'adjective' to 'collocate' in both files",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java"
+      ],
+      "evidence": [
+        "CollocateProfile record declares 'String adjective' as its primary field, but its class Javadoc says 'Profile of one collocate across all seed nouns'",
+        "ComparisonResult stores collocate profiles in a private field 'adjectives' but exposes them via public method 'collocates()' \u2014 split vocabulary between private and public API",
+        "ComparisonResult.specificTo() Javadoc says 'Returns adjectives that occur only in the collocate profile of {noun}' \u2014 adjective-specific language in a generic method",
+        "ComparisonResult.toString() returns '...N adjectives: M shared...' mixing vocabulary with the rest of the API that calls them collocates"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "build_bcql_substitution_misnomer",
+      "summary": "buildBcqlWithLemmaSubstitution name implies attribute substitution but the method prepends a quoted literal token",
+      "confidence": "high",
+      "suggestion": "Rename to buildBcqlWithPrependedLemma or prependLemmaToken to accurately describe the prepend operation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "buildBcqlWithLemmaSubstitution at line 278: given pattern '[xpos=\"JJ.*\"]' and lemma 'house', it returns '\"house\" [xpos=\"JJ.*\"]' \u2014 a prepend, not a substitution",
+        "CqlUtils.substituteAtPosition is the actual substitution operation \u2014 it injects lemma=value into an existing [...] constraint; the name collision between these two operations is the root of the confusion",
+        "A developer reading the name 'buildBcqlWithLemmaSubstitution' alongside 'CqlUtils.substituteAtPosition' would expect them to perform the same kind of operation"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nouns_per_vocabulary_fragmentation",
+      "summary": "The reverse-expansion limit is called 'nouns_per' (URL), 'collocatesPerSeed' (request record), 'reverseExpansionLimit' (options record), and 'nounsPerPredicate' (local variable) across four layers",
+      "confidence": "medium",
+      "suggestion": "Pick one canonical name \u2014 'reverseExpansionLimit' is the most precise \u2014 and use it across the URL parameter, request record field, and local variable; update the URL parameter from 'nouns_per' to 'reverse_expansion_limit' or document the mapping explicitly in a single place",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java line 272: 'int collocatesPerSeed = HttpApiUtils.parseIntParam(params, \"nouns_per\", 30)'",
+        "SingleSeedExplorationOptions record uses 'reverseExpansionLimit' for the same value",
+        "SemanticFieldExplorer.java line 163: 'int nounsPerPredicate = opts.reverseExpansionLimit()'"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "webapp-examples-stale-params",
+      "summary": "webapp calls /api/semantic-field/examples with old param names, always returns 400",
+      "confidence": "high",
+      "suggestion": "Update the fetch call in webapp/index.html line 611 to use the current parameter names: `?collocate=${encodeURIComponent(adj)}&seed=${encodeURIComponent(noun)}&top=${max}` (also update any local variable names from adj/noun to collocate/headword for clarity)",
+      "related_files": [
+        "webapp/index.html"
+      ],
+      "evidence": [
+        "webapp/index.html line 611: fetch(`\u2026/api/semantic-field/examples?adjective=${adj}&noun=${noun}&max=${max}`)",
+        "ExplorationHandlers.java lines 194-197: handler requires 'collocate' and 'seed' via requireParam(), and reads 'top' (not 'max') for the limit \u2014 sending 'adjective'/'noun'/'max' will trigger a 400 Bad Request on every invocation"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "stale-javadoc-legacy-path",
+      "summary": "ExplorationHandlers Javadoc claims /api/semantic-field legacy path still exists but it was removed",
+      "confidence": "high",
+      "suggestion": "Remove the sentence '<p>Also reachable at the legacy path {@code /api/semantic-field}.</p>' from the handleSemanticFieldComparison Javadoc in ExplorationHandlers.java line 131",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java line 131: '<p>Also reachable at the legacy path {@code /api/semantic-field}.</p>'",
+        "WordSketchApiServer.java registers no handler for '/api/semantic-field' (only '/api/semantic-field/explore', '/api/semantic-field/explore-multi', '/api/semantic-field/compare', '/api/semantic-field/examples')",
+        "Git commit 5666688 message: 'Remove deprecated /api/semantic-field route and startup warning'"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "dead-legacy-relation-type-constants",
+      "summary": "RelationType enum retains 4 dead legacy constants (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) only referenced by tests",
+      "confidence": "medium",
+      "suggestion": "Remove ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF from RelationType; update the three test references in RelationPatternBuilderTest and RelationUtilsTest to construct RelationConfig instances with RelationType.SURFACE or RelationType.DEP, removing the dependency on the dead constants",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/RelationType.java"
+      ],
+      "evidence": [
+        "RelationType.java lines 22-29: four constants labeled 'Not set in grammar config' in their Javadoc",
+        "Class Javadoc (line 11-15): 'legacy labels from an earlier exploration subsystem design... Priority-hint usages in the exploration layer were removed \u2014 only the fallback (POS-group matching) fires in practice'",
+        "grep shows no production code references to ADJ_PREDICATE/ADJ_MODIFIER/SUBJECT_OF/OBJECT_OF in src/main/java (only in src/test/java)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "untyped_response_maps",
+      "summary": "All HTTP response bodies assembled as Map<String, Object> with stringly-typed field names \u2014 no compile-time verification of response shape",
+      "confidence": "high",
+      "suggestion": "Introduce typed response record classes (e.g., ExploreResponse, ComparisonResponse, SketchResponse) in a model.api or api.response package and serialize those with fastjson2 instead of ad-hoc maps. Records are directly serializable by fastjson2; this gives compile-time field verification, enables IDE rename refactoring, and self-documents the public API shape.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison builds Map<String, Object> with 'response.put(\"status\", \"ok\")' and 'response.put(\"seeds\", ...)' \u2014 field names are untyped string literals.",
+        "ExploreResponseAssembler.populateExploreResponse returns void and mutates a passed Map<String, Object> \u2014 response shape is invisible to the compiler.",
+        "56 Map<String, Object> occurrences counted in the api/ package alone, all for response construction."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "optional_as_record_field",
+      "summary": "Optional<RelationType> used as a record component field in RelationConfig \u2014 Optional is designed as a return type, not a field storage type",
+      "confidence": "high",
+      "suggestion": "Replace 'Optional<RelationType> relationType' with '@Nullable RelationType relationType' in the record; change callers to null-check directly or use Optional.ofNullable(rel.relationType()) at the call site. This aligns with the codebase's existing JSpecify annotation strategy.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "RelationConfig record declares 'Optional<RelationType> relationType' as a component \u2014 Optional does not implement Serializable and is explicitly not intended for field storage per its JavaDoc.",
+        "Callsites use 'rel.relationType().orElse(null)' and 'rel.relationType().isEmpty()' \u2014 treating Optional as a field defeats its readability benefit compared to a @Nullable RelationType field."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "nullable_index_field_unannotated",
+      "summary": "CollocateQueryHelper.index is assigned null in the test constructor but the field lacks @Nullable annotation",
+      "confidence": "high",
+      "suggestion": "Annotate the field as '@Nullable BlackLabIndex index' and add a Javadoc note that null is only valid for test subclasses. Alternatively, if only tests use the no-arg constructor, introduce a protected overrideable method for each I/O operation so test subclasses override behaviour rather than nulling out the field.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Field declared as 'private final BlackLabIndex index' with no nullability annotation.",
+        "Test-only no-arg constructor sets 'this.index = null;' \u2014 violates the @NonNull contract that the production constructor enforces via @NonNull parameter annotation.",
+        "Runtime guards (Objects.requireNonNull) are added inside methods to detect null \u2014 these are compensating for the missing type annotation."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "structure_nav",
+      "identifier": "radial_plot_api_package_misplacement",
+      "summary": "RadialPlot (SVG renderer) is placed in api/ instead of a viz/ package, contradicting its test package and project docs",
+      "confidence": "high",
+      "suggestion": "Move RadialPlot.java to src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java (creating the viz package); update VisualizationHandlers.java import to pl.marcinmilkowski.word_sketch.viz.RadialPlot; the test already imports from the correct package and will work without changes once the source is moved.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/viz/RadialPlotTest.java"
+      ],
+      "evidence": [
+        "RadialPlot.java is in package pl.marcinmilkowski.word_sketch.api alongside HTTP handlers, but contains no HTTP code \u2014 it generates SVG markup only",
+        "Its test resides in src/test/java/pl/marcinmilkowski/word_sketch/viz/RadialPlotTest.java (viz package), reflecting the intended home",
+        "CLAUDE.md lists the class as 'viz/RadialPlot.java - Radial plot data builder', confirming the structural intent was a separate viz/ package",
+        "VisualizationHandlers.java in api/ uses it via RadialPlot.renderFromItems \u2014 the handler belongs in api/, but the renderer itself has no HTTP dependency and should live in viz/"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_imports_concrete_explorer",
+      "summary": "WordSketchApiServer imports concrete SemanticFieldExplorer, piercing the ExplorationService interface boundary",
+      "confidence": "high",
+      "suggestion": "Move the convenience-constructor factory logic out of WordSketchApiServer. Either (a) delete the convenience constructor and let Main.java (which already wires dependencies) create the SemanticFieldExplorer before passing it in, or (b) introduce a static factory in the exploration package (e.g. ExplorationService.defaultFor(executor, config)) and expose only that, so the api package never imports the concrete class. Either option means api compiles against the ExplorationService interface alone.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 8: import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;",
+        "Line 56: this(executor, new SemanticFieldExplorer(executor, grammarConfig), port, grammarConfig);",
+        "The full constructor (line 60) accepts ExplorationService, confirming the interface exists as a seam \u2014 but the api package still carries a compile-time dependency on the concrete class via the convenience constructor"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "radial_plot_misplaced_in_api",
+      "summary": "RadialPlot is a pure SVG-math utility with no HTTP imports but lives in the api package",
+      "confidence": "high",
+      "suggestion": "Move RadialPlot.java to a new src/main/java/pl/marcinmilkowski/word_sketch/viz/ package (restoring the original layout documented in CLAUDE.md). Update the import in VisualizationHandlers.java. This keeps the api package scoped to HTTP request/response concerns and gives SVG rendering its own home.",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RadialPlot.java"
+      ],
+      "evidence": [
+        "RadialPlot.java imports only java.util.ArrayList, java.util.List, java.util.Locale \u2014 no com.sun.net.httpserver, no api-layer types",
+        "CLAUDE.md architecture table lists the file as viz/RadialPlot.java, indicating it was originally in a separate visualization package",
+        "VisualizationHandlers in the api package uses RadialPlot, but consuming a utility is not sufficient reason to co-locate it"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "review_quality": {
+    "batch_count": 15,
+    "dimension_coverage": 1.0,
+    "evidence_density": 3.8,
+    "high_score_missing_issue_note": 0,
+    "issue_pressure": 56.322,
+    "dimensions_with_issues": 15
+  },
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "run_stamp": "20260312_062207",
+    "created_at": "2026-03-12T06:30:33+00:00",
+    "batch_count": 15,
+    "batch_indexes": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "8c720036010d0c10e12ce618dfe24fd59fbdd446e33cd3bc2661dc8a84f7319b"
+  }
+}

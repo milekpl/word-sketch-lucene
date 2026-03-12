@@ -1,0 +1,101 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 3,
+  "assessments": {
+    "low_level_elegance": 76.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "Main.java: handleBlackLabIndexCommand, handleBlackLabQueryCommand, and handleBlackLabServerCommand each contain an identical for-loop over args with a switch dispatch and identical try/catch blocks for integer/double parsing — the pattern is copy-pasted three times with no shared extraction beyond requireNextArg.",
+        "CollocateQueryHelper.buildAndRankCollocates calls getTotalFrequency(collocateLemma) once per collocate inside the loop (N separate index I/O calls), while the sibling method scoreHits pre-fetches all corpus frequencies into a local map before iterating — inconsistent handling of the same sub-problem within the same class.",
+        "BlackLabSnippetParser.extractCollocateLemma delegates to extractLastLemma in a single line with no additional logic — a zero-cost wrapper that adds one indirection layer with no benefit.",
+        "SemanticFieldExplorer breaks the single-seed algorithm into four clearly named phase helpers (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates), each focused and proportionate.",
+        "CollocateQueryHelper two-phase pipeline (collectHits / scoreHits) with a clear record type (HitRecord) to carry phase-1 data into phase-2 — state mutation is explicit and bounded to the freqMapOut out-parameter.",
+        "ExplorationHandlers.parseExplorationParams extracts all four common parameter reads into a single place; each handler reads it once and destructures — avoids repetition across three sibling handlers.",
+        "VisualizationHandlers.RenderMode enum has one member (SIGNED) and an isValid helper that iterates over it — slightly over-engineered for a single-value enum.",
+        "ExploreResponseAssembler uses void populate* methods that mutate a passed-in map, while buildBcqlResponse (CorpusQueryHandlers) builds and returns a new map — inconsistent mutating vs returning idiom across sibling assembler paths."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "strengths": [
+        "SemanticFieldExplorer decomposes the single-seed exploration algorithm into four focused phase helpers (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) — each is proportionate and intention-revealing.",
+        "CollocateQueryHelper's two-phase pipeline (collectHits → scoreHits) uses a typed record (HitRecord) to carry state between phases, making data flow explicit and bounded.",
+        "ExplorationHandlers consolidates all repeated parameter extraction into a single parseExplorationParams method, avoiding copy-paste across three sibling handlers.",
+        "Guard clauses and early returns are used consistently: null/empty lemma checks in BlackLabQueryExecutor methods exit cleanly before any index I/O.",
+        "BlackLabSnippetParser's null guards on every public method are consistent and keep callers free of defensive boilerplate."
+      ],
+      "issue_character": "The issues are concentrated in two patterns: copy-paste expansion of argument-parsing boilerplate in Main and an inconsistency in how frequency pre-fetching is handled within CollocateQueryHelper — neither is pervasive, but both represent visible lapses in an otherwise well-extracted codebase.",
+      "score_rationale": "Most function internals are proportionate, phased, and intention-revealing; a developer reading SemanticFieldExplorer or CollocateQueryHelper would find the logic easy to follow. The main drag is Main.java, where three command handlers share an identical arg-loop/try-catch skeleton that was copy-pasted rather than extracted, and a performance-inconsistency in CollocateQueryHelper where buildAndRankCollocates makes N sequential I/O calls while the sibling scoreHits pre-fetches. These are real recurring friction points but are localized rather than pervasive, placing the codebase closer to the 80 (solid but uneven) anchor than the 70 (mixed) anchor — but below 80 because the same structural shortcut recurs across multiple command handlers."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "main_argparse_triple_duplication",
+      "summary": "Identical argument-parsing loop and try/catch blocks copy-pasted across three command handlers in Main.java",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "handleBlackLabIndexCommand, handleBlackLabQueryCommand, and handleBlackLabServerCommand each contain the same `for (int i = 1; i < args.length; i++) { switch (args[i]) { ... } }` skeleton with identical try/catch for Integer.parseInt and Double.parseDouble; only the option names and target variables differ.",
+        "The --port, --limit, and --min-logdice number-parsing blocks all use the same pattern: requireNextArg + try/catch NumberFormatException + System.exit(1), repeated verbatim three times."
+      ],
+      "suggestion": "Extract a shared ArgParser helper or a simple varargs-style flag-parsing method that maps flag names to typed consumers (e.g. `parseArgs(args, \"--port\", v -> port = Integer.parseInt(v), ...)`). Alternatively, introduce a small record-based CliArgs accumulator and a single `parseArgs(String[] args, CliArgs target)` method that all three handlers call. This eliminates the repeated loop and centralises the integer/double error messages.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "main_argparse_expansion"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "build_rank_collocates_per_entry_io",
+      "summary": "buildAndRankCollocates makes one getTotalFrequency I/O call per collocate in a loop, while the sibling scoreHits pre-fetches all frequencies first",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "In buildAndRankCollocates (line ~170): `long collocateFreq = getTotalFrequency(collocateLemma);` is called for every entry in freqMap, performing N sequential index lookups.",
+        "In scoreHits (line ~230): a dedicated pre-fetch loop collects all unique collocate corpus frequencies into collocateCorpusFreqs before the main scoring loop — explicitly commented as 'Pre-compute corpus frequency for each unique collocate to avoid one call per hit.'",
+        "Both methods solve the same sub-problem (collocate corpus frequency lookup for logDice scoring) with inconsistent strategies in the same class."
+      ],
+      "suggestion": "Apply the same pre-fetch pattern used in scoreHits to buildAndRankCollocates: before the scoring loop, iterate freqMap.keySet(), call getTotalFrequency once per unique collocate, store results in a local Map<String,Long>, then use that map inside the loop. This aligns the two methods and eliminates the per-entry I/O calls.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "collocate_frequency_prefetch"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "snippet_parser_zero_logic_delegate",
+      "summary": "extractCollocateLemma is a zero-logic single-line wrapper over extractLastLemma with no distinguishing behaviour",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "`static String extractCollocateLemma(String matchXml) { return extractLastLemma(matchXml); }` — no pre-condition, no transformation, no added contract beyond a different name.",
+        "All callers could reference extractLastLemma directly, or extractCollocateLemma could be renamed extractLastLemma and the private helper removed; either way one indirection level disappears."
+      ],
+      "suggestion": "Inline extractCollocateLemma: remove the wrapper method and have callers call extractLastLemma directly, OR promote extractLastLemma to package-private and delete extractCollocateLemma. If the semantic distinction ('collocate is always the last lemma') is worth preserving as a comment, add it to extractLastLemma's Javadoc instead of as a separate delegation method.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Main.java arg-parsing grew command-by-command without extracting a shared parsing abstraction; each new command copied the previous handler's loop.",
+      "CollocateQueryHelper evolved two separate ranking paths (buildAndRankCollocates for grouped-hit ranking, scoreHits for per-hit ranking) independently; the pre-fetch optimisation was added to scoreHits but not backported to buildAndRankCollocates."
+    ],
+    "likely_symptoms": [
+      "main_argparse_triple_duplication — symptom of a missing shared CLI arg-parsing abstraction",
+      "build_rank_collocates_per_entry_io — symptom of parallel evolution of two scoring paths without cross-synchronisation"
+    ],
+    "possible_false_positives": []
+  }
+}

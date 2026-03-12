@@ -22,7 +22,7 @@ class ExploreResponseAssemblerTest {
             Map<String, Long> seedFreqs,
             List<DiscoveredNoun> nouns,
             List<CoreCollocate> core) {
-        return new ExplorationResult(List.of(seed), seedCollocates, seedFreqs, nouns, core);
+        return new ExplorationResult(List.of(seed), seedCollocates, seedFreqs, nouns, core, Map.of());
     }
 
     private static ExplorationResult resultWith(
@@ -31,7 +31,7 @@ class ExploreResponseAssemblerTest {
             Map<String, Long> seedFreqs,
             List<DiscoveredNoun> nouns,
             List<CoreCollocate> core) {
-        return new ExplorationResult(seeds, seedCollocates, seedFreqs, nouns, core);
+        return new ExplorationResult(seeds, seedCollocates, seedFreqs, nouns, core, Map.of());
     }
 
     @Test

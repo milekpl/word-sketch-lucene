@@ -1,0 +1,112 @@
+{
+  "batch": "type_discipline",
+  "batch_index": 13,
+  "assessments": {"type_discipline": 72.0},
+  "dimension_notes": {
+    "type_discipline": {
+      "evidence": [
+        "JSpecify @NonNull/@Nullable annotations used at 82 sites across the codebase — on method parameters, return types, and record fields (e.g. RelationConfig components, ExplorationResult fields, HttpApiUtils method signatures).",
+        "Sealed interface QueryResults.ConcordanceResult with 'permits QueryResults.SnippetResult, QueryResults.CollocateResult' — correct use of algebraic sum types.",
+        "Records used consistently for immutable value objects: CollocateProfile, CoreCollocate, Edge, FetchExamplesOptions, ExplorationOptions, SingleSeedExplorationOptions, RelationConfig, DiscoveredNoun, ComparisonResult.SummaryCounts.",
+        "Enums (RelationEdgeType, SharingCategory, PosGroup) carry separate stable string labels distinct from their Java constant names, preventing API-consumer coupling to Java identifier conventions.",
+        "Optional used appropriately as return types: GrammarConfig.relation(), RelationConfig.relationType(), CollocateProfile.strongestNoun() — not as field storage in most places.",
+        "Pervasive Map<String, Object> for HTTP response construction across all API handlers (56 occurrences in api/ package). Field names are stringly-typed string literals; no typed response DTOs or records exist at the API boundary.",
+        "RelationConfig record contains 'Optional<RelationType> relationType' as a record component — using Optional as a stored field value rather than a return type is a documented Java anti-pattern (Optional is not Serializable and is intended for use as a return type only).",
+        "CollocateQueryHelper has a test-only no-arg constructor that sets 'this.index = null' while the field is declared as 'private final BlackLabIndex index' without @Nullable annotation — the field type does not reflect the nullable production invariant.",
+        "RelationType enum contains four legacy semantic-role constants (ADJ_PREDICATE, ADJ_MODIFIER, SUBJECT_OF, OBJECT_OF) documented as 'not set in grammar config' — the enum type's precision is diluted by dead constants that live alongside the active SURFACE/DEP dispatch values.",
+        "ExplorationResult passes Map<String, Double> and Map<String, Map<String, Double>> as constructor arguments without defensive copies for seedCollocates/perSeedCollocates, so external mutation of the maps passed in would corrupt the 'immutable' result object."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 80.0,
+        "indirection_cost": 80.0,
+        "interface_honesty": 78.0,
+        "delegation_density": 85.0,
+        "definition_directness": 80.0,
+        "type_discipline": 72.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "type_discipline": {
+      "strengths": [
+        "Consistent, broad use of JSpecify @NonNull/@Nullable annotations (82 sites) signals a genuine commitment to nullability contracts at public boundaries.",
+        "Sealed interface QueryResults.ConcordanceResult with explicit permits clause is a textbook algebraic sum type — compiler-enforced exhaustiveness rather than ad-hoc instanceof chains.",
+        "Records adopted uniformly for all immutable value objects in model.exploration, model, and config packages, leveraging structural typing and automatic equals/hashCode.",
+        "Enums carry stable API-safe labels separate from Java constant names, preventing serialization coupling and enabling safe renaming.",
+        "Optional used exclusively as return types, not as parameter types, following the intended design of java.util.Optional."
+      ],
+      "issue_character": "The codebase has strong type discipline in its domain/model layer but systematically abandons it at the API boundary, where all HTTP response objects are assembled as untyped Map<String, Object> with stringly-typed field names rather than typed response records; secondary issues are using Optional as a record component field and a nullable field undeclared as @Nullable.",
+      "score_rationale": "The model and config layers score near the top of the range — sealed types, records, enums with labels, and pervasive nullability annotations represent deliberate, well-executed type discipline. The score is pulled down materially by the API layer's systematic reliance on Map<String, Object> for response construction (56 occurrences), which erases all compile-time guarantees for the outbound API shape and creates a stringly-typed surface across the entire HTTP boundary. This pattern is idiomatic in simple Java HTTP handlers but, given the codebase's otherwise high type discipline, represents a gap that would score around 45-50 in isolation, landing the overall dimension at 72."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_discipline",
+      "identifier": "untyped_response_maps",
+      "summary": "All HTTP response bodies assembled as Map<String, Object> with stringly-typed field names — no compile-time verification of response shape",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldComparison builds Map<String, Object> with 'response.put(\"status\", \"ok\")' and 'response.put(\"seeds\", ...)' — field names are untyped string literals.",
+        "ExploreResponseAssembler.populateExploreResponse returns void and mutates a passed Map<String, Object> — response shape is invisible to the compiler.",
+        "56 Map<String, Object> occurrences counted in the api/ package alone, all for response construction."
+      ],
+      "suggestion": "Introduce typed response record classes (e.g., ExploreResponse, ComparisonResponse, SketchResponse) in a model.api or api.response package and serialize those with fastjson2 instead of ad-hoc maps. Records are directly serializable by fastjson2; this gives compile-time field verification, enables IDE rename refactoring, and self-documents the public API shape.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "api_boundary_type_erasure"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "optional_as_record_field",
+      "summary": "Optional<RelationType> used as a record component field in RelationConfig — Optional is designed as a return type, not a field storage type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java"
+      ],
+      "evidence": [
+        "RelationConfig record declares 'Optional<RelationType> relationType' as a component — Optional does not implement Serializable and is explicitly not intended for field storage per its JavaDoc.",
+        "Callsites use 'rel.relationType().orElse(null)' and 'rel.relationType().isEmpty()' — treating Optional as a field defeats its readability benefit compared to a @Nullable RelationType field."
+      ],
+      "suggestion": "Replace 'Optional<RelationType> relationType' with '@Nullable RelationType relationType' in the record; change callers to null-check directly or use Optional.ofNullable(rel.relationType()) at the call site. This aligns with the codebase's existing JSpecify annotation strategy.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "optional_misuse"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "nullable_index_field_unannotated",
+      "summary": "CollocateQueryHelper.index is assigned null in the test constructor but the field lacks @Nullable annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Field declared as 'private final BlackLabIndex index' with no nullability annotation.",
+        "Test-only no-arg constructor sets 'this.index = null;' — violates the @NonNull contract that the production constructor enforces via @NonNull parameter annotation.",
+        "Runtime guards (Objects.requireNonNull) are added inside methods to detect null — these are compensating for the missing type annotation."
+      ],
+      "suggestion": "Annotate the field as '@Nullable BlackLabIndex index' and add a Javadoc note that null is only valid for test subclasses. Alternatively, if only tests use the no-arg constructor, introduce a protected overrideable method for each I/O operation so test subclasses override behaviour rather than nulling out the field.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The API layer was likely built incrementally using the idiomatic Java-HTTP-handler pattern (Map + put) without later adopting typed response DTOs as the model layer matured.",
+      "Optional as a record field is a common mistake introduced when converting a class with an Optional-returning getter to a record, where the getter body becomes the field itself."
+    ],
+    "likely_symptoms": ["untyped_response_maps"],
+    "possible_false_positives": []
+  }
+}

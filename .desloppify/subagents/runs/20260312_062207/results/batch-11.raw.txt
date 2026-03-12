@@ -1,0 +1,103 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 11,
+  "assessments": {"naming_quality": 77.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "CollocateProfile record has field 'adjective' but Javadoc says 'Profile of one collocate across all seed nouns'; the primary field should be 'collocate'",
+        "ComparisonResult stores List<CollocateProfile> in a private field named 'adjectives' but exposes it via public method 'collocates()'; the private/public name divergence persists in Javadoc comments ('Returns adjectives that occur only in...')",
+        "buildBcqlWithLemmaSubstitution in BlackLabQueryExecutor does not substitute — it prepends a quoted lemma token before a CQL constraint; CqlUtils.substituteAtPosition is the actual substitution. The name implies the wrong operation",
+        "The 'nouns_per' URL parameter, ExplorationParams.collocatesPerSeed field, SingleSeedExplorationOptions.reverseExpansionLimit accessor, and local variable nounsPerPredicate all refer to the same tuning knob with four different names across the stack",
+        "Domain vocabulary (seed, collocate, headword, lemma, logDice, relation) is precise and used consistently across all packages",
+        "Phase-named private methods in SemanticFieldExplorer (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) communicate algorithm structure directly",
+        "Handler classes named after their route concerns (ConcordanceHandlers, ExplorationHandlers, SketchHandlers, CorpusQueryHandlers, VisualizationHandlers) — direct naming",
+        "ExplorationHandlers.semanticFieldExplorer field is typed as ExplorationService but named after the concrete SemanticFieldExplorer class — minor coupling of name to implementation"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "Domain vocabulary (seed, collocate, headword, lemma, logDice, relation) is precise and applied uniformly across all layers — API params, model fields, and method signatures share the same terms",
+        "Phase-named private methods in SemanticFieldExplorer (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates) make the multi-step algorithm self-documenting",
+        "Handler class names are structurally honest: ConcordanceHandlers, ExplorationHandlers, SketchHandlers, CorpusQueryHandlers, VisualizationHandlers each contain exactly the concern the name implies",
+        "Model record field names are precise: WordSketchResult(lemma, pos, frequency, logDice, relativeFrequency) and CoreCollocate(collocate, sharedByCount, totalNouns, seedLogDice, avgLogDice) leave no guessing",
+        "ExplorationService/SemanticFieldExplorer correctly separates the interface abstraction from the implementation name"
+      ],
+      "issue_character": "The issues are concentrated around one design scar — the residual 'adjective' vocabulary in CollocateProfile and ComparisonResult from when the comparison feature was adj-specific — plus two secondary cases of name/behavior mismatch (buildBcqlWithLemmaSubstitution) and vocabulary fragmentation (nouns_per/collocatesPerSeed/reverseExpansionLimit) that each arise from a single concept tracked differently across layers.",
+      "score_rationale": "This codebase sits above the 'significant drag' threshold: the broad naming is genuinely strong, with consistent domain vocabulary and mostly accurate method names at all visibility levels. The main drag comes from the adjective/collocate terminology conflict in the model layer — CollocateProfile.adjective and ComparisonResult.adjectives are misnomers for a now-generic type, and the split between the private field 'adjectives' and public method 'collocates()' adds confusion. The buildBcqlWithLemmaSubstitution name/behavior mismatch is isolated but would mislead a developer reading that code path. These issues are contained rather than systemic, keeping the score in the 'solid but uneven' range rather than dropping lower."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "collocate_profile_adjective_field",
+      "summary": "CollocateProfile.adjective field and ComparisonResult.adjectives internal field use an adjective-specific name for a generic collocate concept",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java"
+      ],
+      "evidence": [
+        "CollocateProfile record declares 'String adjective' as its primary field, but its class Javadoc says 'Profile of one collocate across all seed nouns'",
+        "ComparisonResult stores collocate profiles in a private field 'adjectives' but exposes them via public method 'collocates()' — split vocabulary between private and public API",
+        "ComparisonResult.specificTo() Javadoc says 'Returns adjectives that occur only in the collocate profile of {noun}' — adjective-specific language in a generic method",
+        "ComparisonResult.toString() returns '...N adjectives: M shared...' mixing vocabulary with the rest of the API that calls them collocates"
+      ],
+      "suggestion": "Rename CollocateProfile.adjective to CollocateProfile.collocate; rename ComparisonResult's internal field 'adjectives' to 'collocates'; update all Javadoc references from 'adjective' to 'collocate' in both files",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "adjective_collocate_terminology_scar"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "build_bcql_substitution_misnomer",
+      "summary": "buildBcqlWithLemmaSubstitution name implies attribute substitution but the method prepends a quoted literal token",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "buildBcqlWithLemmaSubstitution at line 278: given pattern '[xpos=\"JJ.*\"]' and lemma 'house', it returns '\"house\" [xpos=\"JJ.*\"]' — a prepend, not a substitution",
+        "CqlUtils.substituteAtPosition is the actual substitution operation — it injects lemma=value into an existing [...] constraint; the name collision between these two operations is the root of the confusion",
+        "A developer reading the name 'buildBcqlWithLemmaSubstitution' alongside 'CqlUtils.substituteAtPosition' would expect them to perform the same kind of operation"
+      ],
+      "suggestion": "Rename to buildBcqlWithPrependedLemma or prependLemmaToken to accurately describe the prepend operation",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "nouns_per_vocabulary_fragmentation",
+      "summary": "The reverse-expansion limit is called 'nouns_per' (URL), 'collocatesPerSeed' (request record), 'reverseExpansionLimit' (options record), and 'nounsPerPredicate' (local variable) across four layers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.java line 272: 'int collocatesPerSeed = HttpApiUtils.parseIntParam(params, \"nouns_per\", 30)'",
+        "SingleSeedExplorationOptions record uses 'reverseExpansionLimit' for the same value",
+        "SemanticFieldExplorer.java line 163: 'int nounsPerPredicate = opts.reverseExpansionLimit()'"
+      ],
+      "suggestion": "Pick one canonical name — 'reverseExpansionLimit' is the most precise — and use it across the URL parameter, request record field, and local variable; update the URL parameter from 'nouns_per' to 'reverse_expansion_limit' or document the mapping explicitly in a single place",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The comparison feature was originally built for adjective collocates only; when CollocateProfile was generalised to any collocate, the field names were not updated to match the new abstraction",
+      "The multi-layer vocabulary divergence for the reverse-expansion limit arose from each layer independently naming the same concept without a shared canonical term"
+    ],
+    "likely_symptoms": [
+      "collocate_profile_adjective_field"
+    ],
+    "possible_false_positives": []
+  }
+}

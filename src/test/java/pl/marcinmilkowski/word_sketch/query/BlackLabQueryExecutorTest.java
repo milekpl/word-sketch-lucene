@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -61,7 +60,6 @@ class BlackLabQueryExecutorTest {
 
     @Nested
     @DisplayName("LiveIndex — requires CONCEPT_SKETCH_TEST_INDEX")
-    @Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
     class LiveIndex {
 
         private static final String INDEX_PATH = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

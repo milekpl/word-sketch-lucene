@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.query;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import java.io.File;
@@ -36,7 +35,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * 74M-sentence corpus index at {@code d:\corpus_74m\index-hybrid} satisfies this.
  * </p>
  */
-@Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
 public class BlackLabBcqlConcordanceTest {
 
     private static final String INDEX_PATH = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

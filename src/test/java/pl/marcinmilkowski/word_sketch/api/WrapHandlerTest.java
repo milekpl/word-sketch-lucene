@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class WrapHandlerTest {
 
-    private static HandlersTest.MockExchange mockExchange() {
-        return new HandlersTest.MockExchange("http://localhost/test");
+    private static TestExchangeFactory.MockExchange mockExchange() {
+        return new TestExchangeFactory.MockExchange("http://localhost/test");
     }
 
     @Test
@@ -27,9 +27,9 @@ class WrapHandlerTest {
 
         HttpApiUtils.wrapWithErrorHandling(throwsIae, "test-op").handle(ex);
 
-        assertEquals(400, ((HandlersTest.MockExchange) ex).statusCode,
+        assertEquals(400, ((TestExchangeFactory.MockExchange) ex).statusCode,
                 "IAE must map to HTTP 400");
-        JSONObject body = JSON.parseObject(((HandlersTest.MockExchange) ex).getResponseBodyAsString());
+        JSONObject body = JSON.parseObject(((TestExchangeFactory.MockExchange) ex).getResponseBodyAsString());
         assertTrue(body.getString("error").contains("bad param"),
                 "Error message should include original IAE message");
     }
@@ -41,7 +41,7 @@ class WrapHandlerTest {
 
         HttpApiUtils.wrapWithErrorHandling(throwsIoe, "test-op").handle(ex);
 
-        assertEquals(500, ((HandlersTest.MockExchange) ex).statusCode,
+        assertEquals(500, ((TestExchangeFactory.MockExchange) ex).statusCode,
                 "IOException must map to HTTP 500");
     }
 
@@ -52,9 +52,9 @@ class WrapHandlerTest {
 
         HttpApiUtils.wrapWithErrorHandling(throwsRte, "test-op").handle(ex);
 
-        assertEquals(500, ((HandlersTest.MockExchange) ex).statusCode,
+        assertEquals(500, ((TestExchangeFactory.MockExchange) ex).statusCode,
                 "RuntimeException must map to HTTP 500");
-        JSONObject body = JSON.parseObject(((HandlersTest.MockExchange) ex).getResponseBodyAsString());
+        JSONObject body = JSON.parseObject(((TestExchangeFactory.MockExchange) ex).getResponseBodyAsString());
         assertTrue(body.getString("error").contains("unexpected"),
                 "Error message should include original exception message");
     }
@@ -62,7 +62,7 @@ class WrapHandlerTest {
     @Test
     void wrapWithErrorHandling_requestEntityTooLarge_sends413() throws Exception {
         HttpHandler throwsTooLarge = exchange -> { throw new RequestEntityTooLargeException("body too large"); };
-        HandlersTest.MockExchange ex = mockExchange();
+        TestExchangeFactory.MockExchange ex = mockExchange();
 
         HttpApiUtils.wrapWithErrorHandling(throwsTooLarge, "test-op").handle(ex);
 
@@ -75,7 +75,7 @@ class WrapHandlerTest {
     @Test
     void wrapWithErrorHandling_noException_passesThrough() throws Exception {
         HttpHandler ok = exchange -> HttpApiUtils.sendJsonResponse(exchange, java.util.Map.of("ok", true));
-        HandlersTest.MockExchange ex = mockExchange();
+        TestExchangeFactory.MockExchange ex = mockExchange();
 
         HttpApiUtils.wrapWithErrorHandling(ok, "test-op").handle(ex);
 

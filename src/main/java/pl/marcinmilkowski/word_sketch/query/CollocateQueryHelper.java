@@ -181,15 +181,31 @@ class CollocateQueryHelper {
             double minLogDice,
             int maxResults,
             Map<String, String> posMap) throws IOException {
-        Map<String, Long> collocateCorpusFreqs = prefetchCorpusFrequencies(freqMap.keySet());
+        // Corpus frequencies are fetched lazily: only look up a collocate's total corpus frequency
+        // when its upper-bound logDice (computed without the corpus lookup) could reach minLogDice.
+        // Upper bound: logDice is maximised when corpusFreq == jointFreq (the collocate appears
+        // only with this headword), so logDice_max = LogDiceUtils.compute(j, h, j).
+        // If logDice_max < minLogDice the entry is skipped and the I/O call is avoided entirely.
+        Map<String, Long> corpusFreqCache = new HashMap<>();
 
         List<WordSketchResult> results = new ArrayList<>();
         for (Map.Entry<String, Long> entry : freqMap.entrySet()) {
             String collocateLemma = entry.getKey();
             long jointFreq = entry.getValue();
-            long collocateFreq = collocateCorpusFreqs.getOrDefault(collocateLemma, 0L);
 
-            double logDice = (headwordFreq > 0 && collocateFreq > 0)
+            if (headwordFreq <= 0 || jointFreq <= 0) continue;
+
+            double logDiceMax = LogDiceUtils.compute(jointFreq, headwordFreq, jointFreq);
+            if (logDiceMax < minLogDice) continue;
+
+            Long cached = corpusFreqCache.get(collocateLemma);
+            if (cached == null) {
+                cached = getTotalFrequency(collocateLemma);
+                corpusFreqCache.put(collocateLemma, cached);
+            }
+            long collocateFreq = cached;
+
+            double logDice = collocateFreq > 0
                     ? LogDiceUtils.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
 
             if (logDice >= minLogDice) {
@@ -260,28 +276,34 @@ class CollocateQueryHelper {
         for (int idx = 0; idx < sampleSize; idx++) {
             Hit hit = sample.get(idx);
             Concordance conc = concordances.get(hit);
-
-            String[] parts = BlackLabSnippetParser.safeParts(conc);
-            if (parts == null) {
-                records.add(new HitRecord("", "", "", "", null, hit.doc(), hit.start(), hit.end()));
-                continue;
-            }
-
-            String leftXml  = parts[0];
-            String matchXml = parts[1];
-            String rightXml = parts[2];
-            String xmlSnippet = leftXml + matchXml + rightXml;
-            String leftText   = BlackLabSnippetParser.extractPlainTextFromXml(
-                    BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
-            String matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
-            String rightText  = BlackLabSnippetParser.extractPlainTextFromXml(
-                    BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
-            String collocateLemma = extractCollocateLemma(matchXml, collocatePos);
-
-            records.add(new HitRecord(xmlSnippet, leftText, matchText, rightText,
-                    collocateLemma, hit.doc(), hit.start(), hit.end()));
+            records.add(toHitRecord(hit, conc, collocatePos));
         }
         return records;
+    }
+
+    /**
+     * Transforms a single (hit, concordance) pair into a {@link HitRecord}.
+     * Returns a sentinel record with empty text when the concordance parts cannot be parsed.
+     */
+    private HitRecord toHitRecord(Hit hit, Concordance conc, int collocatePos) {
+        String[] parts = BlackLabSnippetParser.safeParts(conc);
+        if (parts == null) {
+            return new HitRecord("", "", "", "", null, hit.doc(), hit.start(), hit.end());
+        }
+
+        String leftXml  = parts[0];
+        String matchXml = parts[1];
+        String rightXml = parts[2];
+        String xmlSnippet = leftXml + matchXml + rightXml;
+        String leftText   = BlackLabSnippetParser.extractPlainTextFromXml(
+                BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
+        String matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
+        String rightText  = BlackLabSnippetParser.extractPlainTextFromXml(
+                BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
+        String collocateLemma = extractCollocateLemma(matchXml, collocatePos);
+
+        return new HitRecord(xmlSnippet, leftText, matchText, rightText,
+                collocateLemma, hit.doc(), hit.start(), hit.end());
     }
 
     /**

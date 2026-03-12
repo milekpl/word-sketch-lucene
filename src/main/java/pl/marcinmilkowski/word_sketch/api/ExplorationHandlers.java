@@ -58,7 +58,7 @@ class ExplorationHandlers {
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
         Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
         String seed = HttpApiUtils.requireParam(params, "seed");
-        RelationConfig relationConfig = resolveRelationConfig(params);
+        RelationConfig resolvedConfig = resolveRelationConfig(params);
         CommonExploreParams commonParams = parseCommonExploreParams(params);
         int collocatesPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
 
@@ -66,12 +66,12 @@ class ExplorationHandlers {
             new ExplorationOptions(commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared()),
             collocatesPerSeed);
 
-        ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, relationConfig, opts);
+        ExplorationResult result = semanticFieldExplorer.exploreByPattern(seed, resolvedConfig, opts);
 
         Map<String, Object> extraParams = new HashMap<>();
         extraParams.put("nouns_per", collocatesPerSeed);
         Map<String, Object> response = buildCoreExploreResponse(
-            relationConfig.id(), commonParams.topCollocates(), commonParams.minShared(),
+            resolvedConfig.id(), commonParams.topCollocates(), commonParams.minShared(),
             commonParams.minLogDice(), extraParams, Map.of("seed", result.seed()));
         ExploreResponseAssembler.populateExploreResponse(response, result);
 

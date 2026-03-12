@@ -237,8 +237,11 @@ public final class GrammarConfigLoader {
      * Parse a nullable relation-type string to a {@link RelationType}.
      *
      * <p>Returns {@code null} when the {@code relation_type} field is absent (which
-     * is valid — not all relations participate in exploration). Throws when the field is
-     * present but unrecognised, which typically indicates a typo in the grammar config.</p>
+     * is valid — not all relations participate in exploration).</p>
+     *
+     * @throws IllegalArgumentException when the field is present but unrecognised; valid values
+     *     are the names of the {@link RelationType} enum (case-insensitive), which typically
+     *     indicates a typo in the grammar config.
      */
     private static @Nullable RelationType parseRelationType(String value) {
         if (value == null || value.isBlank()) return null;

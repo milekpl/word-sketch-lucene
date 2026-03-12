@@ -160,7 +160,7 @@ class CollocateProfileComparator {
         profiles.stream()
             .filter(p -> p.presentInCount() >= 2)
             .limit(10)
-            .forEach(p -> logger.debug("  {} (in {}/{} nouns, avg={})", p.adjective(),
+            .forEach(p -> logger.debug("  {} (in {}/{} nouns, avg={})", p.collocate(),
                 p.presentInCount(), p.totalNouns(), String.format("%.2f", p.avgLogDice())));
 
         profiles.stream()
@@ -172,7 +172,7 @@ class CollocateProfileComparator {
                     .filter(e -> e.getValue() > 0)
                     .map(Map.Entry::getKey)
                     .findFirst().orElse("?");
-                logger.debug("  {} -> {} ({})", p.adjective(), specificNoun, String.format("%.2f", p.maxLogDice()));
+                logger.debug("  {} -> {} ({})", p.collocate(), specificNoun, String.format("%.2f", p.maxLogDice()));
             });
     }
 }

@@ -8,7 +8,6 @@ import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import pl.marcinmilkowski.word_sketch.viz.RadialPlot;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

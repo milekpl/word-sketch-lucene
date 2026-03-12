@@ -78,7 +78,7 @@ class SemanticFieldExplorerTest {
 
         List<CollocateProfile> fullyShared = result.fullyShared();
         List<String> sharedNames = fullyShared.stream()
-            .map(p -> p.adjective()).toList();
+            .map(p -> p.collocate()).toList();
 
         assertTrue(sharedNames.contains("empirical"),
             "empirical should be fully shared; got: " + sharedNames);
@@ -99,7 +99,7 @@ class SemanticFieldExplorerTest {
             explorer.compareCollocateProfiles(Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
         List<CollocateProfile> specific = result.specific();
-        List<String> specificNames = specific.stream().map(p -> p.adjective()).toList();
+        List<String> specificNames = specific.stream().map(p -> p.collocate()).toList();
 
         assertTrue(specificNames.contains("abstract"),
             "abstract should be specific to theory; got: " + specificNames);
@@ -145,7 +145,7 @@ class SemanticFieldExplorerTest {
 
         // empirical is specific to theory (model has no adjectives)
         List<String> specificNames = result.specific().stream()
-            .map(p -> p.adjective()).toList();
+            .map(p -> p.collocate()).toList();
         assertTrue(specificNames.contains("empirical"),
             "empirical should be specific when model has no adjectives; got: " + specificNames);
     }
@@ -178,7 +178,7 @@ class SemanticFieldExplorerTest {
             explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
         List<String> partialNames = result.partiallyShared().stream()
-            .map(p -> p.adjective()).toList();
+            .map(p -> p.collocate()).toList();
 
         assertTrue(partialNames.contains("theoretical"),
             "theoretical (in 2/3 nouns) should be partially shared; got: " + partialNames);

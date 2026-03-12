@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
  * Shows graded scores, not just binary presence.
  */
 public record CollocateProfile(
-        String adjective,
+        String collocate,
         Map<String, Double> nounScores,
         int presentInCount,
         int totalNouns,
@@ -52,6 +52,6 @@ public record CollocateProfile(
         String scoreStr = nounScores.entrySet().stream()
             .map(e -> e.getKey() + ":" + String.format("%.1f", e.getValue()))
             .collect(Collectors.joining(", "));
-        return String.format("%s [%d/%d: %s]", adjective, presentInCount, totalNouns, scoreStr);
+        return String.format("%s [%d/%d: %s]", collocate, presentInCount, totalNouns, scoreStr);
     }
 }

@@ -55,21 +55,21 @@ class MultiSeedExplorer {
 
         Map<String, Double> seedCollocScores = new LinkedHashMap<>();
         Map<String, Long> seedCollocFreqs = new LinkedHashMap<>();
-        Map<String, Double> collocLdSum = new HashMap<>();
-        Map<String, Integer> collocLdCount = new HashMap<>();
+        Map<String, Double> collocLogDiceSum = new HashMap<>();
+        Map<String, Integer> collocLogDiceCount = new HashMap<>();
         for (List<QueryResults.WordSketchResult> collocs : data.seedCollocateMap().values()) {
             for (QueryResults.WordSketchResult wsr : collocs) {
                 seedCollocScores.merge(wsr.lemma(), wsr.logDice(), Math::max);
                 seedCollocFreqs.merge(wsr.lemma(), wsr.frequency(), Long::sum);
-                collocLdSum.merge(wsr.lemma(), wsr.logDice(), Double::sum);
-                collocLdCount.merge(wsr.lemma(), 1, Integer::sum);
+                collocLogDiceSum.merge(wsr.lemma(), wsr.logDice(), Double::sum);
+                collocLogDiceCount.merge(wsr.lemma(), 1, Integer::sum);
             }
         }
-        Map<String, Double> avgLdMap = new HashMap<>();
-        collocLdSum.forEach((lemma, sum) -> avgLdMap.put(lemma, sum / collocLdCount.get(lemma)));
+        Map<String, Double> avgLogDiceMap = new HashMap<>();
+        collocLogDiceSum.forEach((lemma, sum) -> avgLogDiceMap.put(lemma, sum / collocLogDiceCount.get(lemma)));
         List<DiscoveredNoun> discoveredNounsList = buildDiscoveredNouns(seeds, data.seedCollocateMap(), commonCollocates);
         List<CoreCollocate> coreCollocatesList = buildCoreCollocates(
-                commonCollocates, data.collocateSharedCount(), seedCollocScores, avgLdMap, seeds.size());
+                commonCollocates, data.collocateSharedCount(), seedCollocScores, avgLogDiceMap, seeds.size());
 
         Map<String, Map<String, Double>> perSeedCollocates = new LinkedHashMap<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : data.seedCollocateMap().entrySet()) {
@@ -145,14 +145,14 @@ class MultiSeedExplorer {
             Set<String> commonCollocates,
             Map<String, Integer> collocateSharedCount,
             Map<String, Double> seedCollocScores,
-            Map<String, Double> avgLdMap,
+            Map<String, Double> avgLogDiceMap,
             int numSeeds) {
         List<CoreCollocate> coreCollocatesList = new ArrayList<>();
         for (String c : commonCollocates) {
             int sharedBy = collocateSharedCount.getOrDefault(c, 0);
-            double avgLd = avgLdMap.getOrDefault(c, 0.0);
+            double avgLogDice = avgLogDiceMap.getOrDefault(c, 0.0);
             double seedLd = seedCollocScores.getOrDefault(c, 0.0);
-            coreCollocatesList.add(new CoreCollocate(c, sharedBy, numSeeds, seedLd, avgLd));
+            coreCollocatesList.add(new CoreCollocate(c, sharedBy, numSeeds, seedLd, avgLogDice));
         }
         return coreCollocatesList;
     }

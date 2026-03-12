@@ -2,7 +2,7 @@ package pl.marcinmilkowski.word_sketch.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pl.marcinmilkowski.word_sketch.api.GrammarConfigSerializer;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfigSerializer;
 
 import java.io.IOException;
 import java.io.StringReader;

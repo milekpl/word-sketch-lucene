@@ -85,17 +85,17 @@ class CollocateProfileComparatorTest {
 
         // "important" must be identified as fully shared (present in 3/3 nouns)
         List<CollocateProfile> fullyShared = result.fullyShared();
-        assertTrue(fullyShared.stream().anyMatch(p -> "important".equals(p.adjective())),
+        assertTrue(fullyShared.stream().anyMatch(p -> "important".equals(p.collocate())),
                 "\"important\" should be fully shared across all three seeds");
 
         // "recent" must be partially shared (present in 2/3 nouns)
         List<CollocateProfile> partiallyShared = result.partiallyShared();
-        assertTrue(partiallyShared.stream().anyMatch(p -> "recent".equals(p.adjective())),
+        assertTrue(partiallyShared.stream().anyMatch(p -> "recent".equals(p.collocate())),
                 "\"recent\" should be partially shared across two seeds");
 
         // "large" must be specific to one noun
         List<CollocateProfile> specific = result.specific();
-        assertTrue(specific.stream().anyMatch(p -> "large".equals(p.adjective())),
+        assertTrue(specific.stream().anyMatch(p -> "large".equals(p.collocate())),
                 "\"large\" should be specific to a single seed");
     }
 }

@@ -14,22 +14,7 @@ import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Static HTTP utility helpers for the REST API server.
- *
- * <p>This class intentionally co-locates two related HTTP concerns:
- * <ul>
- *   <li><strong>Response writing</strong>: {@link #sendJsonResponse}, {@link #sendError},
- *       {@link #sendOptionsResponse}, {@link #sendBinaryResponse}, and related CORS helpers.</li>
- *   <li><strong>Request parameter parsing</strong>: {@link #requireParam},
- *       {@link #parseIntParam}, {@link #parseDoubleParam}, {@link #parseQueryParams}.</li>
- * </ul>
- * Both sets of methods serve a single concern — handling the HTTP layer of the REST API — and
- * are used exclusively within the {@code api} package. Splitting them into two separate classes
- * would not reduce coupling (they share no state, only a package) and would add navigational
- * friction without architectural benefit. The class is package-private, so this design decision
- * does not affect the public API surface.</p>
- */
+/** HTTP helpers for the REST API: response writing and query parameter parsing. */
 final class HttpApiUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(HttpApiUtils.class);
@@ -43,13 +28,7 @@ final class HttpApiUtils {
      */
     private static final String DEFAULT_CORS_ALLOW_ORIGIN = "http://localhost:3000";
 
-    /**
-     * Wraps a handler with uniform error handling: maps {@link IllegalArgumentException} to 400,
-     * {@link java.io.IOException} to 500, and any other exception to 500.
-     *
-     * <p>Extracted here (from {@code WordSketchApiServer}) so the contract can be unit-tested
-     * without standing up a full server.</p>
-     */
+    /** Wraps a handler: maps {@link IllegalArgumentException} to 400, {@link java.io.IOException} to 500, any other exception to 500. */
     static com.sun.net.httpserver.HttpHandler wrapWithErrorHandling(
             com.sun.net.httpserver.HttpHandler handler, String description) {
         return exchange -> {
@@ -73,15 +52,7 @@ final class HttpApiUtils {
 
     private HttpApiUtils() {}
 
-    /**
-     * Emits a one-time startup warning when the {@code cors.allow.origin} system property is set
-     * to {@code *}. Call this once during server startup, before the first request is accepted,
-     * so operators are alerted before any traffic is served.
-     *
-     * <p>A hard rejection is intentionally avoided: this is an internal research tool that may
-     * legitimately run with wildcard CORS in a controlled environment. The warning ensures
-     * operators are aware without breaking valid deployments.</p>
-     */
+    /** Warns at startup when {@code cors.allow.origin} is set to {@code *}. */
     static void warnIfWildcardCors() {
         String origin = System.getProperty("cors.allow.origin", DEFAULT_CORS_ALLOW_ORIGIN);
         if ("*".equals(origin)) {
@@ -90,11 +61,7 @@ final class HttpApiUtils {
         }
     }
 
-    /**
-     * Sets the {@code Access-Control-Allow-Origin} response header, reading {@code cors.allow.origin}
-     * from the JVM system property at call time so per-test overrides take effect immediately.
-     * Called by every response-sending method to ensure consistent CORS behaviour.
-     */
+    /** Sets {@code Access-Control-Allow-Origin} from the {@code cors.allow.origin} system property. */
     private static void setCorsHeader(HttpExchange exchange) {
         String origin = System.getProperty("cors.allow.origin", DEFAULT_CORS_ALLOW_ORIGIN);
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
@@ -170,11 +137,7 @@ final class HttpApiUtils {
     /** Maximum request body size in bytes accepted by request body endpoints (64 KB). */
     static final int MAX_REQUEST_BODY_BYTES = 65536;
 
-    /**
-     * Returns the parameter value, or throws {@link IllegalArgumentException} if missing, empty,
-     * or exceeds {@link #MAX_PARAM_LENGTH} characters.
-     * {@link #wrapWithErrorHandling} catches IAE and maps it to a 400 Bad Request response.
-     */
+    /** Returns the parameter value, or throws {@link IllegalArgumentException} if missing, empty, or over {@link #MAX_PARAM_LENGTH} chars. */
     static @NonNull String requireParam(@NonNull Map<String, String> params, @NonNull String name) {
         String v = params.getOrDefault(name, "").trim();
         if (v.isEmpty()) {
@@ -187,11 +150,7 @@ final class HttpApiUtils {
         return v;
     }
 
-    /**
-     * Parses an integer query parameter by name; uses {@code defaultValue} when the key is absent.
-     * Throws {@link IllegalArgumentException} on parse failure so {@link #wrapWithErrorHandling}
-     * catches it and sends a 400 Bad Request response.
-     */
+    /** Parses an integer query parameter; returns {@code defaultValue} when absent, throws {@link IllegalArgumentException} on bad input. */
     static int parseIntParam(@NonNull Map<String, String> params, @NonNull String name, int defaultValue) {
         String raw = params.get(name);
         if (raw == null) return defaultValue;
@@ -203,11 +162,7 @@ final class HttpApiUtils {
         }
     }
 
-    /**
-     * Parses a double query parameter by name; uses {@code defaultValue} when the key is absent.
-     * Throws {@link IllegalArgumentException} on parse failure so {@link #wrapWithErrorHandling}
-     * catches it and sends a 400 Bad Request response.
-     */
+    /** Parses a double query parameter; returns {@code defaultValue} when absent, throws {@link IllegalArgumentException} on bad input. */
     static double parseDoubleParam(@NonNull Map<String, String> params, @NonNull String name, double defaultValue) {
         String raw = params.get(name);
         if (raw == null) return defaultValue;
@@ -220,17 +175,11 @@ final class HttpApiUtils {
     }
 
     /**
-     * Parses a URL query string into a key-value parameter map.
+     * Parses a URL query string into a decoded key-value map; returns an empty map for null/empty input.
      *
-     * <p>Splits on {@code &} and {@code =}, decodes percent-encoded values using UTF-8,
-     * and silently ignores parameter tokens with no {@code =} separator. Passing a
-     * {@code null} or empty query returns an empty map.</p>
-     *
-     * @param query the raw query string (may be null or empty); percent-encoded characters are decoded
-     * @return mutable map of decoded parameter names to decoded values; never null
-     * @throws IllegalArgumentException if any key or value cannot be URL-decoded, so
-     *         callers and {@link #wrapWithErrorHandling} can return a 400 Bad Request response rather than
-     *         silently producing a malformed parameter map.
+     * @param query raw query string (may be null); percent-encoded characters are decoded
+     * @return mutable map of decoded names to values; never null
+     * @throws IllegalArgumentException if a key or value cannot be URL-decoded
      */
     static @NonNull Map<String, String> parseQueryParams(@Nullable String query) {
         Map<String, String> params = new HashMap<>();

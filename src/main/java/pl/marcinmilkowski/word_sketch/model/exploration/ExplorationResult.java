@@ -9,7 +9,7 @@ import org.jspecify.annotations.NonNull;
 /**
  * Immutable result of semantic field exploration from one or more seed words.
  *
- * <p>Produced by {@code SemanticFieldExplorer#exploreByPattern}. All collections are
+ * <p>Produced by {@code SemanticFieldExplorer#exploreByRelation}. All collections are
  * non-null; empty collections indicate the exploration found no candidates. Use
  * {@link #isEmpty()} to distinguish empty results from null.</p>
  *
@@ -51,6 +51,16 @@ public class ExplorationResult {
     /**
      * Creates an {@code ExplorationResult} from fully-constructed field values.
      * This is the sole public construction path outside of {@link #empty(String)}.
+     *
+     * @param seeds                  the seed word(s); single-element list in single-seed mode,
+     *                               multi-element in multi-seed mode
+     * @param seedCollocates         collocate lemma → logDice score for the seed(s); must not be null
+     * @param seedCollocateFrequencies collocate lemma → raw corpus frequency; must not be null
+     * @param discoveredNouns        nouns discovered via reverse collocate expansion, sorted by
+     *                               relevance score descending; must not be null
+     * @param coreCollocates         collocates shared by most discovered nouns; must not be null
+     * @param perSeedCollocates      seed lemma → (collocate lemma → logDice) for per-seed edge
+     *                               attribution; single entry in single-seed mode; must not be null
      */
     public static ExplorationResult of(List<String> seeds, Map<String, Double> seedCollocates,
             Map<String, Long> seedCollocateFrequencies,

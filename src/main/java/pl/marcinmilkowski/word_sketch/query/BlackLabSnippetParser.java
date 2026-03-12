@@ -134,7 +134,7 @@ class BlackLabSnippetParser {
      * @return the detokenized string, or {@code null} if {@code text} is {@code null}
      */
     @Nullable
-    static String detokenize(String text) {
+    static String detokenize(@Nullable String text) {
         if (text == null || text.isEmpty()) return text;
         return text
             .replaceAll(" +([.,!?:;)\\]])", "$1")

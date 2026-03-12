@@ -46,14 +46,11 @@ class VisualizationHandlers {
         }
     }
 
-    /**
-     * POST /api/visual/radial
-     * Body JSON: { center: "word", width: 840, height: 520, items: [{label:"", score: 3.2}, ...] }
-     * Returns: image/svg+xml
-     */
-    void handleVisualRadial(HttpExchange exchange) throws IOException {
-        ObjectNode obj = HttpApiUtils.readJsonBody(exchange);
+    /** Parsed and validated request parameters for {@link #handleVisualRadial}. */
+    private record RadialRequest(String center, int width, int height,
+                                 List<RadialPlot.Item> items, @Nullable RenderMode renderMode) {}
 
+    private RadialRequest parseRadialRequest(ObjectNode obj) {
         String center = obj.path("center").textValue();
         if (center == null || center.isBlank()) {
             throw new IllegalArgumentException("Missing required field: 'center'");
@@ -96,12 +93,23 @@ class VisualizationHandlers {
                 items.add(new RadialPlot.Item(label, score));
             }
         }
-        String modeRaw = obj.path("mode").textValue();
-        RenderMode renderMode = RenderMode.parse(modeRaw);
 
-        String svg = switch (renderMode) {
-            case null   -> RadialPlot.renderFromItems(center, items, width, height, null);
-            case SIGNED -> RadialPlot.renderFromItems(center, items, width, height, "signed");
+        RenderMode renderMode = RenderMode.parse(obj.path("mode").textValue());
+        return new RadialRequest(center, width, height, items, renderMode);
+    }
+
+    /**
+     * POST /api/visual/radial
+     * Body JSON: { center: "word", width: 840, height: 520, items: [{label:"", score: 3.2}, ...] }
+     * Returns: image/svg+xml
+     */
+    void handleVisualRadial(HttpExchange exchange) throws IOException {
+        ObjectNode obj = HttpApiUtils.readJsonBody(exchange);
+        RadialRequest req = parseRadialRequest(obj);
+
+        String svg = switch (req.renderMode()) {
+            case null   -> RadialPlot.renderFromItems(req.center(), req.items(), req.width(), req.height(), null);
+            case SIGNED -> RadialPlot.renderFromItems(req.center(), req.items(), req.width(), req.height(), "signed");
         };
         byte[] bytes = svg.getBytes(StandardCharsets.UTF_8);
         HttpApiUtils.sendBinaryResponse(exchange, "image/svg+xml; charset=utf-8", bytes);

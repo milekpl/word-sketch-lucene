@@ -66,20 +66,12 @@ public final class GrammarConfigLoader {
     }
 
     /**
-     * Parses grammar JSON from the given {@link Reader} and returns an immutable
-     * {@link GrammarConfig} — useful for testing without touching the file system.
+     * Parses {@link Reader} content into an immutable {@link GrammarConfig} — useful for testing.
      *
-     * <pre>{@code
-     * try (Reader r = new StringReader(jsonContent)) {
-     *     GrammarConfig config = GrammarConfigLoader.fromReader(r);
-     * }
-     * }</pre>
-     *
-     * @param reader  Reader over a valid grammar JSON document
+     * @param reader  reader over a valid grammar JSON document
      * @return immutable {@link GrammarConfig} with the parsed relations
-     * @throws IOException if the reader fails or the JSON is invalid
+     * @throws IOException if reading fails or the JSON is invalid
      * @throws IllegalArgumentException if the config is structurally invalid
-     *         (missing required fields, duplicate relation IDs, etc.)
      */
     public static GrammarConfig fromReader(Reader reader) throws IOException {
         var sw = new java.io.StringWriter();
@@ -194,11 +186,7 @@ public final class GrammarConfigLoader {
         );
     }
 
-    /**
-     * Validates that head/collocate positions are in range for concrete (non-placeholder, non-dual) patterns.
-     * Skips validation for patterns containing {@code {head}} or {@code {deprel}} placeholders, or for
-     * dual relations where head and collocate refer to the same token.
-     */
+    /** Skips validation for patterns with {@code {head}}/{@code {deprel}} placeholders or dual relations. */
     private static void validatePositions(String id, String pattern,
             int headPosition, int collocatePosition, boolean isDual) {
         boolean hasPlaceholder = pattern.contains("{head}") || pattern.indexOf("{deprel") >= 0;
@@ -214,13 +202,6 @@ public final class GrammarConfigLoader {
     /**
      * Create the default grammar config from the given {@code configPath}.
      *
-     * <p>This is the recommended overload for callers that know the config path at call time
-     * (e.g. CLI entry-points, integration tests). It avoids the hidden system-property
-     * dependency of {@link #createDefaultEnglish()} while sharing the same two-tier
-     * exception contract: {@link IOException} is wrapped in {@link IllegalStateException}
-     * so DI containers and startup code that cannot handle checked exceptions can still
-     * use it directly.</p>
-     *
      * @param configPath path to the grammar config JSON file; must not be null
      * @throws IllegalStateException if the file is not found or cannot be parsed
      */
@@ -231,17 +212,7 @@ public final class GrammarConfigLoader {
     /**
      * Create the default grammar config, resolving the path from the
      * {@code grammar.config} system property (default: {@code grammars/relations.json}).
-     *
-     * <p><strong>Two-tier exception contract:</strong> this method intentionally wraps
-     * {@link IOException} in {@link IllegalStateException} so that startup code and
-     * dependency-injection containers that cannot handle checked exceptions can call it
-     * directly. Callers that need to distinguish config-not-found from other I/O errors,
-     * or that run in a context where checked exceptions are acceptable (e.g. integration
-     * tests, CLI entrypoints), should use {@link #load(Path)} directly and handle
-     * {@code IOException}.</p>
-     *
-     * <p>Wraps any {@link IOException} in an {@link IllegalStateException} with the
-     * config path included in the message, so startup failures are immediately actionable.</p>
+     * Wraps {@link IOException} in {@link IllegalStateException}.
      */
     public static GrammarConfig createDefaultEnglish() {
         String path = System.getProperty("grammar.config", "grammars/relations.json");
@@ -249,13 +220,8 @@ public final class GrammarConfigLoader {
     }
 
     /**
-     * Loads grammar config from {@code configPath}, wrapping any {@link IOException} into
+     * Loads from {@code configPath}, wrapping any {@link IOException} into
      * {@link IllegalStateException} for callers that cannot handle checked exceptions.
-     *
-     * @param configPath  path to the grammar config JSON file
-     * @param displayPath path string to embed in error messages
-     * @param hint        optional suffix appended to error messages (e.g. a "Set -D..." tip)
-     * @throws IllegalStateException if the file is not found or cannot be parsed
      */
     private static GrammarConfig loadUnchecked(Path configPath, String displayPath, String hint) {
         try {
@@ -271,14 +237,9 @@ public final class GrammarConfigLoader {
     }
 
     /**
-     * Parse a nullable relation-type string to a {@link RelationType}.
+     * Parses nullable relation-type string to a {@link RelationType}; returns {@code null} when absent.
      *
-     * <p>Returns {@code null} when the {@code relation_type} field is absent (which
-     * is valid — not all relations participate in exploration).</p>
-     *
-     * @throws IllegalArgumentException when the field is present but unrecognised; valid values
-     *     are the names of the {@link RelationType} enum (case-insensitive), which typically
-     *     indicates a typo in the grammar config.
+     * @throws IllegalArgumentException when present but unrecognised
      */
     private static @Nullable RelationType parseRelationType(String value) {
         if (value == null || value.isBlank()) return null;
@@ -290,35 +251,22 @@ public final class GrammarConfigLoader {
         }
     }
 
-    /**
-     * Each [constraint] is one token.
-     * Delegates bracket-walking to {@link CqlUtils#splitCqlTokens}.
-     */
+    /** Counts bracket groups ({@code [...]}) in a CQL pattern via {@link CqlUtils#splitCqlTokens}. */
     private static int countPatternTokens(String pattern) {
         return CqlUtils.splitCqlTokens(pattern).size();
     }
 
-    /**
-     * Returns the 1-based token index of the {@code 1:[...]} labeled position in the pattern,
-     * or 1 when no such label is present.
-     */
+    /** Returns the 1-based index of the {@code 1:[...]} labeled position, or 1 when absent. */
     private static int deriveHeadPositionFromPattern(String pattern) {
         return deriveTokenPosition(pattern, '1', 1);
     }
 
-    /**
-     * Returns the 1-based token index of the {@code 2:[...]} labeled position in the pattern,
-     * or 2 when no such label is present.
-     */
+    /** Returns the 1-based index of the {@code 2:[...]} labeled position, or 2 when absent. */
     private static int deriveCollocatePositionFromPattern(String pattern) {
         return deriveTokenPosition(pattern, '2', 2);
     }
 
-    /**
-     * Derives the 1-based token position of the labeled position (e.g. {@code 1:[...]} or {@code 2:[...]})
-     * in a single pass over the raw pattern string. Counts complete {@code [...]} bracket groups
-     * before the first occurrence of {@code targetLabel:} to determine the token index.
-     */
+    /** Returns the 1-based token index of {@code targetLabel:[...]} by counting preceding bracket groups. */
     private static int deriveTokenPosition(String pattern, char targetLabel, int defaultPos) {
         if (pattern == null || pattern.isBlank()) return defaultPos;
         int labelIdx = -1;

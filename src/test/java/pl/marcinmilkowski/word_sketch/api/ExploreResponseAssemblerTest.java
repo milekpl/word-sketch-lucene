@@ -45,7 +45,7 @@ class ExploreResponseAssemblerTest {
 
         assertEquals(2, edges.size());
         assertTrue(edges.stream().allMatch(e -> e.source().equals("theory")));
-        assertTrue(edges.stream().allMatch(e -> e.type() == RelationEdgeType.SEED_COLLOCATE));
+        assertTrue(edges.stream().allMatch(e -> e.type() == RelationEdgeType.SEED_ADJ));
         Edge importantEdge = edges.stream()
                 .filter(e -> e.target().equals("important")).findFirst().orElseThrow();
         assertEquals(8.5, importantEdge.weight(), 0.001);
@@ -61,7 +61,7 @@ class ExploreResponseAssemblerTest {
         assertEquals(1, edges.size());
         assertEquals("model", edges.get(0).source());
         assertEquals("abstract", edges.get(0).target());
-        assertEquals(RelationEdgeType.DISCOVERED_COLLOCATE, edges.get(0).type());
+        assertEquals(RelationEdgeType.DISCOVERED_ADJ, edges.get(0).type());
     }
 
     @Test
@@ -149,7 +149,7 @@ class ExploreResponseAssemblerTest {
 
         List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);
 
-        assertEquals(2, edges.size(), "one SEED_COLLOCATE edge per individual seed");
+        assertEquals(2, edges.size(), "one SEED_ADJ edge per individual seed");
         List<String> sources = edges.stream().map(Edge::source).toList();
         assertTrue(sources.contains("theory"), "edge from 'theory' must exist");
         assertTrue(sources.contains("model"), "edge from 'model' must exist");
@@ -165,7 +165,7 @@ class ExploreResponseAssemblerTest {
 
     @Test
     void edgeToMap_includesAllFields() {
-        Edge edge = new Edge("theory", "abstract", 8.567, RelationEdgeType.SEED_COLLOCATE);
+        Edge edge = new Edge("theory", "abstract", 8.567, RelationEdgeType.SEED_ADJ);
         Map<String, Object> m = ExploreResponseAssembler.edgeToMap(edge);
 
         assertEquals("theory", m.get("source"));

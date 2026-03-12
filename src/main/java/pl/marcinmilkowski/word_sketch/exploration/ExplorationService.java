@@ -6,6 +6,7 @@ import java.util.Set;
 
 import org.jspecify.annotations.NonNull;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
@@ -32,7 +33,7 @@ public interface ExplorationService {
     /**
      * Explore semantic field around a single seed word using the given grammatical relation.
      */
-    @NonNull ExplorationResult exploreByPattern(
+    @NonNull ExplorationResult exploreByRelation(
             @NonNull String seed,
             @NonNull RelationConfig relationConfig,
             @NonNull SingleSeedExplorationOptions opts) throws IOException;
@@ -59,5 +60,5 @@ public interface ExplorationService {
             @NonNull String seed,
             @NonNull String collocate,
             @NonNull RelationConfig relationConfig,
-            int maxExamples) throws IOException;
+            @NonNull FetchExamplesOptions opts) throws IOException;
 }

@@ -47,7 +47,7 @@ class SingleSeedExplorer {
      * Explore semantic field using pre-resolved BCQL pattern strings.
      *
      * <p><strong>Package-private algorithm entry point.</strong>
-     * {@link SemanticFieldExplorer#exploreByPattern(String, pl.marcinmilkowski.word_sketch.config.RelationConfig, SingleSeedExplorationOptions)}
+     * {@link SemanticFieldExplorer#exploreByRelation(String, pl.marcinmilkowski.word_sketch.config.RelationConfig, SingleSeedExplorationOptions)}
      * is the preferred public API — it resolves pattern strings from a
      * {@link pl.marcinmilkowski.word_sketch.config.RelationConfig} before delegating here.
      * This overload accepts pre-resolved BCQL strings directly, which also allows unit

@@ -9,11 +9,11 @@ package pl.marcinmilkowski.word_sketch.model.exploration;
  */
 public enum RelationEdgeType {
 
-    /** Collocate of a seed noun. */
-    SEED_COLLOCATE("seed_adj"),
+    /** Adjective collocate of a seed noun. */
+    SEED_ADJ("seed_adj"),
 
-    /** Collocate of a discovered noun (second-order). */
-    DISCOVERED_COLLOCATE("discovered_adj"),
+    /** Adjective collocate of a discovered noun (second-order). */
+    DISCOVERED_ADJ("discovered_adj"),
 
     /** Adjective modifier of a noun (from comparison/radial mode). */
     MODIFIER("modifier");
@@ -33,7 +33,7 @@ public enum RelationEdgeType {
      * Returns the stable label, identical to {@link #label()}.
      * Overriding {@code Object.toString()} ensures that logging frameworks, template engines,
      * and string concatenation emit the API-safe label (e.g. {@code "seed_adj"}) rather than
-     * the Java enum constant name (e.g. {@code "SEED_COLLOCATE"}).
+     * the Java enum constant name (e.g. {@code "SEED_ADJ"}).
      */
     @Override
     public String toString() {

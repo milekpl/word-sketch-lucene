@@ -93,16 +93,13 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
-        Map<String, Long> freqMap = new LinkedHashMap<>();
-        Map<String, String> lemmaPosMap = new HashMap<>();
-
-        collectFrequenciesAndPosFromGroups(groups, identity -> {
+        GroupStats stats = collectFrequenciesAndPosFromGroups(groups, identity -> {
             // extractLemmaWithFallback handles CoNLL-U style matches with explicit lemma= attributes.
             String collocateLemma = BlackLabSnippetParser.extractLemmaWithFallback(identity);
             return collocateLemma.isEmpty() ? null : collocateLemma;
-        }, freqMap, lemmaPosMap);
+        });
 
-        return collocateQueryHelper.buildAndRankCollocates(freqMap, headwordFreq, minLogDice, maxResults, lemmaPosMap);
+        return collocateQueryHelper.buildAndRankCollocates(stats.freqMap(), headwordFreq, minLogDice, maxResults, stats.lemmaPosMap());
     }
 
     @Override
@@ -184,27 +181,26 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
-        Map<String, Long> freqMap = new HashMap<>();
-        Map<String, String> lemmaPosMap = new HashMap<>();
-
-        collectFrequenciesAndPosFromGroups(groups,
+        GroupStats stats = collectFrequenciesAndPosFromGroups(groups,
             // Dependency relation identities are plain word-form strings; extractLastLemma
             // picks the dependent token directly without needing a lemma= attribute fallback.
-            BlackLabSnippetParser::extractLastLemma,
-            freqMap, lemmaPosMap);
+            BlackLabSnippetParser::extractLastLemma);
 
-        return collocateQueryHelper.buildAndRankCollocates(freqMap, headwordFreq, minLogDice, maxResults, lemmaPosMap);
+        return collocateQueryHelper.buildAndRankCollocates(stats.freqMap(), headwordFreq, minLogDice, maxResults, stats.lemmaPosMap());
     }
 
+    /** Holds the frequency and POS maps produced by {@link #collectFrequenciesAndPosFromGroups}. */
+    private record GroupStats(Map<String, Long> freqMap, Map<String, String> lemmaPosMap) {}
+
     /**
-     * Iterates over HitGroups and populates frequency and POS maps using the provided lemma extractor.
+     * Iterates over HitGroups and collects frequency and POS data using the provided lemma extractor.
      * Groups with empty identity or null/empty extracted lemmas are skipped.
      */
-    private void collectFrequenciesAndPosFromGroups(
+    private GroupStats collectFrequenciesAndPosFromGroups(
             HitGroups groups,
-            Function<String, String> lemmaExtractor,
-            Map<String, Long> freqMap,
-            Map<String, String> lemmaPosMap) {
+            Function<String, String> lemmaExtractor) {
+        Map<String, Long> freqMap = new LinkedHashMap<>();
+        Map<String, String> lemmaPosMap = new HashMap<>();
         for (HitGroup group : groups) {
             String identity = group.identity().toString();
             if (identity.isEmpty()) continue;
@@ -215,6 +211,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             String pos = BlackLabSnippetParser.extractPosFromMatch(identity);
             if (pos != null) lemmaPosMap.put(key, pos);
         }
+        return new GroupStats(freqMap, lemmaPosMap);
     }
 
     /**
@@ -242,10 +239,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
-        Map<String, Long> freqMap = new HashMap<>();
-        Map<String, String> lemmaPosMap = new HashMap<>();
-
-        collectFrequenciesAndPosFromGroups(groups,
+        GroupStats stats = collectFrequenciesAndPosFromGroups(groups,
                 identity -> {
                     // sentinel: collocatePos == -1 means label "2:" is absent from the pattern;
                     // fall back to extractLastLemma. Uses < 0 to handle any negative sentinel value.
@@ -260,10 +254,9 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                         collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocatePos);
                     }
                     return collocate;
-                },
-                freqMap, lemmaPosMap);
+                });
 
-        return collocateQueryHelper.buildAndRankCollocates(freqMap, headwordFreq, minLogDice, maxResults, lemmaPosMap);
+        return collocateQueryHelper.buildAndRankCollocates(stats.freqMap(), headwordFreq, minLogDice, maxResults, stats.lemmaPosMap());
     }
 
     @Override

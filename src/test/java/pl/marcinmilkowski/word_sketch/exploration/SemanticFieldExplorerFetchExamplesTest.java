@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
@@ -56,7 +57,7 @@ class SemanticFieldExplorerFetchExamplesTest {
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         FetchExamplesResult fetched = explorer.fetchExamples(
-                "theory", "important", testRelationConfig(), 10);
+                "theory", "important", testRelationConfig(), new FetchExamplesOptions(10));
 
         assertEquals(3, fetched.examples().size(), "Should return all 3 sentences");
         assertTrue(fetched.examples().stream().anyMatch(r -> "a".equals(r.sentence())));
@@ -80,7 +81,7 @@ class SemanticFieldExplorerFetchExamplesTest {
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         FetchExamplesResult fetched = explorer.fetchExamples(
-                "theory", "important", testRelationConfig(), 10);
+                "theory", "important", testRelationConfig(), new FetchExamplesOptions(10));
 
         assertEquals(2, fetched.examples().size(), "Should deduplicate: expect [a, b]");
         assertTrue(fetched.examples().stream().anyMatch(r -> "a".equals(r.sentence())));
@@ -105,7 +106,7 @@ class SemanticFieldExplorerFetchExamplesTest {
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         FetchExamplesResult fetched = explorer.fetchExamples(
-                "theory", "important", testRelationConfig(), 3);
+                "theory", "important", testRelationConfig(), new FetchExamplesOptions(3));
 
         assertEquals(3, fetched.examples().size(), "Should not exceed maxExamples=3");
     }
@@ -124,7 +125,7 @@ class SemanticFieldExplorerFetchExamplesTest {
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
 
         IOException thrown = assertThrows(IOException.class,
-                () -> explorer.fetchExamples("theory", "important", testRelationConfig(), 10),
+                () -> explorer.fetchExamples("theory", "important", testRelationConfig(), new FetchExamplesOptions(10)),
                 "IOException from the underlying executor must propagate through fetchExamples, not be caught and swallowed");
 
         assertEquals("simulated executor failure", thrown.getMessage(),

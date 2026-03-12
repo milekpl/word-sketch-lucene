@@ -18,6 +18,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
@@ -25,11 +26,10 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 
 /**
  * Analyses semantic fields around seed words by querying collocate patterns.
- * Supports both single-seed exploration and multi-seed comparison to find
+ * Supports single-seed exploration and multi-seed comparison to find
  * common and distinctive collocates across seeds.
  *
  * <h2>Exploration Mode (single seed)</h2>
- * <p>Starting from a seed word, discovers semantically related words by:</p>
  * <ol>
  *   <li>Find adjectives that modify the seed noun</li>
  *   <li>For each top adjective, find OTHER nouns it modifies</li>
@@ -37,54 +37,12 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  *   <li>Build a semantic class of related nouns</li>
  * </ol>
  *
- * <h2>Example: Exploring from "house"</h2>
- * <pre>
- * Seed: house
- * Top adjectives: beautiful, old, big, small, private, new...
- *
- * "beautiful" modifies: beach, garden, view, apartment, landscape, house...
- * "old" modifies: town, city, friend, man, house, building...
- * "big" modifies: deal, city, house, hotel, family...
- *
- * Nouns sharing 3+ adjectives with "house":
- *   apartment (beautiful, old, big, small, new) - score: 5
- *   building (old, big, new) - score: 3
- *   hotel (beautiful, big, small, new) - score: 4
- *
- * => Semantic class: dwellings/places
- * => Core adjectives: beautiful, old, big, small, new (shared by class)
- * </pre>
- *
  * <h2>Comparison Mode (multi-seed)</h2>
- * <p>Given multiple seed words, compares their collocate profiles to reveal
- * which collocates are shared across all seeds (the semantic core) and which
- * are distinctive to individual seeds. See {@link CollocateProfileComparator#compareCollocateProfiles}.</p>
+ * <p>Given multiple seeds, compares collocate profiles to reveal shared (semantic core)
+ * and distinctive collocates. See {@link CollocateProfileComparator#compareCollocateProfiles}.</p>
  *
- * <h2>Result classes</h2>
- * <p>Result DTOs ({@code ExplorationResult}, {@code DiscoveredNoun},
- * {@code CoreCollocate}, {@code ComparisonResult}, {@code CollocateProfile}, {@code Edge})
- * live in the {@code pl.marcinmilkowski.word_sketch.model} package.</p>
- *
- * <h2>Design: pure coordination facade for the HTTP exploration layer</h2>
- * <p>This class is a thin facade that wires and delegates to three algorithm classes:</p>
- * <ul>
- *   <li>{@link SingleSeedExplorer} — single-seed exploration algorithm (see {@link #exploreByPattern})</li>
- *   <li>{@link MultiSeedExplorer} — multi-seed intersection algorithm (see {@link #exploreMultiSeed})</li>
- *   <li>{@link CollocateProfileComparator} — cross-relational profile comparison (see {@link #compareCollocateProfiles})</li>
- * </ul>
- * <p>The two pass-through methods ({@link #exploreMultiSeed} and {@link #compareCollocateProfiles})
- * exist here rather than being inlined in the HTTP handlers because all three exploration modes
- * share the same corpus-query infrastructure and are presented as one coherent feature surface
- * to the HTTP layer. This facade insulates the HTTP handlers from changes to individual algorithm
- * classes and from the wiring logic that connects them.</p>
- *
- * <h2>Computational Limits</h2>
- * <p>Uses logDice thresholds at each step to prevent combinatorial explosion:</p>
- * <ul>
- *   <li>Top N adjectives from seed (default: 20)</li>
- *   <li>Top M nouns per adjective (default: 30)</li>
- *   <li>Minimum overlap threshold (default: 2 shared adjectives)</li>
- * </ul>
+ * <p>Thin facade wiring {@link SingleSeedExplorer}, {@link MultiSeedExplorer}, and
+ * {@link CollocateProfileComparator} for the HTTP exploration layer.</p>
  */
 public class SemanticFieldExplorer implements ExplorationService {
 
@@ -134,7 +92,7 @@ public class SemanticFieldExplorer implements ExplorationService {
      * Convenience overload that extracts pattern strings from a {@link RelationConfig},
      * mirroring the delegation style used by the multi-seed path.
      */
-    public @NonNull ExplorationResult exploreByPattern(
+    public @NonNull ExplorationResult exploreByRelation(
             @NonNull String seed,
             @NonNull RelationConfig relationConfig,
             @NonNull SingleSeedExplorationOptions opts) throws IOException {
@@ -166,6 +124,14 @@ public class SemanticFieldExplorer implements ExplorationService {
      * <p>Delegates computation to {@link CollocateProfileComparator}, which validates that
      * at least 2 seed nouns are provided.</p>
      *
+     * <p><strong>Why this pass-through exists:</strong> this facade keeps all three exploration
+     * modes ({@code exploreByPattern}, {@code exploreMultiSeed}, and this method) behind a
+     * single {@link ExplorationService} interface so that the HTTP layer has one injection
+     * point and so that this class remains the sole owner of wiring logic. Callers (and
+     * tests) depend only on {@link ExplorationService}, not on
+     * {@link CollocateProfileComparator} directly, which preserves substitutability and
+     * avoids scattering a conceptually unified feature surface across multiple interfaces.</p>
+     *
      * @param seeds       Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
      * @return ComparisonResult with graded adjective profiles
@@ -178,35 +144,16 @@ public class SemanticFieldExplorer implements ExplorationService {
     /**
      * Fetch example sentences for a seed-collocate pair using the provided relation pattern.
      *
-     * <h3>Query strategy: executeBcqlQuery (not executeSurfacePattern or executeCollocations)</h3>
-     *
-     * <p>This method retrieves <em>concordance examples</em> — full sentences showing a specific
-     * (seed, collocate) pair in context — rather than a ranked list of collocates. It therefore
-     * uses {@code executeBcqlQuery}, which returns {@link pl.marcinmilkowski.word_sketch.model.QueryResults.CollocateResult}
-     * objects carrying the sentence text and character offsets needed for display.</p>
-     *
-     * <p>Neither {@code executeSurfacePattern} nor {@code executeCollocations} is appropriate
-     * here because both return {@link pl.marcinmilkowski.word_sketch.model.QueryResults.WordSketchResult}
-     * objects designed for ranked collocate scoring, not for sentence retrieval. The BCQL pattern
-     * built by {@link pl.marcinmilkowski.word_sketch.config.RelationPatternUtils#buildFullPattern}
-     * pins both the seed and the collocate at specific labeled positions (e.g. position 1 = seed,
-     * position 2 = collocate), so the query is a precision lookup rather than a collocation scan.</p>
-     *
-     * <p><b>Important:</b> do not "unify" this with the {@link #fetchSeedCollocates} strategy.
-     * The two serve different purposes: {@code fetchSeedCollocates} scans for <em>candidate</em>
-     * collocates of an unknown-collocate query, while {@code fetchExamples} retrieves sentences
-     * for an already-known (seed, collocate) pair. Using {@code executeSurfacePattern} here would
-     * return scored collocate lists, not sentence examples.</p>
-     *
-     * @param seed           The seed lemma (e.g. a noun)
-     * @param collocate      The collocate lemma (e.g. an adjective)
-     * @param relationConfig The relation config defining how collocate and seed co-occur
-     * @param maxExamples    Maximum number of deduplicated example sentences to return
-     * @return {@link FetchExamplesResult} containing example concordance lines and the query used
+     * @param seed           the seed lemma
+     * @param collocate      the collocate lemma
+     * @param relationConfig the relation config defining the co-occurrence pattern
+     * @param maxExamples    maximum number of deduplicated example sentences to return
+     * @return {@link FetchExamplesResult} with concordance lines and the query used
      */
     public @NonNull FetchExamplesResult fetchExamples(@NonNull String seed, @NonNull String collocate,
-            @NonNull RelationConfig relationConfig, int maxExamples)
+            @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)
             throws IOException {
+        int maxExamples = opts.maxExamples();
         String bcqlQuery = RelationPatternUtils.buildFullPattern(relationConfig, seed.toLowerCase(), collocate.toLowerCase());
 
         List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, maxExamples);

@@ -107,6 +107,12 @@ public class WordSketchApiServer {
             HttpApiUtils.wrapWithErrorHandling(corpusQueryHandlers::handleCorpusQuery, "BCQL query"));
     }
 
+    /**
+     * Binds the HTTP server to the configured port and starts accepting requests.
+     *
+     * @throws IllegalStateException if the port cannot be bound, wrapping the underlying
+     *                               {@link java.io.IOException}
+     */
     public void start() {
         try {
             this.server = com.sun.net.httpserver.HttpServer.create(

@@ -22,7 +22,7 @@ import pl.marcinmilkowski.word_sketch.config.GrammarConfigLoader;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the package-private 5-param {@code SemanticFieldExplorer#exploreByPattern} overload.
+ * Tests for the package-private 5-param {@code SemanticFieldExplorer#exploreByRelation} overload.
  * Lives in the {@code exploration} package to access package-private visibility.
  */
 @DisplayName("SemanticFieldExplorerInternal")
@@ -82,27 +82,27 @@ class SemanticFieldExplorerInternalTest {
     }
 
     @Test
-    @DisplayName("exploreByPattern: returns non-null result for known seed")
-    void exploreByPattern_returnsNonNullResult() throws IOException {
+    @DisplayName("exploreByRelation: returns non-null result for known seed")
+    void exploreByRelation_returnsNonNullResult() throws IOException {
         StubExecutor executor = new StubExecutor(Map.of(
             "theory", List.of(wsr("empirical", 8.0), wsr("scientific", 7.0))
         ));
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 1), 5);
-        ExplorationResult result = explorer.exploreByPattern("theory", adjRelationConfig(), opts);
+        ExplorationResult result = explorer.exploreByRelation("theory", adjRelationConfig(), opts);
         assertNotNull(result, "Result should not be null");
         assertEquals("theory", result.seed(), "Result seed should match input");
     }
 
     @Test
-    @DisplayName("exploreByPattern: seed collocates map contains expected entries")
-    void exploreByPattern_seedCollocatesContainExpected() throws IOException {
+    @DisplayName("exploreByRelation: seed collocates map contains expected entries")
+    void exploreByRelation_seedCollocatesContainExpected() throws IOException {
         StubExecutor executor = new StubExecutor(Map.of(
             "theory", List.of(wsr("empirical", 8.0), wsr("scientific", 7.0))
         ));
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 1), 5);
-        ExplorationResult result = explorer.exploreByPattern("theory", adjRelationConfig(), opts);
+        ExplorationResult result = explorer.exploreByRelation("theory", adjRelationConfig(), opts);
         assertNotNull(result.seedCollocates(), "Seed collocates map should not be null");
         assertTrue(result.seedCollocates().containsKey("empirical"), "Seed collocates should contain 'empirical'");
     }
@@ -117,7 +117,7 @@ class SemanticFieldExplorerInternalTest {
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 5), 1);
 
-        explorer.exploreByPattern("theory", adjRelationConfig(), opts);
+        explorer.exploreByRelation("theory", adjRelationConfig(), opts);
 
         // The noun-constraint call is the second executeCollocations call (first is for seed collocates)
         assertTrue(executor.capturedCqlPatterns.stream()
@@ -152,7 +152,7 @@ class SemanticFieldExplorerInternalTest {
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, config);
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(new ExplorationOptions(10, 0.0, 5), 1);
 
-        explorer.exploreByPattern("theory", adjRelationConfig(), opts);
+        explorer.exploreByRelation("theory", adjRelationConfig(), opts);
 
         // The noun lookup uses collocateReversePattern() from the first NOUN relation: [xpos="NN.*"]
         assertTrue(executor.capturedCqlPatterns.stream()

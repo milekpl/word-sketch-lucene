@@ -9,13 +9,7 @@ public final class Seeds {
 
     private Seeds() {}
 
-    /**
-     * Throws {@link IllegalArgumentException} if {@code seeds} has fewer than 2 elements.
-     *
-     * @param seeds   the seed collection to validate
-     * @param context short description of the caller (used in the error message), e.g. "Multi-seed exploration"
-     * @throws IllegalArgumentException if {@code seeds.size() < 2}
-     */
+    /** @throws IllegalArgumentException if fewer than 2 seeds are provided */
     public static void requireAtLeastTwo(Collection<String> seeds, String context) {
         if (seeds.size() < 2) {
             throw new IllegalArgumentException(

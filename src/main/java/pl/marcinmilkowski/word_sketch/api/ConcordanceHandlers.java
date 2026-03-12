@@ -53,16 +53,14 @@ class ConcordanceHandlers {
 
         var rel = grammarConfig.relation(req.relation());
         boolean fallback = rel.isEmpty();
-        List<QueryResults.CollocateResult> results;
         String bcqlQuery;
         if (!fallback) {
             bcqlQuery = RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate());
-            results = executor.executeBcqlQuery(bcqlQuery, req.top());
         } else {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"", req.seed().toLowerCase(), req.collocate().toLowerCase());
             logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", req.relation(), bcqlQuery);
-            results = executor.executeBcqlQuery(bcqlQuery, req.top());
         }
+        List<QueryResults.CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, req.top());
 
         ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
                 req.seed(), req.collocate(), req.relation(), bcqlQuery,

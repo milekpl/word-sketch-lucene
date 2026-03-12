@@ -30,11 +30,11 @@ final class ExploreResponseAssembler {
     private ExploreResponseAssembler() {}
 
     /**
-     * Builds {@link RelationEdgeType#SEED_COLLOCATE} edges from seed collocates and
-     * {@link RelationEdgeType#DISCOVERED_COLLOCATE} edges from each discovered noun's shared collocates.
+     * Builds {@link RelationEdgeType#SEED_ADJ} edges from seed collocates and
+     * {@link RelationEdgeType#DISCOVERED_ADJ} edges from each discovered noun's shared collocates.
      *
      * <p>In multi-seed mode {@code result.seeds()} returns the individual seed lemmas, so each
-     * {@code SEED_COLLOCATE} edge correctly names its source (e.g. "theory" or "model") rather than
+     * {@code SEED_ADJ} edge correctly names its source (e.g. "theory" or "model") rather than
      * the comma-joined aggregate string that {@link ExplorationResult#seed()} would return.</p>
      */
     static @NonNull List<Edge> buildExplorationEdges(@NonNull ExplorationResult result) {
@@ -42,12 +42,12 @@ final class ExploreResponseAssembler {
         Map<String, Map<String, Double>> perSeed = result.perSeedCollocates();
         for (Map.Entry<String, Map<String, Double>> seedEntry : perSeed.entrySet()) {
             for (Map.Entry<String, Double> colloc : seedEntry.getValue().entrySet()) {
-                edges.add(new Edge(seedEntry.getKey(), colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_COLLOCATE));
+                edges.add(new Edge(seedEntry.getKey(), colloc.getKey(), colloc.getValue(), RelationEdgeType.SEED_ADJ));
             }
         }
         for (DiscoveredNoun noun : result.discoveredNouns()) {
             for (Map.Entry<String, Double> colloc : noun.sharedCollocates().entrySet()) {
-                edges.add(new Edge(noun.noun(), colloc.getKey(), colloc.getValue(), RelationEdgeType.DISCOVERED_COLLOCATE));
+                edges.add(new Edge(noun.noun(), colloc.getKey(), colloc.getValue(), RelationEdgeType.DISCOVERED_ADJ));
             }
         }
         return edges;

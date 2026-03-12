@@ -31,11 +31,11 @@ class CollocateProfileComparator {
     private static final String FALLBACK_COLLOCATE_PATTERN = "[xpos=\"JJ.*\"]";
 
     private final QueryExecutor executor;
-    private final String collocatePattern;
+    private final String adjCollocatePattern;
 
     public CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
         this.executor = executor;
-        this.collocatePattern = deriveCollocatePattern(grammarConfig);
+        this.adjCollocatePattern = deriveCollocatePattern(grammarConfig);
     }
 
     private static String deriveCollocatePattern(GrammarConfig grammarConfig) {
@@ -90,7 +90,7 @@ class CollocateProfileComparator {
         Map<String, Map<String, Double>> collocateProfiles = new LinkedHashMap<>();
         for (String noun : nounList) {
             List<QueryResults.WordSketchResult> adjectives = executor.executeCollocations(
-                noun, collocatePattern, minLogDice, maxPerNoun);
+                noun, adjCollocatePattern, minLogDice, maxPerNoun);
             logger.debug("Profiling {}: {} adjectives (top: {})", noun, adjectives.size(),
                 adjectives.subList(0, Math.min(5, adjectives.size())));
             for (QueryResults.WordSketchResult r : adjectives) {

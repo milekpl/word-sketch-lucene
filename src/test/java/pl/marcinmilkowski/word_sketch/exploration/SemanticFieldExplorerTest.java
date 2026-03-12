@@ -188,7 +188,7 @@ class SemanticFieldExplorerTest {
             "theoretical (in 2/3 nouns) should be partially shared; got: " + partialNames);
     }
 
-    // ── exploreByPattern ──────────────────────────────────────────────────────
+    // ── exploreByRelation ──────────────────────────────────────────────────────
 
     // ── exploreMultiSeed ──────────────────────────────────────────────────────
 

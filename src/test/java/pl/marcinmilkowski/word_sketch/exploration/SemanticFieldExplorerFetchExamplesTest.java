@@ -33,7 +33,7 @@ class SemanticFieldExplorerFetchExamplesTest {
                         "1:[lemma=\"{head}\"] [lemma=\"be\"] 2:[xpos=\"JJ.*\"]",
                         1, 2, false, 0,
                         RelationType.SURFACE,
-                        true, PosGroup.ADJ));
+                        PosGroup.ADJ));
     }
 
     private static QueryResults.CollocateResult collocateResult(String sentence) {

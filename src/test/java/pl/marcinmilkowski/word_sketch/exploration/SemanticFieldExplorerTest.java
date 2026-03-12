@@ -208,7 +208,7 @@ class SemanticFieldExplorerTest {
                 "test", "test", "test", "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]",
                 1, 2, false, 0,
                 pl.marcinmilkowski.word_sketch.config.RelationType.SURFACE,
-                true, pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
+                pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
             new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(10, 0.0, 1));
 
         assertNotNull(result, "Result should not be null");
@@ -250,7 +250,7 @@ class SemanticFieldExplorerTest {
                 "test", "test", "test", "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]",
                 1, 2, false, 0,
                 pl.marcinmilkowski.word_sketch.config.RelationType.SURFACE,
-                true, pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
+                pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ),
             new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(10, 0.0, 2));
 
         assertNotNull(result.seedCollocates(), "Seed collocates should not be null");

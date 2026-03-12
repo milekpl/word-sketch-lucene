@@ -190,7 +190,6 @@ public final class GrammarConfigLoader {
             isDual,
             relObj.path("default_slop").asInt(10),
             parseRelationType(relObj.path("relation_type").textValue()),
-            relObj.path("exploration_enabled").asBoolean(false),
             RelationPatternUtils.computeCollocatePosGroup(pattern)
         );
     }

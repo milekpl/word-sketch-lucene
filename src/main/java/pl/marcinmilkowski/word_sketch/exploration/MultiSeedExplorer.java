@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.exploration;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -104,7 +105,7 @@ class MultiSeedExplorer {
             Set<String> seeds, RelationConfig relationConfig,
             double minLogDice, int topCollocates) throws IOException {
         Map<String, List<QueryResults.WordSketchResult>> seedCollocateMap = new LinkedHashMap<>();
-        Map<String, Integer> collocateSharedCount = new HashMap<>();
+        Map<String, Integer> collocateSharedCount = new LinkedHashMap<>();
         for (String seed : seeds) {
             String bcqlPattern = RelationPatternUtils.buildFullPattern(relationConfig, seed);
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(

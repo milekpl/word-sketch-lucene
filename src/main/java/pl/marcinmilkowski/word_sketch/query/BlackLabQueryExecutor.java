@@ -221,7 +221,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
      * Execute a surface pattern query for word sketches.
      * Properly handles labeled capture groups (1: for head, 2: for collocate).
      * The headword lemma is extracted from the {@code lemma=} attribute in the pattern.
-     * Returns an empty list if the headword lemma cannot be extracted from the pattern.
+     *
+     * @throws IllegalArgumentException if the headword lemma cannot be extracted from the pattern
      */
     @Override
     public List<QueryResults.WordSketchResult> executeSurfacePattern(

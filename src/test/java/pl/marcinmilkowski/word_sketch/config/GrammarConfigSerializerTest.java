@@ -54,7 +54,7 @@ class GrammarConfigSerializerTest {
     void toJson_relationConfig_omitsNullOptionalFields() {
         RelationConfig minimal = new RelationConfig(
             "test_rel", null, null, null,
-            1, 2, false, 0, null, false, PosGroup.OTHER);
+            1, 2, false, 0, null, PosGroup.OTHER);
         ObjectNode json = GrammarConfigSerializer.toJson(minimal);
 
         assertEquals("test_rel", json.path("id").asText());

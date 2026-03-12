@@ -26,7 +26,7 @@ class RelationPatternUtilsTest {
                 pattern, headPos, collocatePos,
                 false, 0,
                 RelationType.SURFACE,
-                true, posGroup);
+                posGroup);
     }
 
     /** Creates a config with a specific collocate PosGroup and RelationType (for reverse-pattern tests). */
@@ -36,7 +36,7 @@ class RelationPatternUtilsTest {
                 "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]", 1, 2,
                 false, 0,
                 relationType,
-                true, posGroup);
+                posGroup);
     }
 
     // ─── buildFullPattern(config, headword) ─────────────────────────────────────

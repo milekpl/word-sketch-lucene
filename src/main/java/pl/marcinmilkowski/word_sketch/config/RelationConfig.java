@@ -28,7 +28,6 @@ public record RelationConfig(
     int defaultSlop,
     /** {@code null} when the grammar JSON omits or has an unrecognised {@code relation_type} field. */
     @Nullable RelationType rawRelationType,
-    boolean explorationEnabled,
     /** Pre-computed collocate POS group — cached at construction time so repeated calls are O(1). */
     PosGroup collocatePosGroup
 ) {

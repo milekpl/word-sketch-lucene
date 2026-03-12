@@ -53,7 +53,6 @@ public final class GrammarConfigSerializer {
         obj.put("dual", rel.dual());
         obj.put("default_slop", rel.defaultSlop());
         rel.relationType().ifPresent(rt -> obj.put("relation_type", rt.name()));
-        obj.put("exploration_enabled", rel.explorationEnabled());
         return obj;
     }
 }

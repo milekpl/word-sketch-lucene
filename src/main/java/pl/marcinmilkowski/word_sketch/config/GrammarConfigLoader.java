@@ -20,7 +20,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Loads grammar configuration from JSON and produces {@link GrammarConfig} value objects.
@@ -249,9 +248,9 @@ public final class GrammarConfigLoader {
      *     are the names of the {@link RelationType} enum (case-insensitive), which typically
      *     indicates a typo in the grammar config.
      */
-    private static Optional<RelationType> parseRelationType(String value) {
-        if (value == null || value.isBlank()) return Optional.empty();
-        try { return Optional.of(RelationType.valueOf(value.toUpperCase(Locale.ROOT))); }
+    private static @Nullable RelationType parseRelationType(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return RelationType.valueOf(value.toUpperCase(Locale.ROOT)); }
         catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(
                 "Unrecognised relation_type '" + value + "' in grammar config; valid values: "

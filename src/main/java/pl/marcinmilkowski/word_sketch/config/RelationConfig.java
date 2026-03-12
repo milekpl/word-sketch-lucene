@@ -27,13 +27,26 @@ public record RelationConfig(
     int collocatePosition,
     boolean dual,
     int defaultSlop,
-    /** {@link Optional#empty()} when the grammar JSON omits or has an unrecognised {@code relation_type} field. */
-    Optional<RelationType> relationType,
+    /** {@code null} when the grammar JSON omits or has an unrecognised {@code relation_type} field. */
+    @Nullable RelationType relationType,
     boolean explorationEnabled,
     /** Pre-computed collocate POS group — cached at construction time so repeated calls are O(1). */
     PosGroup collocatePosGroup
 ) {
     private static final Pattern DEPREL_PATTERN = Pattern.compile("deprel=[\"']([^\"']+)[\"']");
+
+    /**
+     * Returns the relation type wrapped in an Optional; empty when the grammar JSON omitted
+     * or had an unrecognised {@code relation_type} field.
+     *
+     * <p>This custom accessor shadows the auto-generated record accessor so that callers
+     * get a safe {@code Optional} while the backing storage remains a plain {@code @Nullable}
+     * field — avoiding the Optional-as-field antipattern.</p>
+     */
+    @Override
+    public Optional<RelationType> relationType() {
+        return Optional.ofNullable(relationType);
+    }
 
     /**
      * Extracts and computes the dependency relation (deprel) from the pattern.

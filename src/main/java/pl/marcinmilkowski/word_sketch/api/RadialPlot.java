@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.viz;
+package pl.marcinmilkowski.word_sketch.api;
 
 import java.util.ArrayList;
 import java.util.List;

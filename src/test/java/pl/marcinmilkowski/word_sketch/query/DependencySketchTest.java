@@ -34,7 +34,12 @@ public class DependencySketchTest {
                 "theory", "nsubj", 0.0, 20, null
             );
 
-            assertNotNull(results);
+            assertNotNull(results, "Results list must not be null");
+            assertFalse(results.isEmpty(), "Expected at least one nsubj collocate for high-frequency lemma 'theory'");
+            for (QueryResults.WordSketchResult r : results) {
+                assertNotNull(r.lemma(), "Each result must have a non-null lemma");
+                assertTrue(r.frequency() > 0, "Each result must have frequency > 0, got: " + r.frequency());
+            }
         }
     }
 
@@ -48,7 +53,12 @@ public class DependencySketchTest {
                 "theory", "amod", 0.0, 20, null
             );
 
-            assertNotNull(results);
+            assertNotNull(results, "Results list must not be null");
+            assertFalse(results.isEmpty(), "Expected at least one amod collocate for high-frequency lemma 'theory'");
+            for (QueryResults.WordSketchResult r : results) {
+                assertNotNull(r.lemma(), "Each result must have a non-null lemma");
+                assertTrue(r.frequency() > 0, "Each result must have frequency > 0, got: " + r.frequency());
+            }
         }
     }
 
@@ -62,7 +72,12 @@ public class DependencySketchTest {
                 "explain", "obj", 0.0, 20, null
             );
 
-            assertNotNull(results);
+            assertNotNull(results, "Results list must not be null");
+            assertFalse(results.isEmpty(), "Expected at least one obj collocate for high-frequency lemma 'explain'");
+            for (QueryResults.WordSketchResult r : results) {
+                assertNotNull(r.lemma(), "Each result must have a non-null lemma");
+                assertTrue(r.frequency() > 0, "Each result must have frequency > 0, got: " + r.frequency());
+            }
         }
     }
 
@@ -76,7 +91,12 @@ public class DependencySketchTest {
                 "theory", "nsubj", 0.0, 20, "NN.*"
             );
 
-            assertNotNull(results);
+            assertNotNull(results, "Results list must not be null");
+            assertFalse(results.isEmpty(), "Expected at least one nsubj+NN.* collocate for 'theory'");
+            for (QueryResults.WordSketchResult r : results) {
+                assertNotNull(r.lemma(), "Each result must have a non-null lemma");
+                assertTrue(r.frequency() > 0, "Each result must have frequency > 0, got: " + r.frequency());
+            }
         }
     }
 

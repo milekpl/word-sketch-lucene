@@ -74,6 +74,9 @@ class ConcordanceHandlers {
         response.put("bcql", bcqlQuery);
         response.put("top", req.top());
         response.put("total_results", results.size());
+        if (fallback) {
+            response.put("fallback", true);
+        }
 
         response.put("examples", results.stream().map(ExploreResponseAssembler::collocateResultToExampleMap).toList());
 

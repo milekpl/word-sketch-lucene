@@ -109,4 +109,25 @@ class SemanticFieldExplorerFetchExamplesTest {
 
         assertEquals(3, fetched.examples().size(), "Should not exceed maxExamples=3");
     }
+
+    @Test
+    @DisplayName("fetchExamples_propagatesIOExceptionFromExecutor: IOException from executeBcqlQuery is not swallowed")
+    void fetchExamples_propagatesIOExceptionFromExecutor() {
+        QueryExecutor executor = new StubQueryExecutor() {
+            @Override
+            public List<QueryResults.CollocateResult> executeBcqlQuery(
+                    String bcqlPattern, int maxResults) throws IOException {
+                throw new IOException("simulated executor failure");
+            }
+        };
+
+        SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
+
+        IOException thrown = assertThrows(IOException.class,
+                () -> explorer.fetchExamples("theory", "important", testRelationConfig(), 10),
+                "IOException from the underlying executor must propagate through fetchExamples, not be caught and swallowed");
+
+        assertEquals("simulated executor failure", thrown.getMessage(),
+                "The propagated IOException should carry the original message unchanged");
+    }
 }

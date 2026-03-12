@@ -208,6 +208,33 @@ public final class GrammarConfigLoader {
     }
 
     /**
+     * Create the default grammar config from the given {@code configPath}.
+     *
+     * <p>This is the recommended overload for callers that know the config path at call time
+     * (e.g. CLI entry-points, integration tests). It avoids the hidden system-property
+     * dependency of {@link #createDefaultEnglish()} while sharing the same two-tier
+     * exception contract: {@link IOException} is wrapped in {@link IllegalStateException}
+     * so DI containers and startup code that cannot handle checked exceptions can still
+     * use it directly.</p>
+     *
+     * @param configPath path to the grammar config JSON file; must not be null
+     * @throws IllegalStateException if the file is not found or cannot be parsed
+     */
+    public static GrammarConfig createDefaultEnglish(String configPath) {
+        Path path = Path.of(configPath);
+        try {
+            return load(path);
+        } catch (java.io.FileNotFoundException e) {
+            throw new IllegalStateException(
+                "Grammar config file not found: '" + configPath + "'.", e);
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                "Cannot load grammar config from '" + configPath
+                    + "' (malformed JSON or I/O error).", e);
+        }
+    }
+
+    /**
      * Create the default grammar config, resolving the path from the
      * {@code grammar.config} system property (default: {@code grammars/relations.json}).
      *

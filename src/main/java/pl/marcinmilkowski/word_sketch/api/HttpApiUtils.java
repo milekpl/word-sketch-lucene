@@ -85,7 +85,7 @@ final class HttpApiUtils {
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
     }
 
-    public static void sendJsonResponse(@NonNull HttpExchange exchange, @NonNull Object data) throws IOException {
+    static void sendJsonResponse(@NonNull HttpExchange exchange, @NonNull Object data) throws IOException {
         String json = MAPPER.writeValueAsString(data);
         byte[] bytes = json.getBytes("UTF-8");
 
@@ -98,7 +98,7 @@ final class HttpApiUtils {
         }
     }
 
-    public static void sendError(@NonNull HttpExchange exchange, int code, @NonNull String message) throws IOException {
+    static void sendError(@NonNull HttpExchange exchange, int code, @NonNull String message) throws IOException {
         ObjectNode error = MAPPER.createObjectNode();
         error.put("status", "error");
         error.put("error", message);
@@ -117,7 +117,7 @@ final class HttpApiUtils {
     /**
      * Responds to an OPTIONS preflight request with the appropriate CORS headers and 204 No Content.
      */
-    public static void sendOptionsResponse(@NonNull HttpExchange exchange, @NonNull String allowedMethods) throws IOException {
+    static void sendOptionsResponse(@NonNull HttpExchange exchange, @NonNull String allowedMethods) throws IOException {
         setCorsHeader(exchange);
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", allowedMethods + ", OPTIONS");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
@@ -127,7 +127,7 @@ final class HttpApiUtils {
     /**
      * Sends a binary response with the given content type (e.g., image/svg+xml) and CORS header.
      */
-    public static void sendBinaryResponse(@NonNull HttpExchange exchange, @NonNull String contentType, @NonNull byte[] bytes) throws IOException {
+    static void sendBinaryResponse(@NonNull HttpExchange exchange, @NonNull String contentType, @NonNull byte[] bytes) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", contentType);
         setCorsHeader(exchange);
         exchange.sendResponseHeaders(200, bytes.length);
@@ -140,7 +140,7 @@ final class HttpApiUtils {
      * Validates that the request uses the expected HTTP method.
      * If it does not, sends a 405 Method Not Allowed response and returns false.
      */
-    public static boolean requireMethod(@NonNull HttpExchange exchange, @NonNull String method) throws IOException {
+    static boolean requireMethod(@NonNull HttpExchange exchange, @NonNull String method) throws IOException {
         if (!method.equals(exchange.getRequestMethod())) {
             exchange.getResponseHeaders().set("Allow", method);
             sendError(exchange, 405, "Method Not Allowed");
@@ -150,17 +150,17 @@ final class HttpApiUtils {
     }
 
     /** Maximum allowed length for a single query parameter value (200 characters). */
-    public static final int MAX_PARAM_LENGTH = 200;
+    static final int MAX_PARAM_LENGTH = 200;
 
     /** Maximum request body size in bytes accepted by request body endpoints (64 KB). */
-    public static final int MAX_REQUEST_BODY_BYTES = 65536;
+    static final int MAX_REQUEST_BODY_BYTES = 65536;
 
     /**
      * Returns the parameter value, or throws {@link IllegalArgumentException} if missing, empty,
      * or exceeds {@link #MAX_PARAM_LENGTH} characters.
      * {@link #wrapWithErrorHandling} catches IAE and maps it to a 400 Bad Request response.
      */
-    public static @NonNull String requireParam(@NonNull Map<String, String> params, @NonNull String name) {
+    static @NonNull String requireParam(@NonNull Map<String, String> params, @NonNull String name) {
         String v = params.getOrDefault(name, "").trim();
         if (v.isEmpty()) {
             throw new IllegalArgumentException("Missing required parameter: " + name);
@@ -217,7 +217,7 @@ final class HttpApiUtils {
      *         callers and {@link #wrapWithErrorHandling} can return a 400 Bad Request response rather than
      *         silently producing a malformed parameter map.
      */
-    public static @NonNull Map<String, String> parseQueryParams(@Nullable String query) {
+    static @NonNull Map<String, String> parseQueryParams(@Nullable String query) {
         Map<String, String> params = new HashMap<>();
         if (query == null || query.isEmpty()) {
             return params;

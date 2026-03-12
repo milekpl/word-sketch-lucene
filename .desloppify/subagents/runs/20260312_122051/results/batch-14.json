@@ -1,0 +1,109 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 14,
+  "assessments": {"cross_module_architecture": 62.0},
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "config.RelationConfig imports query.RelationType; config.GrammarConfigLoader imports query.RelationType — two files in the config package import from the query package",
+        "query.QueryExecutor imports config.RelationConfig and utils.RelationPatternUtils — the query package depends on the config package",
+        "The above creates a circular package dependency: config → query and query → config",
+        "utils.RelationPatternUtils imports config.RelationConfig; utils.RelationUtils imports config.GrammarConfig, config.RelationConfig, and query.RelationType — the 'utils' layer depends on both config and query, inverting the expected layering for a utility package",
+        "model package has zero project-internal imports — clean data layer",
+        "indexer package has zero project-internal imports — cleanly isolated",
+        "exploration imports from config, model, query, utils but NOT from api — correct downward dependency",
+        "api is the only package importing from exploration — correctly at the top of the hierarchy"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "model package is a clean data layer with no project-internal dependencies — pure DTOs/records that any layer can safely import",
+        "indexer package is fully self-contained with no project package imports, making it independently testable and deployable",
+        "viz package is isolated with no project-level imports — pure computation layer",
+        "exploration correctly sits above query/config without importing from api — the one-way dependency is respected in the service layer",
+        "api is the unambiguous top of the hierarchy and does not leak downward; no lower layer imports from api"
+      ],
+      "issue_character": "A single root-cause misplacement — RelationType defined in query rather than config — cascades into a real circular dependency between config and query, and also drags the utils package into depending on two different domain layers, undermining what should be a bottom-tier utility namespace.",
+      "score_rationale": "The codebase has a genuine circular package dependency: config↔query. Both config.RelationConfig/GrammarConfigLoader import query.RelationType, while query.QueryExecutor imports config.RelationConfig. This is a real structural defect that could cause issues with module systems or cause refactoring headaches. The root cause is clear (RelationType belongs in config, not query) and the fix is well-scoped, but it currently requires touching multiple files across two packages. The utils package issue (RelationPatternUtils and RelationUtils depending on config and query) is a second, milder violation: utils is not a general-purpose bottom layer but a domain-specific helper that reaches into the business layer. The rest of the codebase shows disciplined layering — model, indexer, and viz are cleanly isolated; api is correctly at the top; exploration respects the hierarchy. The circular dependency pulls the score down significantly from an otherwise clean architecture."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "config_query_circular_dep",
+      "summary": "Circular package dependency between config and query via RelationType",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/RelationType.java"
+      ],
+      "evidence": [
+        "config.RelationConfig imports pl.marcinmilkowski.word_sketch.query.RelationType (line 6)",
+        "config.GrammarConfigLoader imports pl.marcinmilkowski.word_sketch.query.RelationType (line 12)",
+        "query.QueryExecutor imports pl.marcinmilkowski.word_sketch.config.RelationConfig (line 8)",
+        "RelationType is a grammar classification (SURFACE vs DEP) — semantically it belongs in the config or model package, not in query"
+      ],
+      "suggestion": "Move RelationType from query to config (or model). Update all importers (GrammarConfigLoader, RelationConfig, RelationUtils, SketchHandlers, etc.) to use the new location. This eliminates the cycle while keeping RelationType's semantics co-located with grammar configuration.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "utils_depending_on_config_and_query",
+      "summary": "utils package depends on config and query, inverting its expected role as a bottom-tier layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationPatternUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationUtils.java"
+      ],
+      "evidence": [
+        "RelationPatternUtils imports config.RelationConfig — operates on domain objects, not generic utilities",
+        "RelationUtils imports config.GrammarConfig, config.RelationConfig, and query.RelationType — three imports from two domain packages",
+        "CqlUtils and LogDiceUtils/MathUtils are genuine low-level utilities with no project imports; RelationPatternUtils and RelationUtils are domain helpers that happen to live alongside them"
+      ],
+      "suggestion": "Rename the package to something that signals its domain dependency, such as 'helpers' or 'support', or move RelationPatternUtils and RelationUtils into the config package (since they operate primarily on RelationConfig/GrammarConfig objects). This removes the misleading implication that 'utils' is a dependency-free bottom layer.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "query_interface_importing_config",
+      "summary": "QueryExecutor interface imports config.RelationConfig to provide convenience default methods, coupling the query abstraction to grammar config details",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java imports config.RelationConfig and utils.RelationPatternUtils",
+        "The default methods executeSurfacePatternForRelation and executeBcqlQueryForRelation call RelationPatternUtils.buildFullPattern — these are pattern-building conveniences that could live in a handler or builder class instead",
+        "This import is the query→config half of the circular dependency"
+      ],
+      "suggestion": "Remove the default convenience methods from QueryExecutor and move them to a static helper method in the api layer (e.g. SketchHandlers or a new PatternBuilder utility). QueryExecutor would then depend only on model and utils (CqlUtils), cleanly below config in the hierarchy.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RelationType was placed in the query package even though it is a grammar configuration concept (what kind of query strategy a relation uses), not a query-execution concept. This misplacement propagated into config importing from query.",
+      "The QueryExecutor interface accumulated convenience default methods that reference grammar config objects, crossing the boundary between query execution and configuration.",
+      "The utils package was used as a home for domain-specific helpers (operating on RelationConfig/GrammarConfig) rather than only for truly generic utilities, obscuring the real dependency topology."
+    ],
+    "likely_symptoms": [
+      "Module-system or OSGi setups would reject the circular config↔query dependency at startup",
+      "Developers trying to extract config or query into a separate library would hit a compilation error from the cycle",
+      "Testing query components in isolation requires loading config types (and vice versa), inflating unit test setup"
+    ],
+    "possible_false_positives": [
+      "The utils dependency on config could be intentional if the project treats utils as a 'domain helpers' layer rather than a pure bottom-tier utility layer — the naming is the real issue, not necessarily the coupling",
+      "The QueryExecutor default methods are a convenience trade-off explicitly noted in the Javadoc comment ('Intended to keep HTTP-layer handlers free of pattern-construction logic') — a deliberate design choice, though it creates the cycle"
+    ]
+  }
+}

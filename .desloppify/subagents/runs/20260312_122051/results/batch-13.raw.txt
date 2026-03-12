@@ -1,0 +1,102 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 13,
+  "assessments": {"error_consistency": 72.0},
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling maps IAE→400, RequestEntityTooLargeException→413, IOException→500, Exception→500 uniformly for all 10+ registered handlers",
+        "All handler methods consistently throw IllegalArgumentException for validation failures and IOException for query/I/O failures",
+        "500 responses include raw e.getMessage(): sendError(exchange, 500, description + \" failed: \" + e.getMessage()) — could expose internal paths or BlackLab internals",
+        "SketchHandlers.executeRelationQueries catches IOException per relation and collects errors as 'rel.id() + \": \" + e.getMessage()' in a 200-response errors array — exposes internal relation IDs and exception text",
+        "CollocateQueryHelper.executeBcqlQuery throws IOException(\"BCQL parse error: ...\") for invalid user-supplied BCQL; wrapWithErrorHandling maps this to HTTP 500 instead of 400, even though it is a client input error",
+        "VisualizationHandlers and CorpusQueryHandlers include raw Jackson JsonProcessingException messages in 400 responses"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "strengths": [
+        "Single wrapWithErrorHandling entry point applied to all 10+ registered handlers — HTTP status code mapping is centralised and not duplicated across handlers",
+        "IllegalArgumentException used exclusively for client-input validation failures throughout handlers, exploration, and query layers — 400 semantics are reliable",
+        "Dedicated RequestEntityTooLargeException type for 413 — not overloaded onto a generic exception, making the contract explicit",
+        "No swallowed exceptions: every catch block either propagates, logs-and-collects, or re-throws as a typed exception",
+        "Consistent IOException contract through all layers (BlackLabQueryExecutor, CollocateQueryHelper, SemanticFieldExplorer) — the handler tier sees a single failure type for infrastructure errors"
+      ],
+      "issue_character": "The issues are not scattered inconsistencies but a single systemic pattern: raw exception messages (containing internal details and, in one case, the wrong HTTP semantics) are uniformly forwarded to clients without sanitisation.",
+      "score_rationale": "The error handling architecture is genuinely strong: a single central wrapper, clean exception-type contracts across every layer, and no swallowing. What pulls the score down is a uniform but problematic practice of forwarding raw exception messages to clients — 500 responses expose internal IOException text (potentially index paths or BlackLab internals), sketch 200-with-errors responses expose internal relation IDs and exception messages, and Jackson parse errors in 400 responses carry library internals. Additionally, user-supplied invalid BCQL patterns trigger IOException in the query layer and therefore return HTTP 500 rather than 400, which is a clear HTTP-semantics inconsistency for a client-input error. These issues are codebase-wide in the sense that they all flow from the same design choice in wrapWithErrorHandling, but the architecture itself is solid enough to keep the score above 70."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "bcql-parse-error-wrong-http-status",
+      "summary": "Invalid user-supplied BCQL patterns return HTTP 500 instead of 400",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.executeBcqlQuery catches InvalidQuery and rethrows as IOException(\"BCQL parse error: ...\")",
+        "wrapWithErrorHandling maps all IOException to HTTP 500 regardless of whether the underlying cause is a client input error",
+        "CorpusQueryHandlers.handleCorpusQuery passes the user-provided query directly to executor.executeBcqlQuery; a syntactically invalid BCQL from the client thus produces a 500 response"
+      ],
+      "suggestion": "Introduce a dedicated checked exception (e.g., InvalidPatternException extends IllegalArgumentException) for BCQL syntax errors in CollocateQueryHelper, or catch InvalidQuery in CorpusQueryHandlers before it reaches the executor and rethrow as IllegalArgumentException so wrapWithErrorHandling maps it to 400.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "internal-details-in-500-responses",
+      "summary": "Raw IOException messages forwarded to clients in HTTP 500 responses, potentially exposing internal paths and BlackLab internals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "wrapWithErrorHandling: sendError(exchange, 500, description + \" failed: \" + e.getMessage())",
+        "BlackLabQueryExecutor.BlackLabQueryExecutor wraps ErrorOpeningIndex as IOException with the index path in the message",
+        "CollocateQueryHelper.getTotalFrequency wraps RuntimeException as IOException(\"Unexpected failure retrieving frequency for lemma '\" + lemma + \"'\")"
+      ],
+      "suggestion": "In wrapWithErrorHandling, send a generic message for 500 responses (e.g., \"Internal server error\") and log the full exception server-side only. Client-facing error messages for 500s should not include e.getMessage().",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "internal-details-in-partial-sketch-response",
+      "summary": "Relation IDs and raw exception messages included in 200 response errors array for partial sketch failures",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "executeRelationQueries: relationErrors.add(rel.id() + \": \" + e.getMessage())",
+        "The errors list is added to the 200 response body under the key \"errors\"",
+        "Callers receive internal relation identifiers (grammar config IDs) and raw IOException text"
+      ],
+      "suggestion": "Either omit exception message details from the errors array (use a stable, opaque error code per relation) or document clearly that this is a debug-only field not intended for production clients. If kept, at minimum strip the raw e.getMessage() text from the serialised response.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The wrapWithErrorHandling design was optimised for developer diagnostics (including full error text in responses) rather than for client-safe API responses, and that choice propagated uniformly to all endpoints",
+      "The IOException contract in the query layer conflates client-input errors (invalid BCQL syntax) with server-side infrastructure errors, making it impossible for wrapWithErrorHandling to distinguish them without a richer exception hierarchy"
+    ],
+    "likely_symptoms": [
+      "API consumers may receive 500 responses when they supply syntactically invalid BCQL patterns, causing them to misdiagnose their own input errors as server failures",
+      "Server-side information (index paths, internal error text) is observable by API clients in 500 responses, which is a minor security information-leakage concern"
+    ],
+    "possible_false_positives": [
+      "The Jackson error messages in 400 responses (VisualizationHandlers, CorpusQueryHandlers) are generally not sensitive and could be considered acceptable for developer-facing APIs",
+      "The partial-sketch 200-with-errors pattern is intentional by design for multi-relation sketches and may be appropriate if API clients are expected to handle partial results gracefully"
+    ]
+  }
+}

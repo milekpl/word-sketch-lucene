@@ -1,0 +1,86 @@
+{
+  "batch": "high_level_elegance",
+  "batch_index": 1,
+  "assessments": {"high_level_elegance": 80.5},
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "RelationType enum lives in query/ but is imported by config/RelationConfig.java and api/SketchHandlers.java, creating a config→query dependency inversion",
+        "utils/ package contains RelationUtils and RelationPatternUtils which import config.GrammarConfig, config.RelationConfig, model.PosGroup, and query.RelationType — these are domain-bridging services, not pure utilities",
+        "api/ handler decomposition is exemplary: SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers each own a coherent surface area",
+        "model/exploration/ vs exploration/ split is consistent (DTOs in model/, service logic in exploration/) and is documented in model/package-info.java",
+        "All packages have package-info.java files with substantive descriptions"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "high_level_elegance": {
+      "strengths": [
+        "Top-level packages map directly to domain capabilities: api (HTTP surface), query (corpus access), exploration (semantic analysis), config (grammar rules), model (shared DTOs), indexer (corpus building) — a new engineer can explain why each exists",
+        "API layer decomposed into five focused handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) with WordSketchApiServer as wiring-only entry point",
+        "The model/exploration vs exploration package split is consistent and explicitly documented in model/package-info.java, reducing ambiguity for the pattern",
+        "Public interface boundaries (QueryExecutor, ExplorationService) are small, well-documented, and state their design rationale in Javadoc",
+        "Every package has a package-info.java with substantive, accurate descriptions of purpose and boundaries"
+      ],
+      "issue_character": "Two ownership boundary issues: a type is homed in the wrong package (RelationType in query/ despite being a grammar classification used by config/ and api/), and two utilities classes in utils/ are domain-bridging services rather than stateless utilities, blurring the utils package's stated purpose.",
+      "score_rationale": "The overall decomposition is clear and intentional — a new engineer can navigate this project without surprises in most areas. The api handler split and model/service separation are genuinely well-executed. What pulls the score down is a real boundary leak: config/ imports query/RelationType (wrong dependency direction for a grammar classification), and utils/ houses RelationUtils/RelationPatternUtils that do config↔query translation work rather than pure utility functions. These are not cosmetic — they would confuse a new engineer about where relation-type logic lives and create non-obvious cross-package coupling. This sits solidly at the 80 'solid but uneven' anchor: a developer would mostly be well-served but would hit this friction when tracing relation handling or deciding where to extend the relation model."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "relation_type_wrong_package",
+      "summary": "RelationType enum lives in query/ but is a grammar classification used by config/ and api/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationUtils.java"
+      ],
+      "evidence": [
+        "RelationType.java is declared in package query/ (query execution concern) but its Javadoc says 'used by SketchHandlers and RelationConfig#relationType()'",
+        "config/RelationConfig.java imports pl.marcinmilkowski.word_sketch.query.RelationType — config/ depending on query/ is a dependency inversion: grammar config should not import from the execution layer",
+        "api/SketchHandlers.java also imports query.RelationType directly, bypassing the config layer"
+      ],
+      "suggestion": "Move RelationType to config/ (e.g., config/RelationType.java) since it classifies grammatical relation execution strategies, not query mechanics. Update all imports in config/RelationConfig.java, api/SketchHandlers.java, and utils/RelationUtils.java. This eliminates the config→query dependency inversion.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "utils_domain_bridging_services",
+      "summary": "utils/RelationUtils and utils/RelationPatternUtils are domain-bridging services, not stateless utilities",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationPatternUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/package-info.java"
+      ],
+      "evidence": [
+        "utils/package-info.java describes the package as 'Shared utility classes: CQL pattern manipulation, logDice scoring, and compact hash maps'",
+        "RelationUtils imports config.GrammarConfig, config.RelationConfig, model.PosGroup, and query.RelationType — it translates between config and query concepts, making it a domain service rather than a utility",
+        "RelationPatternUtils imports config.RelationConfig and model.PosGroup — its Javadoc explains it was extracted from RelationConfig 'so the config record remains a plain data carrier', but that makes it config-layer logic, not a utility"
+      ],
+      "suggestion": "Move RelationPatternUtils into config/ (it builds patterns from RelationConfig and belongs to the config layer). Consider moving RelationUtils into config/ as well, or rename utils/ to 'support/' to signal that it is domain-adjacent code rather than pure utilities. This aligns the package description with its actual contents and makes ownership of relation-handling logic predictable.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RelationType was likely added to query/ when the query execution strategy distinction (SURFACE vs DEP) was first introduced, before the config layer took ownership of it — temporal placement that was never revisited",
+      "RelationPatternUtils was explicitly extracted from RelationConfig to keep it a plain data carrier (documented in its Javadoc), but the extracted logic landed in utils/ as a default home rather than staying in config/"
+    ],
+    "likely_symptoms": [
+      "A developer adding a new RelationType value must know to update config/RelationConfig but look in query/ for the enum definition",
+      "A developer looking for all relation-handling code must check config/, query/, and utils/ rather than one subsystem"
+    ],
+    "possible_false_positives": [
+      "RelationPatternUtils is correctly stateless (no instance state, pure functions of arguments) — the issue is its package placement, not its design"
+    ]
+  }
+}

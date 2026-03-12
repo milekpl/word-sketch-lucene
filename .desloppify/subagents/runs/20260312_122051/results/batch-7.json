@@ -1,0 +1,98 @@
+{
+  "batch": "incomplete_migration",
+  "batch_index": 7,
+  "assessments": {"incomplete_migration": 78.0},
+  "dimension_notes": {
+    "incomplete_migration": {
+      "evidence": [
+        "PatternSubstitutionTest (src/test/.../utils/PatternSubstitutionTest.java) is named after a deleted class but exclusively tests CqlUtils methods — git history confirms 'PatternSubstitution inline' was a desloppify cleanup that absorbed the class into CqlUtils, leaving the test file with a stale name",
+        "HybridAlgorithmTest (src/test/.../query/HybridAlgorithmTest.java) is named after a removed concept (HybridLuceneIndexer / hybrid algorithm) and now only tests grammar config loading — there is no HybridAlgorithm class anywhere in the codebase",
+        "WordSketchApiServer.java line 53: '// TODO: migrate to Undertow or Jetty if a multi-module build or custom classloader is needed.' — explicit deferred migration of the HTTP server layer",
+        "GrammarConfigLoader.validateNoLegacyKeys() actively rejects the old 'copulas' top-level config key with a detailed error message, indicating a format migration from a separate copulas config block to inline CQL patterns was completed but a guard is still needed",
+        "RelationUtils.RELATION_ALIASES maps old short names (adj_predicate, subject_of, object_of) to new canonical grammar config IDs (noun_adj_predicates, noun_verbs, verb_nouns), suggesting relations were renamed during migration and an alias layer was kept for backward compatibility"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "incomplete_migration": {
+      "strengths": [
+        "Production code contains no shadow implementations or dead code from old approaches — the single BlackLab backend replaced all prior indexing strategies without leaving parallel implementations",
+        "GrammarConfigLoader explicitly guards against the old config format ('copulas' key) with a clear actionable error, turning a completed migration into a hard failure for any code still using the old format",
+        "The QueryExecutor interface Javadoc explicitly documents the deferred split of its methods into narrower ports, marking it as a known deferral rather than an unnoticed leftover",
+        "RelationUtils.RELATION_ALIASES is clearly documented with the set of valid aliases, making the backward-compat shim visible and intentional rather than a hidden stale artifact"
+      ],
+      "issue_character": "The migration artifacts are confined to test-file naming (two misnamed test classes whose subject class was deleted or renamed) and a single production TODO comment; they do not pollute production logic or introduce dual code paths.",
+      "score_rationale": "Production code is clean — no mixed idioms, no shadow implementations, no inconsistent API usage across modules. The stale artifacts are two test class names (PatternSubstitutionTest, HybridAlgorithmTest) that no longer match the classes they test, plus one documented TODO comment. These are lightweight but real friction: a developer reading HybridAlgorithmTest would search for a HybridAlgorithm that does not exist, and PatternSubstitutionTest misleadingly implies there is a PatternSubstitution class. The overall codebase consistency is strong, which pushes the score up; the two misleading test names and one production TODO pull it just below the 'solid' band."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "stale-test-name-pattern-substitution",
+      "summary": "PatternSubstitutionTest is named after a deleted class but tests CqlUtils methods",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitutionTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "PatternSubstitutionTest imports only CqlUtils; every test method calls CqlUtils.substituteAtPosition or CqlUtils.extractConstraintAttribute or CqlUtils.escapeForRegex",
+        "No PatternSubstitution class exists anywhere in src/main — it was inlined into CqlUtils per git history ('desloppify: fix abstraction-cleanup-2 (PatternSubstitution inline, ...)')",
+        "The test class name PatternSubstitutionTest points a reader to a class that no longer exists"
+      ],
+      "suggestion": "Rename PatternSubstitutionTest to CqlUtilsSubstitutionTest (or merge into a broader CqlUtilsTest if one exists) to align the test file name with the class it actually exercises",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "stale-test-name-hybrid-algorithm",
+      "summary": "HybridAlgorithmTest is named after a removed concept; it now tests only GrammarConfigLoader",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/HybridAlgorithmTest.java"
+      ],
+      "evidence": [
+        "HybridAlgorithmTest contains no reference to any HybridAlgorithm class — all four test methods call GrammarConfigLoader.createDefaultEnglish() and assert on GrammarConfig and RelationConfig properties",
+        "No HybridAlgorithm class exists in the production code; CLAUDE.md mentions a historical 'HybridLuceneIndexer' that was evidently removed",
+        "The Javadoc comment says 'Tests for grammar config with new format', confirming the class content has been fully replaced but the file was never renamed"
+      ],
+      "suggestion": "Rename HybridAlgorithmTest to GrammarConfigFormatTest (or move the tests into GrammarConfigLoaderTest where related tests already live)",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "todo-http-server-migration",
+      "summary": "Deferred migration TODO for HTTP server: com.sun.net.httpserver to Undertow/Jetty",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Line 53: '// TODO: migrate to Undertow or Jetty if a multi-module build or custom classloader is needed.'",
+        "The comment acknowledges a known limitation of the current com.sun.net.httpserver choice but defers the migration indefinitely without a tracking issue or acceptance note"
+      ],
+      "suggestion": "Either convert the TODO into a tracked issue and remove the comment from the source, or add an explicit acceptance note (e.g. '// ACCEPTED: com.sun.net.httpserver is sufficient for single-process localhost use; migrate only if classloader isolation is needed') to make the deferral intentional and reduce noise",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Active desloppify health refactoring left test file names un-updated when classes were renamed or removed (PatternSubstitution inlined into CqlUtils, HybridLuceneIndexer removed)",
+      "Relation renaming during grammar config evolution (from ADJ_PREDICATE/SUBJECT_OF style to noun_adj_predicates/noun_verbs style) required a backward-compat alias shim that was added but never cleaned up"
+    ],
+    "likely_symptoms": [
+      "Developers reading PatternSubstitutionTest search for a PatternSubstitution class that does not exist",
+      "Developers reading HybridAlgorithmTest search for a HybridAlgorithm class that does not exist, and are confused by a test file in the query package that only tests config loading"
+    ],
+    "possible_false_positives": [
+      "RelationUtils.RELATION_ALIASES may appear to be a stale migration artifact but is intentional backward-compat — it is clearly documented and serves a real API-compatibility purpose",
+      "GrammarConfigLoader.validateNoLegacyKeys() may appear to be a stale guard but is a deliberate hard-fail to prevent old config format from silently loading"
+    ]
+  }
+}

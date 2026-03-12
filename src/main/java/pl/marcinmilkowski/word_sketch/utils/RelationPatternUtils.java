@@ -18,6 +18,11 @@ import java.util.Objects;
  */
 public final class RelationPatternUtils {
 
+    private static final String JJ_PREFIX = "JJ";
+    private static final String VB_PREFIX = "VB";
+    private static final String NN_PREFIX = "NN";
+    private static final String RB_PREFIX = "RB";
+
     private RelationPatternUtils() {}
 
     /**
@@ -65,10 +70,10 @@ public final class RelationPatternUtils {
                     + config.id() + "'");
         }
         return switch (config.collocatePosGroup()) {
-            case ADJ  -> "[xpos=\"JJ.*\"]";
-            case VERB -> "[xpos=\"VB.*\"]";
-            case NOUN -> "[xpos=\"NN.*\"]";
-            case ADV  -> "[xpos=\"RB.*\"]";
+            case ADJ  -> "[xpos=\"" + JJ_PREFIX + ".*\"]";
+            case VERB -> "[xpos=\"" + VB_PREFIX + ".*\"]";
+            case NOUN -> "[xpos=\"" + NN_PREFIX + ".*\"]";
+            case ADV  -> "[xpos=\"" + RB_PREFIX + ".*\"]";
             default   -> throw new IllegalStateException(
                 "No reverse pattern defined for collocate POS group: " + config.collocatePosGroup()
                     + " (relation: '" + config.id() + "')");

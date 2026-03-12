@@ -1,0 +1,139 @@
+{
+  "batch": "package_organization",
+  "batch_index": 8,
+  "assessments": {"package_organization": 68.0},
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "config/RelationConfig.java imports query.RelationType, creating a config→query layering violation",
+        "utils package contains domain-specific classes RelationPatternUtils and RelationUtils (which know about RelationConfig, GrammarConfig, PosGroup, RelationType) alongside truly generic helpers like MathUtils and LogDiceUtils",
+        "viz package contains exactly one class (RadialPlot) used only by api/VisualizationHandlers — single-class package adds navigation overhead with little organizational benefit",
+        "model/sketch sub-package exists only as an empty placeholder with a package-info.java explaining why it is empty — adds structural noise",
+        "PatternSubstitutionTest in utils package tests CqlUtils.substituteAtPosition() but is named after a non-existent PatternSubstitution class (mismatch between test name and what is actually tested)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "strengths": [
+        "Top-level packages have clear domain semantics: api, config, exploration, model, query, indexer each name their domain accurately",
+        "Test tree mirrors source tree closely — every source package has a matching test package with correctly-named test classes",
+        "model/exploration sub-package is well-reasoned: 13 types warrant their own namespace, and the split from model root is documented in package-info",
+        "Package-info files exist in nearly every package providing written ownership descriptions",
+        "api package correctly isolates ExploreResponseAssembler as a presentation-assembly bridge rather than letting serialisation logic leak into the exploration domain"
+      ],
+      "issue_character": "Issues are moderate and structural rather than catastrophic: the main problems are a layering inversion (config importing from query), a catch-all utils package that accumulates domain helpers that belong closer to their domains, and two minor organisational oddities (empty placeholder sub-package, single-class viz package).",
+      "score_rationale": "The package layout is genuinely well-designed for a project of this size: domain boundaries are clear, test mirroring is excellent, and package-info documentation is unusually thorough. What pulls the score down is the config→query inversion (RelationType logically belongs in config or model, not query), the utils package accumulating domain-specific helpers alongside truly generic ones, and a handful of structural oddities that add navigational noise without adding clarity. These are real issues worth fixing but not severe enough to say the structure is broken — a developer would find the codebase navigable with only occasional friction."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "config_imports_query_relation_type",
+      "summary": "RelationType enum lives in query package but is imported by config package, inverting the natural layer dependency",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/RelationType.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationConfig.java line 6: import pl.marcinmilkowski.word_sketch.query.RelationType;",
+        "GrammarConfigLoader.java line 12: import pl.marcinmilkowski.word_sketch.query.RelationType;",
+        "RelationType is a domain concept (SURFACE vs DEP query strategy) that config records carry — it belongs in config or model, not in the layer that consumes it"
+      ],
+      "suggestion": "Move RelationType to the config package (or model) so the dependency flows config→query rather than config←query. Update all callers (SketchHandlers, CollocateQueryHelper) to import from the new location.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "utils_contains_domain_helpers",
+      "summary": "utils package mixes truly generic utilities with domain-specific relation helpers that depend on config and model types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationPatternUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/MathUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceUtils.java"
+      ],
+      "evidence": [
+        "RelationPatternUtils imports RelationConfig and PosGroup — it is a domain service for config, not a generic utility",
+        "RelationUtils imports GrammarConfig, RelationConfig, PosGroup, and RelationType — it is essentially a domain facade for relation resolution",
+        "MathUtils contains only round2dp() — a trivially generic helper — alongside these domain-heavy neighbours",
+        "LogDiceUtils is scoring domain logic, not a generic math utility"
+      ],
+      "suggestion": "Move RelationPatternUtils and RelationUtils into the config package where their domain home is. Consider moving LogDiceUtils into query (its only caller is CollocateQueryHelper). This would leave utils with only CqlUtils and MathUtils — small enough to dissolve entirely or keep as truly generic helpers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "viz_single_class_package",
+      "summary": "viz package contains exactly one class (RadialPlot) used by a single API handler, making it an under-populated package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "viz/ contains only RadialPlot.java",
+        "Only VisualizationHandlers imports it",
+        "SVG generation is a presentation concern — co-locating it in api or a dedicated api/viz sub-package would reduce package proliferation"
+      ],
+      "suggestion": "Move RadialPlot into the api package (or an api/viz sub-package if more visualization classes are planned). A single-class package is worth keeping only when the class is likely to be joined by siblings soon.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "empty_model_sketch_package",
+      "summary": "model/sketch sub-package is deliberately empty — a reserved namespace with only a package-info.java adds structural noise",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/package-info.java"
+      ],
+      "evidence": [
+        "The package-info.java explicitly explains the sub-package is intentionally empty and documents why WordSketchResult remains nested in QueryResults",
+        "An empty directory in the source tree signals future intent but misleads readers navigating the package hierarchy now"
+      ],
+      "suggestion": "Remove the empty model/sketch package until it actually contains types. The rationale documented in its package-info can be moved to a comment inside QueryResults or the model package-info instead.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pattern_substitution_test_misnamed",
+      "summary": "PatternSubstitutionTest is named after a non-existent class; it actually tests CqlUtils.substituteAtPosition(), breaking test-to-source naming conventions",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/utils/PatternSubstitutionTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "PatternSubstitutionTest.java tests CqlUtils.substituteAtPosition() exclusively",
+        "CqlUtilsTest.java already exists in the same package for other CqlUtils tests",
+        "No PatternSubstitution class exists anywhere in the codebase"
+      ],
+      "suggestion": "Merge PatternSubstitutionTest's test cases into CqlUtilsTest and delete the misnamed test class, or rename it CqlSubstitutionTest if keeping it separate is desired.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "RelationType was likely created in the query package when only the query layer needed it, and config was added later without moving the enum to a neutral location",
+      "utils package grew organically by collecting helpers that had nowhere else to go, conflating 'I need a utility method' with 'this belongs in utils'"
+    ],
+    "likely_symptoms": [
+      "Developers adding new relation-aware config code will instinctively reach for utils helpers, further growing the catch-all package",
+      "New engineers will be confused by config importing from query when learning the dependency topology"
+    ],
+    "possible_false_positives": [
+      "RelationUtils and RelationPatternUtils could be argued as legitimate utils because they are stateless static helpers, even though they depend on domain types — the line between 'domain service' and 'domain utility' is genuinely blurry here"
+    ]
+  }
+}

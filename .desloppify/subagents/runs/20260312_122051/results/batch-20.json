@@ -1,0 +1,122 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 20,
+  "assessments": {"design_coherence": 68.0},
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "ExplorationService.fetchExamples declares (collocate, seed, ...) but SemanticFieldExplorer implements (seed, collocate, ...) — inverted parameter names across interface/implementation boundary",
+        "MultiSeedExplorer reuses DiscoveredNoun to represent seeds themselves (not discovered nouns) — documented at line 42 but the metaphor diverges from its single-seed meaning",
+        "SemanticFieldExplorer owns the single-seed algorithm inline while delegating multi-seed to MultiSeedExplorer and comparison to CollocateProfileComparator — asymmetric algorithm ownership within one facade",
+        "CollocateProfileComparator uses executeCollocations for its lookups while MultiSeedExplorer and SemanticFieldExplorer.exploreByPattern use executeSurfacePattern — different query strategies for the same exploration layer without documented rationale",
+        "ConcordanceHandlers.handleConcordanceExamples goes directly to QueryExecutor.executeBcqlQueryForRelation while ExplorationHandlers.handleSemanticFieldExamples routes through ExplorationService.fetchExamples — parallel example-fetch paths at different abstraction depths"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "strengths": [
+        "Consistent layered architecture throughout: api handlers → service/exploration layer → model records → query executor. Every handler follows the same pattern: parseQueryParams → validate → delegate → sendJsonResponse.",
+        "Uniform error-handling contract applied consistently across all 10+ endpoints via HttpApiUtils.wrapWithErrorHandling, mapping IllegalArgumentException→400 and IOException→500 everywhere.",
+        "Clean QueryExecutor and ExplorationService interfaces as stable testability seams between the HTTP layer and the corpus backend — the HTTP layer never touches BlackLabQueryExecutor directly.",
+        "Model package contains only pure value types (records and immutable classes) with no HTTP or query concerns leaking in, consistently across all exploration and sketch result DTOs.",
+        "Handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) each have a single coherent responsibility extracted from a monolith — the decomposition is symmetric and consistent."
+      ],
+      "issue_character": "The coherence issues are concentrated in the exploration subsystem: one parameter-name inversion at the interface boundary, one model concept used with two different semantics (DiscoveredNoun as seed vs. as discovered word), and one asymmetry in algorithm ownership and query-method choice within SemanticFieldExplorer's facade. These are not random scattered smells but a cluster of related tensions in one subsystem that grew incrementally.",
+      "score_rationale": "The overall architecture is coherent and well-structured: layering, handler decomposition, and the request-response pattern are applied uniformly across the codebase, which is the bulk of the design surface. The drag comes from the exploration subsystem where the growth from single-seed to multi-seed to comparison mode introduced three distinct inconsistencies: a parameter name inversion between ExplorationService and SemanticFieldExplorer, DiscoveredNoun being repurposed to represent seeds in multi-seed mode (conceptual drift documented but still confusing), and two different query strategies (executeCollocations vs executeSurfacePattern) used by peer classes in the same layer without rationale. These issues are real but bounded — they affect one subsystem and a developer working outside exploration would rarely encounter them. A score of 68 reflects a codebase with solid structural coherence that has a moderate, bounded concentration of design tension in its most complex subsystem."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "fetchexamples_param_inversion",
+      "summary": "ExplorationService.fetchExamples declares (collocate, seed) but SemanticFieldExplorer implements (seed, collocate) — parameter names inverted across interface/implementation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationService line 59-62: `fetchExamples(@NonNull String collocate, @NonNull String seed, ...)`",
+        "SemanticFieldExplorer line 333: `fetchExamples(@NonNull String seed, @NonNull String collocate, ...)`",
+        "ExplorationHandlers line 193 calls `semanticFieldExplorer.fetchExamples(seed, collocate, ...)` — consistent with the implementation, inconsistent with the interface declaration"
+      ],
+      "suggestion": "Align the interface parameter order with the implementation: change ExplorationService.fetchExamples to declare (seed, collocate, ...) to match SemanticFieldExplorer and all call sites.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "discoverednoun_dual_semantics",
+      "summary": "DiscoveredNoun is used with two different semantics: in single-seed mode it represents words newly found around a seed; in multi-seed mode it is repurposed to represent the seeds themselves",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/DiscoveredNoun.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer line 42: 'Seeds become the discoveredNouns (each carrying their common collocates as shared-collocate set)' — seeds are placed in the DiscoveredNoun list",
+        "MultiSeedExplorer line 125: `discoveredNounsList.add(new DiscoveredNoun(seed, sharedCollocs, ...))` — seed strings stored as DiscoveredNoun instances",
+        "SemanticFieldExplorer.exploreByPattern: DiscoveredNoun instances represent OTHER nouns found via reverse lookup, not the seeds"
+      ],
+      "suggestion": "Introduce a distinct result type (e.g. SeedProfile or SeedNode) for multi-seed mode rather than reusing DiscoveredNoun; alternatively rename ExplorationResult.discoveredNouns to a more neutral term (e.g. nodes) and update DiscoveredNoun to SeedOrDiscoveredNoun with a boolean flag or sealed hierarchy.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "exploration_asymmetric_query_strategy",
+      "summary": "CollocateProfileComparator uses executeCollocations for collocate lookup while MultiSeedExplorer and SemanticFieldExplorer.exploreByPattern use executeSurfacePattern — peer exploration classes use different query strategies without documented rationale",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "CollocateProfileComparator line 91: `executor.executeCollocations(noun, collocatePattern, minLogDice, maxPerNoun)` — uses simple collocate lookup",
+        "MultiSeedExplorer line 83: `executor.executeSurfacePattern(bcqlPattern, minLogDice, topCollocates)` — uses labeled BCQL surface pattern",
+        "SemanticFieldExplorer line 215: `executor.executeSurfacePattern(bcqlPattern, ...)` with fallback to `executeCollocations` — starts with surface pattern"
+      ],
+      "suggestion": "Document in CollocateProfileComparator why it uses executeCollocations rather than executeSurfacePattern (e.g. comparison mode operates cross-relationally with a simple adjective filter), or align it to use executeSurfacePattern consistently with its peer classes.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "examples_parallel_paths",
+      "summary": "Two endpoint handlers fetch concordance examples via different abstraction levels: ExplorationHandlers routes through ExplorationService.fetchExamples; ConcordanceHandlers calls QueryExecutor directly",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.handleSemanticFieldExamples line 193: delegates through `semanticFieldExplorer.fetchExamples(...)` (service layer)",
+        "ConcordanceHandlers.handleConcordanceExamples: calls `executor.executeBcqlQueryForRelation(...)` directly (query layer), bypassing any exploration service"
+      ],
+      "suggestion": "Decide on a canonical path for example fetching: either expose a fetchExamples-equivalent on a shared service interface and route both handlers through it, or accept and document the intentional split (exploration examples vs. raw concordance examples have different ownership).",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The exploration subsystem grew incrementally from single-seed to multi-seed to comparison mode; each addition reused existing types and patterns rather than introducing new ones, causing metaphor drift in DiscoveredNoun and asymmetric query strategies.",
+      "The ExplorationService interface was likely extracted after SemanticFieldExplorer was already implemented, leaving the parameter order mismatch undetected because Java does not enforce parameter name consistency across interface/implementation."
+    ],
+    "likely_symptoms": [
+      "A developer implementing a new exploration mode would be uncertain whether to use executeCollocations or executeSurfacePattern based on peers.",
+      "A developer reading ExplorationService.fetchExamples would pass arguments in the wrong order if relying on interface parameter names rather than the implementation.",
+      "Consumers of ExplorationResult.discoveredNouns in multi-seed mode may misinterpret the noun as a newly discovered word rather than one of the original seeds."
+    ],
+    "possible_false_positives": [
+      "The CollocateProfileComparator query strategy difference may be intentional (comparison mode is relation-agnostic and uses a raw adjective pattern, unlike the relation-config-driven surface pattern used by multi-seed) — worth confirming before flagging as a defect."
+    ]
+  }
+}

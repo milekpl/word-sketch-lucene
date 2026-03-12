@@ -242,13 +242,16 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         collectFrequenciesAndPosFromGroups(groups,
                 identity -> {
-                    // collocatePos == -1 when label "2:" is absent from the pattern; fall back to
-                    // extractLastLemma, matching the same sentinel handling in executeBcqlQuery.
+                    // sentinel: collocatePos == -1 means label "2:" is absent from the pattern;
+                    // fall back to extractLastLemma. Uses < 0 to handle any negative sentinel value.
                     if (collocatePos < 0) {
                         return BlackLabSnippetParser.extractLastLemma(identity);
                     }
+                    // Primary path: identity is XML — count lemma="..." attributes up to 1-based collocatePos.
                     String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos);
                     if (collocate == null || collocate.isEmpty()) {
+                        // Fallback path: identity is plain whitespace-separated text — collocatePos is
+                        // reused as a 1-based word index (same integer value, different counting scheme).
                         collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocatePos);
                     }
                     return collocate;

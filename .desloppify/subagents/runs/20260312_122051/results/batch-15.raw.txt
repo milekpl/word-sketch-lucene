@@ -1,0 +1,98 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 15,
+  "assessments": {"initialization_coupling": 70.0},
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "BlackLabQueryExecutor opens the BlackLab file-system index in its constructor (BlackLab.open), with a documented rationale explaining the design choice",
+        "BlackLabConllUIndexer constructor creates directories, calls DocumentFormats.addConfigFormatsInDirectories (global static side effect), opens index for writing, and creates an Indexer — all I/O heavy, no testing seam or interface",
+        "SemanticFieldExplorer constructor internally instantiates CollocateProfileComparator and MultiSeedExplorer — these collaborators cannot be injected",
+        "GrammarConfigLoader.createDefaultEnglish() reads the grammar.config system property as a hidden global dependency; the testable load(Path) and fromReader(Reader) alternatives exist but callers must know to use them",
+        "WordSketchApiServer defers port binding to start(), with an explicit comment documenting the separation of construction and network binding",
+        "CollocateQueryHelper provides a package-private no-argument constructor explicitly documented as a testing seam for test subclasses",
+        "All HTTP handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers) have lightweight constructors that do no I/O",
+        "QueryExecutor is an interface, so all callers can inject a mock instead of the real BlackLabQueryExecutor in tests"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "strengths": [
+        "QueryExecutor interface decouples all business logic from the BlackLab implementation — the entire exploration and API layer can be tested with a mock executor",
+        "WordSketchApiServer explicitly separates construction from network binding via start(), with a documented rationale in the constructor comment",
+        "CollocateQueryHelper exposes a documented no-index constructor as a testing seam for subclasses that override I/O methods",
+        "GrammarConfigLoader provides fromReader(Reader) and load(Path) as fully testable alternatives to the system-property-coupled createDefaultEnglish()",
+        "All HTTP handler classes (SketchHandlers, ExplorationHandlers, etc.) have clean, lightweight constructors that accept injected dependencies and do no I/O"
+      ],
+      "issue_character": "The issues are localized to two specific patterns: I/O-heavy constructors in infrastructure classes (BlackLabQueryExecutor, BlackLabConllUIndexer) and internal collaborator creation in SemanticFieldExplorer — they do not pervade the codebase and reflect deliberate design decisions in some cases, but leave meaningful testability gaps in others.",
+      "score_rationale": "The codebase demonstrates clear awareness of initialization coupling: the QueryExecutor interface is well-designed, port binding is deferred, and explicit testing seams exist in CollocateQueryHelper and GrammarConfigLoader. What pulls the score down is BlackLabConllUIndexer's constructor doing directory creation, global format registration, and index opening with no interface or testing seam at all; SemanticFieldExplorer's internal instantiation of two collaborators (CollocateProfileComparator, MultiSeedExplorer) which cannot be injected; and createDefaultEnglish() coupling config loading to a system property as a hidden global. These are real testability gaps but are bounded to specific subsystems rather than being architectural problems throughout the codebase."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "indexer_constructor_io",
+      "summary": "BlackLabConllUIndexer constructor does heavy I/O with no testing seam",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/BlackLabConllUIndexer.java"],
+      "evidence": [
+        "Constructor calls Files.createDirectories, DocumentFormats.addConfigFormatsInDirectories (global static side effect), BlackLab.openForWriting, and Indexer.create",
+        "No interface, no alternative constructor, and no way to construct a test double without touching the file system",
+        "DocumentFormats.addConfigFormatsInDirectories mutates a global registry, making test isolation harder"
+      ],
+      "suggestion": "Extract index opening and format registration into a static factory or an init() method, and introduce an interface or protected factory method for the BlackLabIndexWriter/Indexer pair so tests can substitute fakes without disk I/O.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "semantic_explorer_internal_collaborators",
+      "summary": "SemanticFieldExplorer constructs CollocateProfileComparator and MultiSeedExplorer internally, preventing injection",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Constructor contains: this.comparator = new CollocateProfileComparator(executor, grammarConfig); this.multiSeedExplorer = new MultiSeedExplorer(executor);",
+        "Both collaborators are package-private classes, so they cannot be injected from outside the package even if callers wanted to",
+        "Unit-testing SemanticFieldExplorer's coordination logic requires a real (or mockable via interface) executor but cannot substitute the comparator or explorer independently"
+      ],
+      "suggestion": "Add a package-private constructor that accepts CollocateProfileComparator and MultiSeedExplorer as parameters to enable isolated unit testing of the coordination logic without substituting the full QueryExecutor.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "grammar_config_system_property",
+      "summary": "GrammarConfigLoader.createDefaultEnglish() uses a system property as a hidden global dependency",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"],
+      "evidence": [
+        "String path = System.getProperty(\"grammar.config\", \"grammars/relations.json\"); — system property read during loading, not passed as a parameter",
+        "Callers in Main.java call GrammarConfigLoader.createDefaultEnglish() without seeing that a system property governs the config path",
+        "Tests must either set a system property, use load(Path) directly, or ensure the default path exists on the test classpath"
+      ],
+      "suggestion": "The load(Path) and fromReader(Reader) alternatives are already there and are the right testable API. Consider documenting in createDefaultEnglish() Javadoc that tests should prefer load(Path), and ensure no other production callers inadvertently call createDefaultEnglish() in contexts where the system property is not set.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Infrastructure classes (indexer, query executor) follow a resource-acquisition-is-initialization style that is natural for their lifecycle but creates testability friction",
+      "Package-private collaborator classes in the exploration package are convenient for encapsulation but block injection-based testing of the coordinator",
+      "Static factory method with system property coupling is a pragmatic shortcut for CLI startup that leaks into the testing surface"
+    ],
+    "likely_symptoms": [
+      "Integration tests for the indexer require a real (possibly temp) file system path",
+      "Unit tests for SemanticFieldExplorer must mock at the QueryExecutor level and cannot target comparator or multi-seed logic independently",
+      "Tests that call createDefaultEnglish() may fail on CI if the default path grammars/relations.json is not present in the working directory"
+    ],
+    "possible_false_positives": [
+      "BlackLabQueryExecutor's constructor I/O is explicitly documented as intentional given BlackLab's lifecycle model, and the QueryExecutor interface provides sufficient test injection surface — this may not be a practical problem",
+      "SemanticFieldExplorer's internal collaborators are lightweight wrappers that forward to QueryExecutor, so the real testability exposure is already covered by mocking the executor"
+    ]
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 3,
+  "assessments": {"dependency_health": 64.0},
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml declares only 8 production dependencies with clear purposes (BlackLab engine, query-parser, Jackson, SLF4J, Logback, jspecify)",
+        "BlackLab engine transitively pulls jackson-dataformat-yaml:2.13.4 and jackson-jaxrs-json-provider:2.13.4 alongside project-pinned jackson-databind:2.17.2 and jackson-core:2.17.2",
+        "pom.xml comment acknowledges the version conflict: 'Pin jackson-core to match databind; another transitive dep resolves an older version otherwise'",
+        "BlackLab engine transitively brings log4j-core:2.24.3 (compile scope); project uses slf4j-api:2.0.7 + logback-classic:1.5.18; no log4j-to-slf4j bridge present",
+        "No logback.xml or log4j2.xml configuration found in src/main/resources; only lexicon.txt present",
+        "jspecify:1.0.0 is declared at compile (default) scope but is annotation-only with zero runtime behavior; ends up in shaded JAR",
+        "Heavy transitive deps via BlackLab: Saxon-HE (full XML processor), ICU4J, javassist+reflections (bytecode), vtd-xml, trove4j, eclipse-collections, fastutil — all compile-scope in shaded JAR",
+        "blacklab-query-parser is separately declared and both ContextualQueryLanguageParser (BlackLabQueryExecutor.java:22,111) and CorpusQueryLanguageParser (CollocateQueryHelper.java:143,230) are actively used",
+        "No duplicate JSON library: only Jackson is used throughout; no Gson, Fastjson, or org.json alongside it",
+        "No circular dependency cycles: module structure is acyclic (api → exploration/query → config/model/utils)"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "strengths": [
+        "Direct dependency list is lean and purposeful: 8 production dependencies, each with a documented rationale",
+        "No duplicate libraries for the same purpose — single JSON library (Jackson), single logging facade (SLF4J), single corpus engine (BlackLab)",
+        "Jackson version conflict is acknowledged in pom.xml with an explanatory comment rather than silently left",
+        "blacklab-query-parser is declared as a separate artifact to make the CQL parser dependency explicit rather than relying on transitive inclusion",
+        "jspecify usage is broad and consistent (12+ files), not a one-off annotation import"
+      ],
+      "issue_character": "The issues are systemic rather than isolated: they stem from a single architectural choice (BlackLab as the core engine) which drags in a split Jackson ecosystem and a dual logging framework with no bridging, and the project has not mitigated these collateral effects.",
+      "score_rationale": "The direct dependencies are well-curated with no redundancy, which is a genuine strength. However, the Jackson split (2.13.x dataformat/jaxrs modules coexisting with 2.17.x core/databind) is an acknowledged but unresolved version inconsistency that creates latent binary compatibility risk in the shaded JAR. More concretely, the dual logging problem (BlackLab's log4j-core running alongside Logback with no bridge) means BlackLab's internal log output is uncontrolled and cannot be configured through the project's logging setup — a real operational drag. These are not purely theoretical: they affect every deployment of the shaded JAR. The lack of a logback.xml further means neither logging system is explicitly configured. The score reflects a clean direct-dep surface dragged down by unaddressed transitive-dep side-effects."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "jackson-version-split",
+      "summary": "Jackson modules at mixed versions (2.13.4 vs 2.17.2) in resolved classpath",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "mvn dependency:tree shows jackson-dataformat-yaml:2.13.4 and jackson-jaxrs-json-provider:2.13.4 (from blacklab-engine) coexisting with jackson-databind:2.17.2 and jackson-core:2.17.2 (project-pinned)",
+        "pom.xml comment acknowledges the need for explicit pinning: 'Pin jackson-core to match databind; another transitive dep resolves an older version otherwise'",
+        "The dataformat-yaml and jaxrs modules were compiled against 2.13.x internals; the resolved core is 2.17.2 — Jackson generally maintains binary compatibility but this is an unsupported configuration"
+      ],
+      "suggestion": "Add explicit version overrides for the affected Jackson ecosystem modules in pom.xml using <dependencyManagement> to force all Jackson artifacts to 2.17.2: add jackson-dataformat-yaml:2.17.2, jackson-jaxrs-json-provider:2.17.2, jackson-jaxrs-base:2.17.2, and jackson-module-jaxb-annotations:2.17.2 under <dependencyManagement><dependencies>. This aligns the entire Jackson ecosystem to a single version without needing to exclude BlackLab's transitive deps.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "dual-logging-no-bridge",
+      "summary": "BlackLab brings log4j-core:2.24.3 (compile scope) with no SLF4J bridge — two independent logging systems active at runtime",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "mvn dependency:tree: log4j-core:2.24.3:compile is a transitive dependency via blacklab-engine",
+        "Project directly declares slf4j-api:2.0.7 and logback-classic:1.5.18:runtime",
+        "No log4j-to-slf4j bridge (log4j-to-slf4j or log4j-slf4j2-impl) found anywhere in the dependency tree",
+        "No logback.xml or log4j2.xml in src/main/resources — neither logging system is explicitly configured"
+      ],
+      "suggestion": "Add log4j-to-slf4j bridge to route BlackLab's Log4j output through SLF4J/Logback: add 'org.apache.logging.log4j:log4j-to-slf4j' at compile scope in pom.xml, and add an exclusion for 'log4j-core' on the blacklab-engine dependency to prevent Log4j from initializing its own appenders. Then add a logback.xml to src/main/resources to configure output levels and appenders explicitly.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "jspecify-compile-scope",
+      "summary": "jspecify annotation library declared at compile scope; ends up in shaded JAR despite being annotation-only with no runtime behavior",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "pom.xml: <dependency><groupId>org.jspecify</groupId>... with no <scope>, defaulting to compile",
+        "jspecify provides only @NonNull/@Nullable annotations; all annotation processing happens at compile time with no runtime class loading needed",
+        "The shaded JAR unnecessarily bundles the jspecify JAR"
+      ],
+      "suggestion": "Change jspecify scope to 'provided' in pom.xml: <scope>provided</scope>. This keeps the annotations available at compile time for IDE and compiler checks but excludes them from the shaded JAR output.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab 4.0.0 was not designed for embedding in a shaded-JAR application — it carries its own logging (log4j) and serialization (Jackson 2.13.x) ecosystem that conflicts with the host project's choices",
+      "No <dependencyManagement> section exists to enforce consistent transitive dependency versions across the entire classpath",
+      "The project lacks a logging configuration file, meaning neither the direct nor the transitive logging framework is explicitly configured"
+    ],
+    "likely_symptoms": [
+      "BlackLab log output (INFO, WARN, ERROR from nl.inl.*) appears on stdout independently of the Logback configuration, making it impossible to silence or redirect via logback.xml",
+      "Subtle runtime errors possible if jackson-dataformat-yaml:2.13.4 calls internal Jackson APIs that moved or changed between 2.13 and 2.17",
+      "Shaded JAR is larger than necessary due to both log4j-core and logback-core bundled alongside annotation-only jspecify"
+    ],
+    "possible_false_positives": [
+      "Jackson binary compatibility across minor versions (2.13.x → 2.17.x) is historically very strong; the version split is technically unsupported but may work flawlessly in practice since BlackLab's YAML/JAXRS usage is internal to its indexing pipeline which is not exercised by the query path",
+      "jspecify scope concern is minor — the JAR is tiny (<50KB) and the annotation retention is SOURCE for most uses; impact on shaded JAR size is negligible"
+    ]
+  }
+}

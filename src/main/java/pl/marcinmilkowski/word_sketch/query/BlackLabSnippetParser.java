@@ -84,7 +84,8 @@ class BlackLabSnippetParser {
         String trimmedRight = trimRightAtSentenceBoundary(right);
         String assembled = (trimmedLeft.isEmpty() ? "" : trimmedLeft + " ") + match
                          + (trimmedRight.isEmpty() ? "" : " " + trimmedRight);
-        return detokenize(assembled);
+        String detokenized = detokenize(assembled);
+        return detokenized != null ? detokenized : assembled;
     }
 
     /** Keep only the portion of left-context text AFTER the last sentence boundary. */
@@ -125,10 +126,16 @@ class BlackLabSnippetParser {
             return "";
         }
         String text = xmlSnippet.replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
-        return detokenize(text);
+        String detokenized = detokenize(text);
+        return detokenized != null ? detokenized : text;
     }
 
-    /** Remove spurious spaces introduced by whitespace-separated tokenization (e.g. "word ," → "word,"). */
+    /**
+     * Remove spurious spaces introduced by whitespace-separated tokenization (e.g. "word ," → "word,").
+     *
+     * @return the detokenized string, or {@code null} if {@code text} is {@code null}
+     */
+    @Nullable
     static String detokenize(String text) {
         if (text == null || text.isEmpty()) return text;
         return text

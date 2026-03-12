@@ -1,0 +1,118 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 9,
+  "assessments": {"contract_coherence": 59.0},
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "ExplorationService.fetchExamples declares (collocate, seed, ...) but SemanticFieldExplorer implements (seed, collocate, ...) — parameter names are inverted; callers via the interface reference pass (seed, collocate) matching the implementation, not the interface spec",
+        "ExplorationHandlers holds semanticFieldExplorer as ExplorationService (line 37) and calls fetchExamples(seed, collocate, ...) (line 193), which is consistent with the implementation order but contradicts the interface declaration order",
+        "exploreMultiSeed uses parameter name 'seeds' while compareCollocateProfiles on the same interface uses 'seedNouns' for the same Set<String> concept",
+        "HttpApiUtils is a package-private class with mixed method visibility: sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse, requireParam, parseQueryParams, MAX_PARAM_LENGTH, MAX_REQUEST_BODY_BYTES are public; wrapWithErrorHandling, parseIntParam, parseDoubleParam, readBodyWithSizeLimit, MAPPER are package-private — the distinction is meaningless given the class is package-private, yet creates a misleading apparent API surface",
+        "buildFullPattern(RelationConfig, @Nullable String headword, String collocateLemma) has no @Nullable on collocateLemma despite the implementation body containing an explicit null/blank check on it that silently returns the head-only pattern"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface has precise Javadoc distinguishing four superficially-similar methods (executeCollocations, executeCqlQuery, executeBcqlQuery, executeSurfacePattern), documenting subtle behavioral differences like labeled-position handling and logDice scoring",
+        "GrammarConfig.relation(String) consistently returns Optional<RelationConfig> for query-style lookups, never null, providing a predictable absent-value contract",
+        "ExplorationService methods uniformly annotate return types @NonNull, declare checked IOException, and use options-object DTOs that allow future parameter extension without breaking callers",
+        "wrapWithErrorHandling provides a documented, consistent exception-to-HTTP-status mapping (IAE→400, IOException→500) applied uniformly across all HTTP handlers",
+        "The two-overload design for buildFullPattern clearly separates 'head-substituted only' from 'fully substituted' use cases with distinct signatures, avoiding ambiguity"
+      ],
+      "issue_character": "The issues are a mix of one latent functional bug (fetchExamples parameter inversion between interface and implementation) and several lower-severity naming inconsistencies and visibility signals; the functional bug is isolated to a single method pair but undermines the entire purpose of having an interface contract as a stable specification.",
+      "score_rationale": "The codebase has genuinely strong contract practices: documented Optional vs null usage, consistent @NonNull/@Nullable annotations, well-differentiated Javadoc on similar methods, and a uniform error handling contract. These push the score up considerably. However, the fetchExamples parameter inversion is a meaningful contract failure: the interface declares (collocate, seed) but the sole implementation and all callers use (seed, collocate). Since both parameters are String, the compiler cannot catch a mismatch, and any future implementation or caller following the interface spec would silently swap the roles. The supporting issues (seedNouns vs seeds naming, mixed visibility signals in HttpApiUtils, unannotated nullable collocateLemma) are minor but add up to a pattern of inconsistency at the edges of otherwise well-managed contracts. The score lands around 59: strong core practices but a genuine latent bug at the interface boundary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "fetchexamples_param_inversion",
+      "summary": "ExplorationService.fetchExamples interface declares parameters as (collocate, seed, ...) but the implementation SemanticFieldExplorer and the only caller ExplorationHandlers both use (seed, collocate, ...) order",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationService line 59-63: @NonNull FetchExamplesResult fetchExamples(@NonNull String collocate, @NonNull String seed, ...)",
+        "SemanticFieldExplorer line 333: public @NonNull FetchExamplesResult fetchExamples(@NonNull String seed, @NonNull String collocate, ...)",
+        "ExplorationHandlers line 193 (calls through ExplorationService reference): semanticFieldExplorer.fetchExamples(seed, collocate, resolvedConfig, ...)",
+        "Since both parameters are String, the Java compiler cannot detect the inversion; runtime behavior is accidentally correct only because the caller matches the implementation order, not the interface contract"
+      ],
+      "suggestion": "Fix the interface declaration to match the implementation and caller order: change ExplorationService.fetchExamples to declare (String seed, String collocate, RelationConfig, FetchExamplesOptions) so the interface contract is truthful and any future implementation will receive parameters in the correct semantic order.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "seeds_param_name_inconsistency",
+      "summary": "ExplorationService interface uses 'seeds' in exploreMultiSeed but 'seedNouns' in compareCollocateProfiles for the same Set<String> concept, creating inconsistent naming across sibling methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java"
+      ],
+      "evidence": [
+        "Line 44-45: @NonNull ExplorationResult exploreMultiSeed(@NonNull Set<String> seeds, ...)",
+        "Line 52-53: @NonNull ComparisonResult compareCollocateProfiles(@NonNull Set<String> seedNouns, ...)"
+      ],
+      "suggestion": "Standardise on a single parameter name for the seed word set across all ExplorationService methods. Either 'seeds' (shorter, consistent with exploreMultiSeed) or 'seedWords' (more explicit) applied uniformly.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "httputils_mixed_visibility",
+      "summary": "Package-private class HttpApiUtils mixes public and package-private method declarations, creating a misleading impression of an intentional internal vs external API distinction that has no runtime effect",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "Class declared: final class HttpApiUtils (package-private)",
+        "Public methods: sendJsonResponse, sendError, sendOptionsResponse, sendBinaryResponse, requireParam, parseQueryParams, MAX_PARAM_LENGTH, MAX_REQUEST_BODY_BYTES",
+        "Package-private: wrapWithErrorHandling, parseIntParam, parseDoubleParam, readBodyWithSizeLimit, MAPPER",
+        "Since the class itself is package-private, the public modifier on methods has no effect on external accessibility; the distinction is purely cosmetic but implies a contract boundary that does not exist"
+      ],
+      "suggestion": "Make all methods in HttpApiUtils consistently package-private (remove the 'public' modifier) to accurately reflect that the entire class is an internal implementation detail, or explicitly document why certain methods are marked public if there is a deliberate intent.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "buildfullpattern_unannotated_nullable",
+      "summary": "buildFullPattern(RelationConfig, @Nullable headword, String collocateLemma) does not annotate collocateLemma as @Nullable despite the method body explicitly handling null/blank with a silent passthrough",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationPatternUtils.java"
+      ],
+      "evidence": [
+        "Line 31: public static String buildFullPattern(RelationConfig config, @Nullable String headword, String collocateLemma)",
+        "Lines 33-34: if (collocateLemma == null || collocateLemma.isBlank()) return withHead; — explicit null check on unannotated parameter"
+      ],
+      "suggestion": "Annotate collocateLemma as @Nullable to match the actual null-safe behavior documented by the null check in the body, or add a Javadoc @throws NullPointerException note if null is genuinely not intended to be passed.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The fetchExamples interface was likely written after the implementation, with parameter names accidentally transposed when documenting the method signature",
+      "The mixed public/package-private visibility in HttpApiUtils may stem from copy-paste of method signatures originally intended for a public utility class before the decision to make it package-private",
+      "Incremental addition of methods to the ExplorationService interface without reviewing existing parameter naming conventions led to the seeds/seedNouns inconsistency"
+    ],
+    "likely_symptoms": [
+      "A future second implementation of ExplorationService following the interface Javadoc would silently invert seed and collocate in fetchExamples, producing wrong concordance queries with no compile-time warning",
+      "New developers reading the ExplorationService interface would be confused by (collocate, seed) ordering that contradicts the natural 'anchor then modifier' call style used everywhere else in the codebase"
+    ],
+    "possible_false_positives": [
+      "The HttpApiUtils visibility issue is purely cosmetic since the class is package-private; it does not affect behaviour or accessibility in any way"
+    ]
+  }
+}

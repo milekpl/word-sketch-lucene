@@ -1,0 +1,139 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 18,
+  "assessments": {
+    "api_surface_coherence": 67.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "Javadoc on ConcordanceHandlers.handleConcordanceExamples says 'the response includes a fallback: true field to signal this to callers' but the boolean is computed (line 56) and never placed in the response map",
+        "populateComparisonResponse emits both 'edges' and 'edges_count'; populateExploreResponse emits 'edges' only — sibling endpoints have asymmetric count fields",
+        "Javadoc on populateComparisonResponse (line 161) lists 'adjectives' and 'adjectives_count' as response keys but code puts values under 'collocates' and 'collocates_count'; local variable is named 'adjectives'",
+        "Error responses from sendError are {\"error\": \"...\"} while all success responses carry {\"status\": \"ok\", ...} — callers checking for status field will see null on errors",
+        "/api/relations and /api/relations/dep describe sketch grammar resources but are not namespaced under /api/sketch/; all other sketch-adjacent endpoints are under /api/sketch/"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "strengths": [
+        "All JSON success responses carry a top-level 'status: ok' field, giving callers a uniform success signal",
+        "Shared parameter vocabulary (seed, collocate, relation, top) is consistent across the sibling /api/semantic-field/examples and /api/concordance/examples endpoints",
+        "All handlers are wrapped by wrapWithErrorHandling which maps IAE→400 and IOException→500 identically across every endpoint",
+        "buildExploreResponseEnvelope enforces a shared envelope shape (status, parameters sub-map) across the three explore/compare variants",
+        "POST is used exclusively for endpoints that require complex body input (bcql, visual/radial); all read endpoints are GET"
+      ],
+      "issue_character": "The issues are concrete, localized defects — a documented-but-missing response field, a sibling asymmetry in count fields, and stale Javadoc — rather than a systemic architectural problem, but they directly erode API consumer trust.",
+      "score_rationale": "The API surface has clearly been designed with consistency in mind: shared vocabulary, uniform error handling, and a coherent envelope structure across the explore family all show intentional design. However, there are concrete bugs: the documented 'fallback' field is never emitted from the concordance endpoint (callers cannot detect silent fallback behavior), and the explore/compare siblings are asymmetric in their edges_count field. The Javadoc misdocuments response keys for the compare endpoint. These are not stylistic issues — they represent discrepancies between the documented and actual contract. The /api/relations namespace inconsistency is a lesser concern. Together these issues knock the score meaningfully below solid, but the strong baseline of consistent patterns keeps it from dropping further."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "concordance_fallback_field_missing",
+      "summary": "Javadoc documents a 'fallback: true' response field on /api/concordance/examples but it is never emitted",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "Line 48 in Javadoc: 'the response includes a {@code fallback: true} field to signal this to callers'",
+        "Line 56: boolean fallback = rel.isEmpty(); — computed but never placed in the response map",
+        "Response assembly block (lines 68-77) has no response.put(\"fallback\", fallback) call"
+      ],
+      "suggestion": "Add response.put(\"fallback\", fallback) before HttpApiUtils.sendJsonResponse so the documented contract matches the implementation; callers currently cannot distinguish a proximity-fallback response from a normal one",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_compare_edges_count_asymmetry",
+      "summary": "populateComparisonResponse emits 'edges_count' but populateExploreResponse does not, creating an asymmetry between sibling endpoints",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "populateExploreResponse (line ~86): response.put(\"edges\", ...) — no edges_count",
+        "populateComparisonResponse (line 183): response.put(\"edges_count\", edges.size()) — count is emitted",
+        "All other collection fields in populateExploreResponse have a paired *_count field (seed_collocates_count, discovered_nouns_count, core_collocates_count)"
+      ],
+      "suggestion": "Add response.put(\"edges_count\", edges.size()) in populateExploreResponse after the edges put, mirroring the pattern used by all other collection fields and by populateComparisonResponse",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "comparison_response_key_stale_javadoc",
+      "summary": "populateComparisonResponse Javadoc lists 'adjectives' and 'adjectives_count' as response keys, but code emits 'collocates' and 'collocates_count'",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "Line 161: Javadoc says '{@code adjectives}, {@code adjectives_count}'",
+        "Line 169: local variable named 'adjectives'",
+        "Line 173: response.put(\"collocates\", adjectives)",
+        "Line 174: response.put(\"collocates_count\", result.collocates().size())"
+      ],
+      "suggestion": "Update the Javadoc on populateComparisonResponse to list 'collocates' and 'collocates_count' to match the actual emitted keys; optionally rename the local variable 'adjectives' to 'collocates' to remove the internal mismatch",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "error_envelope_missing_status",
+      "summary": "Success responses carry 'status: ok' but error responses from sendError only carry 'error: ...' with no status field, creating an asymmetric envelope",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "sendJsonResponse: response objects always include 'status: ok' added by every handler",
+        "sendError builds {\"error\": message} with no 'status' field",
+        "Callers checking response.status will receive undefined/null on error responses"
+      ],
+      "suggestion": "Add error.put(\"status\", \"error\") in sendError so all responses have a consistent 'status' field; this aligns the error envelope with the success convention and lets callers use a single status-check pattern",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "relations_namespace_mismatch",
+      "summary": "/api/relations and /api/relations/dep are isolated from the /api/sketch/ namespace despite describing sketch grammar configuration",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "Route registration: /api/relations and /api/relations/dep alongside /api/sketch/{lemma}",
+        "handleSurfaceRelations and handleDepRelations both live in SketchHandlers — they describe sketch grammar resources",
+        "All semantic-field and concordance endpoints are consistently namespaced; only relations breaks the sketch grouping"
+      ],
+      "suggestion": "Consider moving to /api/sketch/relations and /api/sketch/relations/dep to group sketch-grammar metadata under the sketch namespace; add redirect aliases if backwards compatibility is needed",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The fallback field was documented at design time but omitted during implementation — likely a spec-code drift from incremental development",
+      "The explore/compare endpoint pair was developed in parallel and edges_count was only added to one branch",
+      "The comparison response key was renamed from 'adjectives' to 'collocates' (a better name) but the Javadoc was not updated to match"
+    ],
+    "likely_symptoms": [
+      "API clients polling for 'fallback: true' to detect degraded responses will silently process proximity-matched results as if they were pattern-matched results",
+      "Clients that count edges from compare via edges_count but must .length() the array in explore responses have different code paths for structurally equivalent data",
+      "Developers reading the Javadoc before calling the compare endpoint will expect 'adjectives' in the response and be surprised to find 'collocates'"
+    ],
+    "possible_false_positives": [
+      "The relations namespace at /api/relations may be intentional for discoverability (a flat /api/ namespace where all resource types are top-level) rather than an oversight",
+      "The error envelope asymmetry may be intentional if the API is only consumed by a single client that checks HTTP status codes rather than body status fields"
+    ]
+  }
+}

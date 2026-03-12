@@ -1,0 +1,118 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 17,
+  "assessments": {"test_strategy": 72.0},
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "DependencySketchTest: all 6 tests are @Disabled and assert only assertNotNull(results) — no behavioral assertions",
+        "BlackLabQueryExecutorIntegrationTest: single test asserts only assertNotNull for each pattern variant",
+        "HybridAlgorithmTest: assertions on pattern content strings (e.g., assertTrue(pattern.contains(\"be|appear|seem\"))) couple tests tightly to config implementation details",
+        "SemanticFieldExplorerTest covers empty set, single seed, null seed, partial sharing, and no-collocates edge cases",
+        "BlackLabIntegrationTest exercises the full parse→accumulate→logDice→rank pipeline in CI with controlled stub data and specific value assertions",
+        "ExplorationHandlersTest covers both happy path and all negative validation paths (missing params, single seed, unknown relation, invalid numeric param)"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "strengths": [
+        "StubQueryExecutor is shared across the entire test suite, enabling CI-compatible unit tests for all layers without a real index",
+        "SemanticFieldExplorerTest and CollocateProfileComparatorTest cover both happy path and edge cases: empty seeds, single seed, null seeds, no-collocates scenario, and partial/full/specific categorization",
+        "BlackLabIntegrationTest tests the end-to-end collocate-ranking pipeline (XML parsing → frequency accumulation → logDice → ranking) with deterministic controlled inputs and precise value assertions",
+        "Handler tests (ExplorationHandlersTest, SketchHandlersTest, ConcordanceHandlersTest) cover both 200 happy paths and all input-validation 400 error paths",
+        "LogDiceUtilsTest is exemplary: tests symmetry, monotonicity, overflow protection, zero-division, negative input, and real-corpus scenario plausibility"
+      ],
+      "issue_character": "Issues are isolated rather than systemic: the main problems are weak or absent behavioral assertions in a cluster of disabled live-index tests, and a handful of config-content tests that assert on implementation strings rather than observable behavior. The core business logic (exploration, collocate ranking, comparison, handlers) is tested well.",
+      "score_rationale": "The suite is broadly solid — most critical business logic paths have meaningful assertions and edge-case coverage, and the stub-based approach gives good CI coverage across all layers. The drag comes from the disabled DependencySketchTest cluster, which has no behavioral assertions at all (just assertNotNull), and from HybridAlgorithmTest, which checks the literal text of grammar patterns instead of query results, making those tests fragile to config refactoring. These are real quality gaps but confined to peripheral modules; the core exploration, scoring, and API layers are tested properly."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "weak_assert_dependency_sketch",
+      "summary": "DependencySketchTest uses assertNotNull as the sole assertion for every test",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java"
+      ],
+      "evidence": [
+        "testDependencyNsubjQuery: assertNotNull(results)",
+        "testDependencyAmodQuery: assertNotNull(results)",
+        "testDependencyObjQuery: assertNotNull(results)",
+        "testDependencyWithPosConstraint: assertNotNull(results)",
+        "testDependencyNullDeprel: assertTrue(results.isEmpty()) — only this one has a real behavioral assertion"
+      ],
+      "suggestion": "Add behavioral assertions: verify that results are sorted by logDice descending, that returned lemmas are non-empty strings, that results respect the maxResults cap, and that each result's logDice is within [0, 14]. For testDependencyEmptyLemma, assert isEmpty() (as already done for null deprel).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "implementation_detail_assertions_hybrid",
+      "summary": "HybridAlgorithmTest asserts on literal pattern text strings rather than query behavior",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/HybridAlgorithmTest.java"
+      ],
+      "evidence": [
+        "assertTrue(pattern.contains(\"be|appear|seem\"), ...) — hard-codes expected lemma list",
+        "assertTrue(cqlPattern.toLowerCase().contains(\"jj\"), ...) — hard-codes expected POS tag string",
+        "These tests break when the grammar config is reformatted or lemma list is extended"
+      ],
+      "suggestion": "Test at the behavior level: use the grammar config to execute a surface-pattern query against an in-memory stub and assert that expected collocate types are returned; or at minimum use config-level getters (e.g., assertFalse(rel.copulaLemmas().isEmpty())) rather than string scanning the raw pattern.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "weak_assert_blacklab_executor_integration",
+      "summary": "BlackLabQueryExecutorIntegrationTest has a single test asserting only assertNotNull for each pattern variant",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java"
+      ],
+      "evidence": [
+        "testSubjectOf: iterates patterns and asserts assertNotNull(results, ...) only",
+        "No assertion on result type, logDice range, or list contents"
+      ],
+      "suggestion": "Extend to verify that results (if non-empty) have logDice in [0, 14], that lemmas are non-blank, and that the list respects any maxResults cap passed. Alternatively, fold these checks into BlackLabQueryExecutorTest.LiveIndex where similar patterns are already being tested.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_executor_exception_propagation_tests",
+      "summary": "No tests verify ExplorationService/handler behavior when QueryExecutor throws IOException",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java"
+      ],
+      "evidence": [
+        "All stub executors return empty lists or canned data; none throw IOException",
+        "wrapWithErrorHandling maps IOException → 500, but no test exercises the full chain from executor failure to 500 response"
+      ],
+      "suggestion": "Add a test where the stub executor throws IOException and verify the handler returns 500 via wrapWithErrorHandling. This is already tested in WrapHandlerTest at the infrastructure level, but the integration between a real handler and a failing executor is not covered.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Disabled live-index tests were written as smoke tests ('does it return something?') without being designed for behavioral coverage, likely because writing meaningful assertions without a real index feels difficult",
+      "Grammar config tests evolved from ad-hoc configuration validation rather than from a behavioral specification, leading to pattern-string assertions"
+    ],
+    "likely_symptoms": [
+      "DependencySketchTest assertNotNull assertions would pass even if executeDependencyPattern returned garbage data (wrong lemmas, negative logDice, unsorted results)",
+      "HybridAlgorithmTest tests break if someone reformats the grammar config pattern text without changing behavior",
+      "Executor IOException failure mode is untested end-to-end, so a regression in error propagation could go undetected"
+    ],
+    "possible_false_positives": [
+      "The disabled tests' weak assertions may be intentional: since they require a live index and are primarily smoke tests, the author may have consciously chosen minimal assertions to avoid flakiness from corpus variation"
+    ]
+  }
+}

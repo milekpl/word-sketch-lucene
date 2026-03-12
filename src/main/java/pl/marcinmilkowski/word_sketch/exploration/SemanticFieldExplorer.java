@@ -160,14 +160,14 @@ public class SemanticFieldExplorer implements ExplorationService {
             String simplePattern,
             SingleSeedExplorationOptions opts) throws IOException {
 
+        if (seed == null || seed.isEmpty()) {
+            throw new IllegalArgumentException("seed must not be blank");
+        }
+
         int topPredicates = opts.base().topCollocates();
         int nounsPerPredicate = opts.reverseExpansionLimit();
         double minLogDice = opts.base().minLogDice();
         int minShared = opts.base().minShared();
-
-        if (seed == null || seed.isEmpty()) {
-            throw new IllegalArgumentException("seed must not be blank");
-        }
 
         String normalizedSeed = seed.toLowerCase().trim();
 
@@ -186,8 +186,9 @@ public class SemanticFieldExplorer implements ExplorationService {
         Map<String, Double> seedCollocateScores = new LinkedHashMap<>();
         Map<String, Long> seedCollocateFrequencies = new LinkedHashMap<>();
         for (QueryResults.WordSketchResult r : seedRelations) {
-            seedCollocateScores.put(r.lemma().toLowerCase(), r.logDice());
-            seedCollocateFrequencies.put(r.lemma().toLowerCase(), r.frequency());
+            String lowerLemma = r.lemma().toLowerCase();
+            seedCollocateScores.put(lowerLemma, r.logDice());
+            seedCollocateFrequencies.put(lowerLemma, r.frequency());
         }
 
         Map<String, Map<String, Double>> nounProfiles = buildNounToCollocatesMap(

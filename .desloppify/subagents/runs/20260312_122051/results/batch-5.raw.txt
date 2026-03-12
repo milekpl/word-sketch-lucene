@@ -1,0 +1,104 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 5,
+  "assessments": {"mid_level_elegance": 72.0},
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler is a dedicated, single-responsibility translation layer: model-to-JSON mapping is centralised and not scattered across handlers",
+        "HttpApiUtils.wrapWithErrorHandling centralises all error-to-HTTP-status mapping in one obvious place; handlers throw unchecked exceptions and are never aware of status codes",
+        "CollocateQueryHelper cleanly delegates collocate search/ranking out of BlackLabQueryExecutor, keeping index lifecycle management separate from result assembly logic",
+        "ExplorationService interface provides a typed, narrow seam between HTTP handlers and exploration logic; handlers depend only on the interface, not the implementation",
+        "ExplorationHandlers uses typed private records (CommonExploreParams, ExploreRequestParams, ExploreResponseShape) to make parameter destinations explicit at each call site",
+        "ExplorationService.fetchExamples declares (collocate, seed) but SemanticFieldExplorer.fetchExamples implements (seed, collocate) — parameter names inverted between interface and implementation; handler call uses (seed, collocate) matching implementation but violating the declared contract",
+        "ExploreRequestParams and ExploreResponseShape are both thin Map<String, Object> wrappers whose only difference is naming convention (one feeds into parameters sub-map, one into top-level response) — a subtle destination distinction that requires doc reading",
+        "CollocateQueryHelper exposes a no-index null constructor for test subclasses, requiring Objects.requireNonNull guards inside every I/O method — an awkward null-by-design state that leaks test infrastructure concerns into the production class",
+        "BlackLabQueryExecutor dispatches lemma extraction via three different lambda paths (extractLemmaWithFallback for executeCollocations, extractLastLemma for dependency, and position-based for surface patterns) passed as Function<String,String> arguments — the rationale for each path is spread across inline comments and requires careful reading to follow"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "strengths": [
+        "ExploreResponseAssembler centralises all model-to-JSON translation in one class; HTTP handler classes are free of ad-hoc field mapping",
+        "HttpApiUtils.wrapWithErrorHandling is a single, reusable boundary that converts every exception type to the correct HTTP status, removing status-code logic from all handlers",
+        "CollocateQueryHelper extracts collocate mechanics cleanly from BlackLabQueryExecutor, allowing the executor to read as lifecycle management + query dispatch rather than implementation detail",
+        "ExplorationService provides a typed, stable seam between the HTTP and exploration layers with well-named methods and @NonNull/@Nullable annotations on every boundary parameter",
+        "CommonExploreParams and sibling records inside ExplorationHandlers make parameter destinations explicit and reduce ad-hoc Map<String,String> threading between parse and build steps"
+      ],
+      "issue_character": "Issues are localized rather than systemic: one concrete contract inversion at the fetchExamples interface boundary and two cases of micro-seams that require naming-convention knowledge to navigate correctly, plus one null-by-design testing seam in CollocateQueryHelper.",
+      "score_rationale": "The codebase gets the major seams right: dedicated translation layer, centralised error handling, clean service interface, and collocate mechanics cleanly separated from index lifecycle. A developer traversing the HTTP-to-exploration path would find the handoffs obvious and the data translation predictable. What pulls the score down is a parameter-order inversion between the ExplorationService contract and its implementation that a future implementor or mocker would trip on, plus the ExploreRequestParams/ExploreResponseShape wrapper distinction that requires documentation to understand rather than being structurally enforced. These are real friction points but confined to one feature area. Score sits at 72: solid architecture with a few non-obvious boundary decisions that require extra reading."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "fetch_examples_param_inversion",
+      "summary": "ExplorationService.fetchExamples declares (collocate, seed) but implementation and callers use (seed, collocate), inverting the interface contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationService.java: `fetchExamples(@NonNull String collocate, @NonNull String seed, ...)`",
+        "SemanticFieldExplorer.java line 333: `public @NonNull FetchExamplesResult fetchExamples(@NonNull String seed, @NonNull String collocate, ...)`",
+        "ExplorationHandlers.java line 193: `semanticFieldExplorer.fetchExamples(seed, collocate, resolvedConfig, ...)`"
+      ],
+      "suggestion": "Align the interface declaration to match the implementation and callers: change the interface signature to `fetchExamples(@NonNull String seed, @NonNull String collocate, ...)` to reflect the actual convention used everywhere.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_response_wrapper_ambiguity",
+      "summary": "ExploreRequestParams and ExploreResponseShape are structurally identical Map wrappers whose only distinction is naming — where entries land (parameters sub-map vs top-level) is invisible in the type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "Both types are `private record X(Map<String, Object> fields) {}` with no structural difference",
+        "buildExploreResponseEnvelope puts ExploreRequestParams into `response.get(\"parameters\")` and ExploreResponseShape into top-level response via `response.putAll(...)` — the distinction exists only in code reading the method body, not in the types themselves"
+      ],
+      "suggestion": "Give each wrapper a more structurally distinct role: rename them to make their destination explicit (e.g. ParameterSubMapExtras / TopLevelResponseFields) or collapse to a single record with a boolean/enum destination hint, so callers cannot accidentally swap them.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "collocate_helper_null_index_seam",
+      "summary": "CollocateQueryHelper exposes a no-arg null-index constructor for test subclasses, requiring requireNonNull guards inside every I/O method and leaking test infrastructure concerns into production code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "No-arg constructor sets `this.index = null` with javadoc 'Not for production use'",
+        "getTotalFrequency, performCollocateSearch, and executeBcqlQuery each call `Objects.requireNonNull(index, ...)` defensively because of this nullable state",
+        "The production constructor enforces `@NonNull BlackLabIndex` but the class-level field is `@Nullable` to accommodate the test constructor"
+      ],
+      "suggestion": "Replace the no-arg test constructor with a package-private factory or test double interface. If test subclasses need to override I/O methods, extract those methods into a protected (overridable) helper rather than allowing null index state.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The fetchExamples parameter inversion was likely introduced when the interface was written to document the operation from a caller perspective (collocate first, as the thing being looked up) while the implementation was written from a data-flow perspective (seed first, as the anchor point)",
+      "The ExploreRequestParams/ExploreResponseShape wrapper ambiguity stems from adding named context to generic map handoffs without making the destination structurally enforced",
+      "The null-index constructor in CollocateQueryHelper reflects a testing pattern common in codebases that lack an injectable test-double mechanism and rely on subclass overrides instead"
+    ],
+    "likely_symptoms": [
+      "A future second implementation of ExplorationService will bind seed to the collocate parameter and vice versa, causing silent data errors in fetchExamples",
+      "Developers adding new response fields to buildExploreResponseEnvelope may accidentally put them in the wrong wrapper (parameters vs top-level), producing unexpected JSON shapes"
+    ],
+    "possible_false_positives": [
+      "The multiple lemma extraction lambda paths in BlackLabQueryExecutor look complex but are each well-commented inline; a reader who follows the comments may find them adequately clear rather than surprising"
+    ]
+  }
+}

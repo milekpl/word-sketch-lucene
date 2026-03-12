@@ -1,0 +1,99 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 12,
+  "assessments": {"naming_quality": 81.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Class names throughout are precise and domain-aligned: SemanticFieldExplorer, CollocateProfileComparator, MultiSeedExplorer, ExploreResponseAssembler, CollocateQueryHelper",
+        "Private helper records in ExplorationHandlers (CommonExploreParams, ExploreRequestParams, ExploreResponseShape) are typed wrappers with documented destination semantics",
+        "QueryExecutor distinguishes executeCqlQuery, executeBcqlQuery, executeSurfacePattern, executeDependencyPattern with Javadocs explaining each distinction",
+        "buildCoreCollocates parameter `seedCollocScores` receives `stats.maxLogDiceByLemma()` — name implies per-seed scores but it is the cross-seed maximum logDice (MultiSeedExplorer.java:134)",
+        "Local variable `seedLd` (line 141) inherits the same confusion as its source map",
+        "Single-letter loop variable `c` used for collocate lemma in buildCoreCollocates loop (line 138)",
+        "Abbreviation `wsr` for WordSketchResult used in loops across MultiSeedExplorer and CollocateProfileComparator without nearby definition"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "strengths": [
+        "Class and interface names are precise domain nouns: SemanticFieldExplorer, CollocateProfileComparator, CollocateQueryHelper, ExploreResponseAssembler, ExplorationService all name their responsibility without ambiguity",
+        "Method names in QueryExecutor and CollocateQueryHelper reveal exact intent: buildAndRankCollocates, prefetchCorpusFrequencies, identifyCommonCollocates, executeCollocateSearchWithContent vs executeCollocateSearch",
+        "Private helper records (CommonExploreParams, ExploreRequestParams, ExploreResponseShape) replace anonymous Map<String,Object> parameters with typed, named structures that document where their contents land in the response",
+        "Model DTOs (ExplorationResult, DiscoveredNoun, CoreCollocate, CollocateProfile, AggregatedCollocateStats) are precise nouns matching their domain concepts",
+        "Parameter names on public API methods are consistently descriptive: seed, minLogDice, topCollocates, bcqlPattern, headPosConstraint"
+      ],
+      "issue_character": "Issues are isolated to a handful of local/parameter names within a single private method (MultiSeedExplorer.buildCoreCollocates): one misleading parameter name (seedCollocScores receiving maxLogDiceByLemma), one propagated abbreviation (seedLd), and two minor loop-variable shortenings. This is a localized imprecision rather than a systemic pattern.",
+      "score_rationale": "The codebase exhibits strong naming discipline at the class, interface, and public method level — a developer navigating for the first time would rarely be misled by a name. The private helper records in ExplorationHandlers and the careful differentiation of query methods in QueryExecutor are particular strengths. The main defect is buildCoreCollocates receiving maxLogDiceByLemma under the name seedCollocScores, which contradicts the actual content (it is the cross-seed maximum, not a seed-specific score); the resulting seedLd local variable inherits the same imprecision. Minor abbreviations (wsr, c) exist in loop bodies but are contained. These issues are local to one private method and do not impede understanding of the broader system, placing the score solidly in the high-quality range but short of exemplary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "misleading-seedcollocscores-param",
+      "summary": "buildCoreCollocates parameter `seedCollocScores` receives maxLogDiceByLemma — name contradicts content",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "Call site (line 59): buildCoreCollocates(commonCollocates, data.collocateSharedCount(), stats.maxLogDiceByLemma(), stats.avgLogDiceByLemma(), seeds.size())",
+        "Parameter declaration (line 134): Map<String, Double> seedCollocScores",
+        "Local variable derived from it (line 141): double seedLd = seedCollocScores.getOrDefault(c, 0.0)",
+        "The value is the maximum logDice across all seeds, not a per-seed score"
+      ],
+      "suggestion": "Rename the parameter to `maxLogDiceByCollocate` (matching the AggregatedCollocateStats record field name maxLogDiceByLemma) and rename the local variable from `seedLd` to `maxLogDice` or `peakLogDice`.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "single-letter-loop-var-c",
+      "summary": "Loop variable `c` used for collocate lemma string in buildCoreCollocates reduces readability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "Line 138: for (String c : commonCollocates) { ... collocateSharedCount.getOrDefault(c, 0) ... seedCollocScores.getOrDefault(c, 0.0)"
+      ],
+      "suggestion": "Rename `c` to `collocate` to match the naming style used elsewhere in the same class (collocateLemma, collocateSharedCount).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "undocumented-wsr-abbreviation",
+      "summary": "Loop variable `wsr` for WordSketchResult used across multiple exploration classes without nearby definition",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.java lines 86, 115, 159: for (QueryResults.WordSketchResult wsr : collocates)",
+        "CollocateProfileComparator.java: for (QueryResults.WordSketchResult r : adjectives) — inconsistently uses `r` instead of `wsr`"
+      ],
+      "suggestion": "Use a descriptive name such as `result` or `collocateResult` consistently in loop bodies, eliminating both the `wsr` and `r` abbreviations and the inconsistency between the two classes.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The parameter seedCollocScores was likely named when it represented a different data shape and was not updated when the AggregatedCollocateStats record introduced the more precise maxLogDiceByLemma name",
+      "Short loop variables (c, wsr, r) are a common Java habit carried from older code and not caught in review because they are syntactically harmless"
+    ],
+    "likely_symptoms": [
+      "A developer reading buildCoreCollocates would expect seedCollocScores to be per-seed, not cross-seed maximum, potentially causing confusion when extending or debugging the scoring logic",
+      "Inconsistent abbreviations (wsr vs r) for the same type across adjacent files add minor friction when switching context"
+    ],
+    "possible_false_positives": [
+      "wsr could be considered a well-understood abbreviation within the specific context of this project's QueryResults.WordSketchResult type — team convention may make it acceptable"
+    ]
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "batch": "type_safety",
+  "batch_index": 11,
+  "assessments": {"type_safety": 64.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "RelationConfig.java:31 — Optional<RelationType> relationType used as a record component, violating Java's design intent that Optional is a return-type-only construct, not a field type",
+        "VisualizationHandlers.java:71 — explicit (ArrayNode) cast after isArray() check instead of pattern-matched instanceof",
+        "ExplorationHandlers.java, ExploreResponseAssembler.java, SketchHandlers.java, ConcordanceHandlers.java, CorpusQueryHandlers.java — response bodies assembled as Map<String, Object>, erasing type information for all values at compile time; 13+ call sites affected",
+        "CollocateQueryHelper.java:60 — @Nullable BlackLabIndex index field with runtime-only Objects.requireNonNull guards in every method; null-index instance constructable via no-arg constructor",
+        "ExplorationHandlers.java:245,255 — ExploreRequestParams and ExploreResponseShape wrap Map<String, Object> internally, preserving untyped values behind thin nominal wrappers"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "jspecify annotations (@NonNull, @Nullable) used consistently across all seed files and model types, enabling static null analysis tools",
+        "Sealed interface ConcordanceResult with SnippetResult/CollocateResult permits exhaustive pattern-matching instead of unchecked casts between result subtypes",
+        "PosGroup and RelationType use proper enums rather than raw strings; computeCollocatePosGroup and resolveRelationAlias avoid stringly-typed dispatch",
+        "GrammarConfigLoader.java pattern-matches instanceof ObjectNode relObj (pattern-matching instanceof) instead of a raw cast when iterating JSON relations",
+        "RenderMode enum in VisualizationHandlers replaces an open-string API with a closed, exhaustive switch; parse() validates on input boundary"
+      ],
+      "issue_character": "The main recurring problem is structural: Optional<RelationType> is embedded as a record component (a recognised Java antipattern — Optional is not serializable and is explicitly excluded from fields by the Java API spec), and the entire API response layer uses Map<String, Object> which erases all value types at compile time. A secondary issue is a @Nullable index field that the type system cannot protect — only runtime guards prevent NPEs. These are not isolated slip-ups; they reflect a consistent design choice in the API layer that sacrifices type safety for convenience.",
+      "score_rationale": "The domain model and query layers are well-typed: enums, sealed interfaces, records with jspecify annotations, and safe instanceof checks are used deliberately. However the API-response layer systematically discards type safety via Map<String, Object>, and the Optional-as-record-field antipattern in RelationConfig propagates through every call that reads relationType(). The net result is a codebase where the internals are reasonably well-typed but the API boundary and a key config type have meaningful gaps. Score of 64 reflects strong internal discipline with recurring structural issues at boundaries."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "optional_record_field",
+      "summary": "Optional<RelationType> used as a record component in RelationConfig, violating Java's Optional-as-field antipattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigLoader.java"
+      ],
+      "evidence": [
+        "RelationConfig.java:31: Optional<RelationType> relationType, — record component declared as Optional",
+        "Java API spec (Optional Javadoc): 'Optional is primarily intended for use as a method return type where there is a clear need to represent \"no result\"... It is not appropriate for use as a field or parameter type'",
+        "GrammarConfigLoader.java:188: parseRelationType(...) returns Optional<RelationType> and is stored directly as the record component"
+      ],
+      "suggestion": "Change the record component to @Nullable RelationType relationType and expose Optional<RelationType> relationType() as a method that wraps the nullable field: public Optional<RelationType> relationType() { return Optional.ofNullable(relationType); }. Update GrammarConfigLoader.parseRelationType to return a nullable value.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "map_string_object_api_responses",
+      "summary": "Pervasive Map<String, Object> for API response bodies across the entire API layer erases compile-time type safety for all response values",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "ExploreResponseAssembler.java:73: populateExploreResponse(@NonNull Map<String, Object> response, ...) — mutable map passed and mutated",
+        "ExploreResponseAssembler.java:168: populateComparisonResponse(@NonNull Map<String, Object> response, ...) — same pattern",
+        "ExplorationHandlers.java:225-238: buildExploreResponseEnvelope returns Map<String, Object>; mixed types (String, int, double, List<Map<String,Object>>) all stored as Object",
+        "13+ call sites across the API package all use Map<String, Object> for response assembly; no compile-time guarantee on key presence or value type"
+      ],
+      "suggestion": "Introduce typed response record classes (e.g., ExploreResponse, ComparisonResponse) that are serialized to JSON by HttpApiUtils.sendJsonResponse via Jackson. Jackson handles serialization of records natively. This eliminates the Map<String, Object> pattern and gives compile-time guarantees on response shape.",
+      "confidence": "high",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_index_runtime_only_guard",
+      "summary": "@Nullable BlackLabIndex index field in CollocateQueryHelper relies on runtime Objects.requireNonNull in every method instead of type-system enforcement",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.java:60: private final @Nullable BlackLabIndex index; — declared nullable",
+        "CollocateQueryHelper.java:77-79: no-arg constructor sets index = null, creating a partially-usable instance",
+        "CollocateQueryHelper.java:92,141: Objects.requireNonNull(index, ...) runtime guards in getTotalFrequency and performCollocateSearch — compile-time null safety is absent",
+        "CollocateQueryHelper.java:232: index.find(query) in executeBcqlQuery has no requireNonNull guard — potential NPE if called on no-arg constructed instance"
+      ],
+      "suggestion": "Separate the test-seam need from the production type. Create an abstract base class or interface that test subclasses can override without requiring a null index field. Mark the single-arg constructor as the only production path and make index @NonNull. For testing, use a subclass or mock that overrides the I/O methods.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "unchecked_arraynode_cast",
+      "summary": "Explicit (ArrayNode) cast after isArray() check in VisualizationHandlers rather than pattern-matched instanceof",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "VisualizationHandlers.java:70-71: if (itemsNode != null && itemsNode.isArray()) { ArrayNode itemsArr = (ArrayNode) itemsNode; — explicit unchecked cast",
+        "Jackson's JsonNode.isArray() guarantees the node is ArrayNode in the current implementation, but this is a runtime contract, not a compile-time type guarantee; the cast can throw ClassCastException if Jackson's implementation changes"
+      ],
+      "suggestion": "Replace with pattern-matched instanceof: if (itemsNode instanceof ArrayNode itemsArr) { ... } which guards and binds the cast in one expression and is immune to Jackson implementation changes.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Optional-as-field antipattern in RelationConfig likely introduced when the field was converted from nullable to Optional for convenience at call sites, without considering the Java spec's intent for Optional as a return-type-only construct",
+      "Map<String, Object> response pattern is a common Java shortcut when there is no framework (Spring, JAX-RS) to handle typed serialization automatically; the lightweight HttpExchange/com.sun.net.httpserver setup makes typed response DTOs feel like overhead",
+      "@Nullable index field in CollocateQueryHelper was introduced as a test-seam mechanism without a cleaner design (abstract class or interface) to separate test and production paths"
+    ],
+    "likely_symptoms": [
+      "ClassCastException at runtime if Optional<RelationType> record component is null (e.g., if deserialization bypasses constructor)",
+      "Silent type errors when API response values are read back from Map<String, Object>: wrong key name silently returns null instead of failing at compile time",
+      "NullPointerException in CollocateQueryHelper.executeBcqlQuery (line 232) if the no-arg constructor instance is used in production without a requireNonNull guard"
+    ],
+    "possible_false_positives": [
+      "Map<String, Object> response pattern is idiomatic in plain Java HTTP server code without a serialization framework; Jackson serializes it correctly and the risk is primarily ergonomic rather than runtime-safety",
+      "The (ArrayNode) cast in VisualizationHandlers is safe in practice given Jackson's stable implementation contract; the risk of ClassCastException is theoretical"
+    ]
+  }
+}

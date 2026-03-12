@@ -54,11 +54,11 @@ public interface ExplorationService {
             @NonNull ExplorationOptions opts) throws IOException;
 
     /**
-     * Fetch example concordance results for a collocate-seed pair using the provided relation pattern.
+     * Fetch example concordance results for a seed-collocate pair using the provided relation pattern.
      */
     @NonNull FetchExamplesResult fetchExamples(
-            @NonNull String collocate,
             @NonNull String seed,
+            @NonNull String collocate,
             @NonNull RelationConfig relationConfig,
             @NonNull FetchExamplesOptions opts) throws IOException;
 }

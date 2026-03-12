@@ -1,0 +1,120 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 2,
+  "assessments": {"abstraction_fitness": 74.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "QueryExecutor interface has exactly one implementation (BlackLabQueryExecutor); interface Javadoc openly states: 'The single production implementation means the interface acts primarily as a testability seam rather than an abstraction boundary.'",
+        "ExplorationService interface has exactly one implementation (SemanticFieldExplorer); its Javadoc acknowledges the single-implementation situation and justifies it as a stable HTTP-layer API surface.",
+        "SemanticFieldExplorer.compareCollocateProfiles is a one-line delegation: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates())' — unpacks ExplorationOptions only to re-pass primitives, adding an indirection layer without behaviour.",
+        "SemanticFieldExplorer.exploreMultiSeed is also a one-line delegation: 'return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared())' — pure forwarding through an ExplorationService interface method.",
+        "ExplorationHandlers.buildExploreResponseEnvelope uses two private records ExploreRequestParams(Map<String,Object>) and ExploreResponseShape(Map<String,Object>) as named wrappers around raw maps; they enforce no typing or validation and exist only for documentation intent.",
+        "CollocateQueryHelper genuinely centralises collocate search/scoring/ranking logic used across at least four BlackLabQueryExecutor methods, paying for itself with clear duplication reduction.",
+        "ExploreResponseAssembler correctly separates model-to-presentation translation, keeping ExplorationHandlers and CorpusQueryHandlers free of JSON-assembly logic.",
+        "HttpApiUtils is package-private and cohesive: all methods serve HTTP concerns (response writing, parameter parsing, CORS, error wrapping) with no unrelated utilities mixed in.",
+        "RelationPatternUtils is cleanly extracted from RelationConfig, keeping the config record a plain data carrier while owning stateless pattern-construction logic used by multiple callers.",
+        "CollocateProfileComparator.compareCollocateProfiles accepts raw primitives (double, int) while the ExplorationService interface passes ExplorationOptions; SemanticFieldExplorer unpacks the options object at the delegation boundary, introducing a parameter-translation cost with no added semantics."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 72.0,
+        "indirection_cost": 68.0,
+        "interface_honesty": 80.0,
+        "delegation_density": 65.0,
+        "definition_directness": 76.0,
+        "type_discipline": 74.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "strengths": [
+        "CollocateQueryHelper earns its place by centralising collocate search, scoring, and ranking logic shared across four or more BlackLabQueryExecutor methods — a genuine duplication win.",
+        "ExploreResponseAssembler cleanly owns the model-to-presentation translation boundary, keeping HTTP handler classes free of JSON assembly.",
+        "HttpApiUtils is package-private and cohesive: all methods serve the same HTTP concern (response writing, parameter parsing, CORS), with no unrelated utilities mixed in.",
+        "RelationPatternUtils is correctly extracted from RelationConfig so the config record stays a plain data carrier — pattern-construction logic lives where it can be reused without leaking into the model.",
+        "Single-implementation interfaces (QueryExecutor, ExplorationService) carry self-aware Javadoc that honestly describes their role as testability seams, not architectural boundaries — avoiding silent interface dishonesty."
+      ],
+      "issue_character": "Issues are narrow and localised to one coordination facade (SemanticFieldExplorer) and one minor record-wrapping pattern; they represent mild delegation overhead rather than a systemic structural flaw.",
+      "score_rationale": "The codebase shows mature, deliberate abstraction decisions: most classes earn their existence with real behaviour reduction or separation of concerns, and single-implementation interfaces are honestly labelled. The main drag is SemanticFieldExplorer acting as a near-pure coordination facade — two of its four ExplorationService methods are one-line delegations with only parameter unpacking added, and the ExplorationOptions/primitive mismatch at the delegation boundary adds translation noise. The ExploreRequestParams/ExploreResponseShape private records are cosmetic wrappers around raw maps that clarify intent but enforce nothing. Together these create mild indirection cost without severe harm, placing the codebase solidly above average but short of exemplary."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "facade_delegation_chain",
+      "summary": "SemanticFieldExplorer implements ExplorationService as a near-pure delegation facade for two of its four methods",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed (line 362) is: 'return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts.minLogDice(), opts.topCollocates(), opts.minShared())' — pure forwarding with options unpacking only.",
+        "SemanticFieldExplorer.compareCollocateProfiles (line 319) is: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates())' — another one-line delegation.",
+        "ExplorationService has one implementation (SemanticFieldExplorer), so the interface adds a lookup hop but no real abstraction variety for these two methods.",
+        "The class Javadoc acknowledges this: 'acts as a coordination facade for the remaining operations' — but does not explain why callers cannot reference MultiSeedExplorer or CollocateProfileComparator directly."
+      ],
+      "suggestion": "Either promote the meaningful logic (deduplication in fetchExamples, single-seed exploration algorithm) into SemanticFieldExplorer and inline the one-line delegations, or restructure so ExplorationService declares only the methods with real behaviour here and exposes MultiSeedExplorer/CollocateProfileComparator directly where appropriate. If the facade is retained for stable API surface, document explicitly which callers would break without it.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "options_primitive_mismatch",
+      "summary": "ExplorationOptions is unpacked at the SemanticFieldExplorer delegation boundary before being repassed as primitives to CollocateProfileComparator",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles: 'return comparator.compareCollocateProfiles(seedNouns, opts.minLogDice(), opts.topCollocates())' — ExplorationOptions is unpacked to two primitives.",
+        "CollocateProfileComparator.compareCollocateProfiles accepts (Set<String> seedNouns, double minLogDice, int maxPerNoun) — it is unaware of ExplorationOptions.",
+        "This means adding a new parameter to ExplorationOptions requires updating both the options class and the comparator signature separately, widening the change surface."
+      ],
+      "suggestion": "Pass ExplorationOptions directly to CollocateProfileComparator.compareCollocateProfiles (or accept it there as well) so the options object propagates cleanly through the delegation chain without a primitive-unpacking translation layer at the boundary.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "named_map_wrappers",
+      "summary": "ExploreRequestParams and ExploreResponseShape are private records that wrap Map<String,Object> without adding type safety or validation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExploreRequestParams(Map<String, Object> fields) and ExploreResponseShape(Map<String, Object> fields) are declared as private records in ExplorationHandlers.",
+        "Neither record validates keys, enforces expected entries, or prevents callers from passing arbitrary maps — they serve purely as named containers.",
+        "buildExploreResponseEnvelope calls 'response.putAll(variantFields.fields())' and 'paramsUsed.putAll(paramExtras.fields())' — the records dissolve immediately into raw map operations."
+      ],
+      "suggestion": "Either use typed fields directly in the method signature (separate parameters per variant field), or give the records real validation/constraint logic that justifies their existence as types rather than named Map wrappers. The private scope limits the harm, but removing the records and passing the maps (or individual named parameters) directly would eliminate the cosmetic layer.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental extraction of SemanticFieldExplorer responsibilities into MultiSeedExplorer and CollocateProfileComparator without restructuring the ExplorationService interface to reflect the narrower residual scope of the facade.",
+      "Options objects (ExplorationOptions) introduced at the service layer but not propagated into collaborator classes, creating a translation boundary at each delegation point.",
+      "Tendency to use private record wrappers for documentation intent rather than structural enforcement, adding naming overhead without type-safety payoff."
+    ],
+    "likely_symptoms": [
+      "When adding a new exploration parameter, developers must update ExplorationOptions, SemanticFieldExplorer, and CollocateProfileComparator separately.",
+      "Navigating the exploration call chain requires jumping through SemanticFieldExplorer → MultiSeedExplorer/CollocateProfileComparator for two of four operations, adding reader friction.",
+      "ExploreRequestParams/ExploreResponseShape confuse new readers who expect records to carry semantic invariants."
+    ],
+    "possible_false_positives": [
+      "SemanticFieldExplorer facade cost may be justified if future exploration modes (e.g. graph-based, embedding-based) would benefit from the stable ExplorationService interface boundary.",
+      "ExploreRequestParams/ExploreResponseShape records may gain validation logic in future, making their current form a reasonable placeholder.",
+      "The QueryExecutor and ExplorationService single-implementation interfaces are genuinely useful as testability seams and should not be counted as issues."
+    ]
+  }
+}

@@ -45,7 +45,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Collection;
 
 /**
  * Package-private helper that encapsulates collocate search, scoring, and ranking logic

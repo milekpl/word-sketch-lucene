@@ -1,0 +1,124 @@
+{
+  "batch": "ai_generated_debt",
+  "batch_index": 6,
+  "assessments": {"ai_generated_debt": 62.0},
+  "dimension_notes": {
+    "ai_generated_debt": {
+      "evidence": [
+        "FetchExamplesOptions is a single-field record wrapping int maxExamples, justified in its Javadoc by 'binary compatibility' — explicit over-engineering for a single-user CLI tool",
+        "ExploreRequestParams and ExploreResponseShape are private records each wrapping Map<String,Object> with no type safety benefit beyond naming the destination of map entries; direct Map variables with descriptive names would be equivalent",
+        "ExplorationResult.topNouns() and .nounsWithMinShared() are utility methods defined on the class but never called outside the class itself — dead API surface",
+        "ExplorationService interface has exactly one implementation (SemanticFieldExplorer), acknowledged in its Javadoc; maintained purely as a testability seam with no abstraction boundary value",
+        "SingleSeedExplorationOptions wraps ExplorationOptions adding one field, forcing callers to write opts.base().topCollocates() instead of opts.topCollocates(); the nesting is not merited by the complexity",
+        "QueryExecutor interface carries multi-paragraph Javadoc on every method; some paragraphs restate what the method name or signature already communicates",
+        "ExplorationResult is a traditional class (not a record) justified by isEmpty() and a factory method — but the factory is used once and isEmpty() delegates to discoveredNouns.isEmpty(); the justification comment is longer than the methods themselves"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "ai_generated_debt": {
+      "strengths": [
+        "Private records SeedCollocateData and AggregatedCollocateStats in MultiSeedExplorer legitimately solve the multi-return-value problem from private methods without introducing top-level types",
+        "CommonExploreParams private record in ExplorationHandlers groups three parameters that are always extracted together — justified grouping",
+        "RelationPatternUtils is a clean, stateless utility class with no layering or abstraction beyond what the domain requires",
+        "Handler classes (ExplorationHandlers, SketchHandlers, VisualizationHandlers) are separated by genuine concern boundaries, not by AI-generated decomposition instinct",
+        "The code often acknowledges its own single-implementation patterns explicitly in comments, showing self-awareness even when the patterns persist"
+      ],
+      "issue_character": "The issues are a cluster of 'small but justified' over-abstractions concentrated in the exploration and api subsystems: single-param options wrappers, Map wrapper records, and interface-for-testability patterns that the code explains but does not remove. They are not architecturally blocking but they add ceremony at every call site and expand the model layer with types that carry no real domain weight.",
+      "score_rationale": "The codebase sits just below the 'solid but uneven' threshold. The over-engineering is real — FetchExamplesOptions (one-int wrapper), ExploreRequestParams/ExploreResponseShape (Map wrappers with no type safety), ExplorationService interface with one implementation, and dead utility methods on ExplorationResult — but it is localised to two packages and the core query/config/utils layers are clean. The issues add developer friction (additional types to navigate, indirection in option access) without architectural harm. The explicit self-documentation of questionable patterns ('only one implementation', 'binary compatibility') is itself a subtle AI tell that prevents the score from rising higher."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "single_param_options_wrapper",
+      "summary": "FetchExamplesOptions wraps a single int field, justified by 'binary compatibility' future-proofing that serves no real purpose",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/FetchExamplesOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "public record FetchExamplesOptions(int maxExamples) — single-field record",
+        "Javadoc: 'Follows the options-object pattern... so that callers can extend the parameter set without breaking binary compatibility'",
+        "Called at exactly one site: new FetchExamplesOptions(maxExamples)"
+      ],
+      "suggestion": "Remove FetchExamplesOptions; pass maxExamples as a direct int parameter in the fetchExamples method signatures throughout ExplorationService and SemanticFieldExplorer",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "named_map_wrapper_records",
+      "summary": "ExploreRequestParams and ExploreResponseShape are private records each wrapping Map<String,Object> with no type safety, adding only naming ceremony",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "private record ExploreRequestParams(Map<String, Object> fields) — single-field wrapper record",
+        "private record ExploreResponseShape(Map<String, Object> fields) — single-field wrapper record",
+        "Both records only expose .fields() at call sites; they cannot be distinguished at compile time from raw Maps",
+        "The Javadoc explains their purpose is 'Named typed parameters make the key-destination mapping explicit' — a comment-only benefit"
+      ],
+      "suggestion": "Replace both records with well-named Map<String,Object> local variables (e.g. extraParams, topLevelFields) and pass them directly to buildExploreResponseEnvelope",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "dead_utility_methods_on_model",
+      "summary": "ExplorationResult.topNouns() and nounsWithMinShared() are convenience methods that are never called outside the class itself",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "public List<DiscoveredNoun> topNouns(int n) — defined but zero external call sites found",
+        "public List<DiscoveredNoun> nounsWithMinShared(int minShared) — defined but zero external call sites found",
+        "The class Javadoc cites these methods as a reason to not use a record, yet they add no real value"
+      ],
+      "suggestion": "Remove topNouns() and nounsWithMinShared(); if needed in future, callers can use discoveredNouns().stream().limit(n) inline",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "options_nesting_overhead",
+      "summary": "SingleSeedExplorationOptions wraps ExplorationOptions adding one field, forcing accessor chaining (opts.base().topCollocates()) with no benefit over a flat record",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "public record SingleSeedExplorationOptions(ExplorationOptions base, int reverseExpansionLimit)",
+        "Callers must write opts.base().topCollocates() instead of opts.topCollocates()",
+        "The total parameter count across both types is only 4; a single flat record would suffice"
+      ],
+      "suggestion": "Flatten SingleSeedExplorationOptions to include all four fields directly: topCollocates, minLogDice, minShared, reverseExpansionLimit; remove the ExplorationOptions indirection",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Options-object pattern applied indiscriminately to single-parameter cases, likely from AI code generation that defaults to extensible parameter objects",
+      "Wrapper records used to document intent (naming which sub-map an entry targets) that would be better served by local variable names or comments",
+      "Model classes enriched with utility methods that were generated 'in case they are useful' but never actually called by production code"
+    ],
+    "likely_symptoms": [
+      "Navigational friction: developers must open multiple small types (FetchExamplesOptions, SingleSeedExplorationOptions, ExploreRequestParams) to understand simple parameter passing",
+      "Test setup verbosity: constructing nested options objects for tests requires extra wrapper instantiation",
+      "Dead code accumulation: uncalled utility methods on model classes will remain unnoticed and may become confusing over time"
+    ],
+    "possible_false_positives": [
+      "ExplorationService interface: flagged as single-implementation but it does provide a meaningful testability seam; some teams deliberately maintain this pattern",
+      "FetchExamplesResult bundling bcqlPattern with examples: this is a genuine cohesion benefit (prevents callers from re-building the pattern) and is not over-engineering"
+    ]
+  }
+}

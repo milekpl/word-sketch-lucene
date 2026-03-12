@@ -1,0 +1,138 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 10,
+  "assessments": {"logic_clarity": 73.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "CollocateQueryHelper.extractCollocateLemma uses `collocatePos > 0` to guard against the -1 sentinel (line 349), while BlackLabQueryExecutor.executeSurfacePattern uses `collocatePos < 0` for the same sentinel (line 247) — two callers of the same function test the same condition from opposite sides",
+        "executeSurfacePattern fallback: when extractCollocateFromXmlByPosition returns null, it retries with extractPlainTextTokenAt at the same collocatePos — but extractCollocateFromXmlByPosition counts XML lemma= attributes while extractPlainTextTokenAt counts whitespace-separated tokens; the same integer index is used for two different counting schemes",
+        "BlackLabSnippetParser.detokenize returns null when passed null (line 133: `if (text == null || text.isEmpty()) return text;`) but the return type is unannotated String — callers that chain the result could receive an unexpected null",
+        "CollocateQueryHelper.index field is declared @Nullable even though the primary constructor takes @NonNull, encoding a test-vs-production dual mode in a nullable field backed by Objects.requireNonNull guards at each use site",
+        "RelationPatternUtils.buildCollocateReversePattern uses raw Penn Treebank prefix strings (\"JJ.*\", \"VB.*\", \"NN.*\", \"RB.*\") as switch case results with no named constants",
+        "resolvePosGroupFromPrefix checks both `q + \"jj\"` (attr+quote+prefix) and `attr + \"jj\"` (attr+prefix) for each POS type; the distinction between these two variants is non-obvious without understanding that q = attr + '\"'"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "strengths": [
+        "Two-phase pipeline in CollocateQueryHelper (collect → score) is clearly named and documented with explicit phase boundaries, making data flow easy to trace",
+        "Exception handling is thorough throughout: every catch block either re-throws with context or converts to a typed checked exception — no silent swallowing found",
+        "Guard clauses at method entry (null/empty checks before processing) are used consistently, preventing deep nesting and early-return logic is easy to follow",
+        "ExploreResponseAssembler cleanly separates model-to-presentation translation, keeping response-assembly logic in one predictable place",
+        "CqlUtils.findLabelTokenIndex return contract (-1 for not-found, 1-based on success) is documented and defensively guarded at each call site"
+      ],
+      "issue_character": "Issues are concentrated in a few cross-cutting patterns: one sentinel comparison asymmetry, one mixed-semantics fallback, and one nullable-field dual-mode design — each isolated to a specific site rather than reflecting a systemic design problem.",
+      "score_rationale": "The codebase demonstrates clear, deliberate logic organisation — documented phases, clean exception wrapping, and good guard-clause discipline all make the code easy to reason about. The sentinel comparison asymmetry (> 0 vs < 0 for -1) and the mixed-semantics double-fallback in executeSurfacePattern are genuine clarity defects that a developer could misread under time pressure. The nullable-field dual-mode pattern in CollocateQueryHelper adds a subtle cognitive load. These issues are real but local in scope; they do not reflect a pervasive logic clarity problem across the codebase."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "sentinel_comparison_asymmetry",
+      "summary": "Same -1 sentinel for collocatePos is tested with > 0 in one caller and < 0 in another, making the condition harder to reason about",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper.extractCollocateLemma line 349: `if (collocatePos > 0)` — tests the positive side of the -1 sentinel",
+        "BlackLabQueryExecutor.executeSurfacePattern line 247: `if (collocatePos < 0)` — tests the negative side of the same -1 sentinel",
+        "Both callers invoke CqlUtils.findLabelTokenIndex which returns -1 (not found) or ≥1 (1-based position)"
+      ],
+      "suggestion": "Standardise on one check style. Since -1 is the sentinel, prefer `collocatePos >= 1` (found) and `collocatePos == -1` (not found) everywhere, matching the documented return contract of findLabelTokenIndex.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "double_fallback_mixed_semantics",
+      "summary": "executeSurfacePattern uses the same collocatePos integer to index XML lemma attributes and whitespace tokens in sequential fallback, mixing two different counting schemes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor lines 250-252: extractCollocateFromXmlByPosition(identity, collocatePos) counts nth lemma= XML attribute; on null fallback, extractPlainTextTokenAt(identity, collocatePos) counts nth whitespace token at the same integer",
+        "extractCollocateFromXmlByPosition iterates lemma= matches (XML-aware); extractPlainTextTokenAt splits on whitespace and indexes by position — different semantics for the same numeric index",
+        "The identity string from HitGroups may be plain text or XML depending on how groups were formed, making the fallback's correctness non-obvious"
+      ],
+      "suggestion": "Make the two extraction strategies explicit with a comment explaining when each applies, or unify them behind a single method that decides which counting scheme is appropriate based on whether the identity string contains XML markup.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "detokenize_nullable_return",
+      "summary": "BlackLabSnippetParser.detokenize returns null when called with null but lacks @Nullable annotation, creating a silent NPE risk for callers that chain the result",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java"
+      ],
+      "evidence": [
+        "Line 133: `if (text == null || text.isEmpty()) return text;` — returns null when text is null",
+        "Return type is `static String detokenize(String text)` without @Nullable annotation",
+        "Called from extractPlainTextFromXml (line 128) and trimToSentence (line 87); both current callers pass non-null, but the contract is not enforced"
+      ],
+      "suggestion": "Add @Nullable to the return type, or change the null branch to return \"\" (empty string) to match the isEmpty branch's conceptual intent and avoid returning null from a utility method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "nullable_field_dual_mode_constructor",
+      "summary": "CollocateQueryHelper declares index as @Nullable to support a test-only no-arg constructor, encoding production vs test mode implicitly in a nullable field rather than a type boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Line 60: `private final @Nullable BlackLabIndex index;` — production code path uses @NonNull constructor",
+        "Line 68 constructor: `CollocateQueryHelper(@NonNull BlackLabIndex index)` — non-null parameter",
+        "Line 77: no-arg constructor sets `this.index = null` for test subclasses",
+        "Every index-using method calls Objects.requireNonNull(index, ...) to recover the non-null invariant at runtime"
+      ],
+      "suggestion": "Consider making the no-arg test constructor protected and documenting that the class is safe to subclass for tests. Alternatively, extract the I/O methods (getTotalFrequency, executeCollocateSearchWithContent) behind an interface so tests can inject a stub without needing a null-index subclass.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "magic_pos_strings_reverse_pattern",
+      "summary": "RelationPatternUtils.buildCollocateReversePattern uses raw Penn Treebank POS prefix strings as magic strings with no named constants",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/RelationPatternUtils.java"
+      ],
+      "evidence": [
+        "Lines 68-74: switch returns \"[xpos=\\\"JJ.*\\\"]\", \"[xpos=\\\"VB.*\\\"]\", \"[xpos=\\\"NN.*\\\"]\", \"[xpos=\\\"RB.*\\\"]\" directly",
+        "The same POS prefixes appear again in resolvePosGroupFromPrefix (lines 111-118) as inline string checks"
+      ],
+      "suggestion": "Extract POS tag prefix constants (e.g., ADJ_POS_PATTERN = \"[xpos=\\\"JJ.*\\\"]\") and reuse them in both methods to make the Penn Treebank tag conventions explicit and changes centrally managed.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Sentinel values (-1 for not-found) are used informally without a dedicated type or constant, making callers express the same guard differently",
+      "Fallback chains are added incrementally to handle edge cases without revisiting the abstraction, leading to mixed-semantics fallbacks that are hard to verify",
+      "Nullable fields are used as a testing seam instead of interface injection, coupling the test-mock pattern to the class's internal state"
+    ],
+    "likely_symptoms": [
+      "A developer reading extractCollocateLemma and executeSurfacePattern in sequence might assume the sentinel checks are inconsistent and introduce a bug when 'fixing' them",
+      "The double-fallback in executeSurfacePattern could silently return a wrong collocate word if the identity string structure doesn't match the assumed counting scheme",
+      "Callers that wrap detokenize result in a non-null context (e.g., string concatenation) would throw NPE if a null is ever passed through"
+    ],
+    "possible_false_positives": [
+      "The nullable-field issue may be intentional and well-understood by the team given its thorough Javadoc — the runtime requireNonNull guards make it safe in practice",
+      "The magic POS strings are tied to Penn Treebank conventions that are stable and unlikely to change, so named constants may add ceremony without real benefit"
+    ]
+  }
+}

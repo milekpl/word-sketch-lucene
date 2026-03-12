@@ -61,8 +61,8 @@ class MultiSeedExplorer {
         Map<String, Map<String, Double>> perSeedCollocates = new LinkedHashMap<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : data.seedCollocateMap().entrySet()) {
             Map<String, Double> collocMap = new LinkedHashMap<>();
-            for (QueryResults.WordSketchResult wsr : entry.getValue()) {
-                collocMap.put(wsr.lemma(), wsr.logDice());
+            for (QueryResults.WordSketchResult wordSketchResult : entry.getValue()) {
+                collocMap.put(wordSketchResult.lemma(), wordSketchResult.logDice());
             }
             perSeedCollocates.put(entry.getKey(), collocMap);
         }
@@ -83,8 +83,8 @@ class MultiSeedExplorer {
             List<QueryResults.WordSketchResult> collocates = executor.executeSurfacePattern(
                 bcqlPattern, minLogDice, topCollocates);
             seedCollocateMap.put(seed, collocates);
-            for (QueryResults.WordSketchResult wsr : collocates) {
-                collocateSharedCount.merge(wsr.lemma(), 1, Integer::sum);
+            for (QueryResults.WordSketchResult wordSketchResult : collocates) {
+                collocateSharedCount.merge(wordSketchResult.lemma(), 1, Integer::sum);
             }
         }
         return new SeedCollocateData(seedCollocateMap, collocateSharedCount);
@@ -112,9 +112,9 @@ class MultiSeedExplorer {
         for (String seed : seeds) {
             List<QueryResults.WordSketchResult> collocs = seedCollocateMap.getOrDefault(seed, List.of());
             Map<String, Double> sharedCollocs = new LinkedHashMap<>();
-            for (QueryResults.WordSketchResult wsr : collocs) {
-                if (commonCollocates.contains(wsr.lemma())) {
-                    sharedCollocs.put(wsr.lemma(), wsr.logDice());
+            for (QueryResults.WordSketchResult wordSketchResult : collocs) {
+                if (commonCollocates.contains(wordSketchResult.lemma())) {
+                    sharedCollocs.put(wordSketchResult.lemma(), wordSketchResult.logDice());
                 }
             }
             int count = sharedCollocs.size();
@@ -135,11 +135,11 @@ class MultiSeedExplorer {
             Map<String, Double> avgLogDiceMap,
             int numSeeds) {
         List<CoreCollocate> coreCollocatesList = new ArrayList<>();
-        for (String c : commonCollocates) {
-            int sharedBy = collocateSharedCount.getOrDefault(c, 0);
-            double avgLogDice = avgLogDiceMap.getOrDefault(c, 0.0);
-            double seedLd = seedCollocScores.getOrDefault(c, 0.0);
-            coreCollocatesList.add(new CoreCollocate(c, sharedBy, numSeeds, seedLd, avgLogDice));
+        for (String collocateLemma : commonCollocates) {
+            int sharedBy = collocateSharedCount.getOrDefault(collocateLemma, 0);
+            double avgLogDice = avgLogDiceMap.getOrDefault(collocateLemma, 0.0);
+            double seedLd = seedCollocScores.getOrDefault(collocateLemma, 0.0);
+            coreCollocatesList.add(new CoreCollocate(collocateLemma, sharedBy, numSeeds, seedLd, avgLogDice));
         }
         return coreCollocatesList;
     }
@@ -156,11 +156,11 @@ class MultiSeedExplorer {
         Map<String, Double> logDiceSum = new HashMap<>();
         Map<String, Integer> logDiceCount = new HashMap<>();
         for (List<QueryResults.WordSketchResult> collocs : seedCollocateMap.values()) {
-            for (QueryResults.WordSketchResult wsr : collocs) {
-                maxLogDice.merge(wsr.lemma(), wsr.logDice(), Math::max);
-                totalFreq.merge(wsr.lemma(), wsr.frequency(), Long::sum);
-                logDiceSum.merge(wsr.lemma(), wsr.logDice(), Double::sum);
-                logDiceCount.merge(wsr.lemma(), 1, Integer::sum);
+            for (QueryResults.WordSketchResult wordSketchResult : collocs) {
+                maxLogDice.merge(wordSketchResult.lemma(), wordSketchResult.logDice(), Math::max);
+                totalFreq.merge(wordSketchResult.lemma(), wordSketchResult.frequency(), Long::sum);
+                logDiceSum.merge(wordSketchResult.lemma(), wordSketchResult.logDice(), Double::sum);
+                logDiceCount.merge(wordSketchResult.lemma(), 1, Integer::sum);
             }
         }
         Map<String, Double> avgLogDice = new HashMap<>();

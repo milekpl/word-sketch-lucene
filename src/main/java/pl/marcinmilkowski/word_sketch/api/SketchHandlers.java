@@ -168,7 +168,7 @@ class SketchHandlers {
                 sketchOpt.ifPresent(sketch -> byRelation.put(rel.id(), builder.apply(rel, sketch)));
             } catch (IOException e) {
                 logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage());
-                relationErrors.add(rel.id() + ": " + e.getMessage());
+                relationErrors.add(e.getMessage());
             }
         }
     }

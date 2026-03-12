@@ -63,11 +63,11 @@ public class MultiSeedExplorer {
 
         Map<String, Map<String, Double>> perSeedCollocates = new LinkedHashMap<>();
         for (Map.Entry<String, List<QueryResults.WordSketchResult>> entry : data.seedCollocateMap().entrySet()) {
-            Map<String, Double> collocMap = new LinkedHashMap<>();
+            Map<String, Double> collocateMap = new LinkedHashMap<>();
             for (QueryResults.WordSketchResult wordSketchResult : entry.getValue()) {
-                collocMap.put(wordSketchResult.lemma(), wordSketchResult.logDice());
+                collocateMap.put(wordSketchResult.lemma(), wordSketchResult.logDice());
             }
-            perSeedCollocates.put(entry.getKey(), collocMap);
+            perSeedCollocates.put(entry.getKey(), collocateMap);
         }
 
         return new ExplorationResult(

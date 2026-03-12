@@ -13,10 +13,10 @@ class BlackLabSnippetParser {
     private static final java.util.regex.Pattern LEMMA_ATTR      = java.util.regex.Pattern.compile("lemma=\"([^\"]+)\"");
     private static final java.util.regex.Pattern XPOS_ATTR       = java.util.regex.Pattern.compile("xpos=\"([^\"]+)\"");
     private static final java.util.regex.Pattern UPOS_ATTR       = java.util.regex.Pattern.compile("upos=\"([^\"]+)\"");
-    private static final java.util.regex.Pattern SENT_BOUND_LEFT  = java.util.regex.Pattern.compile("[.!?]\\s+(?=[A-Z]|$)");
-    private static final java.util.regex.Pattern SENT_BOUND_RIGHT = java.util.regex.Pattern.compile("[.!?](?=\\s+[A-Z]|\\s*$)");
-    private static final java.util.regex.Pattern XML_SENT_OPEN   = java.util.regex.Pattern.compile("<s(?:\\s[^>]*)?>", java.util.regex.Pattern.CASE_INSENSITIVE);
-    private static final java.util.regex.Pattern XML_SENT_CLOSE  = java.util.regex.Pattern.compile("</s>", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern SENTENCE_BOUND_LEFT  = java.util.regex.Pattern.compile("[.!?]\\s+(?=[A-Z]|$)");
+    private static final java.util.regex.Pattern SENTENCE_BOUND_RIGHT = java.util.regex.Pattern.compile("[.!?](?=\\s+[A-Z]|\\s*$)");
+    private static final java.util.regex.Pattern XML_SENTENCE_OPEN   = java.util.regex.Pattern.compile("<s(?:\\s[^>]*)?>", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern XML_SENTENCE_CLOSE  = java.util.regex.Pattern.compile("</s>", java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private BlackLabSnippetParser() {}
 
@@ -91,7 +91,7 @@ class BlackLabSnippetParser {
     /** Keep only the portion of left-context text AFTER the last sentence boundary. */
     static String trimLeftAtSentenceBoundary(String text) {
         if (text == null || text.isEmpty()) return "";
-        java.util.regex.Matcher m = SENT_BOUND_LEFT.matcher(text);
+        java.util.regex.Matcher m = SENTENCE_BOUND_LEFT.matcher(text);
         int lastEnd = 0;
         while (m.find()) lastEnd = m.end();
         return lastEnd > 0 ? text.substring(lastEnd).trim() : text.trim();
@@ -100,7 +100,7 @@ class BlackLabSnippetParser {
     /** Keep only the portion of right-context text UP TO AND INCLUDING the first sentence boundary. */
     static String trimRightAtSentenceBoundary(String text) {
         if (text == null || text.isEmpty()) return "";
-        java.util.regex.Matcher m = SENT_BOUND_RIGHT.matcher(text);
+        java.util.regex.Matcher m = SENTENCE_BOUND_RIGHT.matcher(text);
         if (m.find()) return text.substring(0, m.end()).trim();
         return text.trim();
     }
@@ -108,7 +108,7 @@ class BlackLabSnippetParser {
     /** Keep only content after the last &lt;s&gt; open tag in the left-context XML. */
     static String trimLeftXmlAtSentence(String xml) {
         if (xml == null || xml.isEmpty()) return "";
-        java.util.regex.Matcher m = XML_SENT_OPEN.matcher(xml);
+        java.util.regex.Matcher m = XML_SENTENCE_OPEN.matcher(xml);
         int lastTagEnd = -1;
         while (m.find()) lastTagEnd = m.end();
         return (lastTagEnd >= 0) ? xml.substring(lastTagEnd) : xml;
@@ -117,7 +117,7 @@ class BlackLabSnippetParser {
     /** Keep only content before the first &lt;/s&gt; close tag in the right-context XML. */
     static String trimRightXmlAtSentence(String xml) {
         if (xml == null || xml.isEmpty()) return "";
-        java.util.regex.Matcher m = XML_SENT_CLOSE.matcher(xml);
+        java.util.regex.Matcher m = XML_SENTENCE_CLOSE.matcher(xml);
         return m.find() ? xml.substring(0, m.start()) : xml;
     }
 

@@ -58,7 +58,7 @@ class SketchHandlers {
                 handleDependencyRelationQuery(exchange, lemma, specificDeprel);
             } else {
                 // Full dependency sketch — all DEP-type relations
-                handleDepSketch(exchange, lemma);
+                handleDependencySketch(exchange, lemma);
             }
             return;
         }
@@ -75,7 +75,7 @@ class SketchHandlers {
         handleRelationsForType(exchange, RelationType.SURFACE);
     }
 
-    void handleDepRelations(HttpExchange exchange) throws IOException {
+    void handleDependencyRelations(HttpExchange exchange) throws IOException {
         handleRelationsForType(exchange, RelationType.DEP);
     }
 
@@ -123,7 +123,7 @@ class SketchHandlers {
      * Full dependency sketch — dispatches DEP-type relations, each carrying a
      * {@code "type": "dependency"} field in the response.
      */
-    private void handleDepSketch(HttpExchange exchange, String lemma) throws IOException {
+    private void handleDependencySketch(HttpExchange exchange, String lemma) throws IOException {
         Map<String, Object> byRelation = new HashMap<>();
         List<String> relationErrors = new ArrayList<>();
 

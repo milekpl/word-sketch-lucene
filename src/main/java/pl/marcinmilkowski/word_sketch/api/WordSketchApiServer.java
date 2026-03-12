@@ -79,7 +79,7 @@ public class WordSketchApiServer {
             HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleSurfaceRelations, "Surface relations"));
 
         registerGetHandler(server, "/api/relations/dep",
-            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleDepRelations, "Dependency relations"));
+            HttpApiUtils.wrapWithErrorHandling(sketchHandlers::handleDependencyRelations, "Dependency relations"));
 
         registerGetHandler(server, "/api/semantic-field/explore",
             HttpApiUtils.wrapWithErrorHandling(explorationHandlers::handleSemanticFieldExplore, "Semantic field explore"));

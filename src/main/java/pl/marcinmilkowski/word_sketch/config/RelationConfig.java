@@ -15,8 +15,7 @@ import java.util.regex.Pattern;
  * <p>Pattern-building and POS-group inference logic lives in {@link RelationPatternUtils},
  * keeping this record focused on data only. The sole remaining method ({@link #deriveDeprel()})
  * is retained here because it is a simple derivation from {@link #pattern()} and {@link #id()};
- * it is part of the public API and is called externally from {@link pl.marcinmilkowski.word_sketch.api.SketchHandlers}
- * and related components.</p>
+ * it is part of the public API consumed by the API layer and related components.</p>
  */
 public record RelationConfig(
     @NonNull String id,

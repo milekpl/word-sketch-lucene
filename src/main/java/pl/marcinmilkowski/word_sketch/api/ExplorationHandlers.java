@@ -17,6 +17,7 @@ import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 import pl.marcinmilkowski.word_sketch.model.exploration.Seeds;
 
 import pl.marcinmilkowski.word_sketch.api.model.ComparisonResponse;
+import pl.marcinmilkowski.word_sketch.api.model.ExamplesResponse;
 import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 
 import java.util.Objects;
@@ -38,19 +39,7 @@ class ExplorationHandlers {
     private final GrammarConfig grammarConfig;
     private final ExplorationService semanticFieldExplorer;
 
-    /**
-     * Client-visible sentinel value emitted in the {@code relation} field of compare-endpoint
-     * responses ({@code GET /api/semantic-field/compare}).
-     *
-     * <p>Because the compare endpoint aggregates collocations across <em>multiple</em> grammatical
-     * relations simultaneously, no single relation label applies to the result.  This constant is
-     * used instead so that API consumers can detect the cross-relational case programmatically
-     * rather than checking for a missing or null field.</p>
-     *
-     * <p><strong>API contract:</strong> JSON responses from the compare endpoint will always
-     * contain {@code "relation": "cross_relational"}.  Clients must not treat this value as a
-     * named grammatical relation; it is purely a sentinel that signals aggregated results.</p>
-     */
+    /** Sentinel emitted in the {@code relation} field of compare-endpoint responses to signal aggregated cross-relational results. */
     private static final String CROSS_RELATIONAL = "cross_relational";
 
     ExplorationHandlers(ExplorationService semanticFieldExplorer, @NonNull GrammarConfig grammarConfig) {

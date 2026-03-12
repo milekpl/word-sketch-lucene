@@ -59,8 +59,6 @@ class VisualizationHandlers {
             throw new IllegalArgumentException(
                 "Field 'center' exceeds maximum length of " + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
         }
-        logger.debug("Radial: center = {}", center);
-
         int width = obj.path("width").asInt(840);
         if (width < 1 || width > 5000) {
             throw new IllegalArgumentException(

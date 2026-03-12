@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.api;
 
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
+import pl.marcinmilkowski.word_sketch.api.model.SeedCollocateEntry;
 import pl.marcinmilkowski.word_sketch.model.exploration.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.exploration.Edge;
@@ -110,13 +111,14 @@ class ExploreResponseAssemblerTest {
         Map<String, Long> freqs = Map.of("important", 100L);
         ExplorationResult result = resultWith("theory", collocates, freqs, List.of(), List.of());
 
-        List<Map<String, Object>> formatted = ExploreResponseAssembler.formatSeedCollocates(result);
+        ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
+                result, "adj_predicate", 10, 1, 0.0, 20);
 
-        assertEquals(1, formatted.size());
-        Map<String, Object> entry = formatted.get(0);
-        assertEquals("important", entry.get("word"));
-        assertEquals(8.75, (double) entry.get("log_dice"), 0.01);
-        assertEquals(100L, entry.get("frequency"));
+        assertEquals(1, response.seedCollocates().size());
+        SeedCollocateEntry entry = response.seedCollocates().get(0);
+        assertEquals("important", entry.word());
+        assertEquals(8.75, entry.logDice(), 0.01);
+        assertEquals(100L, entry.frequency());
     }
 
     @Test
@@ -124,15 +126,16 @@ class ExploreResponseAssemblerTest {
         DiscoveredNoun noun = new DiscoveredNoun("model", Map.of("abstract", 7.0), 1, 14.0, 7.0);
         ExplorationResult result = resultWith("theory", Map.of(), Map.of(), List.of(noun), List.of());
 
-        List<Map<String, Object>> formatted = ExploreResponseAssembler.formatDiscoveredNouns(result);
+        ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
+                result, "adj_predicate", 10, 1, 0.0, 20);
 
-        assertEquals(1, formatted.size());
-        Map<String, Object> entry = formatted.get(0);
-        assertEquals("model", entry.get("word"));
-        assertEquals(1, entry.get("shared_count"));
-        assertNotNull(entry.get("similarity_score"));
-        assertNotNull(entry.get("avg_logdice"));
-        assertNotNull(entry.get("shared_collocates"));
+        assertEquals(1, response.discoveredNouns().size());
+        ExploreResponse.DiscoveredNounEntry entry = response.discoveredNouns().get(0);
+        assertEquals("model", entry.word());
+        assertEquals(1, entry.sharedCount());
+        assertNotNull(entry.similarityScore());
+        assertNotNull(entry.avgLogDice());
+        assertNotNull(entry.sharedCollocates());
     }
 
     @Test

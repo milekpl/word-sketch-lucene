@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.api;
+package pl.marcinmilkowski.word_sketch.api.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -20,7 +20,7 @@ import java.util.List;
  * so that normal responses are unaffected.</p>
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-record ExamplesResponse(
+public record ExamplesResponse(
         String status,
         String seed,
         String collocate,
@@ -32,5 +32,5 @@ record ExamplesResponse(
         List<ExampleEntry> examples) {
 
     /** A single concordance line, carrying only the fields relevant to examples display. */
-    record ExampleEntry(String sentence, String raw) {}
+    public record ExampleEntry(String sentence, String raw) {}
 }

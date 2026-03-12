@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import pl.marcinmilkowski.word_sketch.api.model.ComparisonResponse;
+import pl.marcinmilkowski.word_sketch.api.model.ExamplesResponse;
 import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 import pl.marcinmilkowski.word_sketch.api.model.SeedCollocateEntry;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
@@ -182,75 +183,6 @@ final class ExploreResponseAssembler {
                         MathUtils.round2dp(e.weight()),
                         e.type().label()))
                 .toList();
-    }
-
-    static @NonNull List<Map<String, Object>> formatSeedCollocates(@NonNull ExplorationResult result) {
-        List<Map<String, Object>> seedCollocs = new ArrayList<>();
-        for (Map.Entry<String, Double> e : result.seedCollocates().entrySet()) {
-            Map<String, Object> c = new HashMap<>();
-            c.put("word", e.getKey());
-            c.put("log_dice", MathUtils.round2dp(e.getValue()));
-            c.put("frequency", result.seedCollocateFrequencies().getOrDefault(e.getKey(), 0L));
-            seedCollocs.add(c);
-        }
-        return seedCollocs;
-    }
-
-    static @NonNull List<Map<String, Object>> formatDiscoveredNouns(@NonNull ExplorationResult result) {
-        List<Map<String, Object>> nouns = new ArrayList<>();
-        for (DiscoveredNoun n : result.discoveredNouns()) {
-            Map<String, Object> nm = new HashMap<>();
-            nm.put("word", n.noun());
-            nm.put("shared_count", n.sharedCount());
-            nm.put("similarity_score", MathUtils.round2dp(n.combinedRelevanceScore()));
-            nm.put("avg_logdice", MathUtils.round2dp(n.avgLogDice()));
-            nm.put("shared_collocates", n.sharedCollocateList());
-            nouns.add(nm);
-        }
-        return nouns;
-    }
-
-    static @NonNull List<Map<String, Object>> formatCoreCollocates(@NonNull ExplorationResult result) {
-        List<Map<String, Object>> coreCollocs = new ArrayList<>();
-        for (CoreCollocate c : result.coreCollocates()) {
-            Map<String, Object> cm = new HashMap<>();
-            cm.put("word", c.collocate());
-            cm.put("shared_by_count", c.sharedByCount());
-            cm.put("total_nouns", c.totalNouns());
-            cm.put("coverage", MathUtils.round2dp(c.coverage()));
-            cm.put("seed_logdice", MathUtils.round2dp(c.seedLogDice()));
-            coreCollocs.add(cm);
-        }
-        return coreCollocs;
-    }
-
-    /**
-     * Serialises a single {@link CollocateProfile} into the JSON-compatible map that the
-     * {@code /api/semantic-field} endpoint returns for each collocate entry.
-     */
-    static @NonNull Map<String, Object> collocateProfileToMap(@NonNull CollocateProfile collocate) {
-        Map<String, Object> collocateMap = new HashMap<>();
-        collocateMap.put("word", collocate.collocate());
-        collocateMap.put("present_in", collocate.presentInCount());
-        collocateMap.put("total_nouns", collocate.totalNouns());
-        collocateMap.put("avg_logdice", MathUtils.round2dp(collocate.avgLogDice()));
-        collocateMap.put("max_logdice", MathUtils.round2dp(collocate.maxLogDice()));
-        collocateMap.put("variance", MathUtils.round2dp(collocate.variance()));
-        collocateMap.put("commonality_score", MathUtils.round2dp(collocate.commonalityScore()));
-        collocateMap.put("distinctiveness_score", MathUtils.round2dp(collocate.distinctivenessScore()));
-
-        collocateMap.put("category", collocate.sharingCategory().label());
-
-        Map<String, Double> scores = new HashMap<>();
-        for (Map.Entry<String, Double> entry : collocate.nounScores().entrySet()) {
-            scores.put(entry.getKey(), MathUtils.round2dp(entry.getValue()));
-        }
-        collocateMap.put("noun_scores", scores);
-
-        if (collocate.isSpecific()) {
-            collocate.strongestNoun().ifPresent(n -> collocateMap.put("specific_to", n));
-        }
-        return collocateMap;
     }
 
     /**

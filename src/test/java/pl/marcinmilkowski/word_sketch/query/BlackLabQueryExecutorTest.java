@@ -56,6 +56,41 @@ class BlackLabQueryExecutorTest {
             BlackLabQueryExecutor.buildBcqlWithLemmaPrepended("", "house"));
     }
 
+    @Test
+    @DisplayName("buildBcqlWithLemmaPrepended: null pattern throws IllegalArgumentException")
+    void buildBcql_nullPattern_throwsIAE() {
+        assertThrows(IllegalArgumentException.class, () ->
+            BlackLabQueryExecutor.buildBcqlWithLemmaPrepended(null, "house"));
+    }
+
+    // ── Guard-clause tests (no index required, always run in CI) ─────────────
+
+    @Test
+    @DisplayName("executeCollocations: null lemma returns empty list without touching the index")
+    void executeCollocations_nullLemma_returnsEmptyList() throws Exception {
+        BlackLabQueryExecutor executor = new BlackLabQueryExecutor((nl.inl.blacklab.search.BlackLabIndex) null);
+        var result = executor.executeCollocations(null, "[xpos=\"JJ.*\"]", 0.0, 10);
+        assertNotNull(result, "Result must not be null");
+        assertTrue(result.isEmpty(), "Null lemma must produce an empty result list");
+    }
+
+    @Test
+    @DisplayName("executeCollocations: empty lemma returns empty list without touching the index")
+    void executeCollocations_emptyLemma_returnsEmptyList() throws Exception {
+        BlackLabQueryExecutor executor = new BlackLabQueryExecutor((nl.inl.blacklab.search.BlackLabIndex) null);
+        var result = executor.executeCollocations("", "[xpos=\"JJ.*\"]", 0.0, 10);
+        assertNotNull(result, "Result must not be null");
+        assertTrue(result.isEmpty(), "Empty lemma must produce an empty result list");
+    }
+
+    @Test
+    @DisplayName("executeCollocations: valid lemma with null pattern throws IllegalArgumentException")
+    void executeCollocations_nullPattern_throwsIAE() {
+        BlackLabQueryExecutor executor = new BlackLabQueryExecutor((nl.inl.blacklab.search.BlackLabIndex) null);
+        assertThrows(IllegalArgumentException.class, () ->
+            executor.executeCollocations("house", null, 0.0, 10));
+    }
+
     // ── Live-index tests (skipped in CI when no index is present) ────────────
 
     @Nested

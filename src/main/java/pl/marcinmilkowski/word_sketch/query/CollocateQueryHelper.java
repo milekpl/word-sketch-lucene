@@ -58,21 +58,15 @@ class CollocateQueryHelper {
     /**
      * Creates a helper bound to the given BlackLab index.
      *
-     * @param index the BlackLab index to query; must not be null
-     */
-    CollocateQueryHelper(BlackLabIndex index) {
-        if (index == null) throw new NullPointerException("index");
-        this.index = index;
-    }
-
-    /**
-     * No-index constructor for test subclasses that override all I/O methods
-     * ({@link #getTotalFrequency} and {@link #performCollocateSearch}).
-     * Not for production use — index is never accessed when all I/O methods are overridden.
+     * <p>Accepts {@code null} only when used by test subclasses that override all I/O
+     * methods ({@link #getTotalFrequency} and {@link #performCollocateSearch}), so the
+     * index field is never dereferenced.  Production callers must pass a non-null index.</p>
+     *
+     * @param index the BlackLab index to query (null permitted for test subclasses only)
      */
     @SuppressWarnings("NullAway")
-    protected CollocateQueryHelper() {
-        this.index = null;
+    CollocateQueryHelper(BlackLabIndex index) {
+        this.index = index;
     }
 
     // -------------------------------------------------------------------------

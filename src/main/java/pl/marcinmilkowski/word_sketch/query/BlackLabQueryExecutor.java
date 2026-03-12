@@ -55,6 +55,21 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     private final CollocateQueryHelper collocateQueryHelper;
 
     /**
+     * Package-private constructor for unit tests.
+     *
+     * <p>Bypasses index-file opening so guard-clause and static-helper tests can run in CI
+     * without a real BlackLab index. Callers must not invoke any method that delegates to
+     * {@code blackLabIndex} or {@code collocateQueryHelper} when those are null.</p>
+     */
+    @SuppressWarnings("NullAway")
+    BlackLabQueryExecutor(BlackLabIndex index) {
+        this.blackLabIndex = index;
+        this.collocateQueryHelper = index != null
+                ? new CollocateQueryHelper(index)
+                : new CollocateQueryHelper((BlackLabIndex) null) {};
+    }
+
+    /**
      * Opens the BlackLab index at the given path.
      *
      * <p><strong>Constructor I/O note:</strong> opening the index is inherent to BlackLab's lifecycle
@@ -281,6 +296,9 @@ public class BlackLabQueryExecutor implements QueryExecutor {
      * @throws IllegalArgumentException if {@code cqlPattern} does not start with {@code [}
      */
     static String buildBcqlWithLemmaPrepended(String cqlPattern, String lemma) {
+        if (cqlPattern == null) {
+            throw new IllegalArgumentException("cqlPattern must not be null");
+        }
         if (cqlPattern.startsWith("[")) {
             return String.format("\"%s\" %s", CqlUtils.escapeForRegex(lemma.toLowerCase()), cqlPattern);
         } else {

@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import nl.inl.blacklab.search.BlackLabIndex;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 
 import java.io.IOException;
@@ -45,8 +46,9 @@ class BlackLabIntegrationTest {
 
         private final Map<String, Long> corpusFreqs;
 
+        @SuppressWarnings({"NullAway", "ConstantConditions"})
         StubCollocateHelper(Map<String, Long> corpusFreqs) {
-            super(); // no-index constructor for testing
+            super((BlackLabIndex) null); // null index is safe: getTotalFrequency is overridden
             this.corpusFreqs = corpusFreqs;
         }
 

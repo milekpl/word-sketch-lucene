@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.query;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import nl.inl.blacklab.search.BlackLabIndex;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 import pl.marcinmilkowski.word_sketch.utils.LogDiceUtils;
 
@@ -16,8 +17,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class CollocateQueryHelperTest {
 
     /** Stub helper that returns known frequencies without a real BlackLabIndex. */
+    @SuppressWarnings({"NullAway", "ConstantConditions"})
     private static CollocateQueryHelper stubHelper(Map<String, Long> frequencies) {
-        return new CollocateQueryHelper() {
+        return new CollocateQueryHelper((BlackLabIndex) null) {
             @Override
             long getTotalFrequency(String lemma) throws IOException {
                 return frequencies.getOrDefault(lemma.toLowerCase(), 0L);
@@ -26,8 +28,9 @@ class CollocateQueryHelperTest {
     }
 
     /** Default stub with "beautiful"=50000 and "important"=80000. */
+    @SuppressWarnings({"NullAway", "ConstantConditions"})
     private static CollocateQueryHelper defaultStub() {
-        return new CollocateQueryHelper() {
+        return new CollocateQueryHelper((BlackLabIndex) null) {
             @Override
             long getTotalFrequency(String lemma) throws IOException {
                 return switch (lemma.toLowerCase()) {

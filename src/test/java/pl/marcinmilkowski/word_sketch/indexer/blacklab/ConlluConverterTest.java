@@ -234,7 +234,59 @@ class ConlluConverterTest {
     }
 
     @Test
-    @DisplayName("consecutive blank lines between sentences do not produce phantom sentences")
+    @DisplayName("token field values are written verbatim to the WPL chunk file")
+    void tokenContentIsPreservedVerbatim(@TempDir Path tmp) throws IOException {
+        // A single sentence with a tab-separated token line of exactly 10 fields
+        String corpus = "1\trunning\trun\tVERB\tVBG\t_\t0\troot\t_\tSpaceAfter=No\n\n";
+        Path input = writeInput(tmp, corpus);
+        Path outDir = tmp.resolve("out");
+        Files.createDirectories(outDir);
+
+        ConlluConverter.convertConlluToWplChunks(input, outDir, 100);
+
+        List<String> lines = Files.readAllLines(outDir.resolve("chunk_000000.tsv"));
+        assertTrue(lines.stream().anyMatch(l -> l.equals("1\trunning\trun\tVERB\tVBG\t_\t0\troot\t_\tSpaceAfter=No")),
+                "Token line must be written to the WPL file unchanged");
+    }
+
+    @Test
+    @DisplayName("chunk numbering is sequential starting at 000000 when sentencesPerChunk=1")
+    void chunkNamingIsSequential(@TempDir Path tmp) throws IOException {
+        // 3 sentences → 3 chunks with sentencesPerChunk=1
+        String corpus = TWO_SENTENCES +
+                "1\tbird\tbird\tNOUN\tNN\t_\t0\troot\t_\t_\n\n";
+        Path input = writeInput(tmp, corpus);
+        Path outDir = tmp.resolve("out");
+        Files.createDirectories(outDir);
+
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 1);
+
+        assertEquals(3, result.chunks(), "3 chunks expected");
+        assertTrue(Files.exists(outDir.resolve("chunk_000000.tsv")), "chunk_000000.tsv must exist");
+        assertTrue(Files.exists(outDir.resolve("chunk_000001.tsv")), "chunk_000001.tsv must exist");
+        assertTrue(Files.exists(outDir.resolve("chunk_000002.tsv")), "chunk_000002.tsv must exist");
+    }
+
+    @Test
+    @DisplayName("odd-fitting sentences: 3 sentences with sentencesPerChunk=2 produce 2 chunks")
+    void oddSentenceCount_producesCorrectChunkCount(@TempDir Path tmp) throws IOException {
+        // 3 sentences: first 2 go into chunk 0, third into chunk 1
+        String corpus = TWO_SENTENCES +
+                "1\tbird\tbird\tNOUN\tNN\t_\t0\troot\t_\t_\n\n";
+        Path input = writeInput(tmp, corpus);
+        Path outDir = tmp.resolve("out");
+        Files.createDirectories(outDir);
+
+        ConlluConverter.ConversionStats result = ConlluConverter.convertConlluToWplChunks(input, outDir, 2);
+
+        assertEquals(3, result.sentences(), "3 sentences");
+        assertEquals(2, result.chunks(), "2 chunks: [s0,s1] + [s2]");
+        assertTrue(Files.exists(outDir.resolve("chunk_000000.tsv")));
+        assertTrue(Files.exists(outDir.resolve("chunk_000001.tsv")));
+        assertFalse(Files.exists(outDir.resolve("chunk_000002.tsv")));
+    }
+
+
     void consecutiveBlankLines_noPhantomSentences(@TempDir Path tmp) throws IOException {
         String withExtraBlanks =
                 "# sent_id = 1\n" +

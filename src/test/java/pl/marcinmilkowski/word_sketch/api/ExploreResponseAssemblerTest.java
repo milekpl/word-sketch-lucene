@@ -22,7 +22,7 @@ class ExploreResponseAssemblerTest {
             Map<String, Long> seedFreqs,
             List<DiscoveredNoun> nouns,
             List<CoreCollocate> core) {
-        return new ExplorationResult(List.of(seed), seedCollocates, seedFreqs, nouns, core, Map.of());
+        return ExplorationResult.of(List.of(seed), seedCollocates, seedFreqs, nouns, core, Map.of());
     }
 
     private static ExplorationResult resultWith(
@@ -31,14 +31,14 @@ class ExploreResponseAssemblerTest {
             Map<String, Long> seedFreqs,
             List<DiscoveredNoun> nouns,
             List<CoreCollocate> core) {
-        return new ExplorationResult(seeds, seedCollocates, seedFreqs, nouns, core, Map.of());
+        return ExplorationResult.of(seeds, seedCollocates, seedFreqs, nouns, core, Map.of());
     }
 
     @Test
     void buildEdges_fromSeedCollocates_createsEdgesWithSeedAdjType() {
         Map<String, Double> collocates = Map.of("important", 8.5, "novel", 6.0);
         Map<String, Map<String, Double>> perSeed = Map.of("theory", collocates);
-        ExplorationResult result = new ExplorationResult(
+        ExplorationResult result = ExplorationResult.of(
             List.of("theory"), collocates, Map.of(), List.of(), List.of(), perSeed);
 
         List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);
@@ -144,7 +144,7 @@ class ExploreResponseAssemblerTest {
         Map<String, Map<String, Double>> perSeed = Map.of(
             "theory", Map.of("abstract", 7.0),
             "model",  Map.of("abstract", 7.0));
-        ExplorationResult result = new ExplorationResult(
+        ExplorationResult result = ExplorationResult.of(
             List.of("theory", "model"), aggregateCollocates, Map.of(), List.of(), List.of(), perSeed);
 
         List<Edge> edges = ExploreResponseAssembler.buildExplorationEdges(result);

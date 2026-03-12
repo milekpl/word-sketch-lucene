@@ -35,9 +35,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("WordSketchApiServer")
 class WordSketchApiServerTest {
 
-    private static final int TEST_PORT = 18080;
-
     private WordSketchApiServer server;
+    private int serverPort;
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
     /** Minimal stub executor that returns empty results for every query. */
@@ -47,8 +46,9 @@ class WordSketchApiServerTest {
     void startServer() throws IOException {
         var grammar = GrammarConfigHelper.requireTestConfig();
         ExplorationService explorer = new SemanticFieldExplorer(STUB_EXECUTOR, grammar);
-        server = new WordSketchApiServer(STUB_EXECUTOR, explorer, TEST_PORT, grammar);
+        server = new WordSketchApiServer(STUB_EXECUTOR, explorer, 0, grammar);
         server.start();
+        serverPort = server.getPort();
     }
 
     @AfterEach
@@ -122,10 +122,10 @@ class WordSketchApiServerTest {
 
         GrammarConfig grammar = GrammarConfigHelper.requireTestConfig();
         ExplorationService explorer = new SemanticFieldExplorer(richStub, grammar);
-        WordSketchApiServer richServer = new WordSketchApiServer(richStub, explorer, TEST_PORT + 1, grammar);
+        WordSketchApiServer richServer = new WordSketchApiServer(richStub, explorer, 0, grammar);
         richServer.start();
         try {
-            HttpResponse<String> response = get(TEST_PORT + 1, "/api/sketch/theory");
+            HttpResponse<String> response = get(richServer.getPort(), "/api/sketch/theory");
             assertEquals(200, response.statusCode());
             ObjectNode body = HttpApiUtils.MAPPER.readValue(response.body(), ObjectNode.class);
             assertEquals("ok", body.path("status").asText());
@@ -167,10 +167,10 @@ class WordSketchApiServerTest {
 
         GrammarConfig grammar = GrammarConfigHelper.requireTestConfig();
         ExplorationService explorer = new SemanticFieldExplorer(richStub, grammar);
-        WordSketchApiServer richServer = new WordSketchApiServer(richStub, explorer, TEST_PORT + 2, grammar);
+        WordSketchApiServer richServer = new WordSketchApiServer(richStub, explorer, 0, grammar);
         richServer.start();
         try {
-            HttpResponse<String> response = get(TEST_PORT + 2,
+            HttpResponse<String> response = get(richServer.getPort(),
                     "/api/semantic-field/explore?seed=theory&relation=adj_predicate&top=5&min_shared=1");
             assertEquals(200, response.statusCode());
             ObjectNode body = HttpApiUtils.MAPPER.readValue(response.body(), ObjectNode.class);
@@ -187,7 +187,7 @@ class WordSketchApiServerTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        return get(TEST_PORT, path);
+        return get(serverPort, path);
     }
 
     private HttpResponse<String> get(int port, String path) throws IOException, InterruptedException {

@@ -62,7 +62,7 @@ public record RelationConfig(
      *         type is not {@link RelationType#DEP} or no deprel can be derived
      */
     public @org.jspecify.annotations.Nullable String deriveDeprel() {
-        if (pattern == null || relationType().orElse(null) != RelationType.DEP) {
+        if (relationType().orElse(null) != RelationType.DEP) {
             return null;
         }
         // Look for deprel="xxx" or deprel='xxx' attribute constraint
@@ -71,7 +71,7 @@ public record RelationConfig(
             return m.group(1);
         }
         // Fallback: extract from relation ID (e.g., "dep_amod" -> "amod")
-        if (id != null && id.startsWith("dep_")) {
+        if (id.startsWith("dep_")) {
             return id.substring(4);
         }
         return null;

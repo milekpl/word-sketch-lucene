@@ -216,9 +216,7 @@ class ExplorationHandlersTest {
             @Override
             public List<QueryResults.WordSketchResult> executeSurfacePattern(
                     String pattern, double minLogDice, int maxResults) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
-                        java.util.regex.Pattern.CASE_INSENSITIVE).matcher(pattern);
-                String lemma = m.find() ? m.group(1) : "";
+                String lemma = StubQueryExecutor.extractLemmaFromPattern(pattern);
                 return map.getOrDefault(lemma.toLowerCase(), List.of());
             }
         };

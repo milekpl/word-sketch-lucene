@@ -76,6 +76,19 @@ class CollocateQueryHelper {
         this.index = null;
     }
 
+    /**
+     * Returns the index, throwing {@link IllegalStateException} when called via the
+     * test-seam (no-index) constructor. All production methods must use this accessor
+     * rather than the raw field to surface misconfiguration early.
+     */
+    private BlackLabIndex requireIndex() {
+        if (index == null) {
+            throw new IllegalStateException(
+                    "index is null — use the production constructor CollocateQueryHelper(BlackLabIndex)");
+        }
+        return index;
+    }
+
     // -------------------------------------------------------------------------
     // Frequency lookup
     // -------------------------------------------------------------------------
@@ -88,13 +101,14 @@ class CollocateQueryHelper {
      */
     long getTotalFrequency(String lemma) throws IOException {
         try {
-            AnnotatedField field = index.mainAnnotatedField();
+            BlackLabIndex idx = requireIndex();
+            AnnotatedField field = idx.mainAnnotatedField();
             Annotation annotation = field.annotation("lemma");
             if (annotation == null) {
                 return 0L;
             }
             AnnotationSensitivity sensitivity = annotation.sensitivity(MatchSensitivity.INSENSITIVE);
-            TermFrequencyList tfl = index.termFrequencies(sensitivity, null, Set.of(lemma.toLowerCase()));
+            TermFrequencyList tfl = idx.termFrequencies(sensitivity, null, Set.of(lemma.toLowerCase()));
             return tfl.frequency(lemma.toLowerCase());
         } catch (RuntimeException e) {
             throw new IOException("Unexpected failure retrieving frequency for lemma '" + lemma + "'", e);
@@ -136,12 +150,13 @@ class CollocateQueryHelper {
     private CollocateSearch performCollocateSearch(String lemma, String bcqlPattern, boolean withStoredHits)
             throws IOException {
         try {
+            BlackLabIndex idx = requireIndex();
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
-            BLSpanQuery query = pattern.toQuery(QueryInfo.create(index));
+            BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));
             long headwordFreq = getTotalFrequency(lemma);
-            SearchHits searchHits = index.search().find(query);
-            HitProperty groupBy = new HitPropertyHitText(index, MatchSensitivity.INSENSITIVE);
+            SearchHits searchHits = idx.search().find(query);
+            HitProperty groupBy = new HitPropertyHitText(idx, MatchSensitivity.INSENSITIVE);
             HitGroups groups = withStoredHits
                     ? searchHits.groupWithStoredHits(groupBy, Results.NO_LIMIT).execute()
                     : searchHits.group(groupBy, Results.NO_LIMIT).execute();
@@ -223,18 +238,20 @@ class CollocateQueryHelper {
     List<QueryResults.CollocateResult> executeBcqlQuery(String bcqlPattern, int maxResults)
             throws IOException {
         try {
+            BlackLabIndex idx = requireIndex();
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
-            BLSpanQuery query = pattern.toQuery(QueryInfo.create(index));
+            BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));
 
-            Hits hits = index.find(query);
+            Hits hits = idx.find(query);
             String headword = CqlUtils.extractHeadword(bcqlPattern);
             long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
             int collocatePos = CqlUtils.findLabelTokenIndex(bcqlPattern, 2);
             int sampleSize = (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR); // safe: min ensures result ≤ maxResults * OVER_FETCH_FACTOR
 
             Map<String, Long> collocateFreqMap = new HashMap<>();
-            List<HitRecord> hitRecords = collectHits(hits, sampleSize, collocatePos, collocateFreqMap);
+            List<HitRecord> hitRecords = collectHits(hits, sampleSize, collocatePos);
+            buildCollocateFrequencyMap(hitRecords, collocateFreqMap);
             List<QueryResults.CollocateResult> scored = scoreHits(hitRecords, collocateFreqMap, headwordFreq);
             return scored.stream()
                     .sorted(Comparator.comparingDouble(QueryResults.CollocateResult::logDice).reversed())
@@ -247,11 +264,11 @@ class CollocateQueryHelper {
     }
 
     /**
-     * Phase 1 — hit collection: iterate sample hits, extract text/XML and collocate lemma,
-     * and accumulate per-collocate co-occurrence counts into {@code freqMapOut}.
+     * Phase 1 — hit collection: iterate sample hits and extract text/XML and collocate lemma
+     * into a list of {@link HitRecord}s. Frequency counting is a separate concern handled by
+     * {@link #buildCollocateFrequencyMap}.
      */
-    private List<HitRecord> collectHits(Hits hits, int sampleSize, int collocatePos,
-                                        Map<String, Long> freqMapOut) {
+    private List<HitRecord> collectHits(Hits hits, int sampleSize, int collocatePos) {
         List<HitRecord> records = new ArrayList<>(sampleSize);
         if (sampleSize == 0) return records;
 
@@ -280,13 +297,23 @@ class CollocateQueryHelper {
                     BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
             String collocateLemma = extractCollocateLemma(matchXml, collocatePos);
 
-            if (collocateLemma != null && !collocateLemma.isEmpty()) {
-                freqMapOut.merge(collocateLemma.toLowerCase(), 1L, Long::sum);
-            }
             records.add(new HitRecord(xmlSnippet, leftText, matchText, rightText,
                     collocateLemma, hit.doc(), hit.start(), hit.end()));
         }
         return records;
+    }
+
+    /**
+     * Phase 1b — frequency counting: accumulates per-collocate co-occurrence counts from
+     * a previously collected list of {@link HitRecord}s into {@code freqMapOut}.
+     */
+    private static void buildCollocateFrequencyMap(List<HitRecord> records, Map<String, Long> freqMapOut) {
+        for (HitRecord rec : records) {
+            String collocateLemma = rec.collocateLemma();
+            if (collocateLemma != null && !collocateLemma.isEmpty()) {
+                freqMapOut.merge(collocateLemma.toLowerCase(), 1L, Long::sum);
+            }
+        }
     }
 
     /**

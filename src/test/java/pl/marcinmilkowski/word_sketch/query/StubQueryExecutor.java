@@ -25,6 +25,19 @@ import java.util.List;
  */
 public class StubQueryExecutor implements QueryExecutor {
 
+    private static final java.util.regex.Pattern LEMMA_PATTERN =
+            java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Extracts the first lemma value from a CQL/BCQL pattern string.
+     * Returns an empty string when no lemma attribute is present.
+     */
+    public static String extractLemmaFromPattern(String pattern) {
+        java.util.regex.Matcher m = LEMMA_PATTERN.matcher(pattern);
+        return m.find() ? m.group(1) : "";
+    }
+
     @Override
     public List<QueryResults.WordSketchResult> executeCollocations(
             String lemma, String cqlPattern, double minLogDice, int maxResults) throws IOException {

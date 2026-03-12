@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import org.slf4j.Logger;
@@ -58,13 +57,7 @@ class CorpusQueryHandlers {
      * {@code wrapWithErrorHandling} maps this to HTTP 413.
      */
     private BcqlRequest parseBcqlRequest(HttpExchange exchange) throws IOException {
-        String body = HttpApiUtils.readBodyWithSizeLimit(exchange, HttpApiUtils.MAX_REQUEST_BODY_BYTES);
-        ObjectNode obj;
-        try {
-            obj = HttpApiUtils.MAPPER.readValue(body, ObjectNode.class);
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Invalid JSON in request body: " + e.getMessage(), e);
-        }
+        ObjectNode obj = HttpApiUtils.readJsonBody(exchange);
         String bcqlQuery = obj.path("query").textValue();
         if (bcqlQuery == null || bcqlQuery.isBlank()) {
             throw new IllegalArgumentException("Missing required parameter: query");

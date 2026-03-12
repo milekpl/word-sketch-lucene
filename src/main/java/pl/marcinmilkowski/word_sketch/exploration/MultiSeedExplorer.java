@@ -28,7 +28,7 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  * algorithms each have a focused owner. {@link SemanticFieldExplorer} is now a thin facade
  * delegating to both this class and {@link CollocateProfileComparator}.</p>
  */
-public class MultiSeedExplorer {
+class MultiSeedExplorer {
 
     private final QueryExecutor executor;
 
@@ -70,7 +70,7 @@ public class MultiSeedExplorer {
             perSeedCollocates.put(entry.getKey(), collocateMap);
         }
 
-        return new ExplorationResult(
+        return ExplorationResult.of(
             new java.util.ArrayList<>(seeds),
             stats.maxLogDiceByLemma(), stats.totalFreqByLemma(),
             discoveredNounsList, coreCollocatesList, perSeedCollocates);

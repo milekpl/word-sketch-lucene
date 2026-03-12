@@ -36,7 +36,7 @@ public class ExplorationResult {
     /** seed lemma → (collocate lemma → logDice); empty map means not available. */
     private final @NonNull Map<String, Map<String, Double>> perSeedCollocates;
 
-    public ExplorationResult(List<String> seeds, Map<String, Double> seedCollocates,
+    private ExplorationResult(List<String> seeds, Map<String, Double> seedCollocates,
             Map<String, Long> seedCollocateFrequencies,
             List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates,
             Map<String, Map<String, Double>> perSeedCollocates) {
@@ -46,6 +46,18 @@ public class ExplorationResult {
         this.discoveredNouns = discoveredNouns;
         this.coreCollocates = coreCollocates;
         this.perSeedCollocates = perSeedCollocates;
+    }
+
+    /**
+     * Creates an {@code ExplorationResult} from fully-constructed field values.
+     * This is the sole public construction path outside of {@link #empty(String)}.
+     */
+    public static ExplorationResult of(List<String> seeds, Map<String, Double> seedCollocates,
+            Map<String, Long> seedCollocateFrequencies,
+            List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates,
+            Map<String, Map<String, Double>> perSeedCollocates) {
+        return new ExplorationResult(seeds, seedCollocates, seedCollocateFrequencies,
+                discoveredNouns, coreCollocates, perSeedCollocates);
     }
 
     /**

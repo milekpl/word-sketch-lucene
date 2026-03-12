@@ -112,13 +112,12 @@ public final class RelationPatternUtils {
 
     private static @Nullable PosGroup resolvePosGroupFromPrefix(String s, String attr) {
         String q = attr + "\"";
-        if (s.contains(q + "jj") || s.contains(attr + "jj")) return PosGroup.ADJ;
-        if (s.contains(q + "vb") || s.contains(attr + "vb")) return PosGroup.VERB;
-        if (s.contains(q + "nn") || s.contains(attr + "nn")) return PosGroup.NOUN;
-        if (s.contains(q + "rb") || s.contains(attr + "rb")) return PosGroup.ADV;
-        if (s.contains(q + "in") || s.contains(attr + "in")) return PosGroup.OTHER;
-        if (s.contains(q + "rp") || s.contains(attr + "rp")
-         || s.contains(q + "to") || s.contains(attr + "to")) return PosGroup.OTHER;
+        if (s.contains(q + "jj")) return PosGroup.ADJ;
+        if (s.contains(q + "vb")) return PosGroup.VERB;
+        if (s.contains(q + "nn")) return PosGroup.NOUN;
+        if (s.contains(q + "rb")) return PosGroup.ADV;
+        if (s.contains(q + "in")) return PosGroup.OTHER;
+        if (s.contains(q + "rp") || s.contains(q + "to")) return PosGroup.OTHER;
         return null;
     }
 }

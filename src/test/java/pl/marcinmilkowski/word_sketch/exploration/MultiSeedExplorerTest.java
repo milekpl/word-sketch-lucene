@@ -25,9 +25,7 @@ class MultiSeedExplorerTest {
             @Override
             public List<QueryResults.WordSketchResult> executeSurfacePattern(
                     String pattern, double minLogDice, int max) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("lemma=[\"']([^\"']+)[\"']",
-                        java.util.regex.Pattern.CASE_INSENSITIVE).matcher(pattern);
-                String lemma = m.find() ? m.group(1) : "";
+                String lemma = StubQueryExecutor.extractLemmaFromPattern(pattern);
                 return data.getOrDefault(lemma, List.of());
             }
         };

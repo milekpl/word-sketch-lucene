@@ -162,4 +162,12 @@ public class WordSketchApiServer {
             logger.info("API server stopped");
         }
     }
+
+    /** Returns the port the server is actually bound to. Call after {@link #start()}. */
+    public int getPort() {
+        if (server == null) {
+            throw new IllegalStateException("Server not started yet; call start() first");
+        }
+        return server.getAddress().getPort();
+    }
 }

@@ -260,6 +260,24 @@ final class HttpApiUtils {
     }
 
     /**
+     * Reads the request body up to {@link #MAX_REQUEST_BODY_BYTES} and parses it as a JSON object.
+     *
+     * @param exchange the HTTP exchange to read from
+     * @return the parsed JSON object
+     * @throws IOException                    if reading fails
+     * @throws RequestEntityTooLargeException if the body exceeds {@link #MAX_REQUEST_BODY_BYTES}
+     * @throws IllegalArgumentException       if the body is not valid JSON
+     */
+    static ObjectNode readJsonBody(HttpExchange exchange) throws IOException {
+        String body = readBodyWithSizeLimit(exchange, MAX_REQUEST_BODY_BYTES);
+        try {
+            return MAPPER.readValue(body, ObjectNode.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException("Invalid JSON in request body: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * Reads the full request body, throwing {@link RequestEntityTooLargeException} if it exceeds
      * {@code maxBytes}. Uses a one-byte-over read to detect oversize bodies without buffering the
      * entire stream.

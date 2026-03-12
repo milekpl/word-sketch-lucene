@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.api;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -53,13 +52,7 @@ class VisualizationHandlers {
      * Returns: image/svg+xml
      */
     void handleVisualRadial(HttpExchange exchange) throws IOException {
-        String body = HttpApiUtils.readBodyWithSizeLimit(exchange, HttpApiUtils.MAX_REQUEST_BODY_BYTES);
-        ObjectNode obj;
-        try {
-            obj = HttpApiUtils.MAPPER.readValue(body, ObjectNode.class);
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Invalid JSON in request body: " + e.getMessage(), e);
-        }
+        ObjectNode obj = HttpApiUtils.readJsonBody(exchange);
         String center = obj.path("center").textValue();
         if (center == null) center = "";
         logger.debug("Radial: center = {}", center);

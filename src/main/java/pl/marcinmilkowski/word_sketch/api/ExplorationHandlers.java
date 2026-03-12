@@ -6,10 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.config.RelationUtils;
+import pl.marcinmilkowski.word_sketch.utils.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
@@ -189,20 +190,18 @@ class ExplorationHandlers {
 
         RelationConfig resolvedConfig = resolveRelationConfig(params);
 
-        String bcqlQuery = pl.marcinmilkowski.word_sketch.config.RelationPatternUtils.buildFullPattern(
-            resolvedConfig, seed.toLowerCase(), collocate.toLowerCase());
-        List<QueryResults.CollocateResult> examples = semanticFieldExplorer.fetchExamples(collocate, seed, resolvedConfig, new FetchExamplesOptions(maxExamples));
+        FetchExamplesResult fetched = semanticFieldExplorer.fetchExamples(seed, collocate, resolvedConfig, new FetchExamplesOptions(maxExamples));
 
-        List<Map<String, Object>> exampleMaps = examples.stream()
+        List<Map<String, Object>> exampleMaps = fetched.examples().stream()
             .map(ExploreResponseAssembler::collocateResultToExampleMap)
-            .collect(java.util.stream.Collectors.toList());
+            .toList();
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("collocate", collocate);
         response.put("seed", seed);
         response.put("relation", resolvedConfig.id());
-        response.put("bcql", bcqlQuery);
+        response.put("bcql", fetched.bcqlPattern());
         response.put("top", maxExamples);
         response.put("examples", exampleMaps);
         response.put("total_results", exampleMaps.size());
@@ -285,8 +284,7 @@ class ExplorationHandlers {
         if (relationConfig.isEmpty()) {
             throw new IllegalArgumentException("Unknown relation: " + relationId);
         }
-        var relType = relationConfig.get().relationType();
-        if (relType == null) {
+        if (relationConfig.get().relationType().isEmpty()) {
             throw new IllegalArgumentException(
                 "Invalid relation config: missing or unrecognised relation_type for '" + relationId + "'");
         }

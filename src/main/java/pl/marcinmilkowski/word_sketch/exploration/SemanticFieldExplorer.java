@@ -15,14 +15,15 @@ import org.slf4j.LoggerFactory;
 
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.config.RelationPatternUtils;
-import pl.marcinmilkowski.word_sketch.config.RelationUtils;
+import pl.marcinmilkowski.word_sketch.utils.RelationPatternUtils;
+import pl.marcinmilkowski.word_sketch.utils.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
@@ -119,7 +120,7 @@ public class SemanticFieldExplorer implements ExplorationService {
             @NonNull String seed,
             @NonNull RelationConfig relationConfig,
             @NonNull SingleSeedExplorationOptions opts) throws IOException {
-        if (relationConfig.relationType() == null) {
+        if (relationConfig.relationType().isEmpty()) {
             throw new IllegalArgumentException(
                 "Relation '" + relationConfig.id() + "' has no relation_type — cannot perform exploration");
         }
@@ -321,15 +322,15 @@ public class SemanticFieldExplorer implements ExplorationService {
     }
 
     /**
-     * Fetch example sentences for a collocate-seed pair using the provided relation pattern.
+     * Fetch example sentences for a seed-collocate pair using the provided relation pattern.
      *
-     * @param collocate      The collocate lemma (e.g. an adjective)
      * @param seed           The seed lemma (e.g. a noun)
+     * @param collocate      The collocate lemma (e.g. an adjective)
      * @param relationConfig The relation config defining how collocate and seed co-occur
      * @param opts           Options controlling how many examples to fetch
      * @return List of example sentences showing the collocate-seed combination
      */
-    public @NonNull List<QueryResults.CollocateResult> fetchExamples(@NonNull String collocate, @NonNull String seed,
+    public @NonNull FetchExamplesResult fetchExamples(@NonNull String seed, @NonNull String collocate,
             @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)
             throws IOException {
         String bcqlQuery = RelationPatternUtils.buildFullPattern(relationConfig, seed.toLowerCase(), collocate.toLowerCase());
@@ -346,7 +347,7 @@ public class SemanticFieldExplorer implements ExplorationService {
                 if (deduped.size() == opts.maxExamples()) break;
             }
         }
-        return deduped;
+        return new FetchExamplesResult(deduped, bcqlQuery);
     }
 
     /**

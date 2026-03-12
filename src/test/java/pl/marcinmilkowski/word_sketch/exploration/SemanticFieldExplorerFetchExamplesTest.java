@@ -5,9 +5,10 @@ import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
-import pl.marcinmilkowski.word_sketch.model.RelationType;
+import pl.marcinmilkowski.word_sketch.query.RelationType;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.query.StubQueryExecutor;
 
@@ -26,13 +27,13 @@ class SemanticFieldExplorerFetchExamplesTest {
     /** A minimal RelationConfig with a SURFACE pattern that embeds headword and collocate positions. */
     private static RelationConfig testRelationConfig() {
         return GrammarConfigHelper.requireTestConfig().relations().stream()
-                .filter(r -> r.relationType() != null)
+                .filter(r -> r.relationType().isPresent())
                 .findFirst()
                 .orElseGet(() -> new RelationConfig(
                         "test", "test", "test",
                         "1:[lemma=\"{head}\"] [lemma=\"be\"] 2:[xpos=\"JJ.*\"]",
                         1, 2, false, 0,
-                        RelationType.SURFACE,
+                        java.util.Optional.of(RelationType.SURFACE),
                         true, PosGroup.ADJ));
     }
 
@@ -55,13 +56,13 @@ class SemanticFieldExplorerFetchExamplesTest {
         };
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
-        List<QueryResults.CollocateResult> examples = explorer.fetchExamples(
-                "important", "theory", testRelationConfig(), new FetchExamplesOptions(10));
+        FetchExamplesResult fetched = explorer.fetchExamples(
+                "theory", "important", testRelationConfig(), new FetchExamplesOptions(10));
 
-        assertEquals(3, examples.size(), "Should return all 3 sentences");
-        assertTrue(examples.stream().anyMatch(r -> "a".equals(r.sentence())));
-        assertTrue(examples.stream().anyMatch(r -> "b".equals(r.sentence())));
-        assertTrue(examples.stream().anyMatch(r -> "c".equals(r.sentence())));
+        assertEquals(3, fetched.examples().size(), "Should return all 3 sentences");
+        assertTrue(fetched.examples().stream().anyMatch(r -> "a".equals(r.sentence())));
+        assertTrue(fetched.examples().stream().anyMatch(r -> "b".equals(r.sentence())));
+        assertTrue(fetched.examples().stream().anyMatch(r -> "c".equals(r.sentence())));
     }
 
     @Test
@@ -79,12 +80,12 @@ class SemanticFieldExplorerFetchExamplesTest {
         };
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
-        List<QueryResults.CollocateResult> examples = explorer.fetchExamples(
-                "important", "theory", testRelationConfig(), new FetchExamplesOptions(10));
+        FetchExamplesResult fetched = explorer.fetchExamples(
+                "theory", "important", testRelationConfig(), new FetchExamplesOptions(10));
 
-        assertEquals(2, examples.size(), "Should deduplicate: expect [a, b]");
-        assertTrue(examples.stream().anyMatch(r -> "a".equals(r.sentence())));
-        assertTrue(examples.stream().anyMatch(r -> "b".equals(r.sentence())));
+        assertEquals(2, fetched.examples().size(), "Should deduplicate: expect [a, b]");
+        assertTrue(fetched.examples().stream().anyMatch(r -> "a".equals(r.sentence())));
+        assertTrue(fetched.examples().stream().anyMatch(r -> "b".equals(r.sentence())));
     }
 
     @Test
@@ -104,9 +105,9 @@ class SemanticFieldExplorerFetchExamplesTest {
         };
 
         SemanticFieldExplorer explorer = new SemanticFieldExplorer(executor, null);
-        List<QueryResults.CollocateResult> examples = explorer.fetchExamples(
-                "important", "theory", testRelationConfig(), new FetchExamplesOptions(3));
+        FetchExamplesResult fetched = explorer.fetchExamples(
+                "theory", "important", testRelationConfig(), new FetchExamplesOptions(3));
 
-        assertEquals(3, examples.size(), "Should not exceed maxExamples=3");
+        assertEquals(3, fetched.examples().size(), "Should not exceed maxExamples=3");
     }
 }

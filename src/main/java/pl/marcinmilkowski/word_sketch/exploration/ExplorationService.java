@@ -7,6 +7,7 @@ import java.util.Set;
 import org.jspecify.annotations.NonNull;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
+import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.QueryResults;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
@@ -55,7 +56,7 @@ public interface ExplorationService {
     /**
      * Fetch example concordance results for a collocate-seed pair using the provided relation pattern.
      */
-    @NonNull List<QueryResults.CollocateResult> fetchExamples(
+    @NonNull FetchExamplesResult fetchExamples(
             @NonNull String collocate,
             @NonNull String seed,
             @NonNull RelationConfig relationConfig,

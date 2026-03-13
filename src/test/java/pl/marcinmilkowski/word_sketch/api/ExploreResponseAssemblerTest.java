@@ -86,8 +86,8 @@ class ExploreResponseAssemblerTest {
 
         assertNotNull(response.seedCollocates(), "should have seed_collocates");
         assertTrue(response.seedCollocates().size() >= 0, "should have seed_collocates_count");
-        assertNotNull(response.discoveredNouns(), "should have discovered_nouns");
-        assertTrue(response.discoveredNouns().size() >= 0, "should have discovered_nouns_count");
+        assertNotNull(response.primarySeeds(), "should have discovered_nouns");
+        assertTrue(response.primarySeeds().size() >= 0, "should have discovered_nouns_count");
         assertNotNull(response.coreCollocates(), "should have core_collocates");
         assertTrue(response.coreCollocates().size() >= 0, "should have core_collocates_count");
         assertNotNull(response.edges(), "should have edges");
@@ -129,8 +129,8 @@ class ExploreResponseAssemblerTest {
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
                 result, "adj_predicate", new SharedExploreParams(10, 1, 0.0), 20);
 
-        assertEquals(1, response.discoveredNouns().size());
-        ExploreResponse.DiscoveredNounEntry entry = response.discoveredNouns().get(0);
+        assertEquals(1, response.primarySeeds().size());
+        ExploreResponse.DiscoveredNounEntry entry = response.primarySeeds().get(0);
         assertEquals("model", entry.word());
         assertEquals(1, entry.sharedCount());
         assertNotNull(entry.similarityScore());

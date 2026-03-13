@@ -78,28 +78,8 @@ class MultiSeedExplorer {
 
     /**
      * Fetches collocates for each seed using {@code executeSurfacePattern} with the grammar-derived
-     * BCQL pattern. No fallback to {@code executeCollocations} is applied.
-     *
-     * <h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>
-     *
-     * <p>Multi-seed exploration compares collocate scores across all seeds to identify a shared
-     * semantic core. This requires a <em>consistent retrieval method</em> for every seed: if some
-     * seeds used {@code executeSurfacePattern} (BCQL, grammatically precise) and others fell back
-     * to {@code executeCollocations} (dependency index, less precise), the resulting logDice scores
-     * would reflect different retrieval strategies and could not be meaningfully compared.</p>
-     *
-     * <p>Contrast with {@link SingleSeedExplorer#fetchSeedCollocates}, which applies the
-     * {@code executeCollocations} fallback for single-seed exploration. In that context only
-     * one seed is queried, so mixing strategies has no cross-seed comparability cost; the
-     * fallback simply rescues rare seeds from returning empty results. That rescue is not
-     * appropriate here.</p>
-     *
-     * <p><b>Design implication:</b> seeds that produce no BCQL results contribute nothing to
-     * the intersection. This is correct: if a seed is too infrequent to return structured
-     * collocates, it should not artificially inflate or distort the shared collocate set.</p>
-     *
-     * <p><b>Do not introduce a fallback here</b> unless you also normalise the scores so that
-     * BCQL-derived and dependency-index-derived logDice values are on the same scale.</p>
+     * BCQL pattern. No fallback to {@code executeCollocations} is applied, because multi-seed
+     * comparison requires a consistent retrieval method across all seeds for comparable scores.
      */
     private SeedCollocateData fetchCollocatesPerSeed(
             Set<String> seeds, RelationConfig relationConfig,

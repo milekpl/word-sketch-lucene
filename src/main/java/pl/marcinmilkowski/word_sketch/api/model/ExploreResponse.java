@@ -45,7 +45,7 @@ public sealed interface ExploreResponse
      * Each concrete variant carries its own {@code @JsonProperty} annotation; the interface
      * intentionally omits one to avoid inheriting a misleading key name.
      */
-    List<DiscoveredNounEntry> discoveredNouns();
+    List<DiscoveredNounEntry> primarySeeds();
 
     @JsonProperty("core_collocates")
     List<CoreCollocateEntry> coreCollocates();
@@ -109,7 +109,7 @@ public sealed interface ExploreResponse
             String seed,
             Parameters parameters,
             @JsonProperty("seed_collocates") List<SeedCollocateEntry> seedCollocates,
-            @JsonProperty("discovered_nouns") List<DiscoveredNounEntry> discoveredNouns,
+            @JsonProperty("discovered_nouns") List<DiscoveredNounEntry> primarySeeds,
             @JsonProperty("core_collocates") List<CoreCollocateEntry> coreCollocates,
             List<EdgeEntry> edges
     ) implements ExploreResponse {}
@@ -140,6 +140,6 @@ public sealed interface ExploreResponse
         /** Delegates to {@link #sourceSeeds()} to satisfy the shared interface contract. */
         @Override
         @JsonIgnore
-        public List<DiscoveredNounEntry> discoveredNouns() { return sourceSeeds(); }
+        public List<DiscoveredNounEntry> primarySeeds() { return sourceSeeds(); }
     }
 }

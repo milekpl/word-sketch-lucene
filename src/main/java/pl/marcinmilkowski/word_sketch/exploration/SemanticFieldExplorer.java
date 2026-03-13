@@ -131,14 +131,6 @@ public class SemanticFieldExplorer implements ExplorationService {
      * <p>Delegates computation to {@link CollocateProfileComparator}, which validates that
      * at least 2 seed nouns are provided.</p>
      *
-     * <p><strong>Why this pass-through exists:</strong> this facade keeps all three exploration
-     * modes ({@code exploreByPattern}, {@code exploreMultiSeed}, and this method) behind a
-     * single {@link ExplorationService} interface so that the HTTP layer has one injection
-     * point and so that this class remains the sole owner of wiring logic. Callers (and
-     * tests) depend only on {@link ExplorationService}, not on
-     * {@link CollocateProfileComparator} directly, which preserves substitutability and
-     * avoids scattering a conceptually unified feature surface across multiple interfaces.</p>
-     *
      * @param seeds       Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
      * @return ComparisonResult with graded adjective profiles

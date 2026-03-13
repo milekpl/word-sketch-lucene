@@ -1,0 +1,200 @@
+{
+  "session": {
+    "id": "ext_20260313_015050_c6b017e9",
+    "token": "a8c5a4105ab3e31503a91ad1dad50a5c"
+  },
+  "assessments": {
+    "cross_module_architecture": 79,
+    "contract_coherence": 72,
+    "error_consistency": 79,
+    "api_surface_coherence": 73,
+    "design_coherence": 71
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "strengths": [
+        "ExplorationService SPI in exploration/spi/ provides a clean, narrow boundary: the api layer only ever imports the interface and ExplorationException, never the impl classes in exploration/",
+        "CollocateQueryPort narrow interface is applied correctly: ConcordanceHandlers and CorpusQueryHandlers declare it instead of the wider QueryExecutor, making their dependency surface explicit",
+        "api.model package cleanly holds HTTP response types, separated from domain types in model.exploration — no leakage of serialisation concerns into the domain layer",
+        "model.exploration is a shared domain layer correctly imported by both api and exploration without creating a cycle; package-info.java documents the boundary intent"
+      ],
+      "issues_finding_summary": [
+        {
+          "identifier": "sketch-handlers-full-executor",
+          "summary": "SketchHandlers injects full QueryExecutor rather than a sketch-specific narrow port",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+          ],
+          "evidence": [
+            "SketchHandlers declares 'private final QueryExecutor executor' and calls only executeSurfacePattern() (line 174, 195)",
+            "QueryExecutor extends CollocateQueryPort, Closeable and adds executeCollocations, executeCqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern — SketchHandlers only uses executeSurfacePattern",
+            "ConcordanceHandlers and CorpusQueryHandlers correctly use CollocateQueryPort; the narrow-port pattern exists but is not extended to the sketch case"
+          ],
+          "suggestion": "Define a SketchQueryPort interface with executeSurfacePattern(), add it to the CollocateQueryPort family, and have SketchHandlers depend on SketchQueryPort. This makes the dependency surface consistent with the pattern already applied in ConcordanceHandlers.",
+          "confidence": "medium"
+        }
+      ],
+      "issue_character": "One localized inconsistency: the narrow-port pattern is applied to two of three handler classes but not to SketchHandlers, which binds to the full QueryExecutor interface.",
+      "score_rationale": "The architecture is strong overall. The ExplorationService SPI is a genuine design achievement — the api layer has zero imports from exploration impl packages. The CollocateQueryPort narrow-port pattern is thoughtfully applied but inconsistently so: SketchHandlers still depends on the full QueryExecutor. This is a real inconsistency in an otherwise coherent approach, pulling the score slightly below 80."
+    },
+    "contract_coherence": {
+      "strengths": [
+        "ExplorationResult.of() has Objects.requireNonNull guards for all 6 parameters with descriptive messages, making contract violations fail-fast with readable diagnostics",
+        "ExplorationService interface documents @throws IllegalArgumentException and @throws ExplorationException on every method, making the exception contract explicit at the interface level",
+        "ExplorationResult constructor uses List.copyOf and Map.copyOf for all six fields, making the immutability guarantee complete and consistent",
+        "BlackLabSnippetParser.normalizeXmlConcordance correctly throws IllegalArgumentException for null input and missing/malformed parts, separating 'invalid input' from 'data absent' semantics"
+      ],
+      "issues_finding_summary": [
+        {
+          "identifier": "comparison-result-missing-null-guards",
+          "summary": "ComparisonResult.of() lacks Objects.requireNonNull guards, inconsistent with ExplorationResult.of()",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+          ],
+          "evidence": [
+            "ExplorationResult.of() has six explicit requireNonNull calls with messages such as 'seeds must not be null', 'seedCollocates must not be null', etc.",
+            "ComparisonResult.of(List<String> nouns, List<CollocateProfile> collocates) body is a bare 'return new ComparisonResult(nouns, collocates)' with no null checks",
+            "The constructor delegates to List.copyOf() which will throw a plain NullPointerException with no message rather than a descriptive IllegalArgumentException if either argument is null"
+          ],
+          "suggestion": "Add 'Objects.requireNonNull(nouns, \"nouns must not be null\"); Objects.requireNonNull(collocates, \"collocates must not be null\");' at the top of ComparisonResult.of() to match the convention established in ExplorationResult.of().",
+          "confidence": "high"
+        }
+      ],
+      "issue_character": "One isolated omission: ComparisonResult.of() was not updated to match ExplorationResult.of()'s guard style, leaving a single null-contract gap in an otherwise carefully guarded model layer.",
+      "score_rationale": "The contract hygiene is broadly solid: ExplorationResult has complete guards, the SPI interface has well-documented throws, and immutability is enforced via copy-of. The ComparisonResult gap is a genuine inconsistency — callers get a cryptic NPE instead of a descriptive error — which pulls the score into the low-70s. No other significant gaps were found."
+    },
+    "error_consistency": {
+      "strengths": [
+        "HttpApiUtils.wrapWithErrorHandling provides a tiered error hierarchy mapping five distinct exception types to appropriate HTTP status codes (413, 400, 503, 500), with JsonProcessingException correctly caught before IOException",
+        "ExplorationException wraps IOException at the service boundary, keeping checked I/O concerns out of ExplorationService and the HTTP layer",
+        "ConcordanceHandlers proximity fallback is clearly documented with an inline comment explaining intentional behavior, and the fallback:true field is surfaced in the response so clients can detect it",
+        "BlackLabSnippetParser @Nullable-annotated utility methods consistently return null for 'data absent' cases and throw IllegalArgumentException for 'invalid input' cases — the two error semantics are separated cleanly"
+      ],
+      "issues_finding_summary": [],
+      "issue_character": "No actionable defects found. The error handling is consistent across the codebase.",
+      "score_rationale": "wrapWithErrorHandling is thorough and the exception hierarchy is logical. The ExplorationException boundary is clean. The ConcordanceHandlers fallback is deliberate and documented. The remaining @Nullable returns in BlackLabSnippetParser are all on utility methods where null means 'not found' and are annotated accordingly. Nothing in the error-handling layer requires change."
+    },
+    "api_surface_coherence": {
+      "strengths": [
+        "Sealed ExploreResponse interface enforces at compile time that only SingleSeed and MultiSeed variants exist, preventing untyped Map responses",
+        "SharedExploreParams record is used uniformly across all three ExploreResponseAssembler build methods (single, multi, comparison), eliminating parameter scatter",
+        "Consistent parameter naming across endpoints (seed, collocate, relation, top, min_shared, min_logdice) with aliases handled in a single RelationUtils.resolveRelationAlias() call",
+        "ExamplesContext record bundles example-response metadata cleanly, keeping buildExamplesResponse to a manageable arity and making call sites self-documenting"
+      ],
+      "issues_finding_summary": [
+        {
+          "identifier": "explore-response-params-duplication",
+          "summary": "ExploreResponse.Parameters and ComparisonResponse.ComparisonParameters duplicate min_shared, min_logdice, and top fields with no shared type",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java",
+            "src/main/java/pl/marcinmilkowski/word_sketch/api/SharedExploreParams.java"
+          ],
+          "evidence": [
+            "ExploreResponse.Parameters record fields: relation, top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice, @JsonProperty(\"nouns_per\") Integer nounsPer",
+            "ComparisonResponse.ComparisonParameters record fields: relation, top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice (identical three-field overlap)",
+            "SharedExploreParams(topCollocates, minShared, minLogDice) already exists as a unified request-side type but has no corresponding unified response-side parameters type"
+          ],
+          "suggestion": "Extract a shared BaseParameters record (relation, top, minShared, minLogDice) in api/model/ and have both ExploreResponse.Parameters and ComparisonResponse.ComparisonParameters extend or compose it. Alternatively, move the @JsonProperty annotations to a common record and have the variants add their specific fields on top.",
+          "confidence": "medium"
+        }
+      ],
+      "issue_character": "One structural duplication: the response parameters objects repeat the same three fields rather than inheriting from a common base, a missed opportunity given that SharedExploreParams already unifies them on the request side.",
+      "score_rationale": "The sealed interface design and SharedExploreParams unification are genuine strengths. The parameters record duplication across ExploreResponse.Parameters and ComparisonResponse.ComparisonParameters is a real inconsistency that adds maintenance surface — if min_logdice naming changes, two places need updating. This gap, combined with the discoveredNouns() method name issue (which creates confusion between the Java and JSON views), pulls the score into the low-70s."
+    },
+    "design_coherence": {
+      "strengths": [
+        "SemanticFieldExplorer is a thin facade delegating to SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator — each algorithm has a focused, package-private owner",
+        "ExploreResponseAssembler centralises all model-to-presentation translation, keeping ExplorationResult and ComparisonResult free of serialisation concerns",
+        "ExplorationResult design decision (class vs record) is clearly documented in Javadoc, making the rationale discoverable for future maintainers",
+        "SingleSeedExplorationOptions composition over ExplorationOptions is documented with explicit rationale explaining why reverseExpansionLimit is isolated to the single-seed path"
+      ],
+      "issues_finding_summary": [
+        {
+          "identifier": "nullable-grammar-config-test-hatch",
+          "summary": "SemanticFieldExplorer 4-arg constructor accepts @Nullable GrammarConfig as a 'test-only escape hatch', leaking test concerns into the production API",
+          "related_files": [
+            "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+          ],
+          "evidence": [
+            "The 4-arg constructor Javadoc says '@Nullable GrammarConfig grammarConfig: null is accepted as a test-only escape hatch — it bypasses grammar-derived pattern resolution and falls back to the hardcoded FALLBACK_NOUN_PATTERN'",
+            "The constructor calls RelationUtils.findBestCollocatePattern(grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_PATTERN) where null grammarConfig causes a different code path to execute silently",
+            "This means production wiring code could accidentally pass null and receive degraded (hardcoded-pattern) behavior with no exception, no log at WARN/ERROR, and no visible indication in the response"
+          ],
+          "suggestion": "Remove the @Nullable escape hatch. Instead, create a static factory method SemanticFieldExplorer.forTesting(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer) that injects the FALLBACK_NOUN_PATTERN directly as a String, keeping the production constructor fully non-null. This isolates the test shortcut without exposing it in the main constructor signature.",
+          "confidence": "medium"
+        }
+      ],
+      "issue_character": "One design-smell finding: a test-only nullable param embedded in a production constructor. The remaining facade/delegation patterns are coherent and well-structured.",
+      "score_rationale": "The overall delegation design is clean and the algorithmic separation across SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator is a genuine strength. The @Nullable GrammarConfig test hatch is a real design concern — null produces silent behavioral degradation in production without any diagnostic signal, which violates the principle of fail-fast design. This single structural issue, which is localized but real, pulls the score into the low-70s."
+    }
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "sketch-handlers-full-executor",
+      "summary": "SketchHandlers injects full QueryExecutor instead of a narrow sketch-specific port, inconsistent with CollocateQueryPort usage elsewhere",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryPort.java"
+      ],
+      "evidence": [
+        "SketchHandlers declares 'private final QueryExecutor executor' and calls only executeSurfacePattern() at lines 174 and 195",
+        "ConcordanceHandlers and CorpusQueryHandlers both declare 'private final CollocateQueryPort executor' and use only the narrow port — the narrow-port pattern is established but not applied to SketchHandlers",
+        "QueryExecutor exposes executeCollocations, executeCqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern, and Closeable — SketchHandlers binds to all of these without needing them"
+      ],
+      "suggestion": "Define a SketchQueryPort interface in the query package with a single executeSurfacePattern() method. Annotate it with @NonNull and document it. Change SketchHandlers to declare 'private final SketchQueryPort executor'. Have QueryExecutor extend SketchQueryPort so the production BlackLabQueryExecutor satisfies it automatically.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "comparison-result-missing-null-guards",
+      "summary": "ComparisonResult.of() has no Objects.requireNonNull guards, yielding a cryptic NullPointerException instead of a descriptive message when null is passed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.of() at lines 57-62 has six Objects.requireNonNull calls with messages ('seeds must not be null', 'seedCollocates must not be null', etc.)",
+        "ComparisonResult.of(List<String> nouns, List<CollocateProfile> collocates) body is 'return new ComparisonResult(nouns, collocates)' with no validation",
+        "ComparisonResult constructor delegates immediately to List.copyOf(nouns) and List.copyOf(collocates), which throw NullPointerException with no caller-identifying message"
+      ],
+      "suggestion": "Add at the top of ComparisonResult.of(): 'Objects.requireNonNull(nouns, \"nouns must not be null\"); Objects.requireNonNull(collocates, \"collocates must not be null\");' to match the guard style established by ExplorationResult.of().",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore-response-params-duplication",
+      "summary": "ExploreResponse.Parameters and ComparisonResponse.ComparisonParameters duplicate min_shared, min_logdice, and top fields with separate @JsonProperty annotations and no shared base type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse.Parameters: 'int top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice'",
+        "ComparisonResponse.ComparisonParameters: 'int top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice' — identical three-field block",
+        "SharedExploreParams(topCollocates, minShared, minLogDice) already unifies these on the request side but there is no corresponding shared response-side parameters type"
+      ],
+      "suggestion": "Extract a shared record BaseExplorationParameters(String relation, int top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice) in api/model/. Have ExploreResponse.Parameters compose or extend it (adding the @Nullable nounsPer field), and have ComparisonResponse.ComparisonParameters reuse it directly.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nullable-grammar-config-test-hatch",
+      "summary": "SemanticFieldExplorer 4-arg constructor accepts @Nullable GrammarConfig as a 'test-only escape hatch', causing silent behavioral degradation when null is accidentally passed in production",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Constructor Javadoc: 'null is accepted as a test-only escape hatch — it bypasses grammar-derived pattern resolution and falls back to the hardcoded FALLBACK_NOUN_PATTERN. Production callers must always supply a non-null, fully-loaded grammar config.'",
+        "RelationUtils.findBestCollocatePattern(grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_PATTERN) is called with the potentially-null grammarConfig; no log.warn or log.error is emitted when the fallback path is taken",
+        "A production caller that mistakenly passes null gets the hardcoded '[xpos=\"NN.*\"]' pattern silently, with no exception, no diagnostic log, and no visible difference in the API response shape"
+      ],
+      "suggestion": "Remove the @Nullable escape hatch from the 4-arg constructor (make grammarConfig @NonNull). Add a package-private static factory SemanticFieldExplorer.withFallbackPattern(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer, String nounPattern) for tests that need to inject the fallback pattern directly, keeping the null-path entirely out of the production constructor.",
+      "confidence": "medium"
+    }
+  ]
+}

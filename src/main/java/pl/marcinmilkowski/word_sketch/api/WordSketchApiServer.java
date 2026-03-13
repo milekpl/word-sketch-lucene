@@ -60,6 +60,8 @@ public class WordSketchApiServer {
                                 int port, GrammarConfig grammarConfig) {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
+        Objects.requireNonNull(executor, "executor must not be null");
+        Objects.requireNonNull(explorationService, "explorationService must not be null");
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);
         this.explorationHandlers = new ExplorationHandlers(explorationService, grammarConfig);
         this.concordanceHandlers = new ConcordanceHandlers(executor, grammarConfig);

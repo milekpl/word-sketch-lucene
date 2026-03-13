@@ -1,0 +1,530 @@
+{
+  "assessments": {
+    "cross_module_architecture": 79,
+    "contract_coherence": 72,
+    "error_consistency": 79,
+    "api_surface_coherence": 73,
+    "design_coherence": 71,
+    "high_level_elegance": 74,
+    "naming_quality": 68,
+    "abstraction_fitness": 72,
+    "convention_outlier": 74,
+    "logic_clarity": 73,
+    "type_safety": 68,
+    "mid_level_elegance": 74,
+    "low_level_elegance": 72,
+    "ai_generated_debt": 58,
+    "test_strategy": 67,
+    "package_organization": 72,
+    "initialization_coupling": 58,
+    "authorization_consistency": 73,
+    "dependency_health": 48,
+    "incomplete_migration": 65
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "sketch-handlers-full-executor",
+      "summary": "SketchHandlers injects full QueryExecutor instead of a narrow sketch-specific port, inconsistent with CollocateQueryPort usage elsewhere",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryPort.java"
+      ],
+      "evidence": [
+        "SketchHandlers declares 'private final QueryExecutor executor' and calls only executeSurfacePattern() at lines 174 and 195",
+        "ConcordanceHandlers and CorpusQueryHandlers both declare 'private final CollocateQueryPort executor' and use only the narrow port \u2014 the narrow-port pattern is established but not applied to SketchHandlers",
+        "QueryExecutor exposes executeCollocations, executeCqlQuery, getTotalFrequency, executeSurfacePattern, executeDependencyPattern, and Closeable \u2014 SketchHandlers binds to all of these without needing them"
+      ],
+      "suggestion": "Define a SketchQueryPort interface in the query package with a single executeSurfacePattern() method. Annotate it with @NonNull and document it. Change SketchHandlers to declare 'private final SketchQueryPort executor'. Have QueryExecutor extend SketchQueryPort so the production BlackLabQueryExecutor satisfies it automatically.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "comparison-result-missing-null-guards",
+      "summary": "ComparisonResult.of() has no Objects.requireNonNull guards, yielding a cryptic NullPointerException instead of a descriptive message when null is passed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.of() at lines 57-62 has six Objects.requireNonNull calls with messages ('seeds must not be null', 'seedCollocates must not be null', etc.)",
+        "ComparisonResult.of(List<String> nouns, List<CollocateProfile> collocates) body is 'return new ComparisonResult(nouns, collocates)' with no validation",
+        "ComparisonResult constructor delegates immediately to List.copyOf(nouns) and List.copyOf(collocates), which throw NullPointerException with no caller-identifying message"
+      ],
+      "suggestion": "Add at the top of ComparisonResult.of(): 'Objects.requireNonNull(nouns, \"nouns must not be null\"); Objects.requireNonNull(collocates, \"collocates must not be null\");' to match the guard style established by ExplorationResult.of().",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore-response-params-duplication",
+      "summary": "ExploreResponse.Parameters and ComparisonResponse.ComparisonParameters duplicate min_shared, min_logdice, and top fields with separate @JsonProperty annotations and no shared base type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse.Parameters: 'int top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice'",
+        "ComparisonResponse.ComparisonParameters: 'int top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice' \u2014 identical three-field block",
+        "SharedExploreParams(topCollocates, minShared, minLogDice) already unifies these on the request side but there is no corresponding shared response-side parameters type"
+      ],
+      "suggestion": "Extract a shared record BaseExplorationParameters(String relation, int top, @JsonProperty(\"min_shared\") int minShared, @JsonProperty(\"min_logdice\") double minLogDice) in api/model/. Have ExploreResponse.Parameters compose or extend it (adding the @Nullable nounsPer field), and have ComparisonResponse.ComparisonParameters reuse it directly.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "nullable-grammar-config-test-hatch",
+      "summary": "SemanticFieldExplorer 4-arg constructor accepts @Nullable GrammarConfig as a 'test-only escape hatch', causing silent behavioral degradation when null is accidentally passed in production",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Constructor Javadoc: 'null is accepted as a test-only escape hatch \u2014 it bypasses grammar-derived pattern resolution and falls back to the hardcoded FALLBACK_NOUN_PATTERN. Production callers must always supply a non-null, fully-loaded grammar config.'",
+        "RelationUtils.findBestCollocatePattern(grammarConfig, PosGroup.NOUN, FALLBACK_NOUN_PATTERN) is called with the potentially-null grammarConfig; no log.warn or log.error is emitted when the fallback path is taken",
+        "A production caller that mistakenly passes null gets the hardcoded '[xpos=\"NN.*\"]' pattern silently, with no exception, no diagnostic log, and no visible difference in the API response shape"
+      ],
+      "suggestion": "Remove the @Nullable escape hatch from the 4-arg constructor (make grammarConfig @NonNull). Add a package-private static factory SemanticFieldExplorer.withFallbackPattern(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer, String nounPattern) for tests that need to inject the fallback pattern directly, keeping the null-path entirely out of the production constructor.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "discovered_nouns_interface_misleading",
+      "summary": "ExploreResponse.discoveredNouns() interface method name is semantically wrong for multi-seed responses",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "The sealed interface declares `List<DiscoveredNounEntry> discoveredNouns()` with Javadoc admitting dual semantics: discovered nouns in single-seed mode, caller-supplied source seeds in multi-seed mode",
+        "MultiSeed overrides it with @JsonIgnore and delegates to sourceSeeds() \u2014 the method name discoveredNouns() communicates the opposite of what the multi-seed override contains",
+        "A name that requires a paragraph of Javadoc to explain why it means something different in the other subtype is a naming defect, not a documentation opportunity"
+      ],
+      "suggestion": "Rename the interface method to something neutral that is accurate for both variants, e.g. nounEntries() or seedEntries(), or split the interface into separate non-shared pieces so neither concrete type inherits a misleading name",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "minlogdice_vocabulary_split",
+      "summary": "SharedExploreParams.minLogDice uses different name for same concept as ExplorationOptions.logDiceThreshold",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SharedExploreParams.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java"
+      ],
+      "evidence": [
+        "ExplorationOptions uses `logDiceThreshold` (the filter threshold \u2014 the renamed field per context notes)",
+        "SharedExploreParams still uses `minLogDice` for the same concept (HTTP param min_logdice \u2192 filter threshold)",
+        "At every call site that bridges the two records the name changes: `new ExplorationOptions(... commonParams.minLogDice() ...)` \u2014 the asymmetry is visible in ExplorationHandlers lines creating ExplorationOptions from SharedExploreParams"
+      ],
+      "suggestion": "Rename SharedExploreParams.minLogDice to logDiceThreshold to match ExplorationOptions; the HTTP parameter name (min_logdice) is a separate concern handled by the parser and does not need to drive the internal field name",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semanticfieldexplorer_not_a_thin_facade",
+      "summary": "SemanticFieldExplorer is documented as a thin facade but owns non-trivial deduplication logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Class Javadoc says: 'Thin facade wiring SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator'",
+        "fetchExamples() contains a 12-line deduplication loop over CollocateResult sentences with a HashSet and a size cap \u2014 this is business logic, not delegation",
+        "All other methods in the class are genuine pass-throughs to collaborators; fetchExamples is the structural outlier that owns real algorithm"
+      ],
+      "suggestion": "Either move the deduplication algorithm into a helper on SingleSeedExplorer (or a new dedicated class) so the facade is genuinely thin, or update the Javadoc to accurately describe that this class also owns the examples deduplication step",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "singleseedexplorationoptions_delegation_noise",
+      "summary": "SingleSeedExplorationOptions adds three delegation methods that don't pay for themselves",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "topCollocates(), logDiceThreshold(), minShared() each delegate identically to base.xxx()",
+        "Javadoc says these exist for 'call-site convenience, avoids .base().xxx()' \u2014 the benefit is saving five characters at call sites",
+        "In SingleSeedExplorer.explore(), opts.topCollocates() / opts.logDiceThreshold() / opts.minShared() are used; callers could equally write opts.base().topCollocates() with no loss of clarity"
+      ],
+      "suggestion": "Remove the three delegation methods and access ExplorationOptions fields via opts.base().xxx(), or flatten the record if the nesting itself is the problem. The current design adds indirection without policy or translation.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "findcollocateintersection_inline_map_building",
+      "summary": "findCollocateIntersection builds perSeedCollocates inline while all other aggregations are delegated to helpers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "fetchCollocatesPerSeed, identifyCommonCollocates, aggregateCollocateStats, buildDiscoveredNouns, buildCoreCollocates are all extracted helpers \u2014 the orchestration method reads cleanly",
+        "The perSeedCollocates loop is inline in findCollocateIntersection, converting List<WordSketchResult> to Map<String,Double> for each seed \u2014 same fan-out as the other helpers but not extracted",
+        "This embedded loop is structurally inconsistent with every other aggregation step in the same method"
+      ],
+      "suggestion": "Extract the perSeedCollocates map-building into a private helper method (e.g. buildPerSeedCollocateMaps) to match the structural pattern of all other aggregation steps in findCollocateIntersection",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "singlepass_comment_misleading",
+      "summary": "Comment 'Single-pass' in buildCollocateProfileList is misleading because the method uses two loops",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "Comment says: '// Single-pass: accumulate sum, min, max in one loop' followed by a for loop over scores",
+        "Immediately after: '// Second pass for variance (requires the mean \u2014 unavoidable two-pass for numerical stability)' \u2014 which explicitly contradicts the single-pass framing",
+        "A reader scanning the comment first forms the expectation of a single loop; the immediately following comment corrects that expectation, creating a minor cognitive dissonance"
+      ],
+      "suggestion": "Replace the 'Single-pass' framing with an accurate description: '// Pass 1: accumulate sum, min, max' and '// Pass 2: compute variance (requires mean from pass 1)'",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "validation_placement_inconsistent_multiseed",
+      "summary": "Seeds.size() < 2 validation lives in the service for exploreMultiSeed but in the comparator for compareCollocateProfiles",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed() validates seeds.size() < 2 before delegating to MultiSeedExplorer (which does not check)",
+        "SemanticFieldExplorer.compareCollocateProfiles() does NOT validate \u2014 relies on CollocateProfileComparator.compareCollocateProfiles() to do so",
+        "The two multi-seed paths use different layers to enforce the same constraint; a caller of ExplorationService gets inconsistent failure points depending on which method is called"
+      ],
+      "suggestion": "Standardise validation placement: either always validate in the service layer (SemanticFieldExplorer) before delegation, or always in the delegate classes (MultiSeedExplorer / CollocateProfileComparator); remove the duplicate in whichever layer is chosen as non-canonical",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "discovered_noun_mutable_map",
+      "summary": "DiscoveredNoun record stores Map<String,Double> sharedCollocates without a compact constructor defensive copy",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/DiscoveredNoun.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "DiscoveredNoun record has no compact constructor; the Map passed at line 197 of SingleSeedExplorer.filterByMinShared (a fresh LinkedHashMap) is stored directly by the record accessor without copying",
+        "ExplorationResult (the parent container) performs Map.copyOf on all its maps \u2014 DiscoveredNoun is inconsistent with that pattern",
+        "sharedCollocateList() returns new ArrayList<>(sharedCollocates.keySet()) defensively, but the underlying map itself remains mutable from outside the record"
+      ],
+      "suggestion": "Add a compact constructor to DiscoveredNoun: `public DiscoveredNoun { sharedCollocates = Map.copyOf(sharedCollocates); }` \u2014 one line, mirrors the ExplorationResult pattern already in the codebase",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_profile_mutable_map",
+      "summary": "CollocateProfile record stores Map<String,Double> nounScores without a defensive copy at the record level",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "CollocateProfile has no compact constructor; the fullScores LinkedHashMap built in buildCollocateProfileList is passed directly to new CollocateProfile()",
+        "The record's nounScores() accessor returns the mutable map reference; callers can mutate it, silently corrupting the ComparisonResult holding these profiles",
+        "The record has 10 parameters including variance, commonalityScore, distinctivenessScore derived from this map \u2014 a post-construction mutation would leave those fields inconsistent"
+      ],
+      "suggestion": "Add `public CollocateProfile { nounScores = Map.copyOf(nounScores); }` as a compact constructor; the existing construction site in CollocateProfileComparator already builds a fresh map so this is zero-overhead",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_grammar_config_production_ctor",
+      "summary": "SemanticFieldExplorer's primary constructor accepts @Nullable GrammarConfig as a documented test-only escape hatch, polluting the production API with a null-tolerant parameter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer, @Nullable GrammarConfig) documents null as a 'test-only escape hatch' (line 76 of SemanticFieldExplorer.java)",
+        "Tests at ExplorationHandlersTest line 177 and line 247 call new SemanticFieldExplorer(executor, null), making tests depend on null-tolerant production code rather than proper test doubles",
+        "The result is a production class that silently degrades when misconfigured: passing null in production would fall back to a hardcoded pattern with no compile-time or runtime warning"
+      ],
+      "suggestion": "Move the null-GrammarConfig fallback into a dedicated test helper method (e.g. SemanticFieldExplorer.forTesting(executor)) or a package-private subclass; remove @Nullable from the production constructor parameter to restore the non-null contract",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "null_grammar_config_api_leakage",
+      "summary": "The 'test-only escape hatch' for null GrammarConfig in SemanticFieldExplorer leaks a test concern into the production constructor signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "The public 4-arg constructor is documented as the 'Primary constructor that accepts all dependencies explicitly, enabling injection' but carries a @Nullable GrammarConfig with an explicit escape-hatch note for tests",
+        "This forces all injection code to decide whether to pass null or not; a non-null @NonNull parameter would make the intent unambiguous",
+        "CollocateQueryHelper takes the same approach for BlackLabIndex \u2014 both are production constructors with null-tolerant parameters documented as test-only, indicating a systemic pattern"
+      ],
+      "suggestion": "Introduce a static factory `SemanticFieldExplorer.withFallbackNounPattern(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer)` for test use, and add @NonNull to the grammarConfig parameter of the primary constructor",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "opaque_scoring_formula",
+      "summary": "The commonality and distinctiveness scoring formulas in CollocateProfileComparator are computed inline with no explanation of what they measure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "Line 146: `double commonalityScore = presentIn * avgScore;` \u2014 variable name partly explains this, but the choice of multiplication vs e.g. geometric mean is unexplained",
+        "Line 147: `double distinctivenessScore = maxScore * (1.0 - (double) presentIn / nounCount) + Math.sqrt(variance);` \u2014 the sqrt(variance) addend and the specificity factor are combined with no comment explaining their relative contribution",
+        "Both values are exported directly to the API response and consumed by the frontend visualization, making understanding critical for future maintainers"
+      ],
+      "suggestion": "Add a 2-3 sentence block comment before the formula block naming each factor and its intent: e.g. '// commonality = how broadly shared and how strongly: presentIn * avgScore / (spread dampened by specificity factor)'; the explanation need not be mathematical prose, just enough to guide future tuning",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "over_justified_private_method_javadoc",
+      "summary": "Several private/package-private methods have Javadoc blocks that defensively justify design choices rather than describing callable behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.fetchCollocatesPerSeed: 24-line Javadoc including a '<h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>' heading with three <p> blocks and a bold 'Do not introduce a fallback here' warning \u2014 for a 12-line private method",
+        "SemanticFieldExplorer.compareCollocateProfiles: 10-line Javadoc block titled '<p><strong>Why this pass-through exists:</strong>' that argues for the design rather than describing the method contract",
+        "ExplorationResult class Javadoc: '<p><strong>Why a class rather than a record:</strong>' heading that pre-empts the obvious reviewer question about record vs class \u2014 typical AI-generated defensive justification pattern",
+        "Three separate files use the '<p><strong>Why...</strong>' pattern, indicating a systemic habit rather than isolated instances"
+      ],
+      "suggestion": "Trim private-method Javadocs to the method contract: what parameters mean, what it returns, and what it throws. Move design rationale to a top-level class comment or ADR. For fetchCollocatesPerSeed, a single sentence 'No fallback to executeCollocations \u2014 cross-seed logDice comparability requires a consistent retrieval strategy' replaces 24 lines",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "multi_seed_handler_smoke_only",
+      "summary": "handleSemanticFieldExploreMulti happy-path test only verifies response shape, not any collocate content",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti_twoSeeds_returns200 asserts status=200, seeds key exists, seed_count==2 \u2014 uses the empty StubQueryExecutor so seed_collocates, core_collocates, and edges are all empty lists",
+        "The analogous single-seed test handleSemanticFieldExplore_withData_seedCollocatesNonEmpty was upgraded to assert actual collocate values; explore-multi has no equivalent data-asserting test",
+        "MultiSeedExplorer is well-tested at the unit level (MultiSeedExplorerTest covers core collocate intersection, empty executor, etc.) but that coverage does not flow through to the handler layer"
+      ],
+      "suggestion": "Add a test parallel to handleSemanticFieldComparison_withData_collocatesNonEmpty: create a collocatingExecutor stub returning known collocates for both seeds, call handleSemanticFieldExploreMulti, and assert that seed_collocates is non-empty and contains the expected word",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "split_explorer_test_classes",
+      "summary": "SemanticFieldExplorerTest and SemanticFieldExplorerInternalTest split test surface for the same class based on package access rather than a clear conceptual seam",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerInternalTest is in the same package (exploration) to access package-private visibility and tests the 4-arg constructor; SemanticFieldExplorerTest is in the same package and tests compare() and explore()",
+        "Both files define their own StubExecutor inner classes with essentially the same logic; the RecordingExecutor in InternalTest is the only distinctly useful element",
+        "A developer finding a failing test must check both files to understand full coverage, doubling cognitive load"
+      ],
+      "suggestion": "Merge the two test files into a single SemanticFieldExplorerTest with nested @Nested classes for distinct concerns (e.g. @Nested class Explore, @Nested class Compare, @Nested class Constructor); extract the shared StubExecutor as a package-level test helper",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pkg_viz_no_package_info",
+      "summary": "viz/ package has no package-info.java while every other main-code package does",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "All other main-code packages (api, config, exploration, exploration/spi, indexer/blacklab, model, model/exploration, model/sketch, query, utils) have a package-info.java; viz/ does not"
+      ],
+      "suggestion": "Add src/main/java/pl/marcinmilkowski/word_sketch/viz/package-info.java with a one-line package description, matching the convention used everywhere else",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pkg_api_model_no_package_info",
+      "summary": "api/model/ sub-package has no package-info.java while its sibling packages all have one",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/CollocateEntry.java"
+      ],
+      "evidence": [
+        "api/ has package-info.java, model/ has package-info.java, but api/model/ \u2014 the HTTP response DTO layer \u2014 has no package-info.java despite being a distinct concern (HTTP response shapes vs. domain model types)"
+      ],
+      "suggestion": "Add src/main/java/pl/marcinmilkowski/word_sketch/api/model/package-info.java describing the package as HTTP response DTOs serialised by Jackson",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "pkg_indexer_no_toplevel_package_info",
+      "summary": "indexer/ top-level directory has no package-info.java; only the blacklab/ sub-package is documented",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/indexer/blacklab/package-info.java"
+      ],
+      "evidence": [
+        "There is no src/main/java/pl/marcinmilkowski/word_sketch/indexer/package-info.java. The indexer/ directory exists only as a container for blacklab/, so a brief package-info documents the expected extension point for future indexer backends"
+      ],
+      "suggestion": "Add src/main/java/pl/marcinmilkowski/word_sketch/indexer/package-info.java describing the package as the indexing pipeline layer with blacklab/ as the current implementation",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "init_missing_null_check_exploration_service",
+      "summary": "ExplorationHandlers constructor assigns explorationService without a null-check, deferring NPE to request time",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers constructor: `this.explorationService = explorationService;` \u2014 no Objects.requireNonNull; grammarConfig is guarded but explorationService is not. A null passed here surfaces as a NullPointerException on the first handler call, not at construction time"
+      ],
+      "suggestion": "Add `this.explorationService = Objects.requireNonNull(explorationService, \"explorationService must not be null\");` in the ExplorationHandlers constructor, matching how grammarConfig is guarded",
+      "confidence": "high"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "init_missing_null_checks_wordsketchapiserver",
+      "summary": "WordSketchApiServer constructor null-checks grammarConfig but not executor or explorationService",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Constructor: `Objects.requireNonNull(grammarConfig, ...)` is called, but `executor` and `explorationService` are passed directly to handler constructors with no upfront null guard. A null executor would produce an NPE inside SketchHandlers or ConcordanceHandlers at the first query, not at server construction time"
+      ],
+      "suggestion": "Add null-checks for executor and explorationService at the top of the WordSketchApiServer constructor before they are forwarded to handler constructors",
+      "confidence": "high"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "init_nullable_grammar_config_test_escape_hatch",
+      "summary": "SemanticFieldExplorer 4-arg constructor accepts @Nullable GrammarConfig as a documented test escape hatch, allowing null in production code",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "The primary 4-arg constructor is annotated with `@Nullable GrammarConfig grammarConfig` and documented as a test-only null-accepting path. Production callers in Main.java always pass non-null, but the public constructor signature legitimises null, making it a maintenance hazard if new callers use the 4-arg form without reading the Javadoc"
+      ],
+      "suggestion": "Move the null-tolerant logic into a dedicated package-private or test-only factory method (e.g., forTesting(executor)), and restore the 4-arg constructor to require @NonNull GrammarConfig",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "authz_no_auth_documented_ok",
+      "summary": "All endpoints are consistently unauthenticated; the security model is explicit but relies entirely on loopback bind and host firewall",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Javadoc explicitly states the no-auth design and the loopback-only bind rationale. All 13 endpoints are registered through the same registerGetHandler/registerPostHandler path with no auth middleware. CORS is uniformly applied via HttpApiUtils.setCorsHeader(). There is no inconsistency within the chosen model"
+      ],
+      "suggestion": "If this server is ever bound to a non-loopback interface, there is no defence-in-depth layer at the application level. Consider adding a trivial API-key or IP-allowlist filter as a second layer, even for loopback-only deployments, so that the code path exists and is tested before the binding changes",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "authz_bcql_endpoint_no_rate_limit",
+      "summary": "/api/bcql accepts arbitrary corpus queries with only pattern-length and bracket-count limits, no rate limiting",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "parseBcqlRequest enforces MAX_BCQL_PATTERN_LENGTH=1024 and MAX_BCQL_BRACKET_DEPTH=20, but there is no per-IP or per-second rate limit. All other endpoints also lack rate limiting, making this consistent, but the open-ended query surface of /api/bcql is particularly inviting to abuse even on loopback"
+      ],
+      "suggestion": "Add a simple request-count or token-bucket rate limiter in HttpApiUtils.wrapWithErrorHandling or a dedicated filter layer; apply it uniformly to all endpoints to keep the no-auth model coherent without relying solely on the OS loopback restriction",
+      "confidence": "low"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "dep_blacklab_not_on_maven_central",
+      "summary": "BlackLab 4.0.0 is not published to Maven Central and requires a manual local-install script before any build",
+      "related_files": [
+        "pom.xml",
+        "install-blacklab.sh"
+      ],
+      "evidence": [
+        "pom.xml comment: 'BlackLab 4.x is NOT published to Maven Central (latest on Central is 3.0.1). REQUIRED FIRST STEP: run ./install-blacklab.sh'. The fallback profile uses a GitHub raw-content URL explicitly flagged with 'no SLA' and 'DO NOT rely on it in production CI'. Any CI pipeline that doesn't run install-blacklab.sh first will fail at dependency resolution"
+      ],
+      "suggestion": "Mirror the BlackLab 4.0.0 JARs to a private artifact registry (Nexus, Artifactory, or GitHub Packages) and reference that registry in pom.xml, eliminating the local-install prerequisite and the fragile raw-content fallback URL",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "dep_old_junit_version",
+      "summary": "JUnit 5.9.0 and maven-surefire-plugin 3.0.0-M7 are significantly behind current stable releases",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "junit.version=5.9.0 (current: 5.11.x); maven-surefire-plugin=3.0.0-M7 (a milestone, current stable: 3.2.x+). The milestone designation on surefire means it was never promoted to a stable release; using a milestone in production CI is an indicator of dependency drift"
+      ],
+      "suggestion": "Upgrade junit-jupiter-api/engine to 5.11.x and maven-surefire-plugin to 3.2.x (first stable GA after the M-series), keeping the junit.platform.version aligned (1.11.x for JUnit 5.11)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "dep_add_opens_unjustified",
+      "summary": "surefire argLine includes --add-opens java.base/java.lang=ALL-UNNAMED with no visible reason in the test code",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "maven-surefire-plugin configuration: `<argLine>--add-opens java.base/java.lang=ALL-UNNAMED</argLine>`. No module-info.java exists, no setAccessible/getDeclaredField/getDeclaredMethod calls were found in test sources. This flag is typically added to work around a reflective test dependency; without one visible, it is likely a leftover from a removed dependency"
+      ],
+      "suggestion": "Remove --add-opens from surefire argLine and verify tests still pass; if a specific test fails, identify which class needs it and document the reason with a comment in pom.xml",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "mig_add_opens_leftover",
+      "summary": "--add-opens java.base/java.lang=ALL-UNNAMED in surefire config is a likely leftover from a removed reflective test dependency",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "No module-info.java exists. No reflective access (setAccessible, getDeclaredField/Method/Constructor) was found in any test source file. The flag has no current justification and is consistent with a dependency having been removed while its workaround flag was not cleaned up"
+      ],
+      "suggestion": "Delete the argLine element from the surefire configuration and run mvn test to confirm nothing breaks; document with a comment if any test requires it",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "mig_viz_package_info_missed",
+      "summary": "viz/ was not given a package-info.java when the rest of the codebase received package documentation, leaving it as the only undocumented production package",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java"
+      ],
+      "evidence": [
+        "10 other main-code packages have package-info.java; viz/ (containing only RadialPlot.java) does not. This is consistent with the package documentation being added in a batch that missed viz/"
+      ],
+      "suggestion": "Add src/main/java/pl/marcinmilkowski/word_sketch/viz/package-info.java with a brief package description to complete the documentation migration",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "mig_com_sun_httpserver_todo",
+      "summary": "Acknowledged TODO to migrate from com.sun.net.httpserver to Undertow or Jetty is present in two places but not tracked as a concrete task",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "pom.xml"
+      ],
+      "evidence": [
+        "WordSketchApiServer.java line 53-56: 'TODO: migrate to Undertow or Jetty if a multi-module build or custom classloader is needed'. The same note appears in pom.xml maven-compiler-plugin section. The duplication suggests this migration intent was copied rather than tracked"
+      ],
+      "suggestion": "Record this as a known architectural decision in an ADR or in the project README rather than as TODO comments in two locations; the current implementation is intentional and not at risk of breakage, so it is not urgent, but it should be a tracked backlog item rather than a scattered comment",
+      "confidence": "low"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "sketch_handlers_full_executor_binding",
+      "summary": "SketchHandlers binds to the full QueryExecutor while sibling handlers use narrow CollocateQueryPort port",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "SketchHandlers constructor takes QueryExecutor; ExplorationHandlers and ConcordanceHandlers take CollocateQueryPort narrowing to only what they need"
+      ],
+      "suggestion": "Extract a SketchQueryPort interface with only the methods SketchHandlers needs, or use CollocateQueryPort if it already covers the required methods",
+      "confidence": "high"
+    }
+  ],
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "session_id": "ext_20260313_015050_c6b017e9",
+    "created_at": "2026-03-13T02:00:18+00:00",
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "48045cd780533a45ddf0fe85e13aca0c7f6e14fca55156f453f427285aff854a"
+  }
+}

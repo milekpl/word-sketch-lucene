@@ -1,0 +1,122 @@
+{
+  "session": {
+    "id": "ext_20260313_015050_c6b017e9",
+    "token": "a8c5a4105ab3e31503a91ad1dad50a5c"
+  },
+  "assessments": {
+    "high_level_elegance": 74,
+    "naming_quality": 68,
+    "abstraction_fitness": 72,
+    "convention_outlier": 74,
+    "logic_clarity": 73
+  },
+  "findings": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "discovered_nouns_interface_misleading",
+      "summary": "ExploreResponse.discoveredNouns() interface method name is semantically wrong for multi-seed responses",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "The sealed interface declares `List<DiscoveredNounEntry> discoveredNouns()` with Javadoc admitting dual semantics: discovered nouns in single-seed mode, caller-supplied source seeds in multi-seed mode",
+        "MultiSeed overrides it with @JsonIgnore and delegates to sourceSeeds() — the method name discoveredNouns() communicates the opposite of what the multi-seed override contains",
+        "A name that requires a paragraph of Javadoc to explain why it means something different in the other subtype is a naming defect, not a documentation opportunity"
+      ],
+      "suggestion": "Rename the interface method to something neutral that is accurate for both variants, e.g. nounEntries() or seedEntries(), or split the interface into separate non-shared pieces so neither concrete type inherits a misleading name",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "minlogdice_vocabulary_split",
+      "summary": "SharedExploreParams.minLogDice uses different name for same concept as ExplorationOptions.logDiceThreshold",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SharedExploreParams.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java"
+      ],
+      "evidence": [
+        "ExplorationOptions uses `logDiceThreshold` (the filter threshold — the renamed field per context notes)",
+        "SharedExploreParams still uses `minLogDice` for the same concept (HTTP param min_logdice → filter threshold)",
+        "At every call site that bridges the two records the name changes: `new ExplorationOptions(... commonParams.minLogDice() ...)` — the asymmetry is visible in ExplorationHandlers lines creating ExplorationOptions from SharedExploreParams"
+      ],
+      "suggestion": "Rename SharedExploreParams.minLogDice to logDiceThreshold to match ExplorationOptions; the HTTP parameter name (min_logdice) is a separate concern handled by the parser and does not need to drive the internal field name",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semanticfieldexplorer_not_a_thin_facade",
+      "summary": "SemanticFieldExplorer is documented as a thin facade but owns non-trivial deduplication logic",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Class Javadoc says: 'Thin facade wiring SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator'",
+        "fetchExamples() contains a 12-line deduplication loop over CollocateResult sentences with a HashSet and a size cap — this is business logic, not delegation",
+        "All other methods in the class are genuine pass-throughs to collaborators; fetchExamples is the structural outlier that owns real algorithm"
+      ],
+      "suggestion": "Either move the deduplication algorithm into a helper on SingleSeedExplorer (or a new dedicated class) so the facade is genuinely thin, or update the Javadoc to accurately describe that this class also owns the examples deduplication step",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "singleseedexplorationoptions_delegation_noise",
+      "summary": "SingleSeedExplorationOptions adds three delegation methods that don't pay for themselves",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "topCollocates(), logDiceThreshold(), minShared() each delegate identically to base.xxx()",
+        "Javadoc says these exist for 'call-site convenience, avoids .base().xxx()' — the benefit is saving five characters at call sites",
+        "In SingleSeedExplorer.explore(), opts.topCollocates() / opts.logDiceThreshold() / opts.minShared() are used; callers could equally write opts.base().topCollocates() with no loss of clarity"
+      ],
+      "suggestion": "Remove the three delegation methods and access ExplorationOptions fields via opts.base().xxx(), or flatten the record if the nesting itself is the problem. The current design adds indirection without policy or translation.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "findcollocateintersection_inline_map_building",
+      "summary": "findCollocateIntersection builds perSeedCollocates inline while all other aggregations are delegated to helpers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "fetchCollocatesPerSeed, identifyCommonCollocates, aggregateCollocateStats, buildDiscoveredNouns, buildCoreCollocates are all extracted helpers — the orchestration method reads cleanly",
+        "The perSeedCollocates loop is inline in findCollocateIntersection, converting List<WordSketchResult> to Map<String,Double> for each seed — same fan-out as the other helpers but not extracted",
+        "This embedded loop is structurally inconsistent with every other aggregation step in the same method"
+      ],
+      "suggestion": "Extract the perSeedCollocates map-building into a private helper method (e.g. buildPerSeedCollocateMaps) to match the structural pattern of all other aggregation steps in findCollocateIntersection",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "singlepass_comment_misleading",
+      "summary": "Comment 'Single-pass' in buildCollocateProfileList is misleading because the method uses two loops",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "Comment says: '// Single-pass: accumulate sum, min, max in one loop' followed by a for loop over scores",
+        "Immediately after: '// Second pass for variance (requires the mean — unavoidable two-pass for numerical stability)' — which explicitly contradicts the single-pass framing",
+        "A reader scanning the comment first forms the expectation of a single loop; the immediately following comment corrects that expectation, creating a minor cognitive dissonance"
+      ],
+      "suggestion": "Replace the 'Single-pass' framing with an accurate description: '// Pass 1: accumulate sum, min, max' and '// Pass 2: compute variance (requires mean from pass 1)'",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "validation_placement_inconsistent_multiseed",
+      "summary": "Seeds.size() < 2 validation lives in the service for exploreMultiSeed but in the comparator for compareCollocateProfiles",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed() validates seeds.size() < 2 before delegating to MultiSeedExplorer (which does not check)",
+        "SemanticFieldExplorer.compareCollocateProfiles() does NOT validate — relies on CollocateProfileComparator.compareCollocateProfiles() to do so",
+        "The two multi-seed paths use different layers to enforce the same constraint; a caller of ExplorationService gets inconsistent failure points depending on which method is called"
+      ],
+      "suggestion": "Standardise validation placement: either always validate in the service layer (SemanticFieldExplorer) before delegation, or always in the delegate classes (MultiSeedExplorer / CollocateProfileComparator); remove the duplicate in whichever layer is chosen as non-canonical",
+      "confidence": "medium"
+    }
+  ]
+}

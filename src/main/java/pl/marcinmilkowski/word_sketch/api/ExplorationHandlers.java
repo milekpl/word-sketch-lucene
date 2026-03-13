@@ -44,7 +44,8 @@ class ExplorationHandlers {
     ExplorationHandlers(ExplorationService explorationService, @NonNull GrammarConfig grammarConfig) {
         this.grammarConfig = Objects.requireNonNull(grammarConfig,
             "grammarConfig must not be null; exploration endpoints require a loaded grammar configuration");
-        this.explorationService = explorationService;
+        this.explorationService = Objects.requireNonNull(explorationService,
+            "explorationService must not be null");
     }
 
     /**

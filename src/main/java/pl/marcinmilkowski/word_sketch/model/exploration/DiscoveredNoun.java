@@ -14,6 +14,10 @@ public record DiscoveredNoun(
         double combinedRelevanceScore,
         double avgLogDice) {
 
+    public DiscoveredNoun {
+        sharedCollocates = Map.copyOf(sharedCollocates);
+    }
+
     /** @return an unordered list of the shared collocate lemmas; never null */
     public List<String> sharedCollocateList() {
         return new ArrayList<>(sharedCollocates.keySet());

@@ -109,7 +109,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldComparison_missingSeeds_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/compare?min_logdice=0.0");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldComparison, "test").handle(ex);
@@ -120,7 +120,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExplore_missingSeed_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/explore");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExplore, "test").handle(ex);
@@ -129,7 +129,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExploreMulti_missingSeeds_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/explore-multi");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExploreMulti, "test").handle(ex);
@@ -138,7 +138,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExploreMulti_oneSeed_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/explore-multi?seeds=theory");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExploreMulti, "test").handle(ex);
@@ -147,7 +147,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldComparison_invalidNumericParam_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field?seeds=theory,model&min_logdice=notanumber");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldComparison, "test").handle(ex);
@@ -156,7 +156,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExamples_missingAdjective_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/examples?noun=theory");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExamples, "test").handle(ex);
@@ -165,7 +165,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExamples_missingNoun_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/examples?adjective=important");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExamples, "test").handle(ex);
@@ -189,7 +189,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExploreMulti_nounsPerParam_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/explore-multi?seeds=theory,model&nouns_per=5");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExploreMulti, "test").handle(ex);
@@ -198,7 +198,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExplore_unknownRelation_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/explore?seed=theory&relation=no_such_relation");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExplore, "test").handle(ex);
@@ -207,7 +207,7 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldExploreMulti_unknownRelation_returns400() throws Exception {
-        ExplorationHandlers handlers = new ExplorationHandlers(null, GrammarConfigHelper.requireTestConfig());
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/semantic-field/explore-multi?seeds=theory,model&relation=no_such_relation");
         HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldExploreMulti, "test").handle(ex);
@@ -258,7 +258,41 @@ class ExplorationHandlersTest {
         assertEquals(9.0, theoryEdge.weight(), 0.001);
     }
 
+    @Test
+    void handleSemanticFieldExploreMulti_withData_returnsCommonCollocates() throws Exception {
+        QueryExecutor executor = collocatingExecutor(Map.of(
+            "theory",  List.of(wsr("important", 8.5), wsr("new", 7.0)),
+            "model",   List.of(wsr("important", 7.8), wsr("old", 6.2))
+        ));
+        GrammarConfig config = GrammarConfigHelper.requireTestConfig();
+        ExplorationService explorer = new SemanticFieldExplorer(executor, config);
+        ExplorationHandlers handlers = new ExplorationHandlers(explorer, config);
+
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/semantic-field/explore-multi?seeds=theory,model&relation=adj_predicate&top=10&min_shared=1");
+        handlers.handleSemanticFieldExploreMulti(ex);
+
+        assertEquals(200, ex.statusCode);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        assertEquals("ok", body.path("status").asText());
+        assertTrue(body.path("seed_collocates").isArray(), "seed_collocates must be an array");
+        assertFalse(body.path("seed_collocates").isEmpty(), "seed_collocates must not be empty");
+        boolean hasImportant = false;
+        for (var node : body.path("seed_collocates")) {
+            if ("important".equals(node.path("word").asText())) {
+                hasImportant = true;
+                break;
+            }
+        }
+        assertTrue(hasImportant, "seed_collocates should contain 'important' (shared by both seeds)");
+    }
+
     // ── Stub helpers ─────────────────────────────────────────────────────────
+
+    /** Returns a minimal exploration service suitable for validation (parameter-checking) tests only. */
+    private static ExplorationService stubService() {
+        return new SemanticFieldExplorer(emptyExecutor(), null);
+    }
 
     private static QueryExecutor collocatingExecutor(Map<String, List<WordSketchResult>> map) {
         return new StubQueryExecutor() {

@@ -21,6 +21,10 @@ public record CollocateProfile(
         double commonalityScore,
         double distinctivenessScore) {
 
+    public CollocateProfile {
+        nounScores = Map.copyOf(nounScores);
+    }
+
     /** @return {@code true} when this collocate appears in all {@link #totalNouns} seed nouns */
     public boolean isFullyShared() { return presentInCount == totalNouns; }
 

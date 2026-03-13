@@ -114,33 +114,8 @@ class SingleSeedExplorer {
 
     /**
      * Phase 1: Fetch seed collocates using the BCQL pattern, with fallback to simplePattern.
-     *
-     * <h3>Query strategy: executeSurfacePattern primary, executeCollocations fallback</h3>
-     *
-     * <p><b>Primary — {@code executeSurfacePattern(bcqlPattern, ...)}:</b>
-     * The BCQL pattern encodes the full grammatical context from the grammar config (e.g.
-     * {@code [lemma="theory"] [xpos="VB.*"]} for SUBJECT_OF). It identifies collocates that
-     * co-occur with the seed in the expected syntactic position, which yields the highest-quality
-     * results but requires the seed to appear frequently enough to generate matches.</p>
-     *
-     * <p><b>Fallback — {@code executeCollocations(seed, simplePattern, ...)}:</b>
-     * A POS-group-only pattern (e.g. {@code [xpos="JJ.*"]}) passed to the dependency-aware
-     * collocation index. This bypasses syntactic structure but is more reliably populated for
-     * low-frequency seeds. The trade-off is lower precision: results reflect raw co-occurrence
-     * rather than a specific grammatical relation.</p>
-     *
-     * <p><b>Why not use {@code executeCollocations} everywhere?</b>
-     * {@code executeCollocations} relies on the precomputed collocation index and does not
-     * evaluate positional CQL constraints, so it cannot enforce the full grammatical structure
-     * that a BCQL pattern captures. Using {@code executeSurfacePattern} first maximises
-     * grammatical precision; only if that yields nothing do we fall back to the looser approach.</p>
-     *
-     * <p><b>Why {@link MultiSeedExplorer} does not apply this fallback:</b>
-     * Multi-seed exploration compares collocates across seeds and requires a consistent
-     * retrieval strategy for fair cross-seed comparison. Mixing BCQL results for one seed with
-     * simple-pattern results for another would make collocate scores incomparable. Seeds that
-     * return no BCQL results naturally contribute nothing to the intersection, which is the
-     * correct behaviour. See {@link MultiSeedExplorer#fetchCollocatesPerSeed}.</p>
+     * Tries {@code executeSurfacePattern} first for grammatical precision; if that returns
+     * nothing, falls back to {@code executeCollocations} via the dependency index.
      */
     private List<WordSketchResult> fetchSeedCollocates(
             String seed, String bcqlPattern, String simplePattern,

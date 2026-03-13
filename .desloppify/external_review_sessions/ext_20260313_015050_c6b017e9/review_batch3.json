@@ -1,0 +1,198 @@
+{
+  "session": {
+    "id": "ext_20260313_015050_c6b017e9",
+    "token": "a8c5a4105ab3e31503a91ad1dad50a5c"
+  },
+  "assessments": {
+    "type_safety": 68,
+    "mid_level_elegance": 74,
+    "low_level_elegance": 72,
+    "ai_generated_debt": 58,
+    "test_strategy": 67
+  },
+  "findings": [
+    {
+      "dimension": "type_safety",
+      "identifier": "discovered_noun_mutable_map",
+      "summary": "DiscoveredNoun record stores Map<String,Double> sharedCollocates without a compact constructor defensive copy",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/DiscoveredNoun.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "DiscoveredNoun record has no compact constructor; the Map passed at line 197 of SingleSeedExplorer.filterByMinShared (a fresh LinkedHashMap) is stored directly by the record accessor without copying",
+        "ExplorationResult (the parent container) performs Map.copyOf on all its maps — DiscoveredNoun is inconsistent with that pattern",
+        "sharedCollocateList() returns new ArrayList<>(sharedCollocates.keySet()) defensively, but the underlying map itself remains mutable from outside the record"
+      ],
+      "suggestion": "Add a compact constructor to DiscoveredNoun: `public DiscoveredNoun { sharedCollocates = Map.copyOf(sharedCollocates); }` — one line, mirrors the ExplorationResult pattern already in the codebase",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "collocate_profile_mutable_map",
+      "summary": "CollocateProfile record stores Map<String,Double> nounScores without a defensive copy at the record level",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "CollocateProfile has no compact constructor; the fullScores LinkedHashMap built in buildCollocateProfileList is passed directly to new CollocateProfile()",
+        "The record's nounScores() accessor returns the mutable map reference; callers can mutate it, silently corrupting the ComparisonResult holding these profiles",
+        "The record has 10 parameters including variance, commonalityScore, distinctivenessScore derived from this map — a post-construction mutation would leave those fields inconsistent"
+      ],
+      "suggestion": "Add `public CollocateProfile { nounScores = Map.copyOf(nounScores); }` as a compact constructor; the existing construction site in CollocateProfileComparator already builds a fresh map so this is zero-overhead",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_grammar_config_production_ctor",
+      "summary": "SemanticFieldExplorer's primary constructor accepts @Nullable GrammarConfig as a documented test-only escape hatch, polluting the production API with a null-tolerant parameter",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer, @Nullable GrammarConfig) documents null as a 'test-only escape hatch' (line 76 of SemanticFieldExplorer.java)",
+        "Tests at ExplorationHandlersTest line 177 and line 247 call new SemanticFieldExplorer(executor, null), making tests depend on null-tolerant production code rather than proper test doubles",
+        "The result is a production class that silently degrades when misconfigured: passing null in production would fall back to a hardcoded pattern with no compile-time or runtime warning"
+      ],
+      "suggestion": "Move the null-GrammarConfig fallback into a dedicated test helper method (e.g. SemanticFieldExplorer.forTesting(executor)) or a package-private subclass; remove @Nullable from the production constructor parameter to restore the non-null contract",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "null_grammar_config_api_leakage",
+      "summary": "The 'test-only escape hatch' for null GrammarConfig in SemanticFieldExplorer leaks a test concern into the production constructor signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "The public 4-arg constructor is documented as the 'Primary constructor that accepts all dependencies explicitly, enabling injection' but carries a @Nullable GrammarConfig with an explicit escape-hatch note for tests",
+        "This forces all injection code to decide whether to pass null or not; a non-null @NonNull parameter would make the intent unambiguous",
+        "CollocateQueryHelper takes the same approach for BlackLabIndex — both are production constructors with null-tolerant parameters documented as test-only, indicating a systemic pattern"
+      ],
+      "suggestion": "Introduce a static factory `SemanticFieldExplorer.withFallbackNounPattern(QueryExecutor, CollocateProfileComparator, MultiSeedExplorer)` for test use, and add @NonNull to the grammarConfig parameter of the primary constructor",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "opaque_scoring_formula",
+      "summary": "The commonality and distinctiveness scoring formulas in CollocateProfileComparator are computed inline with no explanation of what they measure",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "Line 146: `double commonalityScore = presentIn * avgScore;` — variable name partly explains this, but the choice of multiplication vs e.g. geometric mean is unexplained",
+        "Line 147: `double distinctivenessScore = maxScore * (1.0 - (double) presentIn / nounCount) + Math.sqrt(variance);` — the sqrt(variance) addend and the specificity factor are combined with no comment explaining their relative contribution",
+        "Both values are exported directly to the API response and consumed by the frontend visualization, making understanding critical for future maintainers"
+      ],
+      "suggestion": "Add a 2-3 sentence block comment before the formula block naming each factor and its intent: e.g. '// commonality = how broadly shared and how strongly: presentIn * avgScore / (spread dampened by specificity factor)'; the explanation need not be mathematical prose, just enough to guide future tuning",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "over_justified_private_method_javadoc",
+      "summary": "Several private/package-private methods have Javadoc blocks that defensively justify design choices rather than describing callable behavior",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.fetchCollocatesPerSeed: 24-line Javadoc including a '<h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>' heading with three <p> blocks and a bold 'Do not introduce a fallback here' warning — for a 12-line private method",
+        "SemanticFieldExplorer.compareCollocateProfiles: 10-line Javadoc block titled '<p><strong>Why this pass-through exists:</strong>' that argues for the design rather than describing the method contract",
+        "ExplorationResult class Javadoc: '<p><strong>Why a class rather than a record:</strong>' heading that pre-empts the obvious reviewer question about record vs class — typical AI-generated defensive justification pattern",
+        "Three separate files use the '<p><strong>Why...</strong>' pattern, indicating a systemic habit rather than isolated instances"
+      ],
+      "suggestion": "Trim private-method Javadocs to the method contract: what parameters mean, what it returns, and what it throws. Move design rationale to a top-level class comment or ADR. For fetchCollocatesPerSeed, a single sentence 'No fallback to executeCollocations — cross-seed logDice comparability requires a consistent retrieval strategy' replaces 24 lines",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "multi_seed_handler_smoke_only",
+      "summary": "handleSemanticFieldExploreMulti happy-path test only verifies response shape, not any collocate content",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExploreMulti_twoSeeds_returns200 asserts status=200, seeds key exists, seed_count==2 — uses the empty StubQueryExecutor so seed_collocates, core_collocates, and edges are all empty lists",
+        "The analogous single-seed test handleSemanticFieldExplore_withData_seedCollocatesNonEmpty was upgraded to assert actual collocate values; explore-multi has no equivalent data-asserting test",
+        "MultiSeedExplorer is well-tested at the unit level (MultiSeedExplorerTest covers core collocate intersection, empty executor, etc.) but that coverage does not flow through to the handler layer"
+      ],
+      "suggestion": "Add a test parallel to handleSemanticFieldComparison_withData_collocatesNonEmpty: create a collocatingExecutor stub returning known collocates for both seeds, call handleSemanticFieldExploreMulti, and assert that seed_collocates is non-empty and contains the expected word",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "split_explorer_test_classes",
+      "summary": "SemanticFieldExplorerTest and SemanticFieldExplorerInternalTest split test surface for the same class based on package access rather than a clear conceptual seam",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerInternalTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerInternalTest is in the same package (exploration) to access package-private visibility and tests the 4-arg constructor; SemanticFieldExplorerTest is in the same package and tests compare() and explore()",
+        "Both files define their own StubExecutor inner classes with essentially the same logic; the RecordingExecutor in InternalTest is the only distinctly useful element",
+        "A developer finding a failing test must check both files to understand full coverage, doubling cognitive load"
+      ],
+      "suggestion": "Merge the two test files into a single SemanticFieldExplorerTest with nested @Nested classes for distinct concerns (e.g. @Nested class Explore, @Nested class Compare, @Nested class Constructor); extract the shared StubExecutor as a package-level test helper",
+      "confidence": "medium"
+    }
+  ],
+  "dimension_judgment": {
+    "type_safety": {
+      "strengths": [
+        "ExplorationResult enforces Map.copyOf/List.copyOf on all 6 fields in its private constructor, with Objects.requireNonNull on all 6 params in the factory — the most important aggregate value object is airtight",
+        "ComparisonResult similarly uses List.copyOf on its two list fields",
+        "Sealed interface ExploreResponse with SingleSeed/MultiSeed variants provides static dispatch — the JSON shape difference between the two endpoints is enforced at the type level",
+        "@NonNull annotations on all return types in QueryExecutor and CollocateQueryPort are present and consistent",
+        "BlackLabSnippetParser.safeParts() throws IllegalArgumentException rather than returning null, consistent with the rest of the query layer"
+      ],
+      "issue_character": "The issues are inconsistent within the same module: ExplorationResult is strongly guarded while DiscoveredNoun and CollocateProfile (the records it contains) are not. This is a partial application of a good pattern rather than a structural gap.",
+      "score_rationale": "Key boundary objects (ExplorationResult, ComparisonResult, sealed response types) are strongly typed and immutable. Two widely-used model records (DiscoveredNoun, CollocateProfile) that hold mutable Map fields are inconsistently unguarded — the same pattern the rest of the module enforces was not applied here. The @Nullable GrammarConfig constructor parameter creates a silent production degradation path. These gaps are real but localized, leaving overall type safety reasonably solid. Score sits below 70 because the two record-level gaps affect objects used throughout the exploration domain."
+    },
+    "mid_level_elegance": {
+      "strengths": [
+        "Clean three-layer decomposition: ExplorationHandlers → ExplorationService (interface) → {SingleSeedExplorer, MultiSeedExplorer, CollocateProfileComparator} — each with focused, non-overlapping responsibility",
+        "ExploreResponseAssembler centralises all model-to-presentation translation; no presentation logic leaks into model classes",
+        "MultiSeedExplorer uses private inner records (SeedCollocateData, AggregatedCollocateStats) and CollocateAccumulator to carry intermediate state cleanly without out-parameters or multi-return arrays",
+        "SharedExploreParams record captures the three shared HTTP parameters (top, minShared, minLogDice) in one place, preventing parameter-list drift across the three exploration handler methods",
+        "Sealed ExploreResponse eliminates nullable-sentinel patterns: the two variants carry mutually-exclusive fields with no shared null-filled placeholders"
+      ],
+      "issue_character": "Isolated: the null GrammarConfig escape-hatch is the only structural smell — it bleeds a test concern into the production API surface. Everything else in the exploration architecture is clean and purposeful.",
+      "score_rationale": "The exploration domain has a well-factored architecture: each class has a clear purpose, collaborator injection is constructor-based, and intermediate state is named rather than tuple-returning. The null-tolerant constructor is a real design smell but not a cascade failure — it is documented and localised to one parameter. Score is solid but not excellent because the null-tolerant production constructor is a deliberate API hole, not an oversight."
+    },
+    "low_level_elegance": {
+      "strengths": [
+        "Method names throughout are intention-revealing: fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared, identifyCoreCollocates — each reads as a phase name in the algorithm",
+        "Named constants used for all magic values: OVER_FETCH_FACTOR, CORE_COLLOCATE_MIN_NOUN_FRACTION, DEFAULT_SKETCH_RESULTS, SINGLE_RELATION_RESULTS",
+        "Static Pattern constants pre-compiled in BlackLabSnippetParser — all 8 regex patterns are class-level finals",
+        "Guard clauses used consistently at method entry: null/empty checks before expensive operations in fetchSeedCollocates, executeCollocations, etc.",
+        "Private inner record types (GroupStats, CollocateAccumulator) replace anonymous arrays or multi-return tuples, naming what the types represent"
+      ],
+      "issue_character": "Minor and localised — mostly one opaque scoring formula in CollocateProfileComparator and one slightly redundant DoubleSummaryStatistics call in MultiSeedExplorer. Neither affects correctness; both affect readability at a specific site.",
+      "score_rationale": "Low-level naming, structure, and constant usage are consistently good across the codebase. The scoring formula in buildCollocateProfileList is the one place where the code requires domain knowledge to understand without the formula being explained. This is a real but narrow gap in a generally clean codebase."
+    },
+    "ai_generated_debt": {
+      "strengths": [
+        "No TODO/FIXME/placeholder comments in production code",
+        "No boilerplate logger setup beyond what is necessary; all logger usages are contextual",
+        "Implementation code is lean: methods do what they say, with no phantom parameters or unused branches",
+        "StubQueryExecutor is purpose-built rather than framework-generated: overrideable per-test with minimal boilerplate"
+      ],
+      "issue_character": "Systemic in the Javadoc layer, absent from the implementation code. The pattern of '<p><strong>Why...</strong>' pre-emptive justification comments appears in at least 3 exploration-layer files — it is not random noise but a repeated habit. Implementation code itself shows no AI-debt signals.",
+      "score_rationale": "The implementation code is concise and non-redundant. The Javadoc layer, however, shows a systemic pattern of defensive design-justification prose that inflates documentation volume without adding caller-useful information: 24-line private-method Javadocs, bold 'Do not do X' warnings, and three separate 'Why we chose this design' headers across different files. This is a well-known AI code generation artifact. Score is pulled below 65 because the pattern is systemic (3+ files) rather than isolated, and because it will mislead future developers into thinking explanation volume = documentation quality."
+    },
+    "test_strategy": {
+      "strengths": [
+        "34 test classes covering API handlers, exploration algorithms, query layer, indexer, config loading, and visualization — broad surface coverage",
+        "StubQueryExecutor is a reusable shared test double with per-test override via anonymous subclass — no Mockito-style mock setup boilerplate",
+        "Live-index integration tests skip gracefully via @Assumptions when the index is unavailable, keeping CI green",
+        "handleSemanticFieldComparison_withData_collocatesNonEmpty and handleSemanticFieldExplore_withData_seedCollocatesNonEmpty are genuine behavioral tests asserting domain-level data values ('important' collocate present), not just HTTP status codes",
+        "RecordingExecutor in SemanticFieldExplorerInternalTest captures emitted CQL patterns to verify collaboration, not just state"
+      ],
+      "issue_character": "Uneven: exploration algorithm tests (MultiSeedExplorerTest, SingleSeedExplorerTest, CollocateProfileComparatorTest) are behaviorally rich; HTTP handler tests are more smoke-test-oriented, especially for the multi-seed path where the recently-added data-asserting pattern was applied to single-seed and comparison but not to explore-multi.",
+      "score_rationale": "The test suite covers the key algorithm logic well and has meaningful behavioral assertions at the unit layer. The handler layer has good negative-path coverage (400 validations) but only one of the three main handler methods (compare) has a data-asserting happy-path test; explore and explore-multi rely on empty-executor happy paths that only confirm response shape. This is an uneven coverage pattern that would miss regressions in multi-seed assembly logic. Score reflects strong algorithm coverage dragged down by smoke-test handler coverage."
+    }
+  }
+}

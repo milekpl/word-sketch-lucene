@@ -74,7 +74,7 @@ class CollocateProfileComparator {
         profiles.sort((a, b) -> Double.compare(b.commonalityScore(), a.commonalityScore()));
 
         logger.debug("Total unique adjectives: {}", profiles.size());
-        logTopProfiles(profiles);
+        debugLogTopProfiles(profiles);
 
         return ComparisonResult.of(nounList, profiles);
     }
@@ -156,7 +156,7 @@ class CollocateProfileComparator {
         return profiles;
     }
 
-    private void logTopProfiles(List<CollocateProfile> profiles) {
+    private void debugLogTopProfiles(List<CollocateProfile> profiles) {
         if (!logger.isDebugEnabled()) return;
         profiles.stream()
             .filter(p -> p.presentInCount() >= 2)

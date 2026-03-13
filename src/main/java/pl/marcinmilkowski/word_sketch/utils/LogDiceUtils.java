@@ -39,6 +39,7 @@ public final class LogDiceUtils {
         return Math.max(0.0, logDice);
     }
 
+    /** Delegates to {@link #compute(double, double, double)} via long-to-double cast. */
     public static double compute(long collocateFreq, long headwordFreq, long collocateTotal) {
         return compute((double) collocateFreq, (double) headwordFreq, (double) collocateTotal);
     }

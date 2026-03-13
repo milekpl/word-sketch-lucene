@@ -1,0 +1,208 @@
+{
+  "session": {
+    "id": "ext_20260313_001012_962f314f",
+    "token": "cfc4db6af115f01c17f44403b7964d71"
+  },
+  "assessments": {
+    "initialization_coupling": 73,
+    "test_strategy": 67,
+    "api_surface_coherence": 72,
+    "authorization_consistency": 78,
+    "design_coherence": 70
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "HttpApiUtils has three package-private static final constants (MAPPER, DEFAULT_CORS_ALLOW_ORIGIN, MAX_PARAM_LENGTH) initialized at class-load time — all are pure constants with no I/O or side effects; MAPPER delegates to JsonUtils.mapper() which is also a static final ObjectMapper; this is acceptable.",
+        "System.getProperty('cors.allow.origin', ...) and System.getProperty('allow.wildcard.cors') are read at runtime inside warnIfWildcardCors() and setCorsHeader(), not at class-load time — no fragile static init.",
+        "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty('grammar.config', 'grammars/relations.json') inside a method (line 248), not at static scope — acceptable.",
+        "RelationUtils.RELATION_ALIASES is a static final Map.of(...) literal — pure constant, no I/O.",
+        "BlackLabQueryExecutor public constructor opens the index file inline (acknowledged in Javadoc as intentional per BlackLab lifecycle model) — this is a constructor I/O coupling but is documented and the file declares IOException.",
+        "The package-private test constructor BlackLabQueryExecutor(BlackLabIndex index) passes null to new CollocateQueryHelper((BlackLabIndex) null) {} — an anonymous subclass override to avoid crashing; this is a known workaround (flagged in session context) but leaks test-accommodation logic into the production class.",
+        "WordSketchApiServer.start() calls warnIfWildcardCors() after binding the port — CORS validation happens at start() time, not construction time, which means a bad CORS config will throw after the port is already bound but before start() returns. This is a minor boot-order fragility."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "37 test files cover 74 main files; test/main ratio is ~0.5.",
+        "WrapHandlerTest covers all error-code mappings (400, 413, 500, pass-through) — good boundary coverage.",
+        "ExplorationHandlersTest covers both happy paths (200) and all negative-path cases (missing params, one seed, unknown relation, nouns_per rejection) — solid.",
+        "SemanticFieldExplorerTest uses proper fixtures via GrammarConfigHelper.minimalSurfaceRelationConfig() and asserts on actual data semantics (fully-shared, specific, partially-shared) — good signal.",
+        "SketchHandlersTest and ConcordanceHandlersTest have semantic assertions: first collocate lemma/logDice check, sentence-matching in concordance response.",
+        "WordSketchApiServerTest starts a real server on an ephemeral port and makes actual HTTP calls — integration coverage of route registration, CORS, and lifecycle.",
+        "BlackLab live-index tests (BlackLabIntegrationTest, BlackLabQueryExecutorIntegrationTest) are conditionally skipped in CI without real index, meaning the core executor pipeline is never exercised in automated CI.",
+        "ExplorationHandlersTest handleSemanticFieldExplore_validRequest_returns200 uses an empty stub executor — verifies the handler produces a valid response but does not assert on any data semantics (no 'seed_collocates', 'discovered_nouns' content checks in the handler-level test; the algorithm-level assertions are in SemanticFieldExplorerTest instead).",
+        "No test covers the compareCollocateProfiles path through the HTTP handler (ExplorationHandlersTest.handleSemanticFieldComparison_twoSeeds_returns200 checks structural keys but not collocate data shape).",
+        "SingleSeedExplorerTest exists but its exploreByRelation path has limited semantic assertions — mainly structural (non-null result).",
+        "CollocateProfileComparatorTest exists as a dedicated test file — good separation."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "api_surface_coherence": {
+      "evidence": [
+        "Parameter naming is consistent across the exploration endpoints: 'seed' (single), 'seeds' (multi/compare), 'relation', 'top', 'min_logdice', 'min_shared' — same names and defaults (top=10, min_logdice=3.0, min_shared=2) across all three handlers.",
+        "Both concordance endpoints (/api/semantic-field/examples and /api/concordance/examples) use 'seed' and 'collocate' — consistent.",
+        "Error responses are uniformly {'status':'error','error':'...'} JSON objects via sendError().",
+        "ExploreResponse sealed interface declares discoveredNouns() on the interface with @JsonProperty('discovered_nouns'), but MultiSeed overrides the JSON key to 'source_seeds' — the Java accessor name is the same in both implementations but the JSON field name differs. Consumers using the interface type would see the method named discoveredNouns() while the serialized JSON uses 'source_seeds' for MultiSeed, creating a semantic mismatch between the Java API and the wire format for that variant.",
+        "POST /api/visual/radial and POST /api/bcql use JSON bodies while all GET endpoints use query parameters — appropriate split, not an inconsistency.",
+        "SketchHandlers uses path segments for routing (/api/sketch/{lemma}/{relation}) while ExplorationHandlers uses query params — different conventions for different concerns (resource identity vs. filtering), acceptable given the different REST semantics.",
+        "No public functions have >5 parameters; SharedExploreParams record consolidates the three shared params."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "authorization_consistency": {
+      "evidence": [
+        "All endpoints are explicitly unauthenticated by design; WordSketchApiServer Javadoc states: 'All endpoints are unauthenticated — access control is provided by the host firewall and the loopback-only bind.'",
+        "Server binds exclusively to InetAddress.getLoopbackAddress() — ensures no external network exposure.",
+        "CORS origin is configurable via -Dcors.allow.origin system property; wildcard (*) is blocked by default via warnIfWildcardCors() which throws IllegalStateException unless -Dallow.wildcard.cors=true is explicitly set.",
+        "Input validation (requireParam, MAX_PARAM_LENGTH=200, MAX_REQUEST_BODY_BYTES=65536) is applied uniformly via wrapWithErrorHandling across all endpoints.",
+        "POST /api/bcql accepts arbitrary BCQL patterns but enforces bracket-depth limit (MAX_BCQL_BRACKET_DEPTH) and body size limit — no auth differentiation between this and read-only sketch endpoints, which is consistent with the stated all-or-nothing local access model.",
+        "No mixed trust boundaries: every endpoint goes through wrapWithErrorHandling and the same CORS header logic."
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "design_coherence": {
+      "evidence": [
+        "Handler classes are well-focused by domain: SketchHandlers (word sketch), ExplorationHandlers (semantic field exploration), ConcordanceHandlers (concordance examples), CorpusQueryHandlers (BCQL), VisualizationHandlers (radial plot) — each has a clear single responsibility.",
+        "ExploreResponseAssembler cleanly separates model-to-presentation translation from handler logic.",
+        "SemanticFieldExplorer acts as a thin facade over SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator — decomposition is appropriate and each component is focused.",
+        "ExploreResponse.discoveredNouns() in the sealed interface has dual semantic meaning: in SingleSeed it truly means 'newly discovered nouns via reverse collocate expansion'; in MultiSeed it means 'the caller-supplied input seeds'. The difference is explained in the Javadoc, but the method name itself lies for the MultiSeed variant. A caller navigating the interface type would invoke discoveredNouns() expecting discovered nouns.",
+        "BlackLabQueryExecutor contains a package-private test constructor that creates an anonymous subclass of CollocateQueryHelper with a null index. This is test-accommodation logic embedded in a production class — a design smell even when documented.",
+        "SketchHandlers.routeSketchRequest parses URL path segments to dispatch to four sub-handlers — this inline routing logic is non-trivial but the dispatch cases are distinct and clearly commented.",
+        "SharedExploreParams record is a well-scoped extraction used across all three exploration handler methods.",
+        "ExplorationHandlers is 232 lines but all methods correspond to distinct HTTP endpoints with no cross-cutting logic beyond the shared parseSharedExploreParams helper."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "null-index-test-ctor",
+      "summary": "Production class BlackLabQueryExecutor contains a null-index test constructor that creates an anonymous CollocateQueryHelper subclass",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Line 65-70: BlackLabQueryExecutor(BlackLabIndex index) is annotated @SuppressWarnings('NullAway') and passes null to new CollocateQueryHelper((BlackLabIndex) null) {} — an anonymous override — to avoid NPE in tests",
+        "This is documented as a known issue in the session context; the production class carries test infrastructure"
+      ],
+      "suggestion": "Move the null-index test pathway out of the production class: create a TestBlackLabQueryExecutor in the test source tree that extends or stubs BlackLabQueryExecutor, keeping the production constructor clean. Alternatively, extract an interface for the query execution methods tested and use a mock.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "cors-validation-after-port-bind",
+      "summary": "warnIfWildcardCors() is called after the port is already bound in start(), so a bad CORS config throws IllegalStateException with the port left in a partially-bound state",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "start() calls HttpServer.create(...) then registerRoutes() then warnIfWildcardCors() then server.start() — CORS check happens after the OS port is bound",
+        "If CORS is wildcard without the opt-in property, the port is consumed but the server is never started, leaving a dangling socket until GC"
+      ],
+      "suggestion": "Move warnIfWildcardCors() into the constructor (before port binding) or call it before HttpServer.create() in start(), so a bad config fails fast with no network side effects.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "explore-endpoint-no-semantic-assertions",
+      "summary": "ExplorationHandlersTest happy-path tests for explore and explore-multi use an empty stub executor and assert only on structural JSON keys, not on any data content",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldExplore_validRequest_returns200 checks status=='ok', seed=='house', and edges key exists — no assertion on seed_collocates, discovered_nouns, or core_collocates content",
+        "handleSemanticFieldExploreMulti_twoSeeds_returns200 checks status, seeds array exists, seed_count==2 — no collocate data assertions",
+        "In contrast, SketchHandlersTest.handleSketchRequest_fullSketch_firstCollocateHasCorrectLemmaAndLogDice and ConcordanceHandlersTest.handleConcordanceExamples_stubData_firstExampleHasKnownSentence have proper semantic assertions using a data-injecting stub"
+      ],
+      "suggestion": "Add a data-injecting stub executor to ExplorationHandlersTest that returns known collocate data, then assert that the response seed_collocates array contains the expected entries (matching the pattern used by ConcordanceHandlersTest).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "live-index-tests-skip-ci",
+      "summary": "BlackLabIntegrationTest and BlackLabQueryExecutorIntegrationTest are conditionally skipped in CI, so the core executor pipeline (executeCollocations, executeBcqlQuery, executeDependencyPattern with a real index) is never verified in automated builds",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabIntegrationTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorIntegrationTest.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutorTest uses Assumptions to skip live-index nested class when CONCEPT_SKETCH_TEST_INDEX is absent",
+        "Unit tests for executeCollocations use the null-index constructor and only verify early-exit guard clauses (null lemma returns empty list), not actual query execution"
+      ],
+      "suggestion": "Document in CI configuration (e.g., README or pom.xml) which test cases require a real index and consider providing a minimal synthetic CoNLL-U fixture index that can be built in CI to enable at least smoke-level live tests.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "discovered-nouns-method-name-mismatch",
+      "summary": "ExploreResponse.discoveredNouns() interface method has different semantics in SingleSeed vs MultiSeed: in SingleSeed these are genuinely discovered nouns; in MultiSeed they are the caller-supplied input seeds",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "The sealed interface declares @JsonProperty('discovered_nouns') List<DiscoveredNounEntry> discoveredNouns() as the common API",
+        "MultiSeed record re-annotates the same component with @JsonProperty('source_seeds') — the JSON key differs from the interface-level annotation",
+        "MultiSeed Javadoc explains the difference but callers using the ExploreResponse interface type call discoveredNouns() expecting reverse-discovered nouns while in MultiSeed mode they get the input seeds"
+      ],
+      "suggestion": "Remove discoveredNouns() from the ExploreResponse sealed interface; keep it as a concrete method on SingleSeed only. Add a separate seedNounEntries() method (or similar) on MultiSeed. This makes the type-level contract match the semantic distinction already captured in the JSON keys.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "discoverednouns-dual-meaning-in-interface",
+      "summary": "ExploreResponse sealed interface exposes discoveredNouns() with dual semantics across its variants, making the interface contract misleading for the MultiSeed case",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ExploreResponse interface comment says 'both carry...discovered_nouns' but MultiSeed's JSON uses 'source_seeds' and contains the input seeds, not discovered nouns",
+        "ExploreResponseAssembler.buildMultiSeedExploreResponse passes discoveredNounsList (which contains the input seeds as DiscoveredNounEntry objects) into MultiSeed as the discoveredNouns parameter",
+        "The design compresses two structurally similar but semantically different lists into one interface method to share response assembly code"
+      ],
+      "suggestion": "Separate the interface: give the sealed interface only the genuinely shared fields (status, parameters, seedCollocates, coreCollocates, edges). Let SingleSeed and MultiSeed carry their respective seed/noun lists as concrete-type-only methods not declared on the interface.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "test-constructor-in-production-class",
+      "summary": "BlackLabQueryExecutor embeds a null-index test constructor and anonymous CollocateQueryHelper subclass in the production source tree",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "The package-private constructor is annotated @SuppressWarnings('NullAway') and documented as 'for unit tests'",
+        "It creates new CollocateQueryHelper((BlackLabIndex) null) {} — an anonymous subclass — so the production class has two responsibilities: real query execution and test scaffolding"
+      ],
+      "suggestion": "Move the null-index accommodations into the test source tree: create a test-only subclass or use a Mockito mock for BlackLabIndex and CollocateQueryHelper in tests that need guard-clause coverage.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ]
+}

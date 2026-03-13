@@ -1,0 +1,185 @@
+{
+  "session": {
+    "id": "ext_20260313_001012_962f314f",
+    "token": "cfc4db6af115f01c17f44403b7964d71"
+  },
+  "assessments": {
+    "high_level_elegance": 73,
+    "convention_outlier": 62,
+    "error_consistency": 76,
+    "naming_quality": 75,
+    "abstraction_fitness": 65
+  },
+  "dimension_notes": {
+    "high_level_elegance": {
+      "evidence": [
+        "Packages map cleanly to domain capabilities: api (HTTP), exploration (business logic), model (domain objects), query (data access), config (grammar), utils (shared helpers).",
+        "Handler files decomposed by HTTP concern: ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, SketchHandlers — each focused and small.",
+        "ExplorationService SPI separates the interface from SemanticFieldExplorer implementation; HTTP layer depends only on the interface, not the implementation.",
+        "WordSketchApiServer constructor parameter is named 'semanticFieldExplorer' while the field receiving it inside ExplorationHandlers is 'explorationService' and the type is ExplorationService — a minor vocabulary inconsistency at the wiring seam.",
+        "ExploreResponseAssembler is a static-methods class handling all explore-response assembly; it is coherent but could be considered a mild 'god assembler' across three endpoint variants.",
+        "SemanticFieldExplorer documents itself as a 'thin facade wiring' sub-components, which is honest and correct; the facade is purposeful and documented."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "convention_outlier": {
+      "evidence": [
+        "ExploreResponse uses default interface methods (seedCollocatesCount, discoveredNounsCount, coreCollocatesCount, edgesCount) with no @JsonProperty — they are not serialized to JSON but ARE used in tests as Java accessors. ComparisonResponse stores equivalent counts as explicit serialized record fields (collocatesCount, edgesCount, fullySharedCount, etc.). Sibling response types follow completely different strategies for count exposure.",
+        "ComparisonResult stores 'nouns' via List.copyOf() for defensive immutability, but 'collocates' is assigned directly without copying — inconsistent defensive-copy discipline within the same class.",
+        "ConcordanceHandlers uses 'fallback ? true : null' which compiles but is stylistically odd — Boolean autoboxing from a boolean primitive conditional; clearer as 'fallback ? Boolean.TRUE : null'.",
+        "WordSketchApiServer constructor parameter named 'semanticFieldExplorer' while the field it initializes is 'explorationHandlers' holding an 'explorationService' — vocabulary drift across the same wiring call site.",
+        "Java naming conventions (camelCase, PascalCase) are otherwise followed uniformly throughout the codebase."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "error_consistency": {
+      "evidence": [
+        "SemanticFieldExplorer consistently wraps checked java.io.IOException from the query layer into ExplorationException (unchecked) with context-preserving cause chaining across all four service methods (exploreByRelation, exploreMultiSeed, compareCollocateProfiles, fetchExamples).",
+        "HttpApiUtils.wrapWithErrorHandling provides a single, tiered exception-to-HTTP-status mapping for all handlers: RequestEntityTooLargeException → 413, IllegalArgumentException → 400, JsonProcessingException → 400, ExplorationException → 503, IOException → 500. Applied consistently to all registered routes.",
+        "BlackLabQueryExecutor converts ErrorOpeningIndex (BlackLab RuntimeException) to a checked IOException in the constructor, and converts InvalidQuery (RuntimeException) to IllegalArgumentException — both conversions preserve cause and add context strings.",
+        "Handlers declare 'throws IOException' correctly because they call HttpApiUtils.sendJsonResponse which throws IOException; the service layer's ExplorationException (unchecked) propagates through without needing to be declared.",
+        "No silent swallowing observed; all catches either rethrow with wrapping or let the wrapWithErrorHandling boundary handle them."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "naming_quality": {
+      "evidence": [
+        "Handler method names (handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleSemanticFieldComparison) are verbose but precisely describe their HTTP endpoint contracts.",
+        "resolveRelationConfig, parseSharedExploreParams, parseSeedSet, buildBcqlWithLemmaPrepended, queryAndRankDepCollocates — all names communicate intent and domain vocabulary accurately.",
+        "Private record names GroupStats, BcqlRequest, ConcordanceExamplesRequest, SharedExploreParams are appropriately scoped and descriptive.",
+        "CROSS_RELATIONAL, FALLBACK_COLLOCATE_PATTERN, FALLBACK_NOUN_PATTERN — constant names are clear and consistently styled.",
+        "logTopProfiles is a private debug-logging method whose name does not distinguish it as a side-effect method; callers may expect a return value based on 'log' as a noun in this domain (logDice context). Minor vocabulary confusion.",
+        "CollocateProfileComparator.buildRawCollocateProfiles and buildCollocateProfileList — stage names clearly separate the two processing phases."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "abstraction_fitness": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles is a single-line delegation wrapped in try-catch — a near-zero-value pass-through. The justification (one injection point) is documented and defensible for testability, but the method adds only exception translation, not logic.",
+        "ExploreResponse interface declares four default count methods (seedCollocatesCount, discoveredNounsCount, coreCollocatesCount, edgesCount) without @JsonProperty. They are called only in tests, not by production code via the interface type. They add interface surface without being used polymorphically — could be replaced by calling .size() at call sites.",
+        "CollocateQueryPort is a well-justified narrow interface: ConcordanceHandlers and CorpusQueryHandlers correctly accept only this narrower type rather than the full QueryExecutor.",
+        "ExploreResponseAssembler contains 10+ static builder methods all in one class. All are exploration-response assembly, so cohesion is adequate, but the class has no data and mixes edge-building with response-building in one namespace.",
+        "HttpApiUtils mixes response-writing, error-handling, CORS validation, parameter parsing, and JSON I/O in one utility — moderate utility-dumping tendency, though all concerns are HTTP-layer adjacent.",
+        "ExplorationService SPI with a single production implementation is documented as intentional; the rationale (unified injection, three coherent modes) is credible and consistent with how tests use the interface."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "convention_outlier",
+      "identifier": "response-count-strategy-split",
+      "summary": "ExploreResponse exposes counts as unserialised default interface methods while ComparisonResponse stores counts as explicit serialised record fields",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse defines seedCollocatesCount(), discoveredNounsCount(), coreCollocatesCount(), edgesCount() as default interface methods with no @JsonProperty — not serialized.",
+        "ComparisonResponse record has collocatesCount, edgesCount, fullySharedCount, partiallySharedCount, specificCount as explicit constructor parameters with @JsonProperty — are serialized.",
+        "A caller reading ExploreResponse JSON gets no count fields; a caller reading ComparisonResponse JSON gets five count fields. Inconsistent API shape for sibling response families."
+      ],
+      "suggestion": "Decide one strategy and apply it consistently. If counts should be in JSON, add @JsonProperty-annotated computed methods to both response types. If counts are unnecessary (redundant with collection lengths), remove the explicit count fields from ComparisonResponse to match ExploreResponse's stripped-down approach.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "comparison-result-inconsistent-defensive-copy",
+      "summary": "ComparisonResult copies 'nouns' defensively via List.copyOf but assigns 'collocates' directly without copying",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java"
+      ],
+      "evidence": [
+        "Line 19: this.nouns = List.copyOf(nouns); — defensively copied.",
+        "Line 20: this.collocates = collocates; — no defensive copy, caller retains mutable reference.",
+        "If the caller mutates the passed list after construction the stored collocates would change, while nouns would not."
+      ],
+      "suggestion": "Change line 20 to this.collocates = List.copyOf(collocates); to match the defensive-copy discipline applied to nouns.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "constructor-param-vocabulary-drift",
+      "summary": "WordSketchApiServer constructor parameter is named 'semanticFieldExplorer' while the assigned type and field use 'explorationService'",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "WordSketchApiServer constructor: 'ExplorationService semanticFieldExplorer' — uses old vocabulary.",
+        "ExplorationHandlers field: 'private final ExplorationService explorationService' — uses updated vocabulary.",
+        "The two names diverge at the wiring call site, creating vocabulary inconsistency that could confuse future readers about whether they refer to the same concept."
+      ],
+      "suggestion": "Rename the constructor parameter to 'explorationService' to match the field name in ExplorationHandlers and the interface type name.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explore-response-dead-interface-default-methods",
+      "summary": "ExploreResponse interface declares four default count methods that are unused in production code and not serialized to JSON",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "seedCollocatesCount(), discoveredNounsCount(), coreCollocatesCount(), edgesCount() have no @JsonProperty and Jackson will not serialize them from records.",
+        "No production call site calls these methods via the ExploreResponse interface type.",
+        "They are only used in ExploreResponseAssemblerTest directly on concrete instances, where calling .seedCollocates().size() would be equally clear.",
+        "They add interface surface that may mislead readers into thinking counts are exposed in the JSON contract."
+      ],
+      "suggestion": "Remove the four default count methods from the ExploreResponse interface. Replace the two test usages with direct .seedCollocates().size() and .discoveredNouns().size() calls on the concrete record type.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "semantic-explorer-compare-pass-through",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles is a near-zero-value delegation adding only exception translation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "The entire method body is: try { return comparator.compareCollocateProfiles(seeds, opts); } catch (IOException e) { throw new ExplorationException(..., e); }",
+        "No precondition validation, no result transformation, no additional logic — pure delegation with IOException wrapping.",
+        "exploreByRelation and fetchExamples add validation and logic; this method does not, making the facade inconsistent in how much value each method adds."
+      ],
+      "suggestion": "Either accept this as acceptable exception-boundary isolation (the ExplorationService contract declares ExplorationException; the comparator throws IOException — translation must happen somewhere) or move the size-check validation currently inside CollocateProfileComparator up to this method, making it consistent with exploreMultiSeed which validates before delegating.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "log-top-profiles-ambiguous-verb",
+      "summary": "logTopProfiles method name risks confusion with 'log' as a noun (logDice domain term) rather than 'log' as a verb",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "The method is a private debug-output side-effect method (it calls logger.debug), but in a codebase where 'log' primarily appears as a domain term (logDice, minLogDice), the name 'logTopProfiles' may initially read as 'compute log of top profiles'.",
+        "All other logging methods in the codebase use logger.debug/warn/info inline, not extracted helper methods — this is the only extracted debug-logging helper."
+      ],
+      "suggestion": "Rename to debugLogTopProfiles() or emitTopProfilesDebug() to unambiguously signal side-effectful debug output and avoid the domain-term collision with 'log'.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "session": {
+    "id": "ext_20260313_001012_962f314f",
+    "token": "cfc4db6af115f01c17f44403b7964d71"
+  },
+  "assessments": {
+    "dependency_health": 73,
+    "low_level_elegance": 74,
+    "mid_level_elegance": 78,
+    "ai_generated_debt": 76,
+    "incomplete_migration": 73
+  },
+  "dimension_notes": {
+    "dependency_health": {
+      "strengths": [
+        "Single JSON library (Jackson) throughout — no Fastjson/Gson duplication despite CLAUDE.md referencing Fastjson in history",
+        "Jackson BOM import plus explicit jackson-core version pin with inline comment justifying why it is needed",
+        "SLF4J + Logback + log4j-to-slf4j adapter: no competing logging frameworks, the bridge correctly routes BlackLab's log4j calls",
+        "JSpecify 1.0.0 in provided scope — no runtime bloat from the nullability annotation library",
+        "JUnit 5 only in test scope with consistent version management via properties"
+      ],
+      "issue_character": "There is one structural issue rather than many scattered ones: the BlackLab 4.0 dependency cannot be resolved from any standard public repository and requires a manual local-install script, with a fallback profile pointing to a GitHub raw-content URL explicitly annotated as 'no SLA'.",
+      "score_rationale": "Application-layer dependencies are lean, consistent, and well-justified — no competing libraries, no unused heavy deps. The drag is entirely from the BlackLab distribution problem: it requires a pre-build manual install step, the fallback is a fragile raw GitHub URL, and there is no documented private-registry option. This is a real operational reliability concern even though it is well-documented. A score in the low 70s reflects solid overall hygiene pulled down by a genuine structural fragility in the primary domain dependency."
+    },
+    "low_level_elegance": {
+      "strengths": [
+        "CollocateQueryHelper.buildAndRankCollocates uses an upper-bound logDice check before the expensive I/O corpus frequency lookup — a genuine optimisation, not just a filter",
+        "executeBcqlQuery splits into clearly named phases (collectHits → buildCollocateFrequencyMap → scoreHits) with each phase doing a single thing",
+        "Guard clauses in HttpApiUtils (requireParam, parseIntParam, parseDoubleParam) are direct and return-on-failure without nesting",
+        "ExploreResponseAssembler private builder helpers (buildSeedCollocateEntries, buildDiscoveredNounEntries, etc.) are uniform in shape and individually small",
+        "LogDiceUtils.compute has clear domain parameter names and an explicit domain precondition check with informative error message"
+      ],
+      "issue_character": "Issues are localised to a few implicit-contract points: sentinel record patterns and silent fallback chains in CollocateQueryHelper that work but rely on caller-side knowledge of conventions.",
+      "score_rationale": "The optimisation-aware frequency lookup and clean phase pipeline in CollocateQueryHelper represent genuinely good low-level craft. The deductions come from toHitRecord returning a sentinel record (empty strings + null collocateLemma) without encoding that intent in the type, and extractCollocateLemma silently falling back to 'last lemma' when positional extraction fails — both require callers to know undocumented conventions. These are localised issues in one helper class, which limits the penalty. Score sits in the mid-70s: strong in the bulk of the code, with a few imprecise contracts."
+    },
+    "mid_level_elegance": {
+      "strengths": [
+        "Model-to-presentation translation is consolidated in ExploreResponseAssembler and SketchResponseAssembler — handlers delegate instead of mapping inline",
+        "CollocateQueryPort as a narrow interface for handlers that only need BCQL reduces coupling explicitly and the interface Javadoc explains the design decision",
+        "SharedExploreParams bundles repeated cross-endpoint parameters into a named value object, keeping method arities reasonable",
+        "HttpApiUtils is a clean utility seam shared across all handlers without growing into a god-class",
+        "ExplorationHandlers.handleSemanticFieldExplore → ExploreResponseAssembler.buildSingleSeedExploreResponse → ExploreResponse.SingleSeed is a single linear call chain with no back-and-forth"
+      ],
+      "issue_character": "Issues are narrow seam inconsistencies rather than systemic glue-code entropy: one boundary still uses imperative ObjectNode construction while everywhere else uses typed records.",
+      "score_rationale": "Seam discipline is consistently good: translation happens in one obvious place, boundaries are explicit, and orchestration reads as composition. The one notable inconsistency is GrammarConfigSerializer, which builds ObjectNode imperatively while all other response assembly uses typed records — a partial divergence at the config/API boundary. ComparisonResponse's Map<String, Double> nounScores is a reasonable dynamic-key design but leaks map mechanics into the response type. These are localised wrinkles in an otherwise clean mid-level architecture, justifying a score just below solid-good."
+    },
+    "ai_generated_debt": {
+      "strengths": [
+        "The upper-bound logDice optimisation comment in buildAndRankCollocates explains the non-obvious reasoning (avoid I/O when logDice_max < threshold) — genuine insight, not restatement",
+        "Phase labels in CollocateQueryHelper (Phase 1, Phase 1b, Phase 2) are warranted for a multi-stage pipeline where naming alone is insufficient",
+        "OVER_FETCH_FACTOR has a substantive Javadoc explaining the compensatory purpose rather than just restating the value",
+        "No entry/exit debug logging on non-boundary methods — logging is selective and audit-level (BCQL audit warn) where appropriate",
+        "SeedCollocateEntry, ExploreResponse nested records, and CollocateQueryPort Javadocs are appropriately concise without padding"
+      ],
+      "issue_character": "Debt is mild and scattered: a handful of over-explained comments for things experienced Java developers know, and one undocumented overload. No systemic bloat or defensive sprawl.",
+      "score_rationale": "The majority of the codebase comments are purposeful and non-restating, which is a positive signal. The deductions are for a few over-explained notes (e.g., the comment explaining that JsonProcessingException extends IOException is textbook Java knowledge that adds no insight for maintainers) and the LogDiceUtils long-overload having zero documentation while the double-overload has a full Javadoc. These are isolated minor issues. Score is in the upper-70s: generally healthy with modest noise."
+    },
+    "incomplete_migration": {
+      "strengths": [
+        "All major response-building endpoints now use typed records — ComparisonResponse, ExploreResponse, ExamplesResponse, SketchResponse, RelationEntry, CollocateEntry, BcqlQueryResponse all migrated",
+        "No TODO/FIXME markers with 'migrate', 'legacy', or 'old api' (the single Undertow TODO is a future-looking note, not a stale shim)",
+        "No deprecated symbols still called by active code",
+        "The Javadoc 'Replaces the raw Map<String,Object>' comments on record types are retrospective documentation, confirming the migration is considered done"
+      ],
+      "issue_character": "The remaining issues are two narrow residuals from the typed-record migration: one serializer that still uses imperative ObjectNode construction, and a field whose Java name no longer matches its renamed JSON key or semantic intent.",
+      "score_rationale": "The Map<String,Object>-to-typed-record migration is substantially complete; the pattern is consistent across all endpoint families. Two residuals pull the score down: GrammarConfigSerializer returns ObjectNode while all other response building produces typed records (an inconsistency that stands out now the migration is otherwise done), and ExploreResponse.MultiSeed.discoveredNouns is serialized as 'source_seeds' — the JSON key was renamed to reflect the semantic change but the Java field name still carries the old meaning. These are not blocking but represent incomplete propagation of the migration intent."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab-no-public-registry",
+      "summary": "BlackLab 4.0 requires manual local install with no standard public repository; fallback is an SLA-free GitHub raw URL",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "pom.xml comment: 'BlackLab 4.x is NOT published to Maven Central (latest on Central is 3.0.1). REQUIRED FIRST STEP: run ./install-blacklab.sh'",
+        "Fallback profile blacklab-github-fallback points to https://raw.githubusercontent.com/... with explicit comment 'has NO SLA'",
+        "Comment notes the URL 'can become unavailable at any time due to rate-limiting, branch deletion, or repository rename'"
+      ],
+      "suggestion": "Mirror the BlackLab JARs to a private registry (Nexus, Artifactory, or GitHub Packages) and configure it as the primary repository. Remove the raw-GitHub fallback profile once the mirror is in place. Update CI to pull from the registry instead of running the install script.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "architectural_change"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "sentinel-record-implicit-contract",
+      "summary": "toHitRecord returns a sentinel record with nulls/empty strings for parse failures, relying on callers to know the null-collocateLemma convention",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "toHitRecord returns 'new HitRecord(\"\", \"\", \"\", \"\", null, hit.doc(), hit.start(), hit.end())' on parse failure",
+        "scoreHits has a comment 'Null-collocate hits are SENTENCE_BOUND sentinels' — this convention is only documented in scoreHits, not in toHitRecord itself",
+        "buildCollocateFrequencyMap silently skips nulls without any comment about their origin"
+      ],
+      "suggestion": "Either introduce a named constant or a small enum/sealed type to represent the sentinel state (e.g., an 'empty' factory method on HitRecord that makes the intent explicit), or add a Javadoc note on toHitRecord that null collocateLemma signals an unparseable hit treated as a sentence-boundary sentinel.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "logdice-long-overload-no-javadoc",
+      "summary": "LogDiceUtils.compute(long, long, long) has no Javadoc while the double-parameter overload has a full doc block",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceUtils.java"],
+      "evidence": [
+        "compute(double, double, double) has full Javadoc with @param and @throws",
+        "compute(long, long, long) has no Javadoc at all — the method is a silent one-liner delegation"
+      ],
+      "suggestion": "Add a brief Javadoc: '/** Long overload; delegates to {@link #compute(double, double, double)}. */'",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "grammar-config-serializer-objectnode",
+      "summary": "GrammarConfigSerializer builds response JSON imperatively as ObjectNode while all other serializers produce typed records",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/GrammarConfigSerializer.java"
+      ],
+      "evidence": [
+        "GrammarConfigSerializer.toJson() returns ObjectNode built with root.put()/root.set() manually",
+        "All other API response types (SketchResponse, ExploreResponse, ComparisonResponse, ExamplesResponse, BcqlQueryResponse) are typed records",
+        "The ObjectNode output is embedded in API responses via sendJsonResponse, mixing the two styles"
+      ],
+      "suggestion": "Introduce typed records GrammarConfigResponse and RelationConfigEntry mirroring the other response types. Nullable fields like name, description, and pattern can use @Nullable on record components with @JsonInclude(NON_NULL) on the record. This aligns the config serialization path with the rest of the API layer.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "multiseed-discoverednoun-name-mismatch",
+      "summary": "ExploreResponse.MultiSeed.discoveredNouns Java field name does not match its renamed JSON key 'source_seeds' or updated semantic intent",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"],
+      "evidence": [
+        "MultiSeed record has: '@JsonProperty(\"source_seeds\") List<DiscoveredNounEntry> discoveredNouns'",
+        "Javadoc explains 'They are named differently from SingleSeed's discovered_nouns' but the Java identifier still says discoveredNouns",
+        "ExploreResponseAssembler.buildMultiSeedExploreResponse passes the variable named 'nouns' built by buildDiscoveredNounEntries — the naming chain is inconsistent end-to-end"
+      ],
+      "suggestion": "Rename the MultiSeed record component from 'discoveredNouns' to 'sourceSeeds' (matching the JSON key semantics). Update the ExploreResponse interface default method references and ExploreResponseAssembler accordingly. The interface's discoveredNouns() accessor could remain for backward-compatible Java usage but would need a Javadoc note explaining the dual naming.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "over-explained-jsonprocessingexception-comment",
+      "summary": "Comment in HttpApiUtils explaining that JsonProcessingException extends IOException states textbook knowledge rather than non-obvious intent",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "Lines 59-61: '// JsonProcessingException extends IOException; catch it before the IOException // handler so that malformed client JSON is reported as 400, not 500.'",
+        "The catch ordering alone communicates this to any Java developer; the comment adds no business context that is not immediately derivable from the code"
+      ],
+      "suggestion": "Replace with a shorter comment that captures the intent rather than the mechanism: '// 400 for malformed client JSON (must precede the IOException catch)'",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+{
+  "session": {
+    "id": "ext_20260313_001012_962f314f",
+    "token": "cfc4db6af115f01c17f44403b7964d71"
+  },
+  "assessments": {
+    "package_organization": 87,
+    "contract_coherence": 78,
+    "logic_clarity": 83,
+    "type_safety": 86,
+    "cross_module_architecture": 77
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "strengths": [
+        "Clear layered hierarchy: api/, config/, exploration/, indexer/, model/, query/, utils/, viz/ with no ambiguous names",
+        "Every package has a package-info.java with a concise purpose description and boundary rules",
+        "Appropriate sub-packaging: api/model/ for HTTP DTOs, model/exploration/ and model/sketch/ for domain types, exploration/spi/ for the service interface",
+        "model/ package imports nothing outside itself — it is a clean dependency target",
+        "exploration/spi/ cleanly separates the ExplorationService port from its SemanticFieldExplorer implementation"
+      ],
+      "issue_character": "A single placement outlier in a well-structured codebase: ExploreResponseAssembler is a response-assembly utility sitting as a package-level class in api/ rather than a sub-package, though this is defensible since it mediates between model/ and api/model/.",
+      "score_rationale": "The directory structure answers 'where do I put this?' reliably for almost every new file. Package-info docs, consistent sub-packaging, and zero circular import paths all push the score up. One package (api/) mixes HTTP handlers, routing helpers, request-parsing utilities, and response assembly in a single flat directory — a developer adding a 5th handler class finds 12 sibling files with mixed purposes. That minor friction prevents a 90+ score.",
+      "evidence": [
+        "api/ contains: WordSketchApiServer, ExplorationHandlers, SketchHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers, ExploreResponseAssembler, SketchResponseAssembler, HttpApiUtils, SharedExploreParams, RequestEntityTooLargeException, package-info — 12 files with mixed handler/utility/model roles",
+        "model/package-info.java explicitly documents: 'No persistence, I/O, or HTTP concerns belong in this package' — boundary enforced in practice",
+        "grep for cross-package imports shows model/ has zero imports from config/, api/, query/, or exploration/ — clean dependency target confirmed"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "api/ is a flat directory mixing HTTP handler classes, request-parsing utilities (HttpApiUtils, SharedExploreParams), response assemblers (ExploreResponseAssembler, SketchResponseAssembler), and exception types — a developer looking for where to put a new utility must scan 12 files to determine the convention."
+    },
+    "contract_coherence": {
+      "strengths": [
+        "QueryExecutor interface has comprehensive Javadoc distinguishing executeCollocations, executeBcqlQuery, executeSurfacePattern, and executeDependencyPattern — a developer can predict behavior without reading the implementation",
+        "@NonNull/@Nullable annotations are applied consistently to all public interface methods using JSpecify, accurately reflecting runtime behavior",
+        "relationType() returns Optional<RelationType> rather than @Nullable — the null-absent case is explicit and safe to call",
+        "ExplorationService methods are annotated @NonNull on both parameters and return types with matching Javadoc @throws entries",
+        "The RelationConfig.validate() early-rejection method gives callers a clear pre-condition check path"
+      ],
+      "issue_character": "The main contract issue is structural: ExploreResponse.MultiSeed implements the interface method discoveredNouns() to return 'source seeds' (the caller-supplied seed words), not reverse-discovered nouns as the name implies. This is a semantic mismatch documented in code comments but invisible at the interface level.",
+      "score_rationale": "The explicit @NonNull/@Nullable discipline and thorough Javadoc on QueryExecutor and ExplorationService push the score up — a developer reading the interfaces gets an accurate picture. The discoveredNouns() reuse in MultiSeed is a concrete contract surprise: calling response.discoveredNouns() on an ExploreResponse.MultiSeed returns source seeds, not the reverse-expansion nouns the interface name promises. A second softer issue is that QueryExecutor.executeCollocations accepts @Nullable String lemma, which is a permissive contract that blurs the expected call discipline for callers. These are recurring frictions, not one-offs.",
+      "evidence": [
+        "ExploreResponse.MultiSeed line 132: '@JsonProperty(\"source_seeds\") List<DiscoveredNounEntry> discoveredNouns' — the Java field is named discoveredNouns but holds source seeds",
+        "ExploreResponse (interface) line 35: 'List<DiscoveredNounEntry> discoveredNouns()' — interface contract implies reverse-discovered nouns",
+        "MultiSeed Javadoc acknowledges the tension: 'they are named differently from SingleSeed's discovered_nouns ... the entries are the caller-supplied seed words' — documented but invisible at the interface level",
+        "QueryExecutor.executeCollocations: '@param lemma The head lemma to search for; returns an empty list silently if null or empty' — @Nullable on a method where silent empty-return on null is debatable"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    },
+    "logic_clarity": {
+      "strengths": [
+        "SingleSeedExplorer organises its algorithm into named phases (Phase 1: fetch collocates, Phase 2: reverse lookup, Phase 3: filter) with clear method boundaries",
+        "Guard clauses with early return/empty-list are used consistently at method entry points across BlackLabQueryExecutor",
+        "collectFrequenciesAndPosFromGroups cleanly isolates iteration from result assembly, making the data flow in executeCollocations/executeSurfacePattern/executeDependencyPattern easy to trace",
+        "The two-path collocate extraction in executeSurfacePattern (XML path vs plain-text fallback) is commented clearly enough to follow"
+      ],
+      "issue_character": "One isolated confusing idiom in the test constructor — the anonymous subclass syntax with empty body `{}` — and a dual-fallback path in executeSurfacePattern that, while documented, requires careful reading.",
+      "score_rationale": "Control flow is generally direct: methods state their invariants, fail fast, and delegate to clearly named helpers. A developer can trace most paths without surprises. The anonymous subclass in BlackLabQueryExecutor's test constructor (`new CollocateQueryHelper((BlackLabIndex) null) {}`) is confusing — the `{}` body overrides nothing and serves no purpose, making a developer wonder if something was removed. This is a local issue but genuinely confusing to any reader unfamiliar with the codebase. The executeSurfacePattern's collocatePos < 0 sentinel combined with a primary/fallback XML-vs-plaintext split adds nesting that is harder to follow than necessary.",
+      "evidence": [
+        "BlackLabQueryExecutor.java line 68-70: 'this.collocateQueryHelper = index != null ? new CollocateQueryHelper(index) : new CollocateQueryHelper((BlackLabIndex) null) {};' — trailing {} creates an anonymous subclass with no overrides for no apparent reason",
+        "executeSurfacePattern lines 247-270: collocatePos sentinel (-1), then XML path, then plain-text fallback — three distinct resolution paths with two levels of if/else in the lambda"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    },
+    "type_safety": {
+      "strengths": [
+        "JSpecify @NonNull/@Nullable annotations are applied systematically across all public interfaces and key implementation classes",
+        "All API response types are typed records (ComparisonResponse, ExploreResponse.SingleSeed, ExploreResponse.MultiSeed, etc.) — no raw Map<String,Object> in response shapes",
+        "QueryExecutor and CollocateQueryPort return @NonNull List<...> — callers never need to null-check list return values",
+        "Records used for model types (ExplorationOptions, FetchExamplesOptions, CollocateProfile, etc.) enforce non-null at construction via canonical constructors",
+        "Optional<RelationType> used for the potentially-absent relationType — forces callers to handle the absent case without NPE risk"
+      ],
+      "issue_character": "Two contained type-safety soft spots: a @SuppressWarnings(NullAway) on a test constructor that allows null fields, and a @Nullable BlackLabIndex field in CollocateQueryHelper that defers failure to first use rather than construction time.",
+      "score_rationale": "The codebase has strong, consistent nullability discipline — the recent addition of @NonNull to list return types in QueryExecutor and CollocateQueryPort is a good signal. The main soft spot is the test constructor pathway in BlackLabQueryExecutor: @SuppressWarnings(NullAway) suppresses the null-safety tool, and the CollocateQueryHelper accepts a @Nullable index then fails at use time via requireNonNull. This is a documented test-only path, but it means the null-safety tool is effectively blind to a class that handles index I/O. This is a real but contained risk.",
+      "evidence": [
+        "BlackLabQueryExecutor line 65: '@SuppressWarnings(\"NullAway\")' on the test constructor that passes null index",
+        "CollocateQueryHelper line 70: 'CollocateQueryHelper(@Nullable BlackLabIndex index)' — null permitted at construction; Objects.requireNonNull deferred to first use in performCollocateSearch",
+        "QueryExecutor: '@NonNull List<WordSketchResult> executeCollocations(...)' — confirmed present and accurate",
+        "All api/model/* types are typed Java records with no Map<String,Object> — migration from raw maps completed"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "The @SuppressWarnings(NullAway) + deferred requireNonNull pattern in the test constructor pathway disables null-safety tooling for a non-trivial code path. Production callers are safe, but the null-safety guarantee for the class is conditional on caller discipline."
+    },
+    "cross_module_architecture": {
+      "strengths": [
+        "Unidirectional dependency flow holds: api → exploration/spi, config, model, query; exploration → config, model, query; config → model; query → model, utils; model → nothing",
+        "No circular dependencies detected — grep for cross-package imports confirms clean layering",
+        "QueryExecutor / CollocateQueryPort interface segregation: handlers that only need concordance lookups declare the narrower CollocateQueryPort, making dependencies explicit",
+        "exploration/spi sub-package provides a stable anti-corruption layer — api depends on ExplorationService, not SemanticFieldExplorer directly",
+        "model/ is a clean shared kernel with zero outward dependencies"
+      ],
+      "issue_character": "A single structural coupling issue that manifests in two related places: RelationConfig from the config layer permeates through ExplorationService (the service port) and GrammarConfig is passed to SemanticFieldExplorer construction. Both couple the exploration/service layer to config internals rather than to a more stable abstraction.",
+      "score_rationale": "The overall dependency graph is clean and intentional — model as foundation, query/config as infrastructure, exploration as domain logic, api as surface. The key structural issue is that ExplorationService (the public SPI) takes RelationConfig as a parameter type. This means any caller of ExplorationService — including test doubles — must construct or mock a RelationConfig object, and any future evolution of RelationConfig's structure affects the service interface contract. The coupling is acknowledged as a known architectural issue; it is real but contained. A fully decoupled service interface would accept a relation identifier or resolved spec, not the config object itself. This is a recurring friction (3 of 4 service methods take RelationConfig) rather than a one-off.",
+      "evidence": [
+        "ExplorationService.java lines 38, 49, 71: all three mutation methods take '@NonNull RelationConfig relationConfig' — the service port is coupled to the config package",
+        "SemanticFieldExplorer constructor: 'public SemanticFieldExplorer(QueryExecutor executor, GrammarConfig grammarConfig)' — GrammarConfig passed to derive noun CQL pattern; could be passed as a resolved String",
+        "grep shows exploration/spi/ExplorationService.java imports 'pl.marcinmilkowski.word_sketch.config.RelationConfig' — confirmed coupling",
+        "CollocateProfileComparator also takes GrammarConfig in constructor for pattern derivation — consistent but reinforces config dependency in exploration layer"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change",
+      "confidence": "medium"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "multiseed_discovered_nouns_semantic_mismatch",
+      "summary": "ExploreResponse.MultiSeed.discoveredNouns() returns source seeds, violating the interface's 'discovered nouns' contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse interface declares 'List<DiscoveredNounEntry> discoveredNouns()' implying reverse-expansion results",
+        "MultiSeed record implements this as '@JsonProperty(\"source_seeds\") List<DiscoveredNounEntry> discoveredNouns' — holds input seeds, not discovered nouns",
+        "A developer calling explorationResponse.discoveredNouns() on a MultiSeed instance receives the caller-supplied seed words, not reverse-discovered nouns"
+      ],
+      "suggestion": "Add a separate accessor to the ExploreResponse interface for multi-seed's 'source seeds' concept, or rename the interface method to reflect the dual semantics (e.g., 'seedOrDiscoveredEntries()'). Alternatively, split the interface into separate SingleSeedExploreResponse and MultiSeedExploreResponse types that don't share the mismatched method name.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "anon_subclass_empty_body_test_constructor",
+      "summary": "Test constructor in BlackLabQueryExecutor creates anonymous CollocateQueryHelper subclass with empty body for no apparent reason",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Line 68-70: 'new CollocateQueryHelper((BlackLabIndex) null) {}' — the trailing {} creates an anonymous subclass that overrides nothing",
+        "The anonymous subclass adds no behavior, which makes a developer wonder if an override was accidentally removed"
+      ],
+      "suggestion": "Remove the empty {} body: use 'new CollocateQueryHelper((BlackLabIndex) null)' directly. If there was a specific reason for the anonymous subclass (e.g., package-private access), add a comment explaining it.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "exploration_spi_coupled_to_relation_config",
+      "summary": "ExplorationService SPI takes RelationConfig (config layer type) in 3 of 4 methods, coupling the service port to config internals",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationService.exploreByRelation, exploreMultiSeed, and fetchExamples all accept '@NonNull RelationConfig relationConfig'",
+        "RelationConfig is a config-layer record including pattern strings, position hints, POS group, and raw relationType — substantial config internals",
+        "Any consumer or test double of ExplorationService must construct or mock RelationConfig, coupling it to the config package"
+      ],
+      "suggestion": "Introduce a thin RelationSpec value type in the exploration domain (e.g., a record with id, pattern, headPosition, collocatePosition, relationType) that ExplorationService accepts instead of RelationConfig. ExplorationHandlers then maps RelationConfig → RelationSpec at the api boundary, keeping config concerns out of the service port. This decouples ExplorationService from the config package and makes the SPI more stable.",
+      "confidence": "medium",
+      "impact_scope": "subsystem",
+      "fix_scope": "architectural_change"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "api_flat_directory_mixed_roles",
+      "summary": "api/ mixes HTTP handlers, routing utilities, request-parsing helpers, response assemblers, and exception types in one flat directory",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SharedExploreParams.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/RequestEntityTooLargeException.java"
+      ],
+      "evidence": [
+        "api/ contains 12 files: 5 handler classes, WordSketchApiServer, 2 response assemblers, HttpApiUtils, SharedExploreParams, RequestEntityTooLargeException, and package-info",
+        "ExploreResponseAssembler and SketchResponseAssembler are response-assembly utilities, not HTTP handlers — different role from the handler classes",
+        "HttpApiUtils is a request/response utility not a handler — distinct concern from routing"
+      ],
+      "suggestion": "Extract response assembly into api/assembly/ (ExploreResponseAssembler, SketchResponseAssembler) and HTTP plumbing into api/support/ or leave SharedExploreParams and HttpApiUtils as is if the current flat layout is acceptable given the small team. At minimum, document the api/ package-info.java to explicitly list the intended file categories so new contributors understand what belongs here.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullable_index_deferred_failure",
+      "summary": "CollocateQueryHelper accepts @Nullable BlackLabIndex but defers the null check to first I/O use via Objects.requireNonNull",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "CollocateQueryHelper constructor: 'CollocateQueryHelper(@Nullable BlackLabIndex index)' — null accepted",
+        "performCollocateSearch: 'BlackLabIndex idx = Objects.requireNonNull(this.index, ...)' — null check deferred to first use",
+        "BlackLabQueryExecutor test constructor: '@SuppressWarnings(\"NullAway\")' disables null-safety tooling for a class that delegates all I/O to CollocateQueryHelper"
+      ],
+      "suggestion": "Either (a) make the production constructor require a non-null index and provide a dedicated test-only factory method or subclass that overrides the I/O methods, or (b) split into a NullCollocateQueryHelper test stub that implements the interface without holding an index reference. Both approaches restore null-safety tooling coverage without compromising testability.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ]
+}

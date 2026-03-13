@@ -56,12 +56,12 @@ public class WordSketchApiServer {
     private com.sun.net.httpserver.HttpServer server;
 
     /** Full constructor accepting an injected {@link ExplorationService}. */
-    public WordSketchApiServer(QueryExecutor executor, ExplorationService semanticFieldExplorer,
+    public WordSketchApiServer(QueryExecutor executor, ExplorationService explorationService,
                                 int port, GrammarConfig grammarConfig) throws IOException {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);
-        this.explorationHandlers = new ExplorationHandlers(semanticFieldExplorer, grammarConfig);
+        this.explorationHandlers = new ExplorationHandlers(explorationService, grammarConfig);
         this.concordanceHandlers = new ConcordanceHandlers(executor, grammarConfig);
         this.corpusQueryHandlers = new CorpusQueryHandlers(executor);
         this.visualizationHandlers = new VisualizationHandlers();

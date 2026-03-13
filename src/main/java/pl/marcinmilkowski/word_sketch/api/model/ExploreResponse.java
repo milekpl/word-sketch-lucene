@@ -31,6 +31,17 @@ public sealed interface ExploreResponse
     @JsonProperty("seed_collocates")
     List<SeedCollocateEntry> seedCollocates();
 
+    /**
+     * Returns the list of noun entries for this response.
+     *
+     * <p>Semantics differ by variant:
+     * <ul>
+     *   <li>In {@link SingleSeed}: nouns discovered by reverse collocate expansion from the seed.</li>
+     *   <li>In {@link MultiSeed}: the caller-supplied source seeds (input words), serialised under
+     *       the {@code source_seeds} JSON key to distinguish them from genuinely reverse-discovered
+     *       nouns.</li>
+     * </ul>
+     */
     @JsonProperty("discovered_nouns")
     List<DiscoveredNounEntry> discoveredNouns();
 
@@ -129,11 +140,15 @@ public sealed interface ExploreResponse
             List<String> seeds,
             Parameters parameters,
             @JsonProperty("seed_collocates") List<SeedCollocateEntry> seedCollocates,
-            @JsonProperty("source_seeds") List<DiscoveredNounEntry> discoveredNouns,
+            @JsonProperty("source_seeds") List<DiscoveredNounEntry> sourceSeeds,
             @JsonProperty("core_collocates") List<CoreCollocateEntry> coreCollocates,
             List<EdgeEntry> edges
     ) implements ExploreResponse {
         @JsonProperty("seed_count")
         public int seedCount() { return seeds().size(); }
+
+        /** Delegates to {@link #sourceSeeds()} to satisfy the shared interface contract. */
+        @Override
+        public List<DiscoveredNounEntry> discoveredNouns() { return sourceSeeds(); }
     }
 }

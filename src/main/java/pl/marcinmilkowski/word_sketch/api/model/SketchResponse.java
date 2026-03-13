@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.api.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -23,6 +24,6 @@ public record SketchResponse(
         String lemma,
         /** Set to {@code "dependency"} for dep-sketch responses; absent for surface-sketch responses. */
         @Nullable String type,
-        Map<String, RelationEntry> relations,
+        @JsonProperty("patterns") Map<String, RelationEntry> relations,
         /** Non-null (and status is {@code "partial"}) when at least one relation query failed. */
         @Nullable List<String> warnings) {}

@@ -22,7 +22,7 @@ import java.util.List;
 public record RelationEntry(
         String id,
         String name,
-        String pattern,
+        @JsonProperty("cql") String pattern,
         /** Present for dependency relations; absent ({@code null}) for surface relations. */
         @Nullable String description,
         @JsonProperty("relation_type") String relationType,

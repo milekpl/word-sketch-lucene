@@ -130,10 +130,10 @@ class WordSketchApiServerTest {
             ObjectNode body = HttpApiUtils.mapper().readValue(response.body(), ObjectNode.class);
             assertEquals("ok", body.path("status").asText());
             assertEquals("theory", body.path("lemma").asText());
-            JsonNode relations = body.path("relations");
-            assertFalse(relations.isMissingNode(), "Response must contain a 'relations' map");
+            JsonNode relations = body.path("patterns");
+            assertFalse(relations.isMissingNode(), "Response must contain a 'patterns' map");
             assertTrue(relations.isObject() || relations.isArray(),
-                "relations must be an object or array, was: " + relations.getNodeType());
+                "patterns must be an object or array, was: " + relations.getNodeType());
 
             // At least one relation entry must contain a collocate with our canned lemma
             String bodyText = response.body();

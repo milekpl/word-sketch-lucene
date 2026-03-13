@@ -59,7 +59,7 @@ class SketchHandlersTest {
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertEquals("ok", body.path("status").asText());
         assertEquals("theory", body.path("lemma").asText());
-        assertNotNull(body.get("relations"), "Full sketch response should contain a relations map");
+        assertNotNull(body.get("patterns"), "Full sketch response should contain a patterns map");
     }
 
     @Test
@@ -77,10 +77,10 @@ class SketchHandlersTest {
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertEquals("ok", body.path("status").asText());
         assertEquals("theory", body.path("lemma").asText());
-        assertNotNull(body.get("relations"), "Single-relation sketch should contain a relations map");
+        assertNotNull(body.get("patterns"), "Single-relation sketch should contain a patterns map");
         // collocations are nested under the relation ID
-        assertNotNull(body.path("relations").get(firstRelationId),
-            "Relations map should contain an entry for the requested relation");
+        assertNotNull(body.path("patterns").get(firstRelationId),
+            "Patterns map should contain an entry for the requested relation");
     }
 
     @Test
@@ -123,9 +123,9 @@ class SketchHandlersTest {
         handlers().routeSketchRequest(ex);
         assertEquals(200, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
-        ObjectNode relations = (ObjectNode) body.get("relations");
-        assertNotNull(relations, "relations map must be present");
-        assertFalse(relations.isEmpty(), "relations map must be non-empty");
+        ObjectNode relations = (ObjectNode) body.get("patterns");
+        assertNotNull(relations, "patterns map must be present");
+        assertFalse(relations.isEmpty(), "patterns map must be non-empty");
         // The stub returns "important" (JJ, 7.5) for every query — verify first relation entry
         String firstRelId = relations.fieldNames().next();
         com.fasterxml.jackson.databind.JsonNode firstRel = relations.get(firstRelId);
@@ -134,8 +134,8 @@ class SketchHandlersTest {
         assertFalse(collocations.isEmpty(), "collocations must contain at least one entry");
         assertEquals("important", collocations.get(0).path("lemma").asText(),
                 "first collocate lemma must be 'important' (from stub)");
-        assertEquals(7.5, collocations.get(0).path("log_dice").asDouble(), 0.001,
-                "first collocate log_dice must be 7.5 (from stub)");
+        assertEquals(7.5, collocations.get(0).path("logDice").asDouble(), 0.001,
+                "first collocate logDice must be 7.5 (from stub)");
     }
 
     @Test

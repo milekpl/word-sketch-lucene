@@ -39,8 +39,8 @@ class ExplorationHandlers {
     private final GrammarConfig grammarConfig;
     private final ExplorationService explorationService;
 
-    /** Sentinel emitted in the {@code relation} field of compare-endpoint responses to signal aggregated cross-relational results. */
-    private static final String CROSS_RELATIONAL = "cross_relational";
+    /** @see RelationUtils#CROSS_RELATIONAL_SENTINEL */
+    private static final String CROSS_RELATIONAL = RelationUtils.CROSS_RELATIONAL_SENTINEL;
 
     ExplorationHandlers(ExplorationService explorationService, @NonNull GrammarConfig grammarConfig) {
         this.grammarConfig = Objects.requireNonNull(grammarConfig,

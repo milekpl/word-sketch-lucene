@@ -29,6 +29,14 @@ public final class RelationUtils {
 
     private RelationUtils() {}
 
+    /**
+     * Sentinel relation identifier used in comparison-endpoint responses to signal that
+     * results are aggregated across all loaded grammatical relations rather than scoped to
+     * a single relation. This constant lives in the config layer because it is a domain
+     * concept, not a presentation-layer detail.
+     */
+    public static final String CROSS_RELATIONAL_SENTINEL = "cross_relational";
+
     // ─── Alias resolution ────────────────────────────────────────────────────────
 
     /**

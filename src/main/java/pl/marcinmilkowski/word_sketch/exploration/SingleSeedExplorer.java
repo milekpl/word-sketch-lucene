@@ -14,7 +14,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.spi.SketchQueryPort;
 
 /**
  * Algorithm class for single-seed semantic field exploration.
@@ -35,10 +35,10 @@ class SingleSeedExplorer {
 
     private static final Logger logger = LoggerFactory.getLogger(SingleSeedExplorer.class);
 
-    private final QueryExecutor executor;
+    private final SketchQueryPort executor;
     private final String nounCqlPattern;
 
-    SingleSeedExplorer(QueryExecutor executor, String nounCqlPattern) {
+    SingleSeedExplorer(SketchQueryPort executor, String nounCqlPattern) {
         this.executor = executor;
         this.nounCqlPattern = nounCqlPattern;
     }

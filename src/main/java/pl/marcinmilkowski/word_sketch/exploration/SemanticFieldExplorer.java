@@ -24,6 +24,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.spi.CollocateQueryPort;
 
 /**
  * Analyses semantic fields around seed words by querying collocate patterns.
@@ -54,7 +55,7 @@ public class SemanticFieldExplorer implements ExplorationService {
 
     private static final String FALLBACK_NOUN_PATTERN = "[xpos=\"NN.*\"]";
 
-    private final QueryExecutor executor;
+    private final CollocateQueryPort executor;
     private final CollocateProfileComparator comparator;
     private final MultiSeedExplorer multiSeedExplorer;
     private final SingleSeedExplorer singleSeedExplorer;

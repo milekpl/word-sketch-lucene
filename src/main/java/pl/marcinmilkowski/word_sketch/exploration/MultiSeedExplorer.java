@@ -18,7 +18,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.spi.SketchQueryPort;
 
 /**
  * Computes multi-seed semantic field exploration: for each seed, fetches collocates using the
@@ -30,9 +30,9 @@ import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
  */
 class MultiSeedExplorer {
 
-    private final QueryExecutor executor;
+    private final SketchQueryPort executor;
 
-    MultiSeedExplorer(QueryExecutor executor) {
+    MultiSeedExplorer(SketchQueryPort executor) {
         this.executor = executor;
     }
 

@@ -7,13 +7,15 @@ import org.jspecify.annotations.NonNull;
 import pl.marcinmilkowski.word_sketch.model.sketch.WordSketchResult;
 
 /**
- * Narrow query port for word-sketch surface-pattern lookups.
+ * Narrow query port for word-sketch lookups (both surface-pattern and dependency-pattern).
  *
  * <p>{@link pl.marcinmilkowski.word_sketch.query.QueryExecutor} extends this interface, so any
- * {@code QueryExecutor} implementation is automatically a {@code SketchQueryPort}. Handlers that
- * only need surface-pattern collocate extraction (e.g.
- * {@link pl.marcinmilkowski.word_sketch.api.SketchHandlers}) should declare this narrower type to
- * make their dependency surface explicit.</p>
+ * {@code QueryExecutor} implementation is automatically a {@code SketchQueryPort}. Exploration
+ * components that only need collocate extraction (e.g.
+ * {@link pl.marcinmilkowski.word_sketch.exploration.SingleSeedExplorer},
+ * {@link pl.marcinmilkowski.word_sketch.exploration.MultiSeedExplorer}, and
+ * {@link pl.marcinmilkowski.word_sketch.exploration.CollocateProfileComparator}) should declare
+ * this narrower type to make their dependency surface explicit.</p>
  */
 public interface SketchQueryPort {
 
@@ -30,5 +32,20 @@ public interface SketchQueryPort {
      */
     @NonNull List<WordSketchResult> executeSurfaceCollocations(
             @NonNull String bcqlPattern,
+            double minLogDice, int maxResults) throws IOException;
+
+    /**
+     * Execute a dependency-annotation or precomputed collocation query for word sketches.
+     *
+     * @param lemma        the headword lemma; used to look up corpus frequency for logDice
+     * @param cqlPattern   CQL pattern string (dependency or BCQL variant)
+     * @param minLogDice   Minimum logDice score threshold (0 for no minimum)
+     * @param maxResults   Maximum number of results to return
+     * @return Collocate results ranked by logDice descending
+     * @throws IOException if index access fails
+     * @throws IllegalArgumentException if {@code lemma} is null or empty, or {@code cqlPattern} is not recognized
+     */
+    @NonNull List<WordSketchResult> executeCollocations(
+            @NonNull String lemma, @NonNull String cqlPattern,
             double minLogDice, int maxResults) throws IOException;
 }

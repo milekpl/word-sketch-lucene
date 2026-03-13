@@ -17,7 +17,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.spi.SketchQueryPort;
 
 /**
  * Compares collocate profiles across multiple seed nouns to reveal shared and distinctive
@@ -30,10 +30,10 @@ class CollocateProfileComparator {
 
     private static final String FALLBACK_COLLOCATE_PATTERN = "[xpos=\"JJ.*\"]";
 
-    private final QueryExecutor executor;
+    private final SketchQueryPort executor;
     private final String adjCollocatePattern;
 
-    CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
+    CollocateProfileComparator(SketchQueryPort executor, GrammarConfig grammarConfig) {
         this.executor = executor;
         this.adjCollocatePattern = deriveCollocatePattern(grammarConfig);
     }

@@ -31,25 +31,25 @@ public sealed interface ExploreResponse
     @JsonProperty("seed_collocates")
     List<SeedCollocateEntry> seedCollocates();
 
-    @JsonProperty("seed_collocates_count")
-    int seedCollocatesCount();
-
     @JsonProperty("discovered_nouns")
     List<DiscoveredNounEntry> discoveredNouns();
-
-    @JsonProperty("discovered_nouns_count")
-    int discoveredNounsCount();
 
     @JsonProperty("core_collocates")
     List<CoreCollocateEntry> coreCollocates();
 
-    @JsonProperty("core_collocates_count")
-    int coreCollocatesCount();
-
     List<EdgeEntry> edges();
 
-    @JsonProperty("edges_count")
-    int edgesCount();
+    /** Returns the number of seed collocates; derived from {@link #seedCollocates()}. */
+    default int seedCollocatesCount() { return seedCollocates().size(); }
+
+    /** Returns the number of discovered nouns; derived from {@link #discoveredNouns()}. */
+    default int discoveredNounsCount() { return discoveredNouns().size(); }
+
+    /** Returns the number of core collocates; derived from {@link #coreCollocates()}. */
+    default int coreCollocatesCount() { return coreCollocates().size(); }
+
+    /** Returns the number of edges; derived from {@link #edges()}. */
+    default int edgesCount() { return edges().size(); }
 
     // -------------------------------------------------------------------------
     // Shared nested types
@@ -108,13 +108,9 @@ public sealed interface ExploreResponse
             String seed,
             Parameters parameters,
             @JsonProperty("seed_collocates") List<SeedCollocateEntry> seedCollocates,
-            @JsonProperty("seed_collocates_count") int seedCollocatesCount,
             @JsonProperty("discovered_nouns") List<DiscoveredNounEntry> discoveredNouns,
-            @JsonProperty("discovered_nouns_count") int discoveredNounsCount,
             @JsonProperty("core_collocates") List<CoreCollocateEntry> coreCollocates,
-            @JsonProperty("core_collocates_count") int coreCollocatesCount,
-            List<EdgeEntry> edges,
-            @JsonProperty("edges_count") int edgesCount
+            List<EdgeEntry> edges
     ) implements ExploreResponse {}
 
     /**
@@ -131,15 +127,13 @@ public sealed interface ExploreResponse
     record MultiSeed(
             String status,
             List<String> seeds,
-            @JsonProperty("seed_count") int seedCount,
             Parameters parameters,
             @JsonProperty("seed_collocates") List<SeedCollocateEntry> seedCollocates,
-            @JsonProperty("seed_collocates_count") int seedCollocatesCount,
             @JsonProperty("source_seeds") List<DiscoveredNounEntry> discoveredNouns,
-            @JsonProperty("source_seeds_count") int discoveredNounsCount,
             @JsonProperty("core_collocates") List<CoreCollocateEntry> coreCollocates,
-            @JsonProperty("core_collocates_count") int coreCollocatesCount,
-            List<EdgeEntry> edges,
-            @JsonProperty("edges_count") int edgesCount
-    ) implements ExploreResponse {}
+            List<EdgeEntry> edges
+    ) implements ExploreResponse {
+        @JsonProperty("seed_count")
+        public int seedCount() { return seeds().size(); }
+    }
 }

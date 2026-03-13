@@ -94,10 +94,10 @@ final class ExploreResponseAssembler {
         List<ExploreResponse.EdgeEntry> edges = buildEdgeEntries(result);
         return new ExploreResponse.SingleSeed(
                 "ok", result.seed(), params,
-                seedCollocs, seedCollocs.size(),
-                nouns, nouns.size(),
-                core, core.size(),
-                edges, edges.size());
+                seedCollocs,
+                nouns,
+                core,
+                edges);
     }
 
     /**
@@ -126,11 +126,11 @@ final class ExploreResponseAssembler {
         List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
         List<ExploreResponse.EdgeEntry> edges = buildEdgeEntries(result);
         return new ExploreResponse.MultiSeed(
-                "ok", seeds, seeds.size(), params,
-                seedCollocs, seedCollocs.size(),
-                nouns, nouns.size(),
-                core, core.size(),
-                edges, edges.size());
+                "ok", seeds, params,
+                seedCollocs,
+                nouns,
+                core,
+                edges);
     }
 
     // -------------------------------------------------------------------------

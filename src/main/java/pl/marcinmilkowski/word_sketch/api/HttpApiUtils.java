@@ -2,7 +2,6 @@ package pl.marcinmilkowski.word_sketch.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import pl.marcinmilkowski.word_sketch.exploration.ExplorationException;
 import pl.marcinmilkowski.word_sketch.utils.JsonUtils;
 import com.sun.net.httpserver.HttpExchange;
 import org.jspecify.annotations.NonNull;
@@ -46,10 +45,11 @@ final class HttpApiUtils {
      *   <li>{@link RequestEntityTooLargeException} → 413</li>
      *   <li>{@link IllegalArgumentException} → 400 (validation / missing param)</li>
      *   <li>{@link com.fasterxml.jackson.core.JsonProcessingException} → 400 (malformed JSON input from client)</li>
-     *   <li>{@link ExplorationException} → 503 (exploration infrastructure failure)</li>
      *   <li>{@link java.io.IOException} → 500 (index / I/O failure)</li>
      *   <li>Any other {@link Exception} → 500 (unexpected server error)</li>
      * </ul>
+     * <p>Exploration-specific failures (503) are handled in
+     * {@link ExplorationHandlers} before reaching this wrapper.</p>
      */
     static com.sun.net.httpserver.HttpHandler wrapWithErrorHandling(
             com.sun.net.httpserver.HttpHandler handler, String description) {
@@ -67,9 +67,6 @@ final class HttpApiUtils {
                 // handler so that malformed client JSON is reported as 400, not 500.
                 logger.warn("{} client sent invalid JSON", description, e);
                 sendError(exchange, 400, "Bad request: invalid JSON — " + e.getOriginalMessage());
-            } catch (ExplorationException e) {
-                logger.error("{} exploration error", description, e);
-                sendError(exchange, 503, "Service unavailable: " + e.getMessage());
             } catch (java.io.IOException e) {
                 logger.error("{} error", description, e);
                 sendError(exchange, 500, description + " failed: " + e.getMessage());

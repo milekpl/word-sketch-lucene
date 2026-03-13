@@ -1,6 +1,5 @@
 package pl.marcinmilkowski.word_sketch.api.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.jspecify.annotations.Nullable;
@@ -30,21 +29,6 @@ public sealed interface ExploreResponse
 
     @JsonProperty("seed_collocates")
     List<SeedCollocateEntry> seedCollocates();
-
-    /**
-     * Returns the list of noun entries for this response.
-     *
-     * <p>Semantics and JSON key differ by variant:
-     * <ul>
-     *   <li>In {@link SingleSeed}: nouns discovered by reverse collocate expansion from the seed,
-     *       serialised as {@code discovered_nouns}.</li>
-     *   <li>In {@link MultiSeed}: the caller-supplied source seeds (input words), serialised as
-     *       {@code source_seeds} to distinguish them from genuinely reverse-discovered nouns.</li>
-     * </ul>
-     * Each concrete variant carries its own {@code @JsonProperty} annotation; the interface
-     * intentionally omits one to avoid inheriting a misleading key name.
-     */
-    List<DiscoveredNounEntry> primarySeeds();
 
     @JsonProperty("core_collocates")
     List<CoreCollocateEntry> coreCollocates();
@@ -110,10 +94,5 @@ public sealed interface ExploreResponse
     ) implements ExploreResponse {
         @JsonProperty("seed_count")
         public int seedCount() { return seeds().size(); }
-
-        /** Delegates to {@link #sourceSeeds()} to satisfy the shared interface contract. */
-        @Override
-        @JsonIgnore
-        public List<DiscoveredNounEntry> primarySeeds() { return sourceSeeds(); }
     }
 }

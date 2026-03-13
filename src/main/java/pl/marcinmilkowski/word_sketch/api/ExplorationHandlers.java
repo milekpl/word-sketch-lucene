@@ -13,6 +13,7 @@ import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
+import pl.marcinmilkowski.word_sketch.exploration.ExplorationException;
 import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 
 import pl.marcinmilkowski.word_sketch.api.model.ComparisonResponse;
@@ -61,20 +62,24 @@ class ExplorationHandlers {
      *                 relation is unknown
      */
     void handleSemanticFieldExplore(HttpExchange exchange) throws IOException {
-        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
-        String seed = HttpApiUtils.requireParam(params, "seed");
-        RelationConfig resolvedConfig = resolveRelationConfig(params);
-        ExplorationOptions opts = parseExplorationOptions(params);
-        int nounsPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
+        try {
+            Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
+            String seed = HttpApiUtils.requireParam(params, "seed");
+            RelationConfig resolvedConfig = resolveRelationConfig(params);
+            ExplorationOptions opts = parseExplorationOptions(params);
+            int nounsPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
 
-        SingleSeedExplorationOptions singleSeedOpts = new SingleSeedExplorationOptions(opts, nounsPerSeed);
+            SingleSeedExplorationOptions singleSeedOpts = new SingleSeedExplorationOptions(opts, nounsPerSeed);
 
-        ExplorationResult result = explorationService.exploreByRelation(seed, resolvedConfig, singleSeedOpts);
+            ExplorationResult result = explorationService.exploreByRelation(seed, resolvedConfig, singleSeedOpts);
 
-        ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
-                result, resolvedConfig.id(), opts, nounsPerSeed);
+            ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
+                    result, resolvedConfig.id(), opts, nounsPerSeed);
 
-        HttpApiUtils.sendJsonResponse(exchange, response);
+            HttpApiUtils.sendJsonResponse(exchange, response);
+        } catch (ExplorationException e) {
+            sendExplorationError(exchange, "Semantic field explore", e);
+        }
     }
 
     /**
@@ -91,25 +96,29 @@ class ExplorationHandlers {
      *                 relation is unknown
      */
     void handleSemanticFieldExploreMulti(HttpExchange exchange) throws IOException {
-        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
-        if (params.containsKey("nouns_per")) {
-            throw new IllegalArgumentException("nouns_per is not supported for multi-seed exploration");
+        try {
+            Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
+            if (params.containsKey("nouns_per")) {
+                throw new IllegalArgumentException("nouns_per is not supported for multi-seed exploration");
+            }
+
+            String seedsParam = HttpApiUtils.requireParam(params, "seeds");
+            RelationConfig resolvedConfig = resolveRelationConfig(params);
+            ExplorationOptions opts = parseExplorationOptions(params);
+
+            Set<String> seeds = parseSeedSet(seedsParam);
+
+            requireAtLeastTwoSeeds(seeds, "Multi-seed exploration");
+
+            ExplorationResult result = explorationService.exploreMultiSeed(seeds, resolvedConfig, opts);
+
+            ExploreResponse response = ExploreResponseAssembler.buildMultiSeedExploreResponse(
+                    result, resolvedConfig.id(), opts);
+
+            HttpApiUtils.sendJsonResponse(exchange, response);
+        } catch (ExplorationException e) {
+            sendExplorationError(exchange, "Multi-seed exploration", e);
         }
-
-        String seedsParam = HttpApiUtils.requireParam(params, "seeds");
-        RelationConfig resolvedConfig = resolveRelationConfig(params);
-        ExplorationOptions opts = parseExplorationOptions(params);
-
-        Set<String> seeds = parseSeedSet(seedsParam);
-
-        requireAtLeastTwoSeeds(seeds, "Multi-seed exploration");
-
-        ExplorationResult result = explorationService.exploreMultiSeed(seeds, resolvedConfig, opts);
-
-        ExploreResponse response = ExploreResponseAssembler.buildMultiSeedExploreResponse(
-                result, resolvedConfig.id(), opts);
-
-        HttpApiUtils.sendJsonResponse(exchange, response);
     }
 
     /**
@@ -123,22 +132,26 @@ class ExplorationHandlers {
      *                 fewer than 2 values
      */
     void handleSemanticFieldComparison(HttpExchange exchange) throws IOException {
-        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
+        try {
+            Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
-        String seedsParam = HttpApiUtils.requireParam(params, "seeds");
-        Set<String> seeds = parseSeedSet(seedsParam);
-        requireAtLeastTwoSeeds(seeds, "Comparison");
+            String seedsParam = HttpApiUtils.requireParam(params, "seeds");
+            Set<String> seeds = parseSeedSet(seedsParam);
+            requireAtLeastTwoSeeds(seeds, "Comparison");
 
-        ExplorationOptions opts = parseExplorationOptions(params);
+            ExplorationOptions opts = parseExplorationOptions(params);
 
-        ComparisonResult result = explorationService.compareCollocateProfiles(seeds, opts);
+            ComparisonResult result = explorationService.compareCollocateProfiles(seeds, opts);
 
-        ComparisonResponse response = ExploreResponseAssembler.buildComparisonResponse(
-            new ArrayList<>(result.nouns()), CROSS_RELATIONAL,
-            opts,
-            result);
+            ComparisonResponse response = ExploreResponseAssembler.buildComparisonResponse(
+                new ArrayList<>(result.nouns()), CROSS_RELATIONAL,
+                opts,
+                result);
 
-        HttpApiUtils.sendJsonResponse(exchange, response);
+            HttpApiUtils.sendJsonResponse(exchange, response);
+        } catch (ExplorationException e) {
+            sendExplorationError(exchange, "Semantic field comparison", e);
+        }
     }
 
     /**
@@ -153,23 +166,34 @@ class ExplorationHandlers {
      *                 is missing or the relation is unknown
      */
     void handleSemanticFieldExamples(HttpExchange exchange) throws IOException {
-        Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
+        try {
+            Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
-        String collocate = HttpApiUtils.requireParam(params, "collocate");
-        String seed = HttpApiUtils.requireParam(params, "seed");
+            String collocate = HttpApiUtils.requireParam(params, "collocate");
+            String seed = HttpApiUtils.requireParam(params, "seed");
 
-        RelationConfig resolvedConfig = resolveRelationConfig(params);
+            RelationConfig resolvedConfig = resolveRelationConfig(params);
 
-        int top = HttpApiUtils.parseIntParam(params, "top", 10);
-        FetchExamplesResult fetched = explorationService.fetchExamples(
-                seed, collocate, resolvedConfig, new FetchExamplesOptions(top));
+            int top = HttpApiUtils.parseIntParam(params, "top", 10);
+            FetchExamplesResult fetched = explorationService.fetchExamples(
+                    seed, collocate, resolvedConfig, new FetchExamplesOptions(top));
 
-        ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
-                new ExploreResponseAssembler.ExamplesContext(
-                        seed, collocate, resolvedConfig.id(), fetched.bcqlPattern(), top, false),
-                fetched.examples());
+            ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
+                    new ExploreResponseAssembler.ExamplesContext(
+                            seed, collocate, resolvedConfig.id(), fetched.bcqlPattern(), top, false),
+                    fetched.examples());
 
-        HttpApiUtils.sendJsonResponse(exchange, response);
+            HttpApiUtils.sendJsonResponse(exchange, response);
+        } catch (ExplorationException e) {
+            sendExplorationError(exchange, "Semantic field examples", e);
+        }
+    }
+
+    /** Sends a 503 response for exploration infrastructure failures. */
+    private static void sendExplorationError(HttpExchange exchange, String description,
+            ExplorationException e) throws IOException {
+        logger.error("{} exploration error", description, e);
+        HttpApiUtils.sendError(exchange, 503, "Service unavailable: " + e.getMessage());
     }
 
     /** Parses a comma-separated seeds parameter into a cleaned, lowercased ordered set. */

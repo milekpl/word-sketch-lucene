@@ -1,0 +1,130 @@
+{
+  "batch": "low_level_elegance",
+  "batch_index": 8,
+  "assessments": {
+    "low_level_elegance": 72.0
+  },
+  "dimension_notes": {
+    "low_level_elegance": {
+      "evidence": [
+        "Private record types (GroupStats, AggregatedCollocateStats, SeedCollocateData, CollocateSearch, HitRecord) are used consistently throughout BlackLabQueryExecutor and MultiSeedExplorer to bundle multi-value returns — avoids parameter proliferation without introducing full domain objects.",
+        "CollocateAccumulator inner class in MultiSeedExplorer.aggregateCollocateStats bounds all mutable accumulation within a tight scope: fields are package-private only within the class, and the single accumulate() method is the only mutation point.",
+        "Phase separation in CollocateQueryHelper.executeBcqlQuery is cleanly expressed: collectHits → buildCollocateFrequencyMap → scoreHits → sort/limit; each phase is an extracted private method with a matching naming convention.",
+        "Guard clauses used consistently: executeCollocations and executeDependencyPattern both return Collections.emptyList() immediately on null/empty lemma, making happy-path flow readable.",
+        "executeSurfacePattern previously had a long multi-branch inline lambda with a sentinel comment; it has since been extracted to the named private method extractCollocateFromIdentity, which now documents the -1 sentinel clearly in its Javadoc. The call site is now a clean one-liner: identity -> extractCollocateFromIdentity(identity, collocatePos).",
+        "SeedCollocateData record in MultiSeedExplorer carries two representations of the same underlying per-seed collocate data: seedCollocateMap (Map<String, List<WordSketchResult>>) and perSeedCollocates (Map<String, Map<String, Double>>). The Map<String,Double> form is a lossy projection of the List form and is built in the same inner loop, but both are stored and threaded through the record. perSeedCollocates is consumed only at the final ExplorationResult.of() call; it could be derived inline there from seedCollocateMap (or eliminated if ExplorationResult accepted the List form).",
+        "buildDiscoveredNouns uses DoubleSummaryStatistics just to extract .getSum() and .getAverage(), then manually guards count==0 before using getAverage() (because summaryStatistics().getAverage() returns NaN for empty). A simpler pattern — double sum = stream.sum(); double avg = count==0 ? 0.0 : sum/count — would be more direct and not require the summaryStatistics object at all.",
+        "Helper extraction style is consistent across the exploration package: SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator all follow the same pattern of numbered/named-phase private methods (fetchSeedCollocates, buildNounToCollocatesMap, filterByMinShared; fetchCollocatesPerSeed, identifyCommonCollocates, aggregateCollocateStats; buildRawCollocateProfiles, buildCollocateProfileList).",
+        "CqlUtils.splitCqlTokens manually walks brackets with depth counting — intentionally so, because it must skip quoted strings inside brackets. The algorithm is direct and the Javadoc includes examples.",
+        "collectFrequenciesAndPosFromGroups in BlackLabQueryExecutor accepts a Function<String,String> lemmaExtractor, allowing it to be shared across three callers with different extraction strategies. The abstraction is appropriately narrow and the callsites are readable."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "The dual-representation smell in SeedCollocateData (seedCollocateMap + perSeedCollocates) is the most significant local-elegance issue: it forces two parallel data structures through the call chain when one would suffice. The minor DoubleSummaryStatistics over-engineering in buildDiscoveredNouns adds a small amount of conceptual overhead at the call site."
+    }
+  },
+  "dimension_judgment": {
+    "low_level_elegance": {
+      "dimension_character": "Function internals across this codebase are generally direct and intention-revealing: private records bundle multi-value returns, inner accumulator classes bound mutable state tightly, and phase-separated private methods make algorithmic steps legible. The exploration package in particular shows disciplined helper extraction — three sibling classes share identical naming conventions for their phase methods. The main structural blemish is the dual representation carried by SeedCollocateData, which threads both the raw List<WordSketchResult> and a derived Map<String,Double> projection through the entire multi-seed pipeline; this adds weight to the record and blurs ownership of the derivation.",
+      "score_rationale": "The codebase clears the threshold for 'mostly direct and well-extracted' — a developer can read through any given method without needing to resolve indirection or hunt for where state is mutated. The score is held back from the high-70s range primarily by the dual-representation issue in MultiSeedExplorer (the one confirmed open finding) and a minor over-engineering instance in buildDiscoveredNouns. A codebase where internals are uniformly precise and no redundant parallel structures exist would place in the 80–85 range; this one sits comfortably at 72, acknowledging clear patterns and one notable residual smell."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "multi_seed_dual_representation",
+      "summary": "SeedCollocateData carries two representations of per-seed collocate data (List and Map), both built and threaded through the pipeline",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "fetchCollocatesPerSeed builds both seedCollocateMap (Map<String, List<WordSketchResult>>) and perSeedCollocates (Map<String, Map<String,Double>>) in the same inner loop and stores both in the SeedCollocateData record.",
+        "perSeedCollocates is a lossy projection of seedCollocateMap (lemma→logDice only, losing frequency). It is consumed solely at line 67 as the final argument to ExplorationResult.of().",
+        "seedCollocateMap is used for aggregateCollocateStats (which needs frequency via WordSketchResult.frequency()) and buildDiscoveredNouns. These two usages require the full List form, so both cannot be easily dropped — but the Map form could be derived inline at the ExplorationResult.of() call instead of being pre-built.",
+        "The derivation at the call site would be: data.seedCollocateMap().entrySet().stream().collect(toUnmodifiableMap(Map.Entry::getKey, e -> e.getValue().stream().collect(toMap(r->r.lemma(), r->r.logDice()))))."
+      ],
+      "suggestion": "Remove perSeedCollocates from the SeedCollocateData record. Derive the Map<String,Map<String,Double>> form inline when constructing ExplorationResult.of(), using a stream collector on seedCollocateMap. This eliminates the dual bookkeeping without changing any observable behavior.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "dual_representation"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "build_discovered_nouns_stats_over_engineering",
+      "summary": "buildDiscoveredNouns uses DoubleSummaryStatistics to get sum and average, then manually guards count==0, when simpler stream operations suffice",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "Lines 124–126: java.util.DoubleSummaryStatistics stats = sharedCollocates.values().stream().mapToDouble(Double::doubleValue).summaryStatistics(); double avg = count == 0 ? 0.0 : stats.getAverage(); double sum = stats.getSum();",
+        "DoubleSummaryStatistics is created only to call getAverage() and getSum(). The count==0 guard is required because summaryStatistics().getAverage() returns NaN for an empty stream.",
+        "A more direct idiom: double sum = sharedCollocates.values().stream().mapToDouble(Double::doubleValue).sum(); double avg = count == 0 ? 0.0 : sum / count; — avoids the statistics object and keeps the semantics of the guard obvious."
+      ],
+      "suggestion": "Replace the DoubleSummaryStatistics call with a direct .sum() call, then compute avg as count==0 ? 0.0 : sum/count. This removes the indirect object allocation and makes the data flow clearer.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "blacklab_surface_pattern_lambda_sentinel",
+      "summary": "Issue resolved: executeSurfacePattern lambda extracted to named method; sentinel is now documented in Javadoc",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Line 282: GroupStats stats = collectFrequenciesAndPosFromGroups(groups, identity -> extractCollocateFromIdentity(identity, collocatePos)); — the call site is now a clean one-liner.",
+        "extractCollocateFromIdentity (lines 239–253) is a named private method whose Javadoc explains the -1 sentinel case explicitly: 'When collocatePos is negative (label 2: absent from the pattern), falls back to extracting the last lemma in the identity.'",
+        "The previously problematic multi-branch inline lambda requiring a sentinel comment is gone; the logic is now owned by the extracted method."
+      ],
+      "suggestion": "No action needed — this issue has been resolved. The tracking entry can be closed.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "concern_verdict": "dismissed",
+      "reasoning": "The inline lambda reported in this issue has been extracted to extractCollocateFromIdentity. The call site is now a single-line method reference. The -1 sentinel is documented in the method's Javadoc. The original defect no longer exists in the current code."
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The dual-representation pattern (seedCollocateMap + perSeedCollocates) likely arose during incremental feature work on ExplorationResult: the API response model required Map<String,Double> while internal aggregation required the full WordSketchResult, so both were threaded through rather than deriving one from the other at the boundary.",
+      "The DoubleSummaryStatistics over-engineering in buildDiscoveredNouns may be a leftover from an earlier version where more statistics (min, max, variance) were needed; the code was then simplified without revisiting the collection strategy."
+    ],
+    "likely_symptoms": [
+      "build_discovered_nouns_stats_over_engineering"
+    ],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "low_level_elegance": {
+      "add": [
+        {
+          "header": "Private record return types bundle multi-value state cleanly",
+          "description": "BlackLabQueryExecutor and MultiSeedExplorer use private record inner types (GroupStats, AggregatedCollocateStats, SeedCollocateData, CollocateSearch, HitRecord) consistently to group related return values. This avoids output-parameter idioms and keeps method signatures narrow while preserving semantic clarity.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Phase-named private methods used across exploration package",
+          "description": "SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator all decompose their algorithms into numbered/named-phase private methods (fetchX, buildX, filterX, identifyX, aggregateX). The convention is consistent enough that a developer can read any of the three classes and immediately orient to the algorithmic structure.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "executeSurfacePattern sentinel lambda resolved by extraction",
+          "description": "The previously flagged multi-branch inline lambda with a sentinel comment in executeSurfacePattern has been extracted to the named private method extractCollocateFromIdentity, with the -1 sentinel documented in Javadoc. The call site is now a clean one-liner.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Dual representation in SeedCollocateData threads redundant parallel maps",
+          "description": "SeedCollocateData carries both the raw List<WordSketchResult> (needed for aggregation with frequency) and a derived Map<String,Double> projection (needed only for ExplorationResult output). The projection could be derived inline at the result-construction boundary instead of being pre-built and stored.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

@@ -7,10 +7,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import pl.marcinmilkowski.word_sketch.api.model.CollocateProfileEntry;
 import pl.marcinmilkowski.word_sketch.api.model.ComparisonResponse;
 import pl.marcinmilkowski.word_sketch.api.model.CoreCollocateEntry;
 import pl.marcinmilkowski.word_sketch.api.model.DiscoveredNounEntry;
 import pl.marcinmilkowski.word_sketch.api.model.EdgeEntry;
+import pl.marcinmilkowski.word_sketch.api.model.ExampleEntry;
 import pl.marcinmilkowski.word_sketch.api.model.ExamplesResponse;
 import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 import pl.marcinmilkowski.word_sketch.api.model.SeedCollocateEntry;
@@ -198,7 +200,7 @@ final class ExploreResponseAssembler {
             @NonNull List<String> seeds, @NonNull String relationType,
             @NonNull ExplorationOptions params,
             @NonNull ComparisonResult result) {
-        List<ComparisonResponse.CollocateProfileEntry> collocates = result.collocates().stream()
+        List<CollocateProfileEntry> collocates = result.collocates().stream()
                 .map(ExploreResponseAssembler::collocateProfileToEntry)
                 .toList();
         ComparisonResult.SummaryCounts counts = result.summaryCounts();
@@ -213,7 +215,7 @@ final class ExploreResponseAssembler {
                 edges, edges.size());
     }
 
-    private static ComparisonResponse.CollocateProfileEntry collocateProfileToEntry(
+    private static CollocateProfileEntry collocateProfileToEntry(
             CollocateProfile collocate) {
         Map<String, Double> nounScores = new HashMap<>();
         for (Map.Entry<String, Double> entry : collocate.nounScores().entrySet()) {
@@ -222,7 +224,7 @@ final class ExploreResponseAssembler {
         String specificTo = collocate.isSpecific()
                 ? collocate.strongestNoun().orElse(null)
                 : null;
-        return new ComparisonResponse.CollocateProfileEntry(
+        return new CollocateProfileEntry(
                 collocate.collocate(),
                 collocate.presentInCount(),
                 collocate.totalNouns(),
@@ -260,10 +262,10 @@ final class ExploreResponseAssembler {
             boolean fallbackUsed) {}
 
     /**
-     * Converts a {@link CollocateResult} to a typed {@link ExamplesResponse.ExampleEntry}.
+     * Converts a {@link CollocateResult} to a typed {@link ExampleEntry}.
      */
-    static ExamplesResponse.ExampleEntry collocateResultToExampleEntry(CollocateResult r) {
-        return new ExamplesResponse.ExampleEntry(r.sentence(), r.rawXml() != null ? r.rawXml() : "");
+    static ExampleEntry collocateResultToExampleEntry(CollocateResult r) {
+        return new ExampleEntry(r.sentence(), r.rawXml() != null ? r.rawXml() : "");
     }
 
     /**
@@ -276,7 +278,7 @@ final class ExploreResponseAssembler {
     static @NonNull ExamplesResponse buildExamplesResponse(
             @NonNull ExamplesContext ctx,
             @NonNull List<CollocateResult> results) {
-        List<ExamplesResponse.ExampleEntry> entries = results.stream()
+        List<ExampleEntry> entries = results.stream()
                 .map(ExploreResponseAssembler::collocateResultToExampleEntry)
                 .toList();
         return new ExamplesResponse("ok", ctx.seed(), ctx.collocate(), ctx.relation(),

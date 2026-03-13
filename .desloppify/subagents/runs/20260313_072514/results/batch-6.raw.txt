@@ -1,0 +1,116 @@
+{
+  "batch": "abstraction_fitness",
+  "batch_index": 6,
+  "assessments": {"abstraction_fitness": 72.0},
+  "dimension_notes": {
+    "abstraction_fitness": {
+      "evidence": [
+        "CollocateQueryPort and SketchQueryPort split QueryExecutor into narrow ports: ConcordanceHandlers and CorpusQueryHandlers receive CollocateQueryPort, SketchHandlers receives SketchQueryPort — each handler depends only on what it calls, providing real narrowing leverage.",
+        "ExplorationService interface javadoc honestly explains the single-implementation situation: 'Keeping them together avoids scattering a single conceptual service across multiple interfaces while there is only one implementation' — no pretense of polymorphism.",
+        "QueryExecutor as a one-implementation interface is justified: its javadoc explicitly states it isolates BlackLab's volatile external API, matching the skip condition for intentional adapters.",
+        "CollocateQueryHelper (package-private) encapsulates the full collocate ranking pipeline — frequency lookup, over-fetch compensation, lazy logDice upper-bound filtering, hit-collection and scoring phases — providing real reuse across executeCollocations, executeSurfacePattern, and executeDependencyPattern.",
+        "SemanticFieldExplorer self-describes as a 'thin facade' but actually provides validation (relationConfig.validate(), PosGroup.OTHER check), pattern construction (RelationUtils.buildFullPattern, buildCollocateReversePattern), exception translation (IOException → ExplorationException), and result deduplication in fetchExamples. The delegation is purposeful rather than pass-through.",
+        "ExploreResponseAssembler is a final class with only static methods (no state, no constructor callable from outside) containing 285 lines covering edge-building for two result types (buildExplorationEdges, buildComparisonEdges), response assembly for four distinct response shapes, four private sub-entry builders, and an inner ExamplesContext record. All exploration presentation is forced through a single static namespace rather than distributed into focused converters or instance-based assemblers.",
+        "RelationConfig.java javadoc at line 15 still reads 'Pattern-building and POS-group inference logic lives in RelationPatternUtils' — but RelationPatternUtils no longer exists as a class; the methods were merged into RelationUtils. QueryExecutor.java javadoc at line 88 similarly references 'RelationPatternUtils#buildFullPattern'. RelationPatternUtilsTest.java uses RelationUtils methods but its @DisplayName annotation still says 'RelationPatternUtils'.",
+        "SharedExploreParams (previously flagged as a redundant translation layer) no longer exists; ExplorationHandlers now constructs ExplorationOptions directly via parseExplorationOptions() — the prior issue is resolved.",
+        "utils/ package contains CqlUtils, JsonUtils, LogDiceUtils, MathUtils — each is domain-scoped (CQL pattern manipulation, single shared ObjectMapper, logDice formula, rounding) with no cross-cutting dumping across modules. JsonUtils as a singleton ObjectMapper wrapper is a clean, justified pattern."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high",
+      "sub_axes": {
+        "abstraction_leverage": 78.0,
+        "indirection_cost": 82.0,
+        "interface_honesty": 72.0,
+        "delegation_density": 100.0,
+        "definition_directness": 88.0,
+        "type_discipline": 100.0
+      }
+    }
+  },
+  "dimension_judgment": {
+    "abstraction_fitness": {
+      "dimension_character": "The codebase shows genuine abstraction discipline in its query layer: CollocateQueryPort/SketchQueryPort narrow handler dependencies to exactly what each handler needs, and CollocateQueryHelper encapsulates a non-trivial ranking pipeline shared across multiple methods. The one-implementation interfaces (ExplorationService, QueryExecutor) are honestly documented and serve legitimate isolation or testability purposes. The main weakness is ExploreResponseAssembler — a 285-line static-methods-only final class that bundles edge-building, response assembly, and entry conversion for all exploration endpoints into a single flat namespace, making it harder to locate and extend individual conversion paths.",
+      "score_rationale": "This scores above midpoint because the foundational abstractions (port splitting, exploration sub-layer decomposition, package-private helpers) are well-constructed and provide real leverage with low indirection cost. The score is held below 80 by ExploreResponseAssembler's static utility pattern, which is a cohesive but inflexible design, and by residual stale documentation pointing to the now-merged RelationPatternUtils — evidence that a prior split was cleaned up but not fully completed. No delegation-heavy classes, no facade re-exports, and no unnecessary type indirection; the remaining issues are module-scoped rather than codebase-wide."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explore_response_assembler_static_utility",
+      "summary": "ExploreResponseAssembler is a static-methods-only final class bundling all exploration presentation logic into one flat namespace",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "final class ExploreResponseAssembler with private no-arg constructor and zero instance state; all methods are static.",
+        "285 lines covering: buildExplorationEdges, buildComparisonEdges, buildSingleSeedExploreResponse, buildMultiSeedExploreResponse, buildComparisonResponse, buildExamplesResponse, four private sub-entry builders, and an inner ExamplesContext record — all exploration-related but spanning edge construction and four distinct response shapes.",
+        "Callers (ExplorationHandlers) call ExploreResponseAssembler.buildSingleSeedExploreResponse(...) and ExploreResponseAssembler.buildComparisonResponse(...) at static call sites — the assembler cannot be specialised, mocked at a dependency boundary, or replaced per response type."
+      ],
+      "suggestion": "Split into two smaller focused classes: ExplorationEdgeBuilder (handling buildExplorationEdges, buildComparisonEdges) and ExploreResponseAssembler retaining the response-assembly factory methods. Alternatively convert ExploreResponseAssembler into a proper instance class that ExplorationHandlers holds as a field — this makes the dependency surface visible and allows future specialisation without changing callers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "static_utility_presentation"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "stale_relation_pattern_utils_references",
+      "summary": "RelationConfig and QueryExecutor javadoc still reference the non-existent RelationPatternUtils class after its merger into RelationUtils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/utils/RelationPatternUtilsTest.java"
+      ],
+      "evidence": [
+        "RelationConfig.java line 15: 'Pattern-building and POS-group inference logic lives in {@link RelationPatternUtils}' — RelationPatternUtils does not exist; methods live in RelationUtils.",
+        "QueryExecutor.java line 88: '{@link pl.marcinmilkowski.word_sketch.config.RelationPatternUtils#buildFullPattern}' — stale qualified reference to a class that was merged away.",
+        "RelationPatternUtilsTest.java @DisplayName is 'RelationPatternUtils' but the class imports and tests RelationUtils — the test was updated to use the merged class but the display name was not updated."
+      ],
+      "suggestion": "Update RelationConfig.java javadoc to reference RelationUtils instead of RelationPatternUtils. Fix the {@link} reference in QueryExecutor.java to point to RelationUtils#buildFullPattern. Update RelationPatternUtilsTest @DisplayName to 'RelationUtils (pattern building)'.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Static utility class pattern used for presentation layer (ExploreResponseAssembler, SketchResponseAssembler) instead of instance-based converters — consistent with a 'put all conversion logic in one place' design instinct that sacrifices testability and extensibility.",
+      "The RelationPatternUtils-to-RelationUtils merge was completed in code but documentation and test metadata were not fully updated, a common artifact of incremental class consolidation."
+    ],
+    "likely_symptoms": [
+      "stale_relation_pattern_utils_references"
+    ],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "abstraction_fitness": {
+      "add": [
+        {
+          "header": "CollocateQueryPort/SketchQueryPort narrow handler dependencies",
+          "description": "ConcordanceHandlers and CorpusQueryHandlers declare CollocateQueryPort; SketchHandlers declares SketchQueryPort. Each handler receives only the methods it calls — real abstraction leverage, not interface proliferation.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "SharedExploreParams translation layer eliminated",
+          "description": "The previously flagged SharedExploreParams record no longer exists; ExplorationHandlers builds ExplorationOptions directly. The api/domain duplication issue is resolved.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "RelationUtils/RelationPatternUtils merged into one class",
+          "description": "The two static-utility classes flagged in the prior review were consolidated into RelationUtils, removing the parallel-class split. Stale javadoc references remain in RelationConfig and QueryExecutor pointing to the now-deleted class.",
+          "settled": true,
+          "positive": false
+        },
+        {
+          "header": "Static utility pattern used for presentation assemblers",
+          "description": "ExploreResponseAssembler and SketchResponseAssembler are final classes with only static methods. This choice centralises presentation logic but prevents dependency injection, subclassing, and per-response-shape narrowing.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "batch": "dependency_health",
+  "batch_index": 7,
+  "assessments": {
+    "dependency_health": 65.0
+  },
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml has only 6 production runtime dependencies: blacklab-engine, blacklab-query-parser, jackson-databind, slf4j-api, logback-classic, log4j-to-slf4j — a lean and purposeful set",
+        "jackson-databind explicitly versioned at ${jackson.version}=2.17.2 (line 54-56 pom.xml) while jackson-bom at the same version is imported via dependencyManagement — the explicit version is redundant but not conflicting",
+        "BlackLab 4.0.0 is not on Maven Central; standard `mvn clean package` fails without first running ./install-blacklab.sh which downloads from GitHub releases; a raw-GitHub-URL fallback profile exists but carries no SLA",
+        "No duplicate libraries for the same purpose (single JSON processor: Jackson; single logging facade: SLF4J with logback-classic as runtime provider)",
+        "log4j-to-slf4j bridge correctly routes BlackLab's log4j calls through the project's SLF4J stack without pulling a full log4j runtime",
+        "jspecify annotations declared with scope=provided — zero runtime footprint, no JAR bloat",
+        "All test dependencies (JUnit 5 jupiter-api, jupiter-engine, platform-launcher) correctly scoped as test",
+        "CLAUDE.md documentation still lists 'Fastjson 2.0.25' as a dependency but fastjson is not present in pom.xml; Jackson is the actual JSON library — stale doc, no actual duplicate dependency"
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "dependency_health": {
+      "dimension_character": "The dependency footprint is impressively lean for a corpus-analysis tool: six production runtime dependencies, no duplicate libraries, no heavy pull-ins for trivial use, and all test/annotation deps correctly scoped. The dominant health problem is the BlackLab 4.x distribution gap — the library is not on Maven Central, so every developer and CI pipeline must execute a manual pre-build install script or rely on a raw GitHub URL with no SLA. This single issue creates meaningful onboarding friction and CI brittleness that overshadows an otherwise clean picture.",
+      "score_rationale": "The codebase sits well above a 'significant drag' (60) baseline on most dependency-health axes — lean set, no duplicates, no over-engineering — but the BlackLab distribution issue is a systemic, not cosmetic, problem: standard Maven toolchain fails without a manual bootstrap step, which is the kind of issue the dimension specifically targets. The redundant jackson-databind version pin is minor (no conflict) but is a known open item. Together these pull the score into the low-to-mid 60s rather than the solid 70-80 range a well-resolved dependency graph would earn."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab_not_on_central",
+      "summary": "BlackLab 4.x absent from Maven Central forces a manual pre-build install step and a fragile raw-GitHub-URL fallback",
+      "related_files": ["pom.xml", "install-blacklab.sh", "install-blacklab.ps1"],
+      "evidence": [
+        "pom.xml comment (line 113-130): 'BlackLab 4.x is NOT published to Maven Central … REQUIRED FIRST STEP: run ./install-blacklab.sh'",
+        "A `blacklab-github-fallback` Maven profile exists that points to https://raw.githubusercontent.com/… with checksumPolicy=warn — no SLA, can break on rate-limit, branch deletion, or repo rename",
+        "install-blacklab.sh downloads from GitHub releases and runs `mvn install:install-file` into the local ~/.m2 repo; any CI pipeline without this pre-step fails at dependency resolution"
+      ],
+      "suggestion": "Mirror both blacklab-engine and blacklab-query-parser JARs to a stable private registry (GitHub Packages, Nexus, or Artifactory) and reference that registry in pom.xml. This eliminates the manual script dependency and the unreliable raw-GitHub URL, making standard `mvn clean package` work out of the box for all developers and CI runners.",
+      "confidence": "high",
+      "impact_scope": "codebase",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "blacklab_distribution",
+      "concern_verdict": "confirmed"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "jackson_databind_redundant_version",
+      "summary": "jackson-databind carries an explicit version tag that duplicates what jackson-bom already manages",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "pom.xml dependencyManagement imports jackson-bom at 2.17.2 (lines 27-32), which already pins jackson-databind to 2.17.2",
+        "pom.xml dependencies block also declares jackson-databind with <version>${jackson.version}</version> = 2.17.2 (lines 54-56)",
+        "Versions currently agree, so there is no runtime conflict, but the redundant pin means a future BOM upgrade will silently be shadowed by the explicit version unless both are updated in sync"
+      ],
+      "suggestion": "Remove the <version> tag from the jackson-databind dependency declaration in pom.xml; let the imported jackson-bom manage the version. This eliminates the dual-maintenance risk and is the standard pattern when a BOM is already in use.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "jackson_version_management",
+      "concern_verdict": "confirmed"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "BlackLab 4.x has never been published to Maven Central by its maintainer — this is an upstream project decision, not a local one; the workaround (install script + fallback profile) is reasonable but inherently fragile",
+      "The jackson-bom was added after the jackson-databind version was already pinned; the explicit version was never cleaned up"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "dependency_health": {
+      "add": [
+        {
+          "header": "Lean production runtime dependency set",
+          "description": "Only six production runtime JARs are declared: blacklab-engine, blacklab-query-parser, jackson-databind, slf4j-api, logback-classic, and log4j-to-slf4j. No duplicate libraries, no heavy pull-ins for marginal use, and every dep is actively used in production code.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "log4j-to-slf4j bridge correctly scoped",
+          "description": "BlackLab brings a log4j dependency; the project bridges it through SLF4J via log4j-to-slf4j without pulling a full log4j runtime. This keeps the logging stack unified and avoids classpath conflicts.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "jspecify annotations in provided scope",
+          "description": "org.jspecify:jspecify is declared with scope=provided, so nullability annotations are checked at compile time but contribute zero bytes to the shaded JAR at runtime.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "CLAUDE.md lists stale fastjson dependency",
+          "description": "CLAUDE.md documents 'Fastjson 2.0.25' as a project dependency, but fastjson is not present in pom.xml; Jackson (jackson-databind) is the actual JSON library. The documentation is stale but there is no actual duplicate JSON library in the build.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

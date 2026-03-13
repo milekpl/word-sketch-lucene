@@ -1,0 +1,93 @@
+{
+  "batch": "test_strategy",
+  "batch_index": 10,
+  "assessments": {
+    "test_strategy": 70.0
+  },
+  "dimension_notes": {
+    "test_strategy": {
+      "evidence": [
+        "299 @Test annotations across 35+ test files; every major module (api, config, exploration, indexer, query, utils, viz) has at least one corresponding test class.",
+        "WordSketchApiServerTest starts a real ephemeral HTTP server and sends real HTTP requests, providing true end-to-end route coverage without a corpus index.",
+        "BlackLabIntegrationTest exercises the full XML parsing → collocate extraction → logDice scoring pipeline end-to-end using a stub for corpus frequencies — genuine cross-module integration.",
+        "StubQueryExecutor, MockExchangeFactory, and GrammarConfigHelper are well-factored shared helpers that decouple all unit/integration tests from a live BlackLab index.",
+        "Live-index tests in BlackLabQueryExecutorIntegrationTest and BlackLabBcqlConcordanceTest use Assumptions.assumeTrue() + @Tag(\"integration\") and are excluded from CI via -DexcludedGroups=integration.",
+        ".github/workflows/ci.yml runs on push and pull_request to main; unit tests run automatically.",
+        "No snapshot-style tests found; all assertions are explicit assertEquals/assertTrue/assertFalse calls.",
+        "No Thread.sleep, System.currentTimeMillis, or @TestMethodOrder patterns — tests are not timing- or ordering-sensitive.",
+        "DependencySketchTest uses @Disabled (not @Tag(\"integration\") + Assumptions.assumeTrue()) for all 6 tests covering executeDependencyPattern — permanently disabled rather than gated.",
+        "BlackLabQueryExecutorTest adds stub-based guard-clause tests for executeCollocations (null/empty lemma), but the equivalent guard clauses for executeDependencyPattern (null deprel short-circuit, empty lemma early-return) have no CI-runnable test at all.",
+        "Handler-level coverage for dep-sketch exists via SketchHandlersTest (stub override of executeDependencyPattern), but the BCQL construction logic (headPosConstraint branching, regex escaping) and the queryAndRankDepCollocates pipeline go entirely untested in CI.",
+        "Mild coupling in SemanticFieldExplorerInternalTest and SemanticFieldExplorerTest: stubs override executeSurfacePattern by calling CqlUtils.extractHeadword() or StubQueryExecutor.extractLemmaFromPattern() — internal knowledge of how the explorer constructs its queries."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "test_strategy": {
+      "dimension_character": "The test suite is genuinely comprehensive and well-structured for a corpus-linguistics tool that cannot be integration-tested without a large external index: 299 tests span every module, a shared stub infrastructure decouples tests cleanly from BlackLab, and real HTTP integration tests verify the server's routing path end-to-end. The primary structural gap is that the dependency-sketch execution path — while exercised at the handler layer via stubs — has no CI-runnable test for its guard clauses or BCQL construction logic, because DependencySketchTest was permanently @Disabled instead of adopting the established Assumptions.assumeTrue() + @Tag(\"integration\") guard pattern used everywhere else.",
+      "score_rationale": "A 70 reflects a codebase that is materially better than the median (50): CI is running, integration tests exist at multiple layers, no snapshot overuse, no fragility patterns, and the live-index gating strategy is sound. The score falls short of the 80–85 range because one critical execution path (executeDependencyPattern with BCQL construction and queryAndRankDepCollocates) has zero CI coverage beyond a stub override at the handler layer, and a handful of stubs encode implementation details that create mild regression risk on refactors."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "test_strategy",
+      "identifier": "dep_sketch_disabled_tests",
+      "summary": "DependencySketchTest uses @Disabled instead of the established guard pattern, leaving executeDependencyPattern untested in CI",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/DependencySketchTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutorTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "DependencySketchTest annotates the entire class with @Disabled(\"Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run\") rather than using Assumptions.assumeTrue() + @Tag(\"integration\") as done in BlackLabQueryExecutorIntegrationTest and BlackLabBcqlConcordanceTest.",
+        "BlackLabQueryExecutorTest adds CI-runnable stub-based guard tests for executeCollocations (null/empty lemma → empty list, null pattern → IAE) but no equivalent tests exist for executeDependencyPattern's guard clauses (empty lemma early-return at line 186, Objects.requireNonNull for deprel).",
+        "The headPosConstraint branch in executeDependencyPattern (two distinct BCQL formats with different regex escaping paths) and the full queryAndRankDepCollocates → collectFrequenciesAndPosFromGroups pipeline have no CI coverage."
+      ],
+      "suggestion": "Remove @Disabled from DependencySketchTest and replace it with Assumptions.assumeTrue(INDEX_PATH != null && new File(INDEX_PATH).exists(), ...) per the pattern in BlackLabQueryExecutorIntegrationTest. Additionally, add stub-based guard-clause tests in BlackLabQueryExecutorTest (or a new DependencyPatternGuardTest) that exercise executeDependencyPattern with a null-index executor: null deprel should throw NullPointerException (Objects.requireNonNull), empty lemma should return empty list, and a valid call with a null headPosConstraint vs non-null headPosConstraint should produce distinct BCQL strings (testable by subclassing BlackLabQueryExecutor and capturing the bcql argument).",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "DependencySketchTest was written before the guard-pattern convention was established, then left as @Disabled rather than migrated when the convention was introduced.",
+      "The stub-based guard-clause testing pattern (null index + override) was applied to executeCollocations but not systematically extended to all QueryExecutor methods when they were added."
+    ],
+    "likely_symptoms": ["dep_sketch_disabled_tests"]
+  },
+  "context_updates": {
+    "test_strategy": {
+      "add": [
+        {
+          "header": "CI pipeline added, runs on push/PR to main",
+          "description": "A .github/workflows/ci.yml workflow was added that runs on push and pull_request to main (and the active health branch). Unit tests run automatically via mvn test -DexcludedGroups=integration. The previously-open 'No CI pipeline' issue is resolved.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Rich stub infrastructure decouples all tests from live index",
+          "description": "StubQueryExecutor (shared, subclassable), MockExchangeFactory (HTTP exchange mock), and GrammarConfigHelper (test grammar loader) are well-factored shared helpers. All 299 unit tests run without a BlackLab index on disk.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Real HTTP integration tests via ephemeral server",
+          "description": "WordSketchApiServerTest starts the server on port 0, sends real HTTP requests via HttpClient, and verifies JSON response shapes — genuine route-to-serialisation integration coverage.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "DependencySketchTest permanently disabled, not gated",
+          "description": "All 6 dependency sketch tests use @Disabled instead of the established Assumptions.assumeTrue() guard. Guard-clause and BCQL-construction logic for executeDependencyPattern have no CI coverage.",
+          "settled": true,
+          "positive": false
+        }
+      ],
+      "settle": []
+    }
+  }
+}

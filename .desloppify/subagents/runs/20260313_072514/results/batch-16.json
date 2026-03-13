@@ -1,0 +1,84 @@
+{
+  "batch": "initialization_coupling",
+  "batch_index": 16,
+  "assessments": {
+    "initialization_coupling": 90.0
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "JsonUtils.MAPPER is a static final ObjectMapper initialized at class-load time — pure Java, no I/O, thread-safe once configured; all callers share the same instance via mapper()",
+        "HttpApiUtils.corsAllowOrigin() reads System.getProperty('cors.allow.origin') on every call, explicitly to allow test-time overrides — not captured at class load",
+        "GrammarConfigLoader.createDefaultEnglish() reads System.getProperty('grammar.config') at call time, not class-load time — fragile-at-test-time pattern is absent",
+        "RelationUtils.RELATION_ALIASES is a static final Map.of(...) with hardcoded string keys mapping short aliases to grammar-config IDs defined in a JSON file; validateAliases(GrammarConfig) is called at server startup to detect drift — coupling exists but is guarded",
+        "Main.handleBlackLabServerCommand defers port binding to server.start() after construction; an AtomicReference<WordSketchApiServer> is used so the shutdown hook can safely close the executor even if server construction throws — init ordering is explicitly managed",
+        "No static initializer blocks with I/O, no network calls at class scope, no DB connections at class-load time found across all 76 source files",
+        "BlackLabSnippetParser static final Pattern constants are pure regex compilation at class-load time — no external dependencies",
+        "RelationConfig static final DEPREL_PATTERN is a compiled Pattern — pure computation, no I/O"
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high",
+      "issues_preventing_higher_score": "RelationUtils.RELATION_ALIASES is a static map whose string values must stay in sync with grammar-config IDs that live in a JSON file loaded at runtime. A silent mismatch produces only a logged warning, not a startup failure. This is a mild boot-order soft-coupling worth tightening."
+    }
+  },
+  "dimension_judgment": {
+    "initialization_coupling": {
+      "dimension_character": "The codebase demonstrates strong discipline around initialization ordering: system-property reads are deferred to call sites rather than captured at class load, port binding is explicitly separated from object construction, and shutdown-hook ordering is managed via AtomicReference. The only non-trivial static state is JsonUtils.MAPPER (a pure, thread-safe Java object with no external dependencies) and a handful of compiled regex patterns. The one mild coupling is RelationUtils.RELATION_ALIASES, whose string values shadow grammar-config IDs from a JSON file; drift is caught by validateAliases() at startup but produces a warning rather than a hard failure.",
+      "score_rationale": "This dimension scores high because the codebase has no import-time side effects, no circular init dependencies, no environment reads at class scope, and thoughtful separation of construction from I/O binding. The single identified weakness — RELATION_ALIASES string-coupling to JSON config IDs — is guarded by a validation call at startup but is not a hard failure; a missed update would only log a warning, not abort. This places the score in the high-80s to low-90s range: nearly clean, with one tightenable soft coupling."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "relation_aliases_soft_coupling",
+      "summary": "RELATION_ALIASES static map silently drifts from grammar-config JSON IDs on mismatch",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java"],
+      "evidence": [
+        "RelationUtils.RELATION_ALIASES = Map.of('adj_modifier','noun_modifiers', 'adj_predicate','noun_adj_predicates', ...) — values are string literals that must match 'id' fields in the runtime-loaded relations.json",
+        "validateAliases(GrammarConfig) logs a warning when a mapped ID is absent from the config but does not throw, so a renamed relation would silently break alias resolution at request time rather than at startup"
+      ],
+      "suggestion": "Change validateAliases() to throw IllegalStateException (or at minimum log at ERROR and set a health-check flag) when any alias target is absent from the loaded grammar config, so the mismatch is caught at startup rather than discovered via 404s at request time.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The codebase overall avoids static-scope coupling well; the one soft-coupling arises from bridging a compile-time alias table to a runtime-loaded JSON config without a hard assertion at startup"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "initialization_coupling": {
+      "add": [
+        {
+          "header": "System properties read at call time not class load",
+          "description": "Both cors.allow.origin (HttpApiUtils.corsAllowOrigin) and grammar.config (GrammarConfigLoader.createDefaultEnglish) are read on each call rather than captured in static fields, deliberately enabling test-time overrides without class reloading.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Construction separated from network binding in server",
+          "description": "WordSketchApiServer defers port binding to start(); the constructor only wires handler objects. An AtomicReference manages shutdown-hook ordering so the executor is always closed even if server construction throws. This explicit init-ordering discipline prevents resource leaks.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "No class-scope I/O or external dependency initialization",
+          "description": "Across all 76 production Java files there are no static initializer blocks performing I/O, no DB connections, and no network calls at class-load time. Static fields are limited to Loggers, compiled Patterns, and one pure ObjectMapper singleton.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "RELATION_ALIASES to JSON config soft coupling",
+          "description": "RelationUtils.RELATION_ALIASES is a hard-coded Map whose values must match 'id' fields in the runtime-loaded relations.json. Drift produces only a logged warning via validateAliases(), not a startup failure, creating a silent misconfiguration risk.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

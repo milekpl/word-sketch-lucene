@@ -1,0 +1,103 @@
+{
+  "batch": "naming_quality",
+  "batch_index": 5,
+  "assessments": {"naming_quality": 76.0},
+  "dimension_notes": {
+    "naming_quality": {
+      "evidence": [
+        "Public interface methods are domain-aligned and consistently formed: executeCollocations, executeCqlQuery, executeBcqlQuery, executeDependencyPattern, getTotalFrequency — all verb+noun phrases that communicate what the operation does and what it returns",
+        "Internal record types are well-chosen: CollocateSearch, HitRecord, AggregatedCollocateStats, SeedCollocateData, CollocateAccumulator — each name ties the type to the specific stage or purpose in the pipeline",
+        "Port/interface naming follows a coherent taxonomy: CollocateQueryPort, SketchQueryPort, QueryExecutor, ExplorationService — narrow ports have narrow names, the full executor is named to reflect its combined role",
+        "Exploration-layer classes are descriptively named: SemanticFieldExplorer, MultiSeedExplorer, SingleSeedExplorer, CollocateProfileComparator — names map directly to algorithm roles",
+        "Handler method names are consistent and action-oriented: handleSemanticFieldExplore, handleSemanticFieldExploreMulti, handleRelationsForType, routeSketchRequest, handleRelationQueryForPattern",
+        "CONFIRMED OPEN: executeCollocations (verb+noun-plural) vs executeSurfacePattern (verb+noun-phrase) on QueryExecutor — inconsistent naming grammar for two parallel collocate-lookup operations on the same interface",
+        "CONFIRMED OPEN: GroupStats (private record in BlackLabQueryExecutor) — name does not reveal what is grouped or what statistics it holds; in context it holds collocate frequency map and lemma-to-POS map extracted from HitGroups",
+        "NEW: collocateFrequency in SingleSeedExplorer.identifyCoreCollocates (line 181) is a Map<String,Integer> counting how many DiscoveredNouns share each collocate — not a corpus frequency at all. In a corpus-linguistics codebase 'frequency' is a loaded term referring to corpus occurrence count; using it for a noun-sharing count is a vocabulary mismatch. The parallel variable in MultiSeedExplorer uses the clearer name collocateSharedCount."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "naming_quality": {
+      "dimension_character": "The codebase demonstrates strong naming discipline overall: domain vocabulary is used consistently across packages, method names are action-oriented and specific, and internal data-carrying types are named for their role in the pipeline rather than their structure. The three outstanding issues share a common root — naming precision slips at internal/private scope where the cost of a bad name feels lower, but the gap between the two public interface methods is the most visible problem.",
+      "score_rationale": "Strong majority of names clearly communicate intent with correct domain vocabulary; the codebase would score higher if not for the asymmetric interface-method grammar (module-visible), the opaque GroupStats private record, and the misleading collocateFrequency local variable in a domain where 'frequency' has a precise technical meaning. Score reflects good-but-not-great: most names are right, a few have real ambiguity, none are egregiously generic or misleading at the public API level."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "execute_collocations_vs_surface_pattern_grammar",
+      "summary": "executeCollocations and executeSurfacePattern use inconsistent naming grammar on QueryExecutor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"],
+      "evidence": [
+        "executeCollocations: verb + noun-plural — describes the thing returned",
+        "executeSurfacePattern: verb + noun-phrase — describes the mechanism, not the thing returned",
+        "Both methods do collocate-lookup over an index; their naming should follow the same grammar, e.g. executeCollocations / executeSurfacePatternCollocations, or executeCollocates / executeSurfacePatternCollocates"
+      ],
+      "suggestion": "Rename executeSurfacePattern to executeSurfacePatternCollocations (or alternatively rename both to a verb+mechanism grammar: executeFromPattern / executeFromCql). Pick one grammar and apply it to all collocate-lookup methods on the interface.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "group_stats_opaque_record_name",
+      "summary": "GroupStats private record in BlackLabQueryExecutor does not communicate what is grouped or what statistics it holds",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "private record GroupStats(Map<String, Long> freqMap, Map<String, String> lemmaPosMap) — name says 'group statistics' but fields reveal it is collocate co-occurrence frequencies plus a lemma-to-POS map",
+        "Used in collectFrequenciesAndPosFromGroups which returns a GroupStats — the method name is more descriptive than the type name",
+        "A name like CollocateExtractionResult or CollocateFrequencyData would make the return type self-documenting"
+      ],
+      "suggestion": "Rename GroupStats to CollocateExtractionResult or CollocateFrequencyData to reflect what the record holds (co-occurrence frequencies and POS annotations extracted from HitGroups).",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "collcate_frequency_vocab_mismatch",
+      "summary": "collocateFrequency in SingleSeedExplorer.identifyCoreCollocates counts noun-sharing, not corpus frequency",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"],
+      "evidence": [
+        "Line 181: Map<String, Integer> collocateFrequency = new LinkedHashMap<>()",
+        "Line 185: collocateFrequency.merge(collocate.getKey(), 1, Integer::sum) — increments by 1 per DiscoveredNoun that shares this collocate",
+        "This counts how many nouns in the semantic field co-occur with each collocate — not corpus frequency",
+        "In contrast, MultiSeedExplorer uses collocateSharedCount for the same concept (in SeedCollocateData), which is precise",
+        "In this codebase 'frequency' and 'freq' consistently refer to corpus occurrence counts (wordSketchResult.frequency(), getTotalFrequency, headwordFreq, collocateFreq); this variable breaks that convention"
+      ],
+      "suggestion": "Rename collocateFrequency to collocateNounCount or collocateSharedNounCount in identifyCoreCollocates to match the naming used in MultiSeedExplorer and to distinguish it from corpus frequency.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Naming precision degrades at private/local scope: public API names are consistently domain-accurate, but private records and local variables allow ambiguous terms (GroupStats, collocateFrequency) to slip through",
+      "The interface naming asymmetry (executeCollocations vs executeSurfacePattern) likely reflects evolutionary growth — the second method was added with a different framing without auditing the existing method name grammar"
+    ],
+    "likely_symptoms": ["collcate_frequency_vocab_mismatch"],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "naming_quality": {
+      "add": [
+        {
+          "header": "Strong public API naming; slippage at private scope",
+          "description": "Public interface and exported-class method names are domain-accurate and consistently formed. Naming quality degrades at private-record and local-variable scope, where three known issues live. This pattern suggests a naming culture that prioritises the public contract but does not apply the same scrutiny to internal data carriers.",
+          "settled": true,
+          "positive": false
+        },
+        {
+          "header": "frequency/freq vocabulary is corpus-frequency in this codebase",
+          "description": "Throughout the codebase 'frequency', 'freq', and 'Freq' consistently refer to corpus occurrence count (getTotalFrequency, headwordFreq, collocateFreq, WordSketchResult.frequency). Any local variable named *frequency that holds a count of something else (e.g. noun-sharing count) breaks this convention and should be renamed.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

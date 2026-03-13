@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 /**
  * Immutable data carrier for a single grammar relation deserialized from {@code relations.json}.
  *
- * <p>Pattern-building and POS-group inference logic lives in {@link RelationPatternUtils},
+ * <p>Pattern-building and POS-group inference logic lives in {@link RelationUtils},
  * keeping this record focused on data only. The sole remaining method ({@link #deriveDeprel()})
  * is retained here because it is a simple derivation from {@link #pattern()} and {@link #id()};
  * it is part of the public API consumed by the API layer and related components.</p>

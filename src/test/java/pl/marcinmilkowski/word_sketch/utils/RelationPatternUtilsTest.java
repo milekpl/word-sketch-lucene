@@ -12,9 +12,9 @@ import pl.marcinmilkowski.word_sketch.config.RelationType;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link RelationPatternUtils}.
+ * Unit tests for {@link RelationUtils}.
  */
-@DisplayName("RelationPatternUtils")
+@DisplayName("RelationUtils")
 class RelationPatternUtilsTest {
 
     // ─── helpers ────────────────────────────────────────────────────────────────

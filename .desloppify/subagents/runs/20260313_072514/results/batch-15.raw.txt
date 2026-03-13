@@ -1,0 +1,121 @@
+{
+  "batch": "package_organization",
+  "batch_index": 15,
+  "assessments": {
+    "package_organization": 76.0
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "12 production packages across ~75 files; every package has a package-info.java with a documented purpose — no ambiguous naming anywhere",
+        "Coupling direction is consistently layered: api → exploration.spi → (exploration) → query → model; no upstream imports detected in either direction",
+        "model/exploration/ (13 files) and model/sketch/ (5 files) cleanly separate domain models by feature; model/package-info.java has 40+ lines of javadoc explaining the split rationale",
+        "api/model/ (13 files) correctly offloads all response DTOs from the API handler files, keeping wire format out of domain logic",
+        "model/ root package contains only PosGroup.java (1 class); fan-in = 4 (config/RelationConfig, config/RelationUtils, exploration/CollocateProfileComparator, exploration/SemanticFieldExplorer), just below the 5-importer threshold; no single domain clearly owns it",
+        "exploration/spi/ contains a single interface (ExplorationService) and package-info.java; the package-info documents the purpose: 'the only package the api layer needs to import'; it is explicitly used by api/ExplorationHandlers and api/WordSketchApiServer, making the navigation cost deliberate",
+        "viz/ contains a single file RadialPlot.java; sole production consumer is api/VisualizationHandlers.java (fan-in = 1); viz is a distinct SVG-geometry concern, but with exactly one consumer at current size, the separate package adds navigation overhead without clear benefit",
+        "api/ has 11 files at the threshold for flat overload, but all are HTTP-tier concerns (5 handler classes, 2 assemblers, 1 server, 1 utility, 1 exception, 1 package-info); the model/ subdirectory already offloads DTOs, making the remaining contents cohesive"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "package_organization": {
+      "dimension_character": "The package structure is deliberately layered and well-documented, with every package carrying a package-info.java that articulates its boundary. The coupling direction is consistently inward (api → exploration.spi → query → model) with no bidirectional edges or affinity mismatches. Three minor thin-package cases create small navigation friction: a model/ root that holds a single shared enum (PosGroup, fan-in 4), a one-interface exploration/spi/ subdirectory, and a one-file viz/ package with a sole production consumer in api/.",
+      "score_rationale": "The overall structure earns a score in the high-70s: it would be strong (80+) if not for the three thin-package decisions that add navigation hops without measurable payoff at the current codebase size. The model/ root thinness is the most actionable (PosGroup is a borderline straggler), while exploration/spi/ is a documented intentional choice whose cost is acceptable. No flat-directory overload, no ambiguous naming, no coupling-direction failures, and no import-affinity mismatches are present, keeping the score well above the midpoint."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "package_organization",
+      "identifier": "model_root_single_class",
+      "summary": "model/ root holds only PosGroup (fan-in 4), thinning the package below useful navigability",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationConfig.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "model/PosGroup.java is the only non-package-info file in model/; 4 importers span 2 packages (config and exploration)",
+        "Fan-in = 4, just below the 5-importer threshold for a shared root type",
+        "model/package-info.java documents the sub-package rationale but does not explain why PosGroup stays at the root rather than moving to model/sketch/ or a dedicated model/common/ package"
+      ],
+      "suggestion": "Option A (minimal): move PosGroup into model/sketch/ alongside WordSketchResult/CollocateResult, since POS groups are primarily a query/sketch concept, and update 4 import sites. Option B (more explicit): create model/common/ or model/core/ for cross-cutting domain enums and move PosGroup there. Staged plan: (1) git mv model/PosGroup.java model/sketch/PosGroup.java; (2) update package declaration; (3) fix imports in RelationConfig, RelationUtils, CollocateProfileComparator, SemanticFieldExplorer with sed -i 's/word_sketch.model.PosGroup/word_sketch.model.sketch.PosGroup/g' <files>; (4) run mvn test to validate.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "viz_thin_sole_consumer",
+      "summary": "viz/ is a single-file package whose sole production consumer is api/VisualizationHandlers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/viz/RadialPlot.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/VisualizationHandlers.java"
+      ],
+      "evidence": [
+        "viz/ contains only RadialPlot.java (247 LOC) plus package-info.java",
+        "Fan-in = 1 production importer: api/VisualizationHandlers.java; no other package references it",
+        "RadialPlot generates SVG geometry; VisualizationHandlers wraps it in HTTP responses — distinct concerns, but with no other consumer the current packaging overhead exceeds the payoff"
+      ],
+      "suggestion": "If RadialPlot is not expected to grow into a larger visualization subsystem, collapse it into api/ as a package-private rendering helper, or move it under api/viz/ to keep the SVG-generation boundary visible without a top-level package. Staged plan: (1) git mv viz/RadialPlot.java api/RadialPlot.java; (2) update package declaration to pl.marcinmilkowski.word_sketch.api; (3) update VisualizationHandlers import; (4) run mvn test. If future growth of a visualization library is planned, leave as-is and document intent in viz/package-info.java.",
+      "confidence": "low",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Incremental growth: PosGroup likely started in model/ as a neutral enum and was never re-evaluated as the model/ subpackages grew more specific",
+      "Premature SPI extraction: exploration/spi/ was likely created to enforce the api-layer boundary, which is correct reasoning, but a single-interface subdirectory may be overkill at current scale"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "package_organization": {
+      "add": [
+        {
+          "header": "Layered coupling direction with no violations",
+          "description": "Imports consistently flow api → exploration.spi → query → model with no bidirectional or upstream edges. This is maintained across all 12 packages and is a strong structural positive.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Every package has documented package-info.java",
+          "description": "All 12 production packages carry a package-info.java with a clear statement of boundary and purpose. This is an unusually thorough practice that significantly aids navigation.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Model layer split by feature into exploration and sketch subpackages",
+          "description": "model/exploration/ (13 files) and model/sketch/ (5 files) separate domain models by feature domain. The split is explicitly documented in model/package-info.java with rationale.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "api/model/ cleanly offloads HTTP response DTOs",
+          "description": "13 response DTO files live in api/model/ rather than in the domain model layer, preventing wire format from polluting core domain types.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "exploration/spi/ is deliberate API boundary, not accidental thin package",
+          "description": "The spi subdirectory is documented as 'the only package the api layer needs to import' from exploration. This is an intentional dependency-inversion choice that correctly prevents api from importing exploration implementation classes.",
+          "settled": true,
+          "positive": false
+        },
+        {
+          "header": "model/ root holds only PosGroup (fan-in 4, below threshold)",
+          "description": "The model/ root package contains only PosGroup.java. With 4 importers spread across config and exploration, it is a borderline straggler — slightly below the 5-importer threshold, but used across two distinct packages rather than owned by one.",
+          "settled": false,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

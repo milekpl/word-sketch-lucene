@@ -1,0 +1,94 @@
+{
+  "batch": "cross_module_architecture",
+  "batch_index": 1,
+  "assessments": {
+    "cross_module_architecture": 72.0
+  },
+  "dimension_notes": {
+    "cross_module_architecture": {
+      "evidence": [
+        "api layer correctly imports only exploration.spi.ExplorationService for exploration operations; ExplorationHandlers and WordSketchApiServer both use only the spi package for service interaction",
+        "HttpApiUtils.java imports pl.marcinmilkowski.word_sketch.exploration.ExplorationException (line 5) — directly from the exploration implementation package rather than the spi boundary, coupling the general-purpose HTTP utility to a specific subsystem exception",
+        "ConcordanceHandlers and CorpusQueryHandlers declare CollocateQueryPort (narrow port) rather than QueryExecutor; SketchHandlers declares SketchQueryPort — narrow port usage is correctly applied across handler types",
+        "WordSketchApiServer takes QueryExecutor only at construction time to distribute to sub-handlers; it does not call query methods itself, so the fat-interface reference at the wiring point is acceptable",
+        "MultiSeedExplorer and CollocateProfileComparator both import QueryExecutor (the unified interface) rather than the narrower CollocateQueryPort, even though their actual usage is bounded to executeCollocations and executeCqlQuery — minor over-coupling but within the exploration package boundary, not a cross-module violation",
+        "No import cycles detected: api -> exploration.spi / query / model / config / utils; exploration -> query / model / config; query -> model / utils; config -> model / utils; model and utils have no cross-package deps",
+        "exploration.spi package-info.java explicitly states 'the only package the api layer needs to import' — ExplorationException living in exploration (not spi) directly contradicts this stated contract",
+        "ExplorationException is referenced in ExplorationService Javadoc only (via @throws in prose), not in method signatures; this makes the exception invisible to the spi contract at the type level",
+        "Internal exploration classes (MultiSeedExplorer, SingleSeedExplorer, CollocateProfileComparator) are package-private, visible only via SemanticFieldExplorer facade — correct encapsulation within the subsystem",
+        "No hub module detected: HttpApiUtils is shared within api but does not span subsystems; its ExplorationException import is the only cross-boundary leak"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "cross_module_architecture": {
+      "dimension_character": "The codebase has a well-considered layered structure: an explicit SPI boundary for exploration, narrow query ports at handler injection sites, no dependency cycles, and encapsulated internal exploration helpers. The intended dependency direction is clear and consistently followed everywhere except one place: HttpApiUtils imports ExplorationException from the exploration implementation package rather than through the spi boundary, which contradicts the package-info contract and means the catch-all error-handling wrapper has a specific subsystem dependency.",
+      "score_rationale": "This scores above average because the architectural intent is clear, realised in most places, and the violation is narrow — one import in one file. However, that file is the shared error-handling wrapper used by every registered route, so the blast radius of adding a second subsystem exception would be felt immediately. The open issue confirms it is a genuine boundary violation, not a stylistic preference. A near-clean architecture would resolve the exception placement; the current state is good but not tight."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "http_api_utils_exploration_exception_leak",
+      "summary": "HttpApiUtils imports ExplorationException from exploration package, violating the stated spi-only boundary for the api layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationException.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/package-info.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.java line 5: import pl.marcinmilkowski.word_sketch.exploration.ExplorationException — imports directly from the exploration implementation package",
+        "exploration/spi/package-info.java states: 'Service provider interface for semantic-field exploration — the only package the api layer needs to import'",
+        "ExplorationException is referenced in ExplorationService Javadoc @throws prose but is not part of any method signature, so it is not visible through the spi contract at the type system level",
+        "wrapWithErrorHandling in HttpApiUtils catches ExplorationException to produce HTTP 503, tying a general-purpose utility to a subsystem-specific exception type"
+      ],
+      "suggestion": "Move ExplorationException into the exploration.spi package so it is part of the published contract the api layer is already permitted to import. Alternatively, handle ExplorationException within ExplorationHandlers rather than in the shared HttpApiUtils error wrapper — catch it there and rethrow as an IOException or a boundary-neutral checked exception before wrapWithErrorHandling sees it.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExplorationException was placed in the exploration implementation package rather than in exploration.spi, so it cannot be consumed by the api layer without crossing the intended boundary. The spi interface references it in prose Javadoc only, making the gap easy to miss."
+    ],
+    "likely_symptoms": [
+      "http_api_utils_exploration_exception_leak"
+    ],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "cross_module_architecture": {
+      "add": [
+        {
+          "header": "Narrow ports correctly used at handler injection sites",
+          "description": "ConcordanceHandlers and CorpusQueryHandlers declare CollocateQueryPort; SketchHandlers declares SketchQueryPort. This pattern is consistently applied across the api layer and correctly limits each handler's visible surface to the query operations it actually needs.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "No import cycles across packages",
+          "description": "Dependency direction is consistently downward: api -> spi/query/model/config/utils; exploration -> query/model/config; query -> model/utils; config -> model/utils. No cycle pressure detected anywhere in the package graph.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "exploration internals encapsulated via package-private classes",
+          "description": "MultiSeedExplorer, SingleSeedExplorer, and CollocateProfileComparator are package-private, exposed only through the SemanticFieldExplorer facade. This correctly hides implementation decomposition from the api layer.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "ExplorationException outside spi package breaks stated boundary contract",
+          "description": "The exploration.spi package-info promises it is the only package the api layer should import, but ExplorationException lives in the parent exploration package. Placing it in spi (or handling it at the handler boundary) would close the gap.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

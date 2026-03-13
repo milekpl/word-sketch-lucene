@@ -1,0 +1,123 @@
+{
+  "batch": "type_safety",
+  "batch_index": 20,
+  "assessments": {"type_safety": 71.0},
+  "dimension_notes": {
+    "type_safety": {
+      "evidence": [
+        "JSpecify annotations (@NonNull, @Nullable) are used consistently on public API surfaces: QueryExecutor, CollocateQueryPort, SketchQueryPort, ExplorationService, RelationConfig, RelationUtils all annotate every parameter and return type",
+        "RelationConfig wraps the nullable rawRelationType field behind Optional<RelationType> relationType(), preventing callers from receiving null references; documented nullability design note explains why @Nullable field + Optional method is preferred",
+        "CollocateResult record marks rawXml and collocateLemma as @Nullable; RelationUtils.buildFullPattern(RelationConfig, @Nullable String headword) explicitly accepts and documents null passthrough",
+        "WordSketchResult record (String lemma, String pos, ...) carries no nullability annotations on lemma or pos, despite the UNKNOWN_POS sentinel constant suggesting these fields are never null — the contract is implicit rather than expressed in annotations",
+        "CollocateEntry API response record (String lemma, long frequency, double logDice, String pos) similarly lacks nullability annotations on lemma and pos at the serialization boundary",
+        "SemanticFieldExplorer.exploreMultiSeed: parameter is annotated @NonNull Set<String> seeds but the first body statement is Objects.requireNonNull(seeds, \"seeds must not be null\") — the annotation and the defensive check carry contradictory trust assumptions",
+        "ExplorationService interface declares exploreMultiSeed with @NonNull seeds; SemanticFieldExplorer implements it with both the @NonNull annotation and the runtime null check — an internal inconsistency the interface does not surface to callers",
+        "SketchHandlers.routeSketchRequest uses the raw string literal \"dep\".equals(parts[1]) for URL path routing instead of RelationType.DEP.label() — if RelationType.DEP.label() were ever changed, this route would silently stop matching",
+        "PosGroup enum has a null-safe fromString() that returns OTHER for null input; RelationType enum exposes label() as the canonical JSON value — enum discipline is generally good across the codebase",
+        "RelationEntry and RelationListEntry API response records store relationType as String (not RelationType enum), deliberately downtyping at the JSON serialization boundary; this is an explicit design choice documented via RelationType.label()"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "type_safety": {
+      "dimension_character": "The codebase demonstrates genuine JSpecify annotation discipline across its public API surfaces — interfaces, utility methods, and key domain types are consistently annotated — and uses Optional rather than @Nullable returns where absent is a normal outcome. The main gap is at the model record layer: WordSketchResult and CollocateEntry, both high-traffic types, carry unannotated String fields for lemma and pos at the boundary between the query engine and the API layer. One recurring contract issue — @NonNull annotation paired with a redundant Objects.requireNonNull body check — shows incomplete trust in the type system annotation.",
+      "score_rationale": "A score of 71 reflects a codebase that is clearly making the right efforts with type annotations (better than a bare/unannotated codebase which would score in the 40s), but has not yet achieved full disciplined coverage. The two unresolved open issues (WordSketchResult field nullability, @NonNull/@requireNonNull double-check) and the raw string URL routing bypass are concrete, specific gaps rather than pervasive problems. The score sits below 75 because the gaps cluster around high-traffic model records that propagate through the entire query-to-API pipeline."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "type_safety",
+      "identifier": "nonnull_contradicted_by_runtime_check",
+      "summary": "@NonNull annotation on exploreMultiSeed seeds parameter contradicted by null-defensive body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed declares @NonNull Set<String> seeds on line ~195 then immediately calls Objects.requireNonNull(seeds, \"seeds must not be null\") in the body — if the annotation is honoured by the toolchain, the runtime check is dead code; if the runtime check is needed, the annotation is a false promise",
+        "ExplorationService interface declares the same @NonNull seeds parameter without the runtime guard — the two representations carry different implicit trust levels for the same contract"
+      ],
+      "suggestion": "Remove Objects.requireNonNull(seeds, ...) and rely solely on the @NonNull annotation, or remove @NonNull and keep the runtime check with a documented reason. Align the interface and implementation on the same trust model. Given the codebase uses JSpecify @NonNull consistently elsewhere without runtime duplicates, removing the redundant requireNonNull is the natural fix.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "wordsketchresult_unannotated_fields",
+      "summary": "WordSketchResult record fields lemma and pos carry no nullability annotations despite a documented UNKNOWN_POS sentinel",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/WordSketchResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/CollocateEntry.java"
+      ],
+      "evidence": [
+        "WordSketchResult record: public record WordSketchResult(String lemma, String pos, ...) — both String fields unannotated; UNKNOWN_POS = \"unknown\" sentinel indicates pos is never null in practice but the record does not express this",
+        "CollocateEntry API response record mirrors the same gap: public record CollocateEntry(String lemma, long frequency, double logDice, String pos) — no @NonNull or @Nullable on lemma or pos at the serialization boundary",
+        "CollocateQueryHelper.buildAndRankCollocates substitutes UNKNOWN_POS when posMap lacks an entry, confirming pos is always non-null at construction time — an invariant the record type could express"
+      ],
+      "suggestion": "Annotate WordSketchResult fields with @NonNull String lemma and @NonNull String pos to express the invariant held at construction time, and apply the same to CollocateEntry. This closes the gap between the runtime guarantee (pos is always UNKNOWN_POS or a real tag, never null) and the type-declared contract.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "raw_string_url_routing_bypasses_enum",
+      "summary": "SketchHandlers.routeSketchRequest matches URL path segment \"dep\" with a raw string literal instead of RelationType.DEP.label()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "SketchHandlers.java:59: if (parts.length > 1 && \"dep\".equals(parts[1])) — the string \"dep\" is the exact value of RelationType.DEP.label() but is not referenced through it",
+        "RelationType.DEP.label() is already used in the same file for other purposes (e.g. buildDepRelationEntry), making the inconsistency visible on inspection",
+        "If RelationType.DEP.label() were changed (e.g. to \"dependency\"), the URL routing branch would silently stop matching and all /api/sketch/{lemma}/dep requests would fall through to the wrong handler"
+      ],
+      "suggestion": "Replace \"dep\".equals(parts[1]) with RelationType.DEP.label().equals(parts[1]) to couple the routing to the canonical enum label and make future label changes safe.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Partial adoption of JSpecify annotations: the team has applied @NonNull/@Nullable on interfaces and utility methods but not uniformly on record component fields, leaving the model layer with an implicit rather than declared nullability contract",
+      "Defensive coding habits (Objects.requireNonNull guards) predate the annotation layer and were not cleaned up when @NonNull was adopted, creating duplicate and contradictory contracts"
+    ],
+    "likely_symptoms": [
+      "nonnull_contradicted_by_runtime_check — the annotation + runtime guard pair is a symptom of incomplete migration from defensive to annotation-based null safety"
+    ]
+  },
+  "context_updates": {
+    "type_safety": {
+      "add": [
+        {
+          "header": "JSpecify annotations used consistently on interface surfaces",
+          "description": "QueryExecutor, CollocateQueryPort, SketchQueryPort, ExplorationService, and key utility methods like RelationUtils.buildFullPattern all carry @NonNull/@Nullable on every parameter and return. This represents deliberate annotation discipline rather than ad-hoc coverage.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Optional used instead of @Nullable returns on query accessors",
+          "description": "RelationConfig.relationType() wraps the nullable rawRelationType field behind Optional<RelationType>, and GrammarConfig.relation(String) returns Optional<RelationConfig>. The codebase documents this pattern explicitly in RelationConfig's Javadoc, showing intentional design.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Model record fields unannotated at query-to-API boundary",
+          "description": "WordSketchResult and CollocateEntry are high-traffic types that lack nullability annotations on their String fields despite runtime invariants (UNKNOWN_POS sentinel) guaranteeing non-null values. The annotation layer does not reach into these core model records.",
+          "settled": true,
+          "positive": false
+        },
+        {
+          "header": "@NonNull annotation adoption is partial, leaving redundant runtime checks",
+          "description": "The codebase has @NonNull annotations on method parameters but some methods (notably exploreMultiSeed) retain legacy Objects.requireNonNull guards from before annotations were added, creating contradictory trust signals.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

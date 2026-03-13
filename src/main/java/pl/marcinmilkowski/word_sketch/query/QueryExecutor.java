@@ -16,21 +16,6 @@ import pl.marcinmilkowski.word_sketch.model.sketch.*;
  * Handlers that only need BCQL retrieval should declare {@link CollocateQueryPort} instead;
  * the single production implementation ({@link BlackLabQueryExecutor}) implements both.</p>
  *
- * <h2>Method responsibilities</h2>
- * <ul>
- *   <li>{@link #executeCollocations} — corpus-frequency collocate lookup for a headword
- *       via a plain CQL pattern (no labeled positions). Returns collocates ranked by logDice.</li>
- *   <li>{@link #executeCqlQuery} — general concordance retrieval using CQL syntax
- *       (ContextualQueryLanguageParser). Returns raw KWIC results without ranking.</li>
- *   <li>{@link #executeBcqlQuery} — concordance retrieval using BCQL syntax
- *       (CorpusQueryLanguageParser). Handles labeled capture groups and computes
- *       per-hit logDice scores. Distinct from {@link #executeCqlQuery}.</li>
- *   <li>{@link #executeSurfacePattern} — word-sketch collocate extraction using a labeled
- *       BCQL pattern ({@code 1:} for head, {@code 2:} for collocate). The headword lemma is
- *       extracted from the pattern's {@code lemma=} attribute; uses explicit position hints to
- *       identify the head and collocate tokens; returns results ranked by logDice. Distinct from
- *       {@link #executeCollocations} which ignores position hints.</li>
- * </ul>
  *
  */
 public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Closeable {
@@ -85,7 +70,7 @@ public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Clos
      * and the headword lemma is extracted from the pattern's {@code lemma=} attribute.
      *
      * <p>The headword lemma must be embedded in {@code bcqlPattern} (typically by the caller via
-     * {@link pl.marcinmilkowski.word_sketch.config.RelationPatternUtils#buildFullPattern}).
+     * {@link pl.marcinmilkowski.word_sketch.utils.RelationUtils#buildFullPattern}).
      * It is extracted internally to look up the head-word's total corpus frequency for logDice
      * scoring, keeping the interface free of redundant parameters.
      *

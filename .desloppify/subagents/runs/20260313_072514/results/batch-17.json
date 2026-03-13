@@ -1,0 +1,97 @@
+{
+  "batch": "design_coherence",
+  "batch_index": 17,
+  "assessments": {
+    "design_coherence": 76.0
+  },
+  "dimension_notes": {
+    "design_coherence": {
+      "evidence": [
+        "WordSketchApiServer delegates to 5 focused handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers), each owning a distinct request type — clean decomposition by domain area.",
+        "ExploreResponseAssembler centralises all model→presentation translation for exploration endpoints; the class Javadoc explicitly documents this separation so that ExplorationResult and ComparisonResult stay free of presentation concerns.",
+        "SemanticFieldExplorer is documented as a 'thin facade' delegating to SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator — each algorithm class owns a focused concern.",
+        "BlackLabQueryExecutor uses private inner records (GroupStats, ExecutedSketch, RelationQueryBatch) to keep intermediate state typed and co-located with the methods that produce them.",
+        "ExplorationOptions and SingleSeedExplorationOptions cleanly separate shared tuning parameters from single-seed-specific ones (reverseExpansionLimit), avoiding over-wide parameter objects.",
+        "SketchQueryPort and CollocateQueryPort port interfaces allow handler classes to declare only the capabilities they need rather than depending on the full QueryExecutor.",
+        "ExamplesContext record uses boolean fallbackUsed, but buildExamplesResponse converts it to Boolean.TRUE | null — false is encoded as null to suppress the JSON field via @JsonInclude(NON_NULL). This mismatches the field's declared boolean type: false and null are semantically distinct but treated identically, creating a type-honesty gap. (Confirmed open issue.)",
+        "In ExplorationHandlers.handleSemanticFieldExamples, fallbackUsed is hardcoded to false — the exploration path never uses a fallback, so the flag is structurally vestigial on that path; the assymmetry goes unnoticed because false→null means the field is always absent in the response.",
+        "SketchHandlers.executeRelationQueries uses a RelationEntryBuilder functional interface and a Predicate<RelationConfig> extraFilter parameter; the higher-order composition is appropriate for sharing iteration logic across surface and dependency sketch paths without duplication.",
+        "No deep nesting requiring extraction; no functions mixing multiple distinct responsibilities were observed."
+      ],
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "design_coherence": {
+      "dimension_character": "The codebase shows strong design intent throughout: handler classes are domain-decomposed, the response assembler pattern clearly separates presentation from domain, and the exploration facade correctly delegates focused algorithms to separate classes. The single confirmed open issue — a type-honesty gap where a boolean fallback flag is encoded as Boolean.TRUE | null in the response layer — is a local inconsistency that does not reflect systemic structural incoherence.",
+      "score_rationale": "A score of 76 reflects clearly above-average structural coherence: functions are focused, abstractions are earned, and the patterns are applied consistently across the codebase. The one confirmed issue is modest in scope (local to a single assembler method), but the asymmetric boolean→nullable encoding is a real type-honesty problem that warrants noting. Without the open issue this would comfortably sit in the low 80s."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "design_coherence",
+      "identifier": "examples_context_nullable_bool_fallback",
+      "summary": "ExamplesContext.fallbackUsed boolean is encoded as Boolean.TRUE | null in buildExamplesResponse, making false and absent indistinguishable",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExamplesResponse.java"
+      ],
+      "evidence": [
+        "ExamplesContext record declares `boolean fallbackUsed` — a plain two-valued type.",
+        "buildExamplesResponse passes `ctx.fallbackUsed() ? Boolean.TRUE : null` to ExamplesResponse — the value false is silently mapped to null rather than Boolean.FALSE.",
+        "ExamplesResponse.fallback is @Nullable Boolean with @JsonInclude(NON_NULL): when fallbackUsed is false the field is suppressed from the JSON response, making false and 'not set' indistinguishable to clients.",
+        "ExplorationHandlers.handleSemanticFieldExamples always passes fallbackUsed=false, so the field is always absent on that path — the asymmetry is not exercised there, but it is exercised in ConcordanceHandlers where a true fallback is possible."
+      ],
+      "suggestion": "Make the encoding honest: either (a) change ExamplesResponse.fallback to a plain boolean and always emit it (false when no fallback was used, true when it was), or (b) keep @Nullable Boolean but remove the boolean→null conversion by passing Boolean.FALSE directly when fallbackUsed is false, relying on @JsonInclude(NON_NULL) only for the genuinely 'not applicable' case (e.g., the exploration path) by omitting the field at call-site rather than through a false→null coercion.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The nullable Boolean pattern was introduced to suppress the fallback field from JSON on the normal path, but the implementation chose to encode the boolean asymmetrically (false→null) rather than declaring the field absent explicitly at construction time in the non-fallback path."
+    ],
+    "likely_symptoms": [
+      "examples_context_nullable_bool_fallback"
+    ]
+  },
+  "context_updates": {
+    "design_coherence": {
+      "add": [
+        {
+          "header": "Domain-decomposed handler classes in API layer",
+          "description": "WordSketchApiServer delegates to five focused handler classes (SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers, VisualizationHandlers), each owning a distinct request type. This decomposition is deliberate and clean — no handler mixes concerns from another domain.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "ExploreResponseAssembler centralises presentation translation",
+          "description": "All model-to-presentation translation for exploration endpoints is centralised in ExploreResponseAssembler, explicitly keeping domain result types (ExplorationResult, ComparisonResult) free of JSON concerns. The pattern is consistently applied across single-seed, multi-seed, comparison, and examples response paths.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "SemanticFieldExplorer as thin facade over algorithm classes",
+          "description": "SemanticFieldExplorer is a documented facade over SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator — each owning a focused algorithm. The facade handles error translation (IOException → ExplorationException) and parameter validation without duplicating algorithmic logic.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Private inner records for typed intermediate state",
+          "description": "BlackLabQueryExecutor uses GroupStats, ExecutedSketch, and RelationQueryBatch as private records to keep intermediate data structures typed, named, and co-located with the methods that produce them, avoiding anonymous Map/List tuple passing.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Port interfaces scope handler dependencies precisely",
+          "description": "SketchQueryPort and CollocateQueryPort sub-interfaces allow handler classes to declare exactly the capabilities they require from the query layer, rather than depending on the full QueryExecutor contract. This is a genuine interface-honesty improvement.",
+          "settled": true,
+          "positive": true
+        }
+      ]
+    }
+  }
+}

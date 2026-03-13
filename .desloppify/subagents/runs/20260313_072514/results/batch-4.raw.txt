@@ -1,0 +1,116 @@
+{
+  "batch": "error_consistency",
+  "batch_index": 4,
+  "assessments": {
+    "error_consistency": 68.0
+  },
+  "dimension_notes": {
+    "error_consistency": {
+      "evidence": [
+        "HttpApiUtils.wrapWithErrorHandling defines a tiered exception-to-HTTP-status map: RequestEntityTooLargeException→413, IllegalArgumentException→400, JsonProcessingException→400 (explicitly before IOException so client JSON parse errors are not misreported as 500), ExplorationException→503, IOException→500, catch(Exception)→500.",
+        "SemanticFieldExplorer wraps IOException in ExplorationException in all four public methods (exploreByRelation, compareCollocateProfiles, fetchExamples, exploreMultiSeed), providing a clean checked-to-unchecked boundary that keeps I/O concerns out of the exploration SPI.",
+        "BlackLabQueryExecutor constructor catches ErrorOpeningIndex (a RuntimeException) and converts it to checked IOException with contextual message and cause preserved — consistent adapter pattern at the BlackLab boundary.",
+        "BlackLabQueryExecutor.executeCqlQuery and CollocateQueryHelper.getTotalFrequency both wrap RuntimeException in IOException, maintaining a predictable contract at the BlackLab adapter surface.",
+        "GrammarConfigLoader has a documented two-tier strategy (IOException for I/O/JSON failures, IllegalArgumentException for structural validation failures) consistent throughout the class; loadUnchecked wraps IOException→IllegalStateException for convenience callers.",
+        "SketchHandlers.executeRelationQueries collects per-relation IOExceptions into a List<String> relationErrors and returns HTTP 200 with status='partial' and warnings=[...]; exploration handlers let IOException propagate and reach wrapWithErrorHandling. The asymmetry is explicitly commented: 'Intentional asymmetry with exploration handlers' with a javadoc justification about composite multi-relation views.",
+        "wrapWithErrorHandling final catch is catch(Exception e) — NPE, ClassCastException, and other programming errors are caught here and emitted as HTTP 500 'Unexpected error', conflating bugs with legitimate unexpected conditions. There is no explicit NullPointerException catch in the current code.",
+        "CollocateQueryHelper.toHitRecord returns a sentinel empty HitRecord (all strings empty, collocateLemma null) when BlackLabSnippetParser.safeParts returns null, instead of logging or propagating — downstream null-collocate filtering skips these silently.",
+        "executeCqlQuery inner loop catches IllegalArgumentException from BlackLabSnippetParser.safeParts and continues — silent per-hit skip with a debug log, reasonable recovery but no aggregate count returned to callers.",
+        "All exception wrapping throughout preserves the original cause (throw new IOException(..., e), throw new ExplorationException(..., e)) — no context is lost at any wrapping boundary inspected."
+      ],
+      "impact_scope": "subsystem",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "error_consistency": {
+      "dimension_character": "The codebase has a clearly intentional, layered error architecture: the query layer surfaces checked IOException, the exploration layer bridges to an unchecked ExplorationException, and the HTTP boundary centralises all mapping via wrapWithErrorHandling. Exception wrapping consistently preserves cause chains throughout, and the GrammarConfigLoader two-tier strategy is explicitly documented. The main structural weakness is that SketchHandlers returns HTTP 200 for partial sketch failures (per-relation errors collected into a warnings array) while all other handlers propagate, creating a meaningful asymmetry at the HTTP surface; additionally the generic catch(Exception) catch-all in wrapWithErrorHandling conflates programming errors with expected server failures.",
+      "score_rationale": "The architecture is deliberately designed rather than accidental — documented asymmetries, consistent cause-preserving wraps, and a clean layer separation all point to a developer who thought about error propagation. This places it above the midpoint. However, the HTTP 200/partial asymmetry makes callers responsible for checking a response body field rather than an HTTP status code, and the generic Exception catch-all masks bugs; these are real inconsistencies from a developer-experience perspective that prevent a higher score."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "error_consistency",
+      "identifier": "sketch_partial_http200",
+      "summary": "SketchHandlers returns HTTP 200 for partial sketch failures, requiring callers to inspect response body for errors",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"],
+      "evidence": [
+        "executeRelationQueries catches IOException per-relation, adds to List<String> relationErrors, and returns RelationQueryBatch; callers pass this to buildSketchResponse which sets status='partial' and warnings=[...] but emits HTTP 200.",
+        "All exploration handlers (ExplorationHandlers.handleSemanticFieldExplore etc.) let IOException propagate to wrapWithErrorHandling which emits HTTP 500/503.",
+        "The asymmetry is documented with an inline comment: 'Intentional asymmetry with exploration handlers' but HTTP 200 for partial failure still diverges from conventional REST semantics (HTTP 207 Multi-Status or 500 would be more discoverable)."
+      ],
+      "suggestion": "Retain the partial-results design but return HTTP 207 Multi-Status (or HTTP 500 when all relations failed) so callers can detect failure without parsing the body. Alternatively, expose a header (e.g. X-Partial-Response: true) to complement the body-level signal without breaking existing consumers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "http_error_surface"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "generic_exception_catchall",
+      "summary": "wrapWithErrorHandling's final catch(Exception) silently maps programming errors (NPE, CCE) to HTTP 500, masking bugs",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"],
+      "evidence": [
+        "catch (Exception e) at line 76 logs at ERROR and sends HTTP 500 'Unexpected error: ...' — covers NPE, ClassCastException, AssertionError subclasses, etc.",
+        "No rethrow or differentiation between programming-error subtypes and genuinely unexpected runtime conditions.",
+        "In local development the error message surfaces in the JSON body, but in production the 500 is indistinguishable from an I/O failure already handled by the IOException clause above it."
+      ],
+      "suggestion": "Re-throw Error subtypes (OutOfMemoryError, StackOverflowError) uncaught. For RuntimeException, consider catching separately from Exception and logging at a different severity or including a discriminator field in the JSON error body (e.g. 'error_class') so monitoring can distinguish programming bugs from expected I/O failures.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "http_error_surface"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "http_error_surface: both open issues share a root cause — the HTTP API boundary in wrapWithErrorHandling and SketchHandlers is the primary place where error semantics leak or are inconsistently expressed",
+      "The overall error architecture is intentional and coherent; issues are concentrated at the HTTP surface layer rather than being scattered across the codebase"
+    ],
+    "likely_symptoms": [],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "error_consistency": {
+      "add": [
+        {
+          "header": "Tiered HTTP error boundary in wrapWithErrorHandling",
+          "description": "All HTTP handlers are wrapped by a single centralized exception-to-status mapper covering five distinct exception types before a generic catch-all. The ordering is deliberate (JsonProcessingException before IOException prevents client parse errors from being misreported as server errors). This is a consistently applied, well-ordered boundary.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Cause-preserving exception wrapping throughout",
+          "description": "Every catch-and-rethrow site inspected passes the original exception as the cause argument. No context is lost at any boundary — IOException→ExplorationException, ErrorOpeningIndex→IOException, RuntimeException→IOException all preserve the full stack.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "ExplorationException as clean layer bridge",
+          "description": "SemanticFieldExplorer wraps IOException in ExplorationException in all four public methods, keeping the exploration SPI free of checked I/O exceptions and containing raw I/O concerns within the exploration layer. The design is documented in ExplorationException's class Javadoc.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "GrammarConfigLoader documented two-tier exception strategy",
+          "description": "IOException for file/parse failures, IllegalArgumentException for structural config errors — clearly documented in the class Javadoc with a rationale distinguishing environmental failures from programmer/configuration errors. The loadUnchecked convenience wrapper further documents the IOException→IllegalStateException promotion.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "SketchHandlers partial-result pattern is intentional but HTTP-asymmetric",
+          "description": "Per-relation IOException is collected into a warnings array and returned with HTTP 200 / status='partial'. This is explicitly documented as an intentional design choice to avoid discarding successfully computed relations. The asymmetry with exploration handlers (which propagate and yield HTTP 500/503) is real but reasoned.",
+          "settled": true,
+          "positive": false
+        },
+        {
+          "header": "Generic Exception catch-all at HTTP boundary masks programming errors",
+          "description": "The final catch(Exception e) in wrapWithErrorHandling maps NPE, ClassCastException, and other programming errors to HTTP 500, indistinguishable from legitimate unexpected I/O failures. The current code does NOT explicitly catch NullPointerException (the prior reported behaviour); NPE is caught implicitly by the generic handler.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

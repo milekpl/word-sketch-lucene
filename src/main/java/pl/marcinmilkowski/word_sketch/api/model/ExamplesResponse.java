@@ -29,8 +29,4 @@ public record ExamplesResponse(
         int top,
         @JsonProperty("total_results") int totalResults,
         @Nullable Boolean fallback,
-        List<ExampleEntry> examples) {
-
-    /** A single concordance line, carrying only the fields relevant to examples display. */
-    public record ExampleEntry(String sentence, String raw) {}
-}
+        List<ExampleEntry> examples) {}

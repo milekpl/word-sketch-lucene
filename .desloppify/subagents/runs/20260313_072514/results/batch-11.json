@@ -1,0 +1,115 @@
+{
+  "batch": "api_surface_coherence",
+  "batch_index": 11,
+  "assessments": {
+    "api_surface_coherence": 74.0
+  },
+  "dimension_notes": {
+    "api_surface_coherence": {
+      "evidence": [
+        "All handler methods share a uniform signature: `void handleXxx(HttpExchange exchange) throws IOException`. Parameter parsing is deferred to request-level helpers (HttpApiUtils.requireParam, parseIntParam, parseDoubleParam), so no handler has more than one parameter at its boundary.",
+        "Parameter names are consistent across sibling endpoints: both /api/semantic-field/examples and /api/concordance/examples use `seed`, `collocate`, `relation`, `top`. ConcordanceHandlers Javadoc explicitly notes the naming mirrors the sibling endpoint.",
+        "HttpApiUtils.wrapWithErrorHandling documents a clear error contract: IllegalArgumentException → 400, ExplorationException → 503, IOException → 500. ExplorationService declares @throws IllegalArgumentException and @throws ExplorationException on every method.",
+        "ExplorationService.exploreByRelation uses SingleSeedExplorationOptions while sibling methods exploreMultiSeed and compareCollocateProfiles use ExplorationOptions. This asymmetry is documented in both the interface Javadoc and the SingleSeedExplorationOptions record Javadoc, which explicitly states that the distinct type prevents reverseExpansionLimit from being silently ignored.",
+        "ExploreResponse sealed interface declares `List<DiscoveredNounEntry> primarySeeds()` whose semantics differ by implementation: SingleSeed returns reverse-discovered nouns (JSON key: discovered_nouns), MultiSeed returns caller-supplied seeds (JSON key: source_seeds, @JsonIgnore on the interface override). The interface Javadoc acknowledges this divergence but the method remains semantically dishonest for polymorphic callers.",
+        "compareCollocateProfiles does not accept a `relation` parameter (cross-relational by design), while both explore methods require one. This asymmetry is documented in ExplorationHandlers.handleSemanticFieldComparison Javadoc. The handler also lacks an explicit rejection message for unexpected relation params.",
+        "ExploreResponseAssembler.buildComparisonResponse has 4 parameters; buildSingleSeedExploreResponse has 4 parameters. No public-API method exceeds the 5-parameter threshold.",
+        "All endpoints are synchronous (handlers throw IOException, no futures or callbacks). No mixed sync/async patterns are present.",
+        "VisualizationHandlers.handleVisualRadial reads JSON body and dispatches via a `switch` on a nullable RenderMode enum. The pattern is clean and self-contained with no overloading."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "api_surface_coherence": {
+      "dimension_character": "The HTTP handler surface is well-structured and largely consistent: all handlers share a uniform single-parameter signature, parameter names are harmonised across sibling endpoints, and error contracts are explicitly documented at every layer. The two coherence gaps are the ExplorationService options-type asymmetry (exploreByRelation vs exploreMultiSeed use different options types, with a documented rationale) and the ExploreResponse.primarySeeds() interface method, which returns conceptually different data for SingleSeed vs MultiSeed implementations and is therefore semantically dishonest for polymorphic consumers.",
+      "score_rationale": "A score of 74 reflects a surface that is solid and deliberate, with good documentation covering deliberate asymmetries, but where two interface design decisions—options type divergence and a polymorphically ambiguous interface method—represent genuine coherence costs that would slow a new developer down. The codebase sits above the midpoint because the issues are explained rather than silent, and positive patterns (uniform handler signatures, consistent param naming, explicit error hierarchies) strongly outnumber the defects."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "exploration_options_type_asymmetry",
+      "summary": "ExplorationService sibling methods use different options types without symmetric justification at the call site",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java"
+      ],
+      "evidence": [
+        "exploreByRelation accepts SingleSeedExplorationOptions(ExplorationOptions base, int reverseExpansionLimit) while exploreMultiSeed and compareCollocateProfiles accept ExplorationOptions directly.",
+        "The rationale (reverseExpansionLimit is single-seed-only) is documented in SingleSeedExplorationOptions and the interface Javadoc, but a caller discovering the interface cold must read two files to understand why the three sibling methods have non-parallel signatures.",
+        "The open finding status confirms this was previously flagged and remains unresolved."
+      ],
+      "suggestion": "No code change is strictly required given the existing documentation is clear. If reducing API surprise is desired, consider overloading ExplorationService.exploreByRelation to accept a plain ExplorationOptions and resolve the default reverseExpansionLimit internally, so all three methods share the same options base type at their call sites.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "exploration_api_shape"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "explore_response_primary_seeds_dishonesty",
+      "summary": "ExploreResponse.primarySeeds() interface method returns semantically different data per implementation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "The sealed interface declares `List<DiscoveredNounEntry> primarySeeds()`. In SingleSeed it returns reverse-discovered nouns (serialised as `discovered_nouns`). In MultiSeed it returns caller-supplied seed words (serialised as `source_seeds`) and is annotated @JsonIgnore.",
+        "A developer calling `exploreResponse.primarySeeds()` polymorphically gets reverse-discovered nouns for one variant and input seeds for the other — opposing concepts sharing one method name.",
+        "The MultiSeed Javadoc acknowledges the divergence, but the interface method is still present and callable, making the interface contract misleading."
+      ],
+      "suggestion": "Remove primarySeeds() from the ExploreResponse sealed interface (it is not consumed polymorphically — ExploreResponseAssembler always constructs concrete types and HttpApiUtils accepts Object). The @JsonIgnore override in MultiSeed is a symptom: if the method were truly part of the shared contract it would not need to be ignored in one variant. Keeping the concrete discoveredNouns() and sourceSeeds() accessors on their respective records preserves type safety without the misleading shared method.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "multi_file_refactor",
+      "root_cause_cluster": "exploration_api_shape"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Both issues trace to the same root: a sealed ExploreResponse interface was introduced to provide a single return type for the assembler, but the two variants are sufficiently different that the shared interface offers limited value while creating semantic confusion. A parallel design decision in ExplorationService mirrored the divergence at the service boundary."
+    ],
+    "likely_symptoms": [
+      "explore_response_primary_seeds_dishonesty"
+    ]
+  },
+  "context_updates": {
+    "api_surface_coherence": {
+      "add": [
+        {
+          "header": "Uniform handler signature across all HTTP handlers",
+          "description": "Every handler method takes exactly one parameter (HttpExchange) and delegates all parameter parsing to HttpApiUtils helpers. This is consistent across SketchHandlers, ExplorationHandlers, ConcordanceHandlers, CorpusQueryHandlers and VisualizationHandlers.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Consistent seed/collocate/relation/top param vocabulary",
+          "description": "Both /api/semantic-field/examples and /api/concordance/examples use the same four parameter names; ConcordanceHandlers Javadoc explicitly documents the alignment with the sibling endpoint, preventing future drift.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Explicit layered error contract in HttpApiUtils.wrapWithErrorHandling",
+          "description": "The error hierarchy (413 / 400 / 503 / 500) is fully documented with exception type mappings, and ExplorationService declares all possible exceptions on every method. No missing error contracts.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "ExploreResponse.primarySeeds() interface method has divergent semantics",
+          "description": "In SingleSeed it returns reverse-discovered nouns; in MultiSeed it returns caller-supplied seeds and is @JsonIgnore'd. The interface method is not used polymorphically in practice but creates a misleading shared contract.",
+          "settled": true,
+          "positive": false
+        },
+        {
+          "header": "ExplorationService options type asymmetry is documented but remains",
+          "description": "exploreByRelation uses SingleSeedExplorationOptions while exploreMultiSeed and compareCollocateProfiles use ExplorationOptions. The rationale (reverseExpansionLimit is single-seed-only) is documented across two files, but the asymmetry adds cognitive overhead at the call site.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

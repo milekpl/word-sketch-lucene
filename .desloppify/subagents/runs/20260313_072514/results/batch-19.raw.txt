@@ -1,0 +1,77 @@
+{
+  "batch": "logic_clarity",
+  "batch_index": 19,
+  "assessments": {"logic_clarity": 67.0},
+  "dimension_notes": {
+    "logic_clarity": {
+      "evidence": [
+        "Guard clauses are used consistently at entry points: executeCollocations and executeDependencyPattern each open with 'if (lemma == null || lemma.isEmpty()) { return Collections.emptyList(); }', making the happy path immediately visible.",
+        "Arithmetic guards precede every LogDiceUtils.compute() call: 'if (headwordFreq <= 0 || jointFreq <= 0) continue' and 'if (collocateFreq > 0)' prevent IAE from the utility, demonstrating correct domain-invariant thinking.",
+        "CollocateQueryHelper.toHitRecord (line 299): 'String[] parts = BlackLabSnippetParser.safeParts(conc); if (parts == null) { return sentinel; }' — safeParts() never returns null; it either returns a 3-element array or throws IllegalArgumentException. The null branch is dead code. If safeParts throws, the IAE propagates uncaught through collectHits, exits executeBcqlQuery's outer try (which only catches InvalidQuery), and is ultimately caught by wrapWithErrorHandling as a 400 Bad Request — an incorrect HTTP status for what is an infrastructure/data problem.",
+        "BlackLabQueryExecutor.executeCqlQuery (line 152) and CollocateQueryHelper.getTotalFrequency (line 102) both catch RuntimeException and re-throw as IOException. This is still present and still wraps NullPointerException and other programming errors as infrastructure failures. The executeCqlQuery comment acknowledges 'no more-specific public exception type is available', but getTotalFrequency's wrapping is identical and has no such caveat.",
+        "extractCollocateFromIdentity uses collocatePos as a 1-based XML lemma-attribute count (via extractCollocateFromXmlByPosition) and as a 1-based whitespace-split word index (via extractPlainTextTokenAt). The comment claims 'both methods share the same 1-based token-position semantics', but this equivalence holds only when every XML token contributes exactly one lemma attribute — a non-obvious structural assumption about the identity string format that is not enforced or tested.",
+        "buildBcqlWithLemmaPrepended has two unambiguous branches: pattern starts with '[' → format and return; else → throw. Clean and exhaustive.",
+        "identifyCommonCollocates caps threshold: 'int threshold = Math.min(minShared, seedCount)' — prevents the impossible condition where minShared > seedCount from silently returning an empty set without explanation."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "logic_clarity": {
+      "dimension_character": "The codebase applies guard clauses and arithmetic boundary checks consistently and correctly across its query and exploration layers, making most code paths straightforward to verify. However, three persistent logic issues reduce clarity: RuntimeException is caught and re-thrown as IOException in two places (masking programming errors as infrastructure failures), a dead null check in toHitRecord creates a false safety net (safeParts throws rather than returning null, so the sentinel branch can never execute), and the collocatePos integer relies on an implicit structural equivalence between XML attribute count and plain-text word index that is underdocumented.",
+      "score_rationale": "A score of 67 reflects code that is mostly correct and consistently defensive, but contains real logic issues that a developer would need to investigate rather than just trust. The dead code branch in toHitRecord actively misleads; the RuntimeException masking (present in two locations) inflates the scope of an already-acknowledged concern; and the collocatePos dual-semantic is a documented but unresolved clarity debt. These are not catastrophic but they meaningfully raise the cognitive load for anyone maintaining the query pipeline."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "logic_clarity",
+      "identifier": "dead_null_check_safeParts",
+      "summary": "Dead null check in toHitRecord — safeParts never returns null, so the sentinel branch can never execute",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "CollocateQueryHelper.toHitRecord line 299: 'String[] parts = BlackLabSnippetParser.safeParts(conc); if (parts == null) { return new HitRecord(…); }'",
+        "BlackLabSnippetParser.safeParts always either returns a non-null 3-element array or throws IllegalArgumentException — it has no code path that returns null.",
+        "If safeParts throws, the exception propagates uncaught through collectHits and out of executeBcqlQuery's outer try-catch (which only catches InvalidQuery), then surfaces as a 400 Bad Request in wrapWithErrorHandling — incorrect for an infrastructure/data error.",
+        "By contrast, executeCqlQuery correctly wraps the same safeParts call in its own try-catch to skip bad concordances, but the collectHits path has no equivalent handler."
+      ],
+      "suggestion": "Remove the dead 'if (parts == null)' branch in toHitRecord. Add a try-catch around the safeParts call in toHitRecord (or inside collectHits) that catches IllegalArgumentException, logs a debug message, and returns a null or skips the record — mirroring the pattern already used in executeCqlQuery.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "The safeParts API was tightened to throw-on-error after toHitRecord was written with a null-return assumption, leaving the null guard as dead code that was never cleaned up.",
+      "RuntimeException catch-all wrapping is copy-pasted across two infrastructure methods (executeCqlQuery, getTotalFrequency) without distinguishing recoverable infrastructure errors from programming errors — a pattern-level issue rather than isolated occurrences."
+    ],
+    "likely_symptoms": ["dead_null_check_safeParts"],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "logic_clarity": {
+      "add": [
+        {
+          "header": "Consistent guard-clause pattern at query entry points",
+          "description": "All public query methods that accept a lemma open with a null/empty guard that short-circuits to Collections.emptyList(). This keeps the happy path visible and ensures callers never receive unexpected NullPointerExceptions from forgetting to validate upstream.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Arithmetic guards precede all LogDice calls",
+          "description": "Every call site for LogDiceUtils.compute() is preceded by explicit positive-value guards (headwordFreq > 0, collocateFreq > 0), preventing the IllegalArgumentException the utility throws on zero inputs. This is consistent across both buildAndRankCollocates and scoreHits.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Dead null check in toHitRecord after safeParts tightening",
+          "description": "safeParts was hardened to throw rather than return null, but toHitRecord's null-return sentinel branch was not removed. The dead branch misleads readers about error handling and leaves a gap where IllegalArgumentException from safeParts propagates as a 400 client error.",
+          "settled": true,
+          "positive": false
+        }
+      ]
+    }
+  }
+}

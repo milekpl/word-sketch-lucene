@@ -1,0 +1,128 @@
+{
+  "batch": "mid_level_elegance",
+  "batch_index": 9,
+  "assessments": {
+    "mid_level_elegance": 70.0
+  },
+  "dimension_notes": {
+    "mid_level_elegance": {
+      "evidence": [
+        "ExplorationHandlers delegates to ExplorationService, then passes results to ExploreResponseAssembler — a clean three-layer handoff with no tangled back-and-forth.",
+        "ExploreResponseAssembler and SketchResponseAssembler each centralise all model-to-DTO translation for their respective endpoint families, so there is no scattered ad-hoc mapping.",
+        "CollocateQueryPort and SketchQueryPort are narrow ports: ConcordanceHandlers and SketchHandlers declare the minimal dependency they need rather than the full QueryExecutor, keeping boundaries explicit.",
+        "SemanticFieldExplorer is a thin facade composing SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator — orchestration reads as delegation, not interleaved logic.",
+        "IOException from query layer is wrapped as ExplorationException by the service layer and then mapped to 503 by HttpApiUtils.wrapWithErrorHandling — error propagation follows a single predictable path across all three boundaries.",
+        "ExploreResponse.Parameters is declared on the explore-response DTO and reused verbatim in ComparisonResponse. The nouns_per field is compare-inapplicable and is always null, guarded by @JsonInclude(NON_NULL). This is a concrete asymmetric seam: the compare response's parameter block is a structural subset of the explore response's, yet they share one type.",
+        "ExploreResponse.primarySeeds() interface method carries no @JsonProperty, leaving each concrete variant to declare conflicting serialization keys (discovered_nouns in SingleSeed, suppressed with @JsonIgnore in MultiSeed which exposes source_seeds via a separate accessor). A consumer coding against ExploreResponse polymorphically for serialization would encounter surprising/silent behaviour.",
+        "ExplorationHandlers.handleSemanticFieldComparison wraps result.nouns() in new ArrayList<>() before passing to buildComparisonResponse, which assigns it directly as the ComparisonResponse seeds field — the mutable copy is unnecessary.",
+        "ExplorationHandlers defines a private CROSS_RELATIONAL = 'cross_relational' sentinel that is passed as a relationType argument to buildComparisonResponse. This domain-level sentinel lives in the HTTP handler layer rather than RelationType or RelationUtils, leaking a cross-cutting concept into a layer that is otherwise thin and free of such knowledge."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "mid_level_elegance": {
+      "dimension_character": "The module boundaries are well-structured: dedicated assembler classes centralise translation, narrow port interfaces expose minimal surfaces, and the SemanticFieldExplorer façade composes its algorithmic collaborators cleanly. The two flagged open issues — ExploreResponse.Parameters reuse in ComparisonResponse and the asymmetric primarySeeds() serialisation contract — represent genuine seam leakage rather than catastrophic design failure, but they remain unresolved and create concrete friction points for future evolution.",
+      "score_rationale": "The codebase scores above the midpoint because the dominant seam pattern is explicit, layered, and translation-centralised; a developer following the call flow encounters no tangled handoffs or scattered glue code. The score is held below the 75–80 range by the two persistent open issues: the Parameters type coupling introduces an ever-nullable field at the compare boundary, and the interface-level primarySeeds() without a @JsonProperty creates a silent serialisation asymmetry that violates the principle of explicit, unsurprising boundaries."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "explore_parameters_in_comparison_response",
+      "summary": "ComparisonResponse reuses ExploreResponse.Parameters, inheriting a compare-inapplicable nouns_per field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ComparisonResponse.parameters is typed as ExploreResponse.Parameters, which includes nouns_per annotated @Nullable Integer.",
+        "ExploreResponseAssembler.buildComparisonResponse always passes null for nouns_per: new ExploreResponse.Parameters(relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold(), null).",
+        "The compare endpoint never accepts or uses nouns_per, so the field is structurally inapplicable but permanently embedded at this boundary."
+      ],
+      "suggestion": "Extract a shared ParametersBase record (relation, top, min_shared, min_logdice) that both ExploreResponse.Parameters and a new CompareParameters record extend or embed. ComparisonResponse should reference CompareParameters, which omits nouns_per entirely, removing the nullable placeholder from the compare seam.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "primary_seeds_asymmetric_interface_serialization",
+      "summary": "ExploreResponse.primarySeeds() interface method carries no @JsonProperty, producing asymmetric serialisation across variants",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "The interface declares List<DiscoveredNounEntry> primarySeeds() with no @JsonProperty annotation.",
+        "SingleSeed serialises the component accessor as discovered_nouns via @JsonProperty(\"discovered_nouns\") on the record component.",
+        "MultiSeed suppresses the interface method with @JsonIgnore and exposes source_seeds via the separate sourceSeeds() accessor — a two-step workaround that relies on a @JsonIgnore to prevent a phantom discovered_nouns key in the multi-seed output.",
+        "A consumer iterating polymorphically over ExploreResponse values and invoking Jackson serialisation on the interface type would produce inconsistent or missing JSON keys without reading the per-variant annotations."
+      ],
+      "suggestion": "Remove primarySeeds() from the sealed interface — it exists only to satisfy a shared data-access contract used in tests, but its serialisation semantics are variant-specific. Tests can cast to the concrete type or use the concrete accessors directly. Keeping the interface free of asymmetric serialisation obligations makes the boundary contract honest.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "multi_file_refactor"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "cross_relational_sentinel_in_handler",
+      "summary": "CROSS_RELATIONAL sentinel string lives in ExplorationHandlers rather than the config/domain layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers defines private static final String CROSS_RELATIONAL = \"cross_relational\" and passes it as the relationType argument to buildComparisonResponse.",
+        "RelationType and RelationUtils contain no corresponding constant or entry for cross-relational aggregation, so this sentinel is invisible to the domain layer and to callers that follow the config abstraction."
+      ],
+      "suggestion": "Add a CROSS_RELATIONAL constant to RelationType (or RelationUtils) and reference it from ExplorationHandlers. This makes the sentinel part of the shared vocabulary and removes the ad-hoc string from the handler layer.",
+      "confidence": "medium",
+      "impact_scope": "local",
+      "fix_scope": "single_edit"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "ExploreResponse.Parameters was designed for explore-endpoint DTOs and reused in ComparisonResponse as a shortcut, carrying an inapplicable field across a seam boundary.",
+      "The sealed ExploreResponse interface was given a data-accessor method (primarySeeds) whose serialisation semantics differ per variant — a mismatch between interface-level contract and Jackson's annotation model that forces workarounds in the concrete types."
+    ],
+    "likely_symptoms": [
+      "explore_parameters_in_comparison_response",
+      "primary_seeds_asymmetric_interface_serialization"
+    ],
+    "possible_false_positives": []
+  },
+  "context_updates": {
+    "mid_level_elegance": {
+      "add": [
+        {
+          "header": "Assembler classes centralise all model-to-DTO translation",
+          "description": "ExploreResponseAssembler and SketchResponseAssembler each own the full model-to-presentation mapping for their endpoint families. No handler or service class builds response objects directly — all translation is funnelled through these assemblers, which keeps the seam clean and easy to find.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Narrow port interfaces minimise boundary surface",
+          "description": "CollocateQueryPort and SketchQueryPort expose only the query operations each handler family needs. Handlers that do not require full QueryExecutor capability declare the narrower port, making their dependency footprint explicit and reducing coupling at the query boundary.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "SemanticFieldExplorer composes three focused algorithm classes",
+          "description": "SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator are each package-private and own one algorithm. SemanticFieldExplorer is a thin façade that delegates to them without tangling their logic, making orchestration read as composition rather than interleaved control flow.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Error propagation follows single consistent path across layers",
+          "description": "IOException from the query layer is wrapped as ExplorationException by the service layer, then caught and mapped to HTTP 503 by HttpApiUtils.wrapWithErrorHandling. All other exception types map to predictable status codes in one place, keeping lifecycle propagation uniform across every exploration endpoint.",
+          "settled": true,
+          "positive": true
+        }
+      ]
+    }
+  }
+}

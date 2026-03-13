@@ -1,0 +1,104 @@
+{
+  "batch": "contract_coherence",
+  "batch_index": 18,
+  "assessments": {
+    "contract_coherence": 72.0
+  },
+  "dimension_notes": {
+    "contract_coherence": {
+      "evidence": [
+        "SemanticFieldExplorer.exploreMultiSeed declares @NonNull Set<String> seeds but immediately follows with Objects.requireNonNull(seeds, 'seeds must not be null') — the annotation promises non-null at call site, yet the body treats that promise as untrustworthy.",
+        "CollocateQueryHelper exposes a forTesting() factory that sets this.index = null despite the primary constructor advertising @NonNull BlackLabIndex; the only enforcement is a verbal javadoc warning that NPE will be thrown — the type system cannot distinguish test instances from production ones.",
+        "BlackLabSnippetParser methods that return null are consistently annotated @Nullable (extractPosFromMatch, extractCollocateFromXmlByPosition, detokenize, extractLastLemma, safeParts); callers (CollocateQueryHelper.toHitRecord, extractCollocateLemma) check before use. Strong local contract coherence.",
+        "QueryExecutor.executeCollocations declares @Nullable String lemma and documents 'Returns an empty list silently if null or empty'; BlackLabQueryExecutor implementation honours this exactly — null/empty lemma returns Collections.emptyList() without logging an error.",
+        "executeDependencyPattern declares @Nullable String headPosConstraint with documentation 'pass null to skip the constraint'; the implementation guards with null before building the POS constraint — annotation and body agree.",
+        "GrammarConfigLoader.parseRelationType is annotated @Nullable and returns null for blank/null input, documented clearly; callers pass the result straight into the RelationConfig constructor which accepts it.",
+        "ExplorationService interface @throws Javadoc mentions ExplorationException but the signature does not declare it (unchecked RuntimeException); the implementation adds 'throws ExplorationException' to each override for IDE-level documentation. No mismatch — the design choice is deliberate and documented in ExplorationException's class javadoc.",
+        "CollocateQueryHelper.getTotalFrequency documents 'Returns 0L if the lemma annotation is not found' and 'throws IOException wrapping any RuntimeException' — both paths are implemented faithfully."
+      ],
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "confidence": "high"
+    }
+  },
+  "dimension_judgment": {
+    "contract_coherence": {
+      "dimension_character": "Contract coherence is broadly strong: nullable returns carry @Nullable annotations, null-accepting parameters are documented and honoured, and the two-tier IOException/IllegalArgumentException exception strategy in GrammarConfigLoader is precisely specified and implemented. The two persistent weaknesses are both in the exploration/query boundary: a redundant null-guard that directly contradicts a @NonNull annotation, and a test-escape factory that creates an intentionally broken instance whose behavioural limits exist only in prose, not in the type system.",
+      "score_rationale": "The majority of the API surface — query ports, snippet parser, config loader, exploration options — shows deliberate, consistent contracts that developers can trust. The score is held below 80 by two confirmed, still-open issues that are representative of the same root pattern: a @NonNull annotation that is not fully believed (explicit null check) and a type-system bypass for test instances with a verbal-only safety contract. Neither issue is widespread, but both affect the boundary between the exploration and query subsystems, which is a high-traffic path."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "nonnull_seeds_with_requirenonnull",
+      "summary": "@NonNull seeds annotation contradicted by explicit null-check in exploreMultiSeed body",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Method signature: public @NonNull ExplorationResult exploreMultiSeed(@NonNull Set<String> seeds, ...)",
+        "First line of body: Objects.requireNonNull(seeds, \"seeds must not be null\");",
+        "@NonNull annotation signals to callers and static analysers that null must never be passed; the body then treats that guarantee as insufficient and re-checks it, sending conflicting signals about whether null is a real risk."
+      ],
+      "suggestion": "Remove the Objects.requireNonNull call — the @NonNull annotation is the authoritative contract. If defensive null-guarding is desired at this boundary, replace @NonNull with @Nullable and let the requireNonNull throw be the only enforcement, so annotation and behaviour agree.",
+      "confidence": "high",
+      "impact_scope": "local",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "annotation_body_mismatch",
+      "concern_verdict": "confirmed"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "collocate_query_helper_null_index_verbal",
+      "summary": "CollocateQueryHelper.forTesting() creates an instance with null index; type system cannot enforce the verbal-only usage contract",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "Primary constructor: CollocateQueryHelper(@NonNull BlackLabIndex index) — @NonNull signals index is always valid.",
+        "Private no-arg constructor: this.index = null — directly contradicts @NonNull.",
+        "forTesting() factory: returns new CollocateQueryHelper() with index=null.",
+        "Javadoc warns 'Any method that delegates to the BlackLab index will throw NullPointerException if called on this instance'; this contract is verbal only — the type system cannot distinguish a test instance from a production one."
+      ],
+      "suggestion": "Introduce a narrow test-only interface or subclass that overrides only the purely computational methods used in tests, leaving index-dependent methods unimplemented/throwing UnsupportedOperationException with a clear message. Alternatively, pass the index as Optional<BlackLabIndex> or use a guard method (assertIndexAvailable()) with a descriptive IllegalStateException instead of a raw NPE, so that miscalling a test instance produces a clear error rather than an opaque NullPointerException.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "single_edit",
+      "root_cause_cluster": "annotation_body_mismatch",
+      "concern_verdict": "confirmed"
+    }
+  ],
+  "retrospective": {
+    "root_causes": [
+      "Annotation-body mismatch pattern: @NonNull annotations added for static analysis benefit, but developers retain defensive null checks from earlier un-annotated code — both issues share this root cause."
+    ],
+    "likely_symptoms": [
+      "nonnull_seeds_with_requirenonnull — symptom of defensive-coding habit persisting after annotation adoption",
+      "collocate_query_helper_null_index_verbal — symptom of using a private constructor escape hatch rather than a proper test double"
+    ]
+  },
+  "context_updates": {
+    "contract_coherence": {
+      "add": [
+        {
+          "header": "Nullable return contracts consistently annotated in parser layer",
+          "description": "BlackLabSnippetParser methods that may return null (extractPosFromMatch, safeParts, extractCollocateFromXmlByPosition, etc.) are all annotated @Nullable; callers perform null checks before use. This is a positive pattern that removes guesswork at call sites.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Two-tier IOException / IllegalArgumentException strategy in config layer",
+          "description": "GrammarConfigLoader documents and implements a deliberate two-tier exception strategy: IOException for I/O failures, IllegalArgumentException for structural/validation failures. This distinction makes error handling predictable for callers.",
+          "settled": true,
+          "positive": true
+        },
+        {
+          "header": "Nullable parameter contracts honoured in executeCollocations and executeDependencyPattern",
+          "description": "@Nullable lemma / headPosConstraint parameters are documented with explicit behaviour ('returns empty list silently', 'pass null to skip') and implementations match those contracts exactly.",
+          "settled": true,
+          "positive": true
+        }
+      ]
+    }
+  }
+}

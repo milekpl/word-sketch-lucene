@@ -120,6 +120,12 @@ public sealed interface ExploreResponse
     /**
      * Multi-seed response: carries {@code seeds} and {@code seed_count}; never carries
      * {@code seed}.
+     *
+     * <p>The {@code source_seeds} / {@code source_seeds_count} fields carry per-seed collocate
+     * statistics for each input seed.  They are named differently from {@link SingleSeed}'s
+     * {@code discovered_nouns}: in single-seed mode those are genuinely newly discovered nouns
+     * found via reverse collocate expansion, whereas here the entries are the caller-supplied
+     * seed words — a distinct JSON key prevents misreading them as reverse-discovered nouns.</p>
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record MultiSeed(
@@ -129,8 +135,8 @@ public sealed interface ExploreResponse
             Parameters parameters,
             @JsonProperty("seed_collocates") List<SeedCollocateEntry> seedCollocates,
             @JsonProperty("seed_collocates_count") int seedCollocatesCount,
-            @JsonProperty("discovered_nouns") List<DiscoveredNounEntry> discoveredNouns,
-            @JsonProperty("discovered_nouns_count") int discoveredNounsCount,
+            @JsonProperty("source_seeds") List<DiscoveredNounEntry> discoveredNouns,
+            @JsonProperty("source_seeds_count") int discoveredNounsCount,
             @JsonProperty("core_collocates") List<CoreCollocateEntry> coreCollocates,
             @JsonProperty("core_collocates_count") int coreCollocatesCount,
             List<EdgeEntry> edges,

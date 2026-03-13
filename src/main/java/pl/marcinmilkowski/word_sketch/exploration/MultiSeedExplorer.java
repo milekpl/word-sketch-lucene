@@ -40,9 +40,9 @@ class MultiSeedExplorer {
      * Fetches collocates for each seed using the given relation, then intersects them across
      * seeds to find shared and distinctive patterns.
      *
-     * <p>Seeds become the {@code discoveredNouns} (each carrying their common collocates as
-     * shared-collocate set); the collocate intersection becomes {@code coreCollocates}; and
-     * the aggregate collocate map becomes {@code seedCollocates}.</p>
+     * <p>Seeds populate the {@code source_seeds} field of the API response (each carrying
+     * their common collocates as shared-collocate set); the collocate intersection becomes
+     * {@code coreCollocates}; and the aggregate collocate map becomes {@code seedCollocates}.</p>
      */
     @NonNull ExplorationResult findCollocateIntersection(
             @NonNull Set<String> seeds,

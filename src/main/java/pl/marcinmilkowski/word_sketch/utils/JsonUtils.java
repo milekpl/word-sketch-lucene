@@ -9,6 +9,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * ever configured (e.g. date formats, custom modules, feature flags). All layers
  * that need JSON parsing or generation should use {@link #mapper()} rather than
  * constructing their own instance.</p>
+ *
+ * <p>{@link ObjectMapper} is thread-safe for all read and write operations once
+ * configured; callers must not mutate the returned instance.</p>
  */
 public final class JsonUtils {
 
@@ -16,8 +19,8 @@ public final class JsonUtils {
 
     private JsonUtils() {}
 
-    /** Returns a configured copy of the application-wide {@link ObjectMapper}. Callers may safely customize the returned instance without affecting others. */
+    /** Returns the application-wide shared {@link ObjectMapper} instance. The instance is thread-safe; callers must not reconfigure it. */
     public static ObjectMapper mapper() {
-        return MAPPER.copy();
+        return MAPPER;
     }
 }

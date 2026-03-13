@@ -1,0 +1,455 @@
+{
+  "assessments": {
+    "high_level_elegance": 78,
+    "convention_outlier": 82,
+    "error_consistency": 76,
+    "naming_quality": 80,
+    "abstraction_fitness": 72,
+    "dependency_health": 82,
+    "low_level_elegance": 73,
+    "mid_level_elegance": 72,
+    "ai_generated_debt": 68,
+    "incomplete_migration": 87,
+    "package_organization": 72,
+    "contract_coherence": 77,
+    "logic_clarity": 76,
+    "type_safety": 74,
+    "type_discipline": 73,
+    "api_surface_coherence": 80,
+    "stale_migration": 79,
+    "delegation_density": 72,
+    "test_strategy": 62,
+    "authorization_consistency": 84,
+    "definition_directness": 78,
+    "structure_nav": 82,
+    "initialization_coupling": 72,
+    "cross_module_architecture": 83,
+    "design_coherence": 65
+  },
+  "findings": [
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "comparison_result_no_defensive_copies",
+      "summary": "ComparisonResult omits defensive copies of constructor arguments, inconsistent with ExplorationResult",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ComparisonResult constructor: `this.nouns = nouns;` and `this.collocates = collocates;` \u2014 no defensive copy",
+        "ExplorationResult constructor: `this.seeds = List.copyOf(seeds);` \u2014 explicit defensive copy applied consistently to all list fields",
+        "ComparisonResult Javadoc says it follows 'the same convention as ExplorationResult', but the construction contract differs on mutability safety"
+      ],
+      "suggestion": "Change ComparisonResult constructor assignments to `this.nouns = List.copyOf(nouns);` and `this.collocates = List.copyOf(collocates);` to match ExplorationResult's immutability guarantees",
+      "confidence": "high"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "cql_utils_bcql_scope_drift",
+      "summary": "CqlUtils contains BCQL-specific utilities despite its name indicating CQL-only scope",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "Line 167: comment reads `// BCQL pattern utilities (moved from BcqlPatternUtils in query package)`",
+        "Methods `extractHeadword` and `findLabelTokenIndex` operate on BCQL-labelled patterns (e.g. `2:[...]` capture groups), which are a BlackLab-specific extension beyond standard CQL",
+        "The class Javadoc describes CqlUtils as 'Shared utility for parsing CQL token syntax' \u2014 the BCQL methods are not mentioned and break that stated contract"
+      ],
+      "suggestion": "Either rename CqlUtils to CqlBcqlUtils / PatternUtils to reflect its actual scope, or split the BCQL utilities back into a separate BcqlPatternUtils class in the utils package to restore the name-scope alignment",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "broad_runtime_exception_catch_in_cql_query",
+      "summary": "BlackLabQueryExecutor.executeCqlQuery catches bare RuntimeException and converts it to IOException, silently masking unexpected bugs",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 152-154: `catch (RuntimeException e) { throw new IOException(\"Unexpected error executing CQL query: \" + e.getMessage(), e); }`",
+        "This converts any NullPointerException, ClassCastException, or other programming error in the CQL execution path into an IOException, causing wrapWithErrorHandling to map it to HTTP 500 with an I/O-flavoured message rather than surfacing the root cause clearly",
+        "Other catch blocks in the same class target specific exception types (e.g. `catch (ErrorOpeningIndex e)`, `catch (InvalidQuery e)`) \u2014 the tail RuntimeException catch is a wider net than the rest of the strategy"
+      ],
+      "suggestion": "Remove the broad RuntimeException catch or narrow it to the specific BlackLab exception types that are actually expected; let unanticipated RuntimeExceptions propagate naturally so that wrapWithErrorHandling can log them as NullPointerException / IllegalStateException (which it already handles at line 69)",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "json_utils_copy_contradicts_shared_instance_intent",
+      "summary": "JsonUtils.mapper() returns a new copy on every call, contradicting its stated purpose of providing a single shared instance",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/JsonUtils.java"
+      ],
+      "evidence": [
+        "JsonUtils Javadoc: 'A single shared instance avoids silent serialisation divergence if Jackson is ever configured'",
+        "Implementation: `public static ObjectMapper mapper() { return MAPPER.copy(); }` \u2014 a fresh copy is returned on every call",
+        "If any caller invokes `mapper()`, receives a copy, and registers a custom module or feature flag on that copy, the resulting configuration is NOT shared with other callers \u2014 precisely the divergence the class claims to prevent",
+        "HttpApiUtils stores the copy as a static final field (`private static final ObjectMapper MAPPER = JsonUtils.mapper();`) which is safe, but code that calls JsonUtils.mapper() in a per-request path would get a distinct unconfigured copy each time"
+      ],
+      "suggestion": "Change `mapper()` to return `MAPPER` directly (the single shared instance), and document that callers must not mutate it. If per-caller customisation is needed, rename the method to `newMapper()` or `copyMapper()` to communicate copy semantics and update the Javadoc accordingly",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "dep_jackson_core_pin",
+      "summary": "Explicit jackson-core pin alongside jackson-databind \u2014 justified but minor cargo-cult",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "jackson-core declared explicitly at version 2.17.2 alongside jackson-databind at the same version; comment says it prevents a transitive dep from pulling an older version, which is a valid if uncommon need, but the jackson-bom import already manages this alignment \u2014 the explicit pin is belt-and-suspenders boilerplate"
+      ],
+      "suggestion": "Remove the explicit jackson-core dependency; the jackson-bom import already pins all jackson modules to 2.17.2. If a transitive conflict recurs, confirm with `mvn dependency:tree` and add an explicit pin only if the conflict is real.",
+      "confidence": "low"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "low_surface_pattern_inline_lambda",
+      "summary": "executeSurfacePattern embeds a three-branch fallback strategy inline in a lambda",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "In executeSurfacePattern, the lemmaExtractor lambda contains three nested branches: (1) `if (collocatePos < 0) return extractLastLemma(identity)`, (2) XML extraction path with `extractCollocateFromXmlByPosition`, (3) fallback to `extractPlainTextTokenAt`. The lambda body spans ~10 lines and mixes sentinel interpretation with two different parsing strategies."
+      ],
+      "suggestion": "Extract the three-branch fallback into a named private method `extractCollocateByPosition(String identity, int collocatePos)` and pass it as a method reference. This makes the callsite readable and the branching logic individually testable.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "low_bytes_utf8_string_literal",
+      "summary": "UTF-8 encoded via string literal instead of StandardCharsets.UTF_8 in HttpApiUtils",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "sendJsonResponse: `json.getBytes(\"UTF-8\")` and `exchange.getResponseBody()` both use string literal \"UTF-8\" rather than `StandardCharsets.UTF_8`; same in sendError. Minor but inconsistent with the UTF-8 constant already used correctly in readBodyWithSizeLimit."
+      ],
+      "suggestion": "Replace `\"UTF-8\"` string literals with `StandardCharsets.UTF_8` in sendJsonResponse and sendError to match the rest of the class and avoid the unnecessary UnsupportedEncodingException handling.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "mid_explore_response_redundant_counts",
+      "summary": "ExploreResponse sealed interface declares four *Count int fields that are always == list.size()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "ExploreResponse interface declares seedCollocatesCount(), discoveredNounsCount(), coreCollocatesCount(), and edgesCount() alongside their corresponding list accessors. In ExploreResponseAssembler, every factory method passes `seedCollocs.size(), nouns.size(), core.size(), edges.size()` \u2014 these are always equal to the list sizes.",
+        "The implementing records SingleSeed and MultiSeed each repeat all 11-12 component fields, including the four count fields, forcing any change to the response contract to be applied in three places: the sealed interface, SingleSeed, and MultiSeed."
+      ],
+      "suggestion": "Remove the four redundant count fields from the sealed interface and record declarations. Add default interface methods (e.g., `default int seedCollocatesCount() { return seedCollocates().size(); }`) to preserve the JSON output via Jackson serialisation without requiring callers to supply the count explicitly.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "mid_explore_response_sealed_interface_verbosity",
+      "summary": "Sealed interface + record pattern requires all 9+ fields to be repeated in both the interface and each implementing record",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse declares 8 abstract accessor methods (status, parameters, seedCollocates, seedCollocatesCount, discoveredNouns, discoveredNounsCount, coreCollocates, coreCollocatesCount, edges, edgesCount). SingleSeed and MultiSeed each repeat all of these as record components, creating three synchronisation points for every shared field change."
+      ],
+      "suggestion": "Consider using default methods on the sealed interface for the derivable count fields, and evaluate whether the interface abstraction is needed at all \u2014 if callers never reference ExploreResponse other than serialising it, the interface adds verbosity without enabling polymorphism.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "ai_redundant_count_fields_in_responses",
+      "summary": "Response records carry *Count int fields that duplicate list.size() \u2014 canonical AI convenience boilerplate",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse.SingleSeed: seedCollocatesCount, discoveredNounsCount, coreCollocatesCount, edgesCount are always == list.size() at construction time (verified in ExploreResponseAssembler lines 97-100, 129-133).",
+        "ComparisonResponse: collocatesCount and edgesCount are always == collocates.size() and edges.size() respectively. The meaningfully distinct category counts (fullySharedCount, partiallySharedCount, specificCount) are computed from model and are non-trivial.",
+        "This pattern \u2014 adding *Count fields alongside lists for client convenience \u2014 is typical of AI-generated API serialisation code. A human designing the JSON contract would either rely on list length or document that the count is independently meaningful."
+      ],
+      "suggestion": "Remove the redundant list-length count fields (seedCollocatesCount, discoveredNounsCount, coreCollocatesCount, edgesCount in ExploreResponse; collocatesCount and edgesCount in ComparisonResponse). Keep the semantically distinct category counts in ComparisonResponse (fullySharedCount, partiallySharedCount, specificCount). If clients need the length, they can take list.size() \u2014 or add a Jackson @JsonProperty default method.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "ai_explore_response_11plus_param_records",
+      "summary": "ExploreResponse.SingleSeed and MultiSeed have 11-12 constructor parameters \u2014 unwieldy record declarations",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "SingleSeed record: 11 components (status, seed, parameters, seedCollocates, seedCollocatesCount, discoveredNouns, discoveredNounsCount, coreCollocates, coreCollocatesCount, edges, edgesCount).",
+        "MultiSeed record: 12 components (adds seeds + seedCount). Both constructors are produced by ExploreResponseAssembler with all list+count pairs passed explicitly."
+      ],
+      "suggestion": "Removing the 4 redundant *Count fields (see ai_redundant_count_fields_in_responses) reduces these to 7 and 8 parameters respectively, which is acceptable. Alternatively, introduce a GroupedPayload value object holding the four list fields to further reduce constructor arity.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "ai_buildedgeentries_pure_delegation",
+      "summary": "buildEdgeEntries is a thin private method that only delegates to buildExplorationEdges + a one-line stream map",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "buildEdgeEntries calls buildExplorationEdges(result), then does a .stream().map(...).toList() that converts Edge to ExploreResponse.EdgeEntry. The method body is 4 lines and adds no logic beyond the type conversion that the calling factory methods could inline."
+      ],
+      "suggestion": "Either inline buildEdgeEntries into the two factory methods that call it, or rename it to make the type-conversion intent explicit (e.g., `edgeListToEntries`). As written, the indirection adds a lookup step without clarifying why the conversion is separate.",
+      "confidence": "low"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "mig_seed_collocate_entry_comment_references_old_pattern",
+      "summary": "SeedCollocateEntry Javadoc references the old Map<String,Object>-based assembly \u2014 migration comment not cleaned up",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/SeedCollocateEntry.java"
+      ],
+      "evidence": [
+        "SeedCollocateEntry Javadoc: 'The three fields mirror the JSON keys emitted by the previous Map<String,Object>-based assembly'. This is a migration note left in the documentation that is no longer necessary \u2014 the migration is complete and there is no old code left to compare against."
+      ],
+      "suggestion": "Remove the historical reference to the old Map-based assembly from the SeedCollocateEntry Javadoc. Replace with a concise description of the record's purpose without referring to what it replaced.",
+      "confidence": "low"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "utils_layer_name",
+      "summary": "utils package uses a layer-oriented name rather than a domain-oriented name",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/LogDiceUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/MathUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/JsonUtils.java"
+      ],
+      "evidence": [
+        "Package named 'utils' contains domain-specific classes: CqlUtils (CQL pattern parsing helpers), LogDiceUtils (association scoring), MathUtils (rounding), JsonUtils (Jackson mapper). These belong to the query, scoring, and api domains respectively rather than a generic utility layer."
+      ],
+      "suggestion": "Move CqlUtils into the query package (it operates on CQL patterns), LogDiceUtils next to the scoring logic (query or exploration package), JsonUtils into the api package. MathUtils is thin enough to inline or leave as a shared helper with a more descriptive name.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "missing_nonnull_on_list_returns",
+      "summary": "Return types on CollocateQueryPort and QueryExecutor list methods lack @NonNull annotation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryPort.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "CollocateQueryPort.executeBcqlQuery returns 'List<CollocateResult>' with no @NonNull on the return type, while all parameters in these interfaces are annotated with @NonNull or @Nullable using jspecify. QueryExecutor.executeCqlQuery, executeCollocations, and executeSurfacePattern have the same gap \u2014 the contracts explicitly annotate parameters but leave return nullability unspecified."
+      ],
+      "suggestion": "Add @NonNull to all List<...> return types in CollocateQueryPort and QueryExecutor. The implementations consistently return non-null lists (empty list on no results), so formalising this in the interface makes the contract complete and enables static analysis tools to catch callers that guard against null unnecessarily.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "doc_id_stringly_typed",
+      "summary": "Document IDs passed as String throughout the result chain obscure the numeric domain type",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/SnippetResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/CollocateResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabQueryExecutor.executeCqlQuery creates results with 'String.valueOf(hit.doc())' where hit.doc() returns an int BlackLab document ID. CollocateResult and SnippetResult carry 'String docId'. Any downstream code that needs to re-parse the ID back to int must call Integer.parseInt without compile-time safety, and a stray string would only fail at runtime."
+      ],
+      "suggestion": "Introduce a typed DocId record (wrapping int) or keep it as int in the model layer, converting to String only for serialization. This constrains callers to the correct type at compile time and removes the String.valueOf / Integer.parseInt round-trip.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_discipline",
+      "identifier": "comparison_result_class_lacks_justification",
+      "summary": "ComparisonResult is a hand-written immutable class with no comment explaining why it is not a record",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.java has a prominent Javadoc block ('Why a class rather than a record') explaining the choice of class over record because of computed accessors and factory methods. ComparisonResult is a parallel type with the same class-vs-record tradeoff \u2014 it also has a factory method (of()), an empty() sentinel, and derived queries (summaryCounts(), specificTo()) \u2014 but carries no such explanation. Readers unfamiliar with the rationale will wonder why it was not made a record like CollocateProfile, DiscoveredNoun, CoreCollocate etc."
+      ],
+      "suggestion": "Add a Javadoc comment to ComparisonResult explaining why it uses a class: it exposes computed accessors (summaryCounts, specificTo) and factory methods with internal construction logic that go beyond raw field access. This mirrors the existing ExplorationResult explanation and makes the structural choice intentional rather than accidental.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "stale_migration",
+      "identifier": "dead_javadoc_collocateresulttofullmap",
+      "summary": "Javadoc references deleted method ExploreResponseAssembler.collocateResultToFullMap",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "Line 91 Javadoc comment: 'Replaces the raw {@code Map<String,Object>} previously produced by {@code ExploreResponseAssembler.collocateResultToFullMap}.'",
+        "The method collocateResultToFullMap does not exist anywhere in ExploreResponseAssembler \u2014 it was deleted and replaced by toBcqlResultEntry, but the Javadoc was not updated"
+      ],
+      "suggestion": "Update the Javadoc on BcqlResultEntry to remove or replace the reference to the now-deleted collocateResultToFullMap; the replacement method is toBcqlResultEntry in the same class",
+      "confidence": "high"
+    },
+    {
+      "dimension": "delegation_density",
+      "identifier": "thin_wrapper_comparecollocateprofiles",
+      "summary": "SemanticFieldExplorer.compareCollocateProfiles is a near-pure delegation with only exception-type conversion",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "The full method body is: try { return comparator.compareCollocateProfiles(seeds, opts); } catch (java.io.IOException e) { throw new ExplorationException(..., e); }",
+        "No parameter transformation, no validation, no enrichment \u2014 only converts IOException to ExplorationException",
+        "Contrast with exploreByRelation (adds PosGroup check, pattern building) and fetchExamples (adds deduplication logic) which both perform meaningful work"
+      ],
+      "suggestion": "Either merge the IOException-to-ExplorationException wrapping into CollocateProfileComparator (making it throw ExplorationException directly), or accept this as a documented facade cost and add a one-line comment explaining what value it provides beyond interface unification",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_503_exception_mapping_test",
+      "summary": "WrapHandlerTest covers every exception-to-HTTP-status mapping except ExplorationException \u2192 503",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/WrapHandlerTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java"
+      ],
+      "evidence": [
+        "WrapHandlerTest has cases for IAE\u2192400, IOException\u2192500, RuntimeException\u2192500, RequestEntityTooLargeException\u2192413, JsonProcessingException\u2192400",
+        "The ExplorationException catch branch in wrapWithErrorHandling (HttpApiUtils.java) that sends HTTP 503 has no corresponding test",
+        "SemanticFieldExplorerFetchExamplesTest verifies that the throw happens but not the HTTP-level mapping to 503"
+      ],
+      "suggestion": "Add a test case to WrapHandlerTest that throws ExplorationException and asserts statusCode == 503, mirroring the existing pattern for the other exception types",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "missing_concordance_fallback_test",
+      "summary": "ConcordanceHandlers fallback behavior (proximity pattern when relation not found, fallback:true in response) has no test coverage",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlersTest.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlers.handleConcordanceExamples has an explicit fallback branch: when grammarConfig.relation(req.relation()).isEmpty(), it uses a proximity BCQL pattern and sets fallback=true in the response",
+        "ConcordanceHandlersTest has no test providing an unknown relation to trigger this fallback \u2014 the fallback field in the response is never tested",
+        "The fallback path uses a different BCQL pattern and sets a response field that affects client behavior"
+      ],
+      "suggestion": "Add a test that requests concordance examples with an unknown/invalid relation, verifies the response returns HTTP 200 (not 400), and confirms the response JSON contains 'fallback: true' and a proximity-style BCQL pattern",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "error_path_tests_statuscode_only",
+      "summary": "Error-path tests in ExplorationHandlersTest check only HTTP status codes without verifying error message content",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java"
+      ],
+      "evidence": [
+        "All 10+ negative-path test methods in ExplorationHandlersTest end with assertEquals(400, ex.statusCode) and contain no assertion on the error message body",
+        "WrapHandlerTest does verify error body content (e.g., body.path('error').asText().contains('bad param')) for its generic tests",
+        "The gap means a handler could return the wrong error message (or a blank one) and the tests would still pass"
+      ],
+      "suggestion": "At minimum, add a body assertion to 1-2 representative error-path tests confirming the error field is non-blank and references the offending parameter (e.g., 'seeds' for the missing-seeds test), consistent with the pattern used in WrapHandlerTest",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "definition_directness",
+      "identifier": "two_wrapper_search_methods",
+      "summary": "executeCollocateSearchWithStoredFields and executeCollocateSearch are identical thin wrappers differing only by a boolean flag to performCollocateSearch",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "executeCollocateSearchWithStoredFields calls performCollocateSearch(lemma, bcqlPattern, true); executeCollocateSearch calls performCollocateSearch(lemma, bcqlPattern, false). Both methods exist solely to pass true/false to the private method."
+      ],
+      "suggestion": "Use a single method with a named boolean parameter or an enum (e.g. HitFieldMode.STORED / GROUPED) to eliminate the wrapper pair while keeping the intent readable at call sites.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "definition_directness",
+      "identifier": "per_seed_collocate_conversion_duplication",
+      "summary": "MultiSeedExplorer.findCollocateIntersection manually rebuilds perSeedCollocates as Map<String,Map<String,Double>> from data.seedCollocateMap() using a loop that re-iterates the same list already consumed by aggregateCollocateStats and buildDiscoveredNouns",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "After calling aggregateCollocateStats and buildDiscoveredNouns, findCollocateIntersection iterates data.seedCollocateMap() a third time in a for-each loop to build perSeedCollocates, converting List<WordSketchResult> to Map<String,Double>. This conversion could be done once during fetchCollocatesPerSeed or extracted into a helper."
+      ],
+      "suggestion": "Produce the perSeedCollocates map directly inside fetchCollocatesPerSeed (or as part of SeedCollocateData) so the conversion happens once and downstream code just reads it.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "server_null_until_start",
+      "summary": "WordSketchApiServer.server field is null after construction and only populated when start() is called; getPort() throws IllegalStateException if called pre-start",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "Field declared as: private com.sun.net.httpserver.HttpServer server; (no initializer). start() assigns it. getPort() checks 'if (server == null) throw new IllegalStateException'. The object is partially usable after construction."
+      ],
+      "suggestion": "This is a common server pattern but the null state should be explicit: rename server to httpServer and declare it @Nullable with a clear comment, or use a started/stopped lifecycle state enum so misuse gives a clearer message.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "nullable_index_test_constructor",
+      "summary": "BlackLabQueryExecutor has a package-private constructor that accepts a null BlackLabIndex, producing an object that throws NullPointerException if any I/O method is called",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "@SuppressWarnings(\"NullAway\") BlackLabQueryExecutor(BlackLabIndex index) { this.blackLabIndex = index; this.collocateQueryHelper = index != null ? new CollocateQueryHelper(index) : new CollocateQueryHelper((BlackLabIndex) null) {}; }. The null path is guarded only by a doc comment saying callers must not invoke I/O methods."
+      ],
+      "suggestion": "Introduce a dedicated test-only subclass or a static factory method (e.g. BlackLabQueryExecutor.forTesting()) rather than making null a valid constructor argument. Alternatively, inject a no-op stub that implements the interface instead of passing null.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "seeds_as_discovered_nouns",
+      "summary": "In multi-seed mode the seed words themselves are placed into the discovered_nouns field of ExploreResponse, inverting the single-seed meaning where discovered_nouns are genuinely new nouns found by reverse lookup",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.buildDiscoveredNouns iterates over seeds (not over reverse-lookup results) and creates a DiscoveredNoun for each seed. ExplorationResult.discoveredNouns() then contains the original seeds. ExploreResponseAssembler.buildDiscoveredNounEntries converts these to DiscoveredNounEntry objects which appear in the JSON field discovered_nouns \u2014 so in a multi-seed response, discovered_nouns IS the seeds list, not nouns discovered from them."
+      ],
+      "suggestion": "Rename the field in ExploreResponse.MultiSeed to seed_profiles (or seeds_with_shared_collocates) and introduce a dedicated SeedProfile entry type to distinguish this from genuinely-discovered nouns. Single-seed discovered_nouns retains its current meaning.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "cross_relational_magic_string_sentinel",
+      "summary": "The compare endpoint hard-codes the string literal CROSS_RELATIONAL = \"cross_relational\" as the relation field in ComparisonResponse, mixing a sentinel value into a field that normally carries a real relation identifier",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java"
+      ],
+      "evidence": [
+        "private static final String CROSS_RELATIONAL = \"cross_relational\"; used directly in ExploreResponseAssembler.buildComparisonResponse call. ComparisonParameters.relation is typed as String, so there is nothing in the type system preventing a caller from passing any other string. The ComparisonResponse Javadoc does not document this sentinel value."
+      ],
+      "suggestion": "Either use an Optional<String> for relation in ComparisonParameters (null/absent when cross-relational), or introduce a RelationScope enum with values SPECIFIC_RELATION and CROSS_RELATIONAL so the distinction is type-safe.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "api_layer_resolves_relation_config",
+      "summary": "ExplorationHandlers directly calls grammarConfig.relation() and RelationUtils.resolveRelationAlias() to produce a RelationConfig, embedding grammar-config resolution logic in the HTTP layer rather than the service layer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java"
+      ],
+      "evidence": [
+        "resolveRelationConfig() in ExplorationHandlers calls RelationUtils.resolveRelationAlias and grammarConfig.relation(). The handler then passes the resolved RelationConfig to semanticFieldExplorer.exploreByRelation. ExplorationService could accept a String relationId and perform resolution internally, keeping config knowledge out of the API layer."
+      ],
+      "suggestion": "Add a String-based overload to ExplorationService (or move resolveRelationConfig to the explorer), so the HTTP layer translates the raw string to a domain operation without needing a GrammarConfig constructor injection. This reduces the API layer's dependency surface.",
+      "confidence": "low"
+    }
+  ],
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "session_id": "ext_20260312_231531_11a1e892",
+    "created_at": "2026-03-12T23:23:47+00:00",
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "3cf49b1662b2fe4f9100dbcb440738920857f4fe83cc6ed61293eb24c845bade"
+  }
+}

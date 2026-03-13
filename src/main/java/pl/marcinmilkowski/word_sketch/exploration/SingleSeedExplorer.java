@@ -178,11 +178,11 @@ class SingleSeedExplorer {
 
     private List<CoreCollocate> identifyCoreCollocates(
             Map<String, Double> seedCollocateScores, List<DiscoveredNoun> discoveredNouns) {
-        Map<String, Integer> collocateFrequency = new LinkedHashMap<>();
+        Map<String, Integer> nounSharingCount = new LinkedHashMap<>();
         Map<String, Double> collocateTotalScore = new LinkedHashMap<>();
         for (DiscoveredNoun dn : discoveredNouns) {
             for (Map.Entry<String, Double> collocate : dn.sharedCollocates().entrySet()) {
-                collocateFrequency.merge(collocate.getKey(), 1, Integer::sum);
+                nounSharingCount.merge(collocate.getKey(), 1, Integer::sum);
                 collocateTotalScore.merge(collocate.getKey(), collocate.getValue(), Double::sum);
             }
         }
@@ -190,7 +190,7 @@ class SingleSeedExplorer {
                 (int) Math.ceil(discoveredNouns.size() * CORE_COLLOCATE_MIN_NOUN_FRACTION));
         List<CoreCollocate> coreCollocates = new ArrayList<>();
         for (String collocate : seedCollocateScores.keySet()) {
-            int freq = collocateFrequency.getOrDefault(collocate, 0);
+            int freq = nounSharingCount.getOrDefault(collocate, 0);
             if (freq >= minNounsForCore) {
                 double totalScore = collocateTotalScore.getOrDefault(collocate, 0.0);
                 double seedScore = seedCollocateScores.get(collocate);

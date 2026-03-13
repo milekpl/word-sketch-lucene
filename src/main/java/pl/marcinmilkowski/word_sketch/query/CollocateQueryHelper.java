@@ -292,14 +292,9 @@ class CollocateQueryHelper {
 
     /**
      * Transforms a single (hit, concordance) pair into a {@link HitRecord}.
-     * Returns a sentinel record with empty text when the concordance parts cannot be parsed.
      */
     private HitRecord toHitRecord(Hit hit, Concordance conc, int collocatePos) {
         String[] parts = BlackLabSnippetParser.safeParts(conc);
-        if (parts == null) {
-            return new HitRecord("", "", "", "", null, hit.doc(), hit.start(), hit.end());
-        }
-
         String leftXml  = parts[0];
         String matchXml = parts[1];
         String rightXml = parts[2];

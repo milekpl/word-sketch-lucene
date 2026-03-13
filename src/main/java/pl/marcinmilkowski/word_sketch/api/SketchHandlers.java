@@ -56,7 +56,7 @@ class SketchHandlers {
             throw new IllegalArgumentException("Lemma exceeds maximum length of " + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
         }
 
-        if (parts.length > 1 && "dep".equals(parts[1])) {
+        if (parts.length > 1 && RelationType.DEP.label().equals(parts[1])) {
             String specificDeprel = parts.length > 2 ? parts[2] : null;
             if (specificDeprel != null) {
                 handleRelationQueryForPattern(exchange, lemma, specificDeprel, RelationType.DEP);

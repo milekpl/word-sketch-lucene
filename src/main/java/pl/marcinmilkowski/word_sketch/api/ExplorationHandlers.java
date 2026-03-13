@@ -160,7 +160,11 @@ class ExplorationHandlers {
      * <p>GET /api/semantic-field/examples?seed=theory&amp;collocate=good&amp;top=10&amp;relation=adj_predicate</p>
      *
      * <p>Parameter names {@code seed} and {@code collocate} mirror those used by the sibling
-     * {@code /api/concordance/examples} endpoint.</p>
+     * {@code /api/concordance/examples} endpoint. <strong>Error contract differs from
+     * {@code /api/concordance/examples}:</strong> this endpoint returns 400 for an unknown
+     * relation (strict — no fallback); {@code /api/concordance/examples} silently falls back
+     * to a proximity pattern and returns {@code fallback: true} in the response body.
+     * Corpus failures return 503 here vs 500 on the concordance endpoint.</p>
      *
      * @param exchange the HTTP exchange; receives a 400 if {@code seed} or {@code collocate}
      *                 is missing or the relation is unknown

@@ -16,6 +16,15 @@ import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
  *
  * <p>Covers alias resolution, grammar-config validation, reverse-pattern lookups,
  * and all stateless pattern-building functions operating on {@link RelationConfig}.</p>
+ *
+ * <p><strong>TODO (T4 refactor):</strong> This class bundles several distinct concerns
+ * that could be decomposed: (1) alias resolution and validation
+ * ({@code resolveRelationAlias}, {@code validateAliases}); (2) grammar-config search
+ * ({@code findBestCollocatePattern}); (3) BCQL pattern construction
+ * ({@code buildFullPattern}, {@code buildCollocateReversePattern}); (4) POS-group
+ * inference from raw pattern strings ({@code computeCollocatePosGroup},
+ * {@code extractLabelContent}, {@code resolvePosGroupFromPrefix}). Consider extracting
+ * the POS-group inference group into a dedicated {@code CollocatePosResolver} helper.</p>
  */
 public final class RelationUtils {
 

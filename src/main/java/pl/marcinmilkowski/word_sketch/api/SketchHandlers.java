@@ -57,6 +57,10 @@ class SketchHandlers {
         }
 
         if (parts.length > 1 && RelationType.DEP.label().equals(parts[1])) {
+            // NOTE: "dep" is a reserved URL path segment that acts as a sketch-type
+            // discriminator. It must never be assigned as a grammar relation ID to avoid
+            // routing collisions — /api/sketch/{lemma}/dep always means "full dep sketch",
+            // not a surface relation named "dep".
             String specificDeprel = parts.length > 2 ? parts[2] : null;
             if (specificDeprel != null) {
                 handleRelationQueryById(exchange, lemma, specificDeprel, RelationType.DEP);

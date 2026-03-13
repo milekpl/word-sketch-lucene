@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.NonNull;
+
 /**
  * A noun discovered during exploration - shares collocates with the seed.
  */
 public record DiscoveredNoun(
-        String noun,
-        Map<String, Double> sharedCollocates,
+        @NonNull String noun,
+        @NonNull Map<String, Double> sharedCollocates,
         int sharedCount,
         double combinedRelevanceScore,
         double avgLogDice) {

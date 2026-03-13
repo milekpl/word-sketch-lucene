@@ -33,7 +33,7 @@ class CollocateProfileComparator {
     private final QueryExecutor executor;
     private final String adjCollocatePattern;
 
-    public CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
+    CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig) {
         this.executor = executor;
         this.adjCollocatePattern = deriveCollocatePattern(grammarConfig);
     }

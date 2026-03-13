@@ -32,15 +32,15 @@ public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Clos
      *
      * @param lemma       The headword filter: its corpus frequency is looked up separately to
      *                    compute logDice scores and is <em>not</em> embedded in {@code cqlPattern}.
-     *                    Returns an empty list silently if null or empty.
+     *                    Must not be null or empty.
      * @param cqlPattern  CQL pattern defining the collocate constraints (see above)
      * @param minLogDice  Minimum logDice score threshold (0 for no minimum)
      * @param maxResults  Maximum number of results to return
      * @return List of collocation results, sorted by logDice descending
      * @throws IOException if index access fails
-     * @throws IllegalArgumentException if {@code cqlPattern} is not in a recognized format
+     * @throws IllegalArgumentException if {@code lemma} is null or empty, or {@code cqlPattern} is not in a recognized format
      */
-    @NonNull List<WordSketchResult> executeCollocations(@Nullable String lemma, @NonNull String cqlPattern,
+    @NonNull List<WordSketchResult> executeCollocations(@NonNull String lemma, @NonNull String cqlPattern,
                                              double minLogDice, int maxResults) throws IOException;
 
     /**

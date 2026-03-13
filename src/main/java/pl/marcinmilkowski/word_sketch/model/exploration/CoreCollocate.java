@@ -1,10 +1,12 @@
 package pl.marcinmilkowski.word_sketch.model.exploration;
 
+import org.jspecify.annotations.NonNull;
+
 /**
  * A collocate that defines the semantic class (shared by multiple discovered nouns).
  */
 public record CoreCollocate(
-        String collocate,
+        @NonNull String collocate,
         int sharedByCount,
         int totalNouns,
         double seedLogDice,

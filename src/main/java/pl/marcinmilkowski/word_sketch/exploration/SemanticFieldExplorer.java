@@ -109,7 +109,7 @@ public class SemanticFieldExplorer implements ExplorationService {
     public @NonNull ExplorationResult exploreByRelation(
             @NonNull String seed,
             @NonNull RelationConfig relationConfig,
-            @NonNull SingleSeedExplorationOptions opts) throws ExplorationException {
+            @NonNull SingleSeedExplorationOptions opts) {
         relationConfig.validate();
         if (relationConfig.collocatePosGroup() == PosGroup.OTHER) {
             throw new IllegalArgumentException(
@@ -145,7 +145,7 @@ public class SemanticFieldExplorer implements ExplorationService {
      * @return ComparisonResult with graded adjective profiles
      */
     public @NonNull ComparisonResult compareCollocateProfiles(
-            @NonNull Set<String> seeds, @NonNull ExplorationOptions opts) throws ExplorationException {
+            @NonNull Set<String> seeds, @NonNull ExplorationOptions opts) {
         try {
             return comparator.compareCollocateProfiles(seeds, opts);
         } catch (java.io.IOException e) {
@@ -163,8 +163,7 @@ public class SemanticFieldExplorer implements ExplorationService {
      * @return {@link FetchExamplesResult} with concordance lines and the query used
      */
     public @NonNull FetchExamplesResult fetchExamples(@NonNull String seed, @NonNull String collocate,
-            @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts)
-            throws ExplorationException {
+            @NonNull RelationConfig relationConfig, @NonNull FetchExamplesOptions opts) {
         relationConfig.validate();
         int maxExamples = opts.maxExamples();
         String bcqlQuery = RelationUtils.buildFullPattern(relationConfig, seed.toLowerCase(), collocate.toLowerCase());
@@ -202,7 +201,7 @@ public class SemanticFieldExplorer implements ExplorationService {
     public @NonNull ExplorationResult exploreMultiSeed(
             @NonNull Set<String> seeds,
             @NonNull RelationConfig relationConfig,
-            @NonNull ExplorationOptions opts) throws ExplorationException {
+            @NonNull ExplorationOptions opts) {
         if (seeds.size() < 2) {
             throw new IllegalArgumentException("At least 2 seeds are required for multi-seed exploration");
         }

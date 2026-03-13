@@ -32,7 +32,7 @@ class MultiSeedExplorer {
 
     private final QueryExecutor executor;
 
-    public MultiSeedExplorer(QueryExecutor executor) {
+    MultiSeedExplorer(QueryExecutor executor) {
         this.executor = executor;
     }
 

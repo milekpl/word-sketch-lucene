@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
+import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -93,14 +94,14 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
     @Override
     public List<WordSketchResult> executeCollocations(
-            @Nullable String lemma,
+            @NonNull String lemma,
             String cqlPattern,
             double minLogDice,
             int maxResults) throws IOException {
 
         if (lemma == null || lemma.isEmpty()) {
-            logger.debug("executeCollocations: skipping query — lemma is null or empty");
-            return Collections.emptyList();
+            throw new IllegalArgumentException(
+                "executeCollocations: lemma must not be null or empty");
         }
 
         String bcql = buildBcqlWithLemmaPrepended(cqlPattern, lemma);
@@ -149,12 +150,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         } catch (InvalidQuery e) {
             throw new IllegalArgumentException("CQL parse error: " + e.getMessage(), e);
-        } catch (NullPointerException e) {
-            // Re-throw NPEs immediately — they are programming bugs, not expected runtime errors.
-            throw e;
         } catch (RuntimeException e) {
             // BlackLab's search() can throw undocumented RuntimeExceptions on index corruption
             // or internal state errors; no more-specific public exception type is available.
+            // NullPointerExceptions (programming bugs) propagate naturally from here.
             throw new IOException("Unexpected error executing CQL query: " + e.getMessage(), e);
         }
     }
@@ -186,8 +185,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
 
         Objects.requireNonNull(deprel, "deprel must not be null");
         if (lemma == null || lemma.isEmpty()) {
-            logger.debug("executeDependencyPattern: skipping query — lemma is null/empty");
-            return Collections.emptyList();
+            throw new IllegalArgumentException(
+                "executeDependencyPattern: lemma must not be null or empty");
         }
 
         String bcql = headPosConstraint != null

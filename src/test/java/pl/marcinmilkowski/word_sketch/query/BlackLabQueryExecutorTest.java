@@ -66,21 +66,21 @@ class BlackLabQueryExecutorTest {
     // ── Guard-clause tests (no index required, always run in CI) ─────────────
 
     @Test
-    @DisplayName("executeCollocations: null lemma returns empty list without touching the index")
-    void executeCollocations_nullLemma_returnsEmptyList() throws Exception {
+    @DisplayName("executeCollocations: null lemma throws IllegalArgumentException")
+    void executeCollocations_nullLemma_returnsEmptyList() {
         BlackLabQueryExecutor executor = new BlackLabQueryExecutor((nl.inl.blacklab.search.BlackLabIndex) null);
-        var result = executor.executeCollocations(null, "[xpos=\"JJ.*\"]", 0.0, 10);
-        assertNotNull(result, "Result must not be null");
-        assertTrue(result.isEmpty(), "Null lemma must produce an empty result list");
+        assertThrows(IllegalArgumentException.class, () ->
+            executor.executeCollocations(null, "[xpos=\"JJ.*\"]", 0.0, 10),
+            "Null lemma must throw IllegalArgumentException");
     }
 
     @Test
-    @DisplayName("executeCollocations: empty lemma returns empty list without touching the index")
-    void executeCollocations_emptyLemma_returnsEmptyList() throws Exception {
+    @DisplayName("executeCollocations: empty lemma throws IllegalArgumentException")
+    void executeCollocations_emptyLemma_returnsEmptyList() {
         BlackLabQueryExecutor executor = new BlackLabQueryExecutor((nl.inl.blacklab.search.BlackLabIndex) null);
-        var result = executor.executeCollocations("", "[xpos=\"JJ.*\"]", 0.0, 10);
-        assertNotNull(result, "Result must not be null");
-        assertTrue(result.isEmpty(), "Empty lemma must produce an empty result list");
+        assertThrows(IllegalArgumentException.class, () ->
+            executor.executeCollocations("", "[xpos=\"JJ.*\"]", 0.0, 10),
+            "Empty lemma must throw IllegalArgumentException");
     }
 
     @Test

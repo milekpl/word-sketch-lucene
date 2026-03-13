@@ -19,10 +19,17 @@ import pl.marcinmilkowski.word_sketch.model.sketch.*;
 public interface CollocateQueryPort {
 
     /**
-     * Execute a BCQL (CorpusQueryLanguageParser) pattern and return concordance results.
+     * Execute a BCQL pattern and return concordance results.
      * Supports labeled capture groups ({@code 1:}, {@code 2:}) and computes per-hit logDice scores.
      *
-     * @param bcqlPattern  BCQL pattern, optionally with labeled positions
+     * @implNote Uses the BCQL parser ({@code CorpusQueryLanguageParser}). When scoring is required,
+     *           the headword lemma must be embedded in {@code bcqlPattern} (e.g. via a
+     *           {@code lemma="..."} attribute on the head token). This is intentionally asymmetric
+     *           with {@link QueryExecutor#executeCollocations}, which accepts the lemma as a
+     *           separate parameter and looks up its frequency independently.
+     *
+     * @param bcqlPattern  BCQL pattern, optionally with labeled positions; embed the headword
+     *                     lemma in the pattern when per-hit logDice scoring is needed
      * @param maxResults   Maximum number of results after ranking
      * @return Concordance results, ranked by logDice
      * @throws IOException if index access or parsing fails

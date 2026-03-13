@@ -31,6 +31,21 @@ import pl.marcinmilkowski.word_sketch.model.sketch.*;
  *       identify the head and collocate tokens; returns results ranked by logDice. Distinct from
  *       {@link #executeCollocations} which ignores position hints.</li>
  * </ul>
+ *
+ * <h2>Consumer interface audit</h2>
+ * <p>All API handlers already receive the narrowest interface that covers their needs:</p>
+ * <ul>
+ *   <li>{@link pl.marcinmilkowski.word_sketch.api.SketchHandlers} → {@link SketchQueryPort}
+ *       (only {@code executeSurfacePattern})</li>
+ *   <li>{@link pl.marcinmilkowski.word_sketch.api.ConcordanceHandlers} → {@link CollocateQueryPort}
+ *       (only {@code executeBcqlQuery})</li>
+ *   <li>{@link pl.marcinmilkowski.word_sketch.api.CorpusQueryHandlers} → {@link CollocateQueryPort}
+ *       (only {@code executeBcqlQuery})</li>
+ *   <li>{@link pl.marcinmilkowski.word_sketch.api.ExplorationHandlers} — uses
+ *       {@link pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService} only;
+ *       does not hold a reference to {@code QueryExecutor}.</li>
+ * </ul>
+ * <p>No handler should declare {@code QueryExecutor} directly; use the appropriate narrow port.</p>
  */
 public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Closeable {
 
@@ -42,7 +57,9 @@ public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Clos
      * constraint appended after the head lemma token, e.g. {@code "[xpos=\"JJ.*\"]"}.
      * Any other format throws {@link IllegalArgumentException}.
      *
-     * @param lemma       The head lemma to search for; returns an empty list silently if null or empty
+     * @param lemma       The headword filter: its corpus frequency is looked up separately to
+     *                    compute logDice scores and is <em>not</em> embedded in {@code cqlPattern}.
+     *                    Returns an empty list silently if null or empty.
      * @param cqlPattern  CQL pattern defining the collocate constraints (see above)
      * @param minLogDice  Minimum logDice score threshold (0 for no minimum)
      * @param maxResults  Maximum number of results to return
@@ -54,8 +71,11 @@ public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Clos
                                              double minLogDice, int maxResults) throws IOException;
 
     /**
-     * Execute a general CQL query (ContextualQueryLanguageParser) and return raw concordance results.
-     * Does not compute logDice or extract collocates — use {@link #executeBcqlQuery} for that.
+     * Execute a general CQL query and return raw concordance results.
+     * Does not compute logDice or extract collocates — use {@link CollocateQueryPort#executeBcqlQuery} for that.
+     *
+     * @implNote Uses the CQL parser ({@code ContextualQueryLanguageParser}); no headword scoring.
+     *           Returns token windows matching the pattern without ranked collocation data.
      *
      * @param cqlPattern  CQL pattern string
      * @param maxResults  Maximum number of concordance results

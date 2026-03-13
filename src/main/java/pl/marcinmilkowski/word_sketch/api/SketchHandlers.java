@@ -21,7 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
 /**
@@ -93,14 +92,11 @@ class SketchHandlers {
     }
 
     private void handleFullSketchForType(HttpExchange exchange, String lemma, RelationType relationType) throws IOException {
-        Map<String, RelationEntry> byRelation = new LinkedHashMap<>();
-        List<String> relationErrors = new ArrayList<>();
-
-        executeRelationQueries(relationType, rel -> true, lemma, byRelation, relationErrors, (rel, sketch) ->
-            SketchResponseAssembler.buildSurfaceRelationEntry(rel, sketch.collocations(),
+        RelationQueryBatch batch = executeRelationQueries(relationType, rel -> true, lemma,
+            (rel, sketch) -> SketchResponseAssembler.buildSurfaceRelationEntry(rel, sketch.collocations(),
                 sketch.results().stream().mapToLong(WordSketchResult::frequency).sum()));
 
-        HttpApiUtils.sendJsonResponse(exchange, buildSketchResponse(lemma, null, byRelation, relationErrors));
+        HttpApiUtils.sendJsonResponse(exchange, buildSketchResponse(lemma, null, batch.results(), batch.errors()));
     }
 
     /**
@@ -108,13 +104,10 @@ class SketchHandlers {
      * {@code "type": "dependency"} field in the response.
      */
     private void handleDependencySketch(HttpExchange exchange, String lemma) throws IOException {
-        Map<String, RelationEntry> byRelation = new LinkedHashMap<>();
-        List<String> relationErrors = new ArrayList<>();
-
-        executeRelationQueries(RelationType.DEP, rel -> rel.deriveDeprel() != null, lemma, byRelation, relationErrors,
+        RelationQueryBatch batch = executeRelationQueries(RelationType.DEP, rel -> rel.deriveDeprel() != null, lemma,
             (rel, sketch) -> SketchResponseAssembler.buildDepRelationEntry(rel, sketch.results(), sketch.collocations()));
 
-        HttpApiUtils.sendJsonResponse(exchange, buildSketchResponse(lemma, "dependency", byRelation, relationErrors));
+        HttpApiUtils.sendJsonResponse(exchange, buildSketchResponse(lemma, "dependency", batch.results(), batch.errors()));
     }
 
     /** Builds a typed {@link SketchResponse}; {@code type} is {@code null} for surface-sketch responses. */
@@ -130,34 +123,43 @@ class SketchHandlers {
     /**
      * Shared loop that iterates over grammar relations of the given type, executes each one,
      * and delegates response-record construction to the provided {@code builder} callback.
-     * Relations that execute with no results are skipped; errors are collected in
-     * {@code relationErrors} rather than propagated.
+     * Relations that execute with no results are skipped; errors are collected in the returned
+     * {@link RelationQueryBatch} rather than propagated.
      *
-     * @param relationType    the type of relations to process
-     * @param extraFilter     additional per-relation predicate (e.g. {@code rel -> rel.deriveDeprel() != null})
-     * @param lemma           the head lemma being sketched
-     * @param byRelation      accumulator map from relation-id to {@link RelationEntry}
-     * @param relationErrors  accumulator list for error strings
-     * @param builder         callback that converts a relation config + executed sketch into a {@link RelationEntry}
+     * @param relationType the type of relations to process
+     * @param extraFilter  additional per-relation predicate (e.g. {@code rel -> rel.deriveDeprel() != null})
+     * @param lemma        the head lemma being sketched
+     * @param builder      converts a relation config + executed sketch into a {@link RelationEntry}
+     * @return a batch holding the populated results map and any per-relation error messages
      */
-    private void executeRelationQueries(
+    private RelationQueryBatch executeRelationQueries(
             RelationType relationType,
             Predicate<pl.marcinmilkowski.word_sketch.config.RelationConfig> extraFilter,
             String lemma,
-            Map<String, RelationEntry> byRelation,
-            List<String> relationErrors,
-            BiFunction<pl.marcinmilkowski.word_sketch.config.RelationConfig, ExecutedSketch, RelationEntry> builder) {
+            RelationEntryBuilder builder) {
+        Map<String, RelationEntry> byRelation = new LinkedHashMap<>();
+        List<String> relationErrors = new ArrayList<>();
         for (var rel : grammarConfig.relations()) {
             if (rel.relationType().orElse(null) != relationType) continue;
             if (!extraFilter.test(rel)) continue;
             try {
                 Optional<ExecutedSketch> sketchOpt = buildSketch(lemma, rel);
-                sketchOpt.ifPresent(sketch -> byRelation.put(rel.id(), builder.apply(rel, sketch)));
+                sketchOpt.ifPresent(sketch -> byRelation.put(rel.id(), builder.build(rel, sketch)));
             } catch (IOException e) {
-                logger.warn("Relation {} failed for lemma {}", rel.id(), lemma, e);
-                relationErrors.add(e.getMessage());
+                logger.warn("Relation {} failed for lemma {}: {}", rel.id(), lemma, e.getMessage(), e);
+                relationErrors.add(rel.id() + ": " + e.getMessage());
             }
         }
+        return new RelationQueryBatch(byRelation, relationErrors);
+    }
+
+    /** Holds the per-relation results and any error messages from a batch of relation queries. */
+    private record RelationQueryBatch(Map<String, RelationEntry> results, List<String> errors) {}
+
+    /** Builds a {@link RelationEntry} from a relation config and its executed sketch. */
+    @FunctionalInterface
+    private interface RelationEntryBuilder {
+        RelationEntry build(pl.marcinmilkowski.word_sketch.config.RelationConfig rel, ExecutedSketch sketch);
     }
 
     private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType) throws IOException {

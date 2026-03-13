@@ -109,11 +109,8 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
-        GroupStats stats = collectFrequenciesAndPosFromGroups(groups, identity -> {
-            // extractLemmaWithFallback handles CoNLL-U style matches with explicit lemma= attributes.
-            String collocateLemma = BlackLabSnippetParser.extractLemmaWithFallback(identity);
-            return collocateLemma.isEmpty() ? null : collocateLemma;
-        });
+        GroupStats stats = collectFrequenciesAndPosFromGroups(groups,
+                identity -> BlackLabSnippetParser.extractLemmaWithFallback(identity));
 
         return collocateQueryHelper.buildAndRankCollocates(stats.freqMap(), headwordFreq, minLogDice, maxResults, stats.lemmaPosMap());
     }

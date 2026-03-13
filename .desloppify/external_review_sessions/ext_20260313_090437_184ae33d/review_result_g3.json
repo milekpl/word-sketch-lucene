@@ -1,0 +1,83 @@
+{
+  "session": {
+    "id": "ext_20260313_090437_184ae33d",
+    "token": "a33fbac11e35ace06489541cf30d5bd6"
+  },
+  "assessments": {
+    "api_surface_coherence": 73,
+    "authorization_consistency": 90,
+    "ai_generated_debt": 78,
+    "incomplete_migration": 55,
+    "package_organization": 76
+  },
+  "findings": [
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "claude_md_stale_class_map",
+      "summary": "CLAUDE.md code structure map lists multiple classes at wrong paths or that no longer exist",
+      "related_files": ["CLAUDE.md"],
+      "evidence": [
+        "CLAUDE.md line 111 lists `api/GrammarConfigSerializer.java` — this class exists only in `src/test/`, not in production sources",
+        "CLAUDE.md line 124 lists `exploration/ExplorationService.java` — the actual file is at `exploration/spi/ExplorationService.java`",
+        "CLAUDE.md line 133 lists `model/FetchExamplesOptions.java` — the actual file is at `model/exploration/FetchExamplesOptions.java`",
+        "CLAUDE.md line 135 lists `model/QueryResults.java` — this file does not exist; result types live under `model/sketch/`",
+        "CLAUDE.md line 136 lists `model/RelationType.java` — the actual file is at `config/RelationType.java`",
+        "CLAUDE.md lines 157-159 list `viz/Edge.java` and `viz/RelationEdgeType.java` — both actually live under `model/exploration/`",
+        "CLAUDE.md line 120 lists `config/RelationPatternBuilder.java` — this file does not exist",
+        "CLAUDE.md omits `api/ComparisonResponseAssembler.java`, `api/SketchResponseAssembler.java`, and the entire `query/spi/` package",
+        "An older spec section within CLAUDE.md (visible in the embedded concept-sketch-spec content) still references removed packages `grammar/` and `tagging/` and non-existent classes CQLParser, CQLPattern, CQLToLuceneCompiler, WordSketchQueryExecutor, SimpleTagger, LongIntHashMap, CQLVerifier — none of which exist in the current codebase",
+        "CLAUDE.md performance-tuning section references `CollocationsBuilderV2` and `HybridLuceneIndexer` — neither exists"
+      ],
+      "suggestion": "Regenerate the `## Code Structure` section of CLAUDE.md by walking `src/main/java` and updating all class paths, removing non-existent entries, and adding the missing classes. Remove or clearly archive the stale spec content that references the old `grammar/` and `tagging/` packages.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dual_examples_endpoints",
+      "summary": "Two endpoints serve concordance examples under different URL prefixes with diverging error semantics",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "GET /api/semantic-field/examples returns 503 ExplorationException if the corpus fails; GET /api/concordance/examples returns 500 IOException for the same failure",
+        "GET /api/concordance/examples silently falls back to a proximity pattern when the relation is unknown (returns fallback:true in body); GET /api/semantic-field/examples throws 400 for the same condition — a caller switching between the two endpoints gets different behavior for the same invalid relation",
+        "Both endpoints accept identical parameter names (seed, collocate, relation, top) and return the same ExamplesResponse record, making the URL-level split invisible to consumers who must also memorise the diverging error contracts"
+      ],
+      "suggestion": "Document the intended difference explicitly at the HTTP level — either via distinct error codes (e.g., 422 for unknown relation vs 503 for corpus failure) or by consolidating the two endpoints behind a single path with a `mode=semantic|concordance` parameter. If the fallback behaviour in the concordance endpoint is intentional, add a clear note in both Javadocs.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_dep_special_segment",
+      "summary": "The `dep` keyword is overloaded as both a sketch-type discriminator and a URL path segment in /api/sketch/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "routeSketchRequest splits the path and checks if parts[1].equals(RelationType.DEP.label()) — meaning a lemma named exactly `dep` would be misrouted to the dependency sketch handler instead of the single-relation surface handler",
+        "The server Javadoc lists both `/api/sketch/{lemma}/dep` and `/api/sketch/{lemma}/{relation}` but does not document the collision risk or that `dep` is a reserved segment",
+        "The relation ID namespace and the `dep` sketch-type keyword share the same URL position without a type prefix (e.g., `/api/sketch/{lemma}/type/dep` or a query param)"
+      ],
+      "suggestion": "Reserve the `dep` path segment explicitly in Javadoc and validate that no grammar relation can have id=`dep`. Alternatively, move the sketch-type discriminator to a query parameter (`?type=dep`) to eliminate the ambiguity entirely.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "model_posgroup_vs_config_relationtype",
+      "summary": "PosGroup (domain enum) lives in model/ while the analogous RelationType enum lives in config/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationType.java"
+      ],
+      "evidence": [
+        "PosGroup is a domain enum (NOUN, VERB, ADJ, ADV, OTHER) used by SemanticFieldExplorer and RelationUtils — it lives in the model/ root package",
+        "RelationType (SURFACE, DEP) is also a domain enum used by SketchHandlers and GrammarConfig — it lives in config/",
+        "Both enums are used across the config/, exploration/, and api/ layers but are homed in different packages with no documented rationale for the asymmetry"
+      ],
+      "suggestion": "Move both enums to a single location — either both in config/ (since they model grammar-level distinctions) or both in model/ (since they represent domain classifications). Document the chosen convention in the model/ or config/ package-info.",
+      "confidence": "low"
+    }
+  ]
+}

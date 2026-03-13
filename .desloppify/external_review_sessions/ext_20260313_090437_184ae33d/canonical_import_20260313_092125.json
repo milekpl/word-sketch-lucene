@@ -1,0 +1,425 @@
+{
+  "assessments": {
+    "cross_module_architecture": 74,
+    "high_level_elegance": 76,
+    "convention_outlier": 74,
+    "error_consistency": 67,
+    "naming_quality": 78,
+    "abstraction_fitness": 64,
+    "dependency_health": 73,
+    "low_level_elegance": 67,
+    "mid_level_elegance": 70,
+    "test_strategy": 62,
+    "api_surface_coherence": 73,
+    "authorization_consistency": 90,
+    "ai_generated_debt": 78,
+    "incomplete_migration": 55,
+    "package_organization": 76,
+    "initialization_coupling": 75,
+    "design_coherence": 65,
+    "contract_coherence": 65,
+    "logic_clarity": 73,
+    "type_safety": 65
+  },
+  "findings": [
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "exploration_uses_wide_query_executor",
+      "summary": "Exploration sub-components depend on the wide QueryExecutor interface instead of narrow SPI ports",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/spi/CollocateQueryPort.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/spi/SketchQueryPort.java"
+      ],
+      "evidence": [
+        "SingleSeedExplorer.java line 37: constructor takes QueryExecutor (the wide interface extending Closeable, CollocateQueryPort, SketchQueryPort, plus executeCqlQuery, executeDependencyPattern, getTotalFrequency)",
+        "MultiSeedExplorer.java line 35: 'public MultiSeedExplorer(QueryExecutor executor)' \u2014 same wide dependency",
+        "CollocateProfileComparator.java line 36: 'public CollocateProfileComparator(QueryExecutor executor, ...)' \u2014 same wide dependency",
+        "In contrast, api handlers explicitly use narrow ports: SketchHandlers takes SketchQueryPort (line 42), ConcordanceHandlers takes CollocateQueryPort, CorpusQueryHandlers takes CollocateQueryPort",
+        "The executeCollocations method used by exploration classes is defined only on QueryExecutor, not on any SPI port \u2014 forcing exploration to import the wide interface"
+      ],
+      "suggestion": "Extract an ExplorationQueryPort interface (or extend an existing SPI) that exposes only executeCollocations and executeSurfaceCollocations. Declare SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator against this narrower type, mirroring the SPI discipline already applied in the api layer.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "semantic_field_explorer_misleading_facade_claim",
+      "summary": "SemanticFieldExplorer Javadoc claims 'thin facade' but the class owns non-trivial logic beyond delegation",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Class Javadoc (line ~42): 'Thin facade wiring SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator for the HTTP exploration layer'",
+        "fetchExamples() (line ~170): implements deduplication loop with HashSet<String> seen \u2014 not a delegation; this is owned business logic",
+        "exploreByRelation() (line ~134): validates collocatePosGroup, throws IllegalArgumentException for OTHER group \u2014 an ownership decision, not a passthrough",
+        "All 4 service methods wrap IOException in ExplorationException \u2014 owned translation logic across the class",
+        "Three public constructors (convenience, full-injection, test bypass) plus an internal GrammarConfig-to-nounCqlPattern translation in the full-injection constructor"
+      ],
+      "suggestion": "Either rename/redescribe the class as a service class (e.g. 'SemanticFieldService') that owns deduplication, validation, and error-wrapping concerns, or extract the non-delegation logic into helpers so the facade claim becomes accurate.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "public_constructors_on_package_private_exploration_classes",
+      "summary": "MultiSeedExplorer and CollocateProfileComparator declare public constructors/methods on package-private classes, while SingleSeedExplorer correctly uses package-private visibility throughout",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.java line 31: 'class MultiSeedExplorer' (package-private), line 35: 'public MultiSeedExplorer(QueryExecutor executor)' \u2014 public constructor",
+        "CollocateProfileComparator.java line 27: 'class CollocateProfileComparator' (package-private), line 36: 'public CollocateProfileComparator(QueryExecutor executor, GrammarConfig grammarConfig)' \u2014 public constructor; line 54: 'public ComparisonResult compareCollocateProfiles(...)' \u2014 public method",
+        "SingleSeedExplorer.java line 34: 'class SingleSeedExplorer' (package-private), line 41: 'SingleSeedExplorer(QueryExecutor executor, String nounCqlPattern)' \u2014 package-private constructor (no modifier)",
+        "On a package-private class, 'public' on members has no practical effect outside the package \u2014 the modifier is misleading about the intended access level"
+      ],
+      "suggestion": "Remove the 'public' modifier from MultiSeedExplorer's constructor and CollocateProfileComparator's constructor and methods, making them package-private to match SingleSeedExplorer's convention and accurately signal that these are internal algorithm classes.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "inconsistent_null_lemma_handling_in_query_executor",
+      "summary": "executeCollocations and executeDependencyPattern silently return empty list for null/empty lemma, while executeSurfaceCollocations throws IllegalArgumentException when the lemma is absent from the pattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "QueryExecutor.java line 36 Javadoc on executeCollocations: 'Returns an empty list silently if null or empty'",
+        "BlackLabQueryExecutor.java line 97-103: 'if (lemma == null || lemma.isEmpty()) { logger.debug(\"...\"); return Collections.emptyList(); }'",
+        "BlackLabQueryExecutor.java line ~153: executeDependencyPattern also guards 'if (lemma == null || lemma.isEmpty()) { return Collections.emptyList(); }'",
+        "BlackLabQueryExecutor.java line ~198: executeSurfaceCollocations throws IllegalArgumentException: 'lemma not extractable from pattern \u2014 ... (got: ' + bcqlPattern + ')'",
+        "All three methods are surface-query variants in the same interface; callers expecting consistent behavior must handle both the silent-empty and the throw cases"
+      ],
+      "suggestion": "Unify the missing-lemma contract across all three methods: either (a) make executeSurfaceCollocations return an empty list when no lemma attribute is present (consistent with the null-lemma behavior of siblings), or (b) change executeCollocations and executeDependencyPattern to throw IllegalArgumentException on null/empty lemma (consistent with executeSurfaceCollocations). Document the chosen contract in the QueryExecutor interface Javadoc.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "handle_relation_query_for_pattern_misleading_suffix",
+      "summary": "SketchHandlers.handleRelationQueryForPattern dispatches by relation ID, not by pattern \u2014 the 'ForPattern' suffix misrepresents the routing key",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java"
+      ],
+      "evidence": [
+        "SketchHandlers.java line 171: 'private void handleRelationQueryForPattern(HttpExchange exchange, String lemma, String relationId, RelationType relationType)'",
+        "The parameter is named 'relationId', not 'pattern' \u2014 the method looks up a RelationConfig by ID and dispatches the query",
+        "Sibling methods handleFullSketchForType, handleDependencySketch all use type-based names that accurately describe their dispatch key",
+        "Callers (line 62, 72) pass a deprel string or relation string parsed from the URL path segment \u2014 these are IDs, not patterns"
+      ],
+      "suggestion": "Rename to handleNamedRelationQuery(HttpExchange, String lemma, String relationId, RelationType) to match the actual dispatch semantics and align with sibling method naming.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "snippet_result_name_obscures_role",
+      "summary": "SnippetResult (the basic concordance hit without collocate extraction) is named for a text artifact rather than its role as the non-collocate variant of ConcordanceResult",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/SnippetResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/ConcordanceResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/CollocateResult.java"
+      ],
+      "evidence": [
+        "ConcordanceResult.java line 7-8: 'public sealed interface ConcordanceResult permits SnippetResult, CollocateResult' \u2014 two permitted subtypes",
+        "SnippetResult.java: 'record SnippetResult(String sentence, int startOffset, int endOffset, String docId)' \u2014 no collocateLemma, frequency, or logDice fields",
+        "CollocateResult.java: 'record CollocateResult(String sentence, String rawXml, int startOffset, int endOffset, String docId, String collocateLemma, long frequency, double logDice)'",
+        "The distinction between the two is that SnippetResult is a raw concordance hit (from executeCqlQuery) while CollocateResult is a scored/collocated hit. The name 'Snippet' does not communicate this distinction \u2014 it sounds like a display artifact rather than a query result type."
+      ],
+      "suggestion": "Rename SnippetResult to RawConcordanceResult or BasicHitResult to make the contrast with CollocateResult self-evident: one is a plain position-marked concordance, the other carries collocate scoring data.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "relation_utils_wide_scope",
+      "summary": "RelationUtils bundles 6 unrelated concerns into a single static utility class",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java"
+      ],
+      "evidence": [
+        "resolveRelationAlias / validateAliases \u2014 alias lifecycle management",
+        "findBestCollocatePattern \u2014 grammar-config search",
+        "buildFullPattern (2 overloads) \u2014 BCQL pattern construction",
+        "buildCollocateReversePattern \u2014 reverse-lookup pattern derivation",
+        "computeCollocatePosGroup + extractLabelContent + resolvePosGroupFromPrefix \u2014 POS group inference from raw pattern strings"
+      ],
+      "suggestion": "Extract the POS-group inference helpers (computeCollocatePosGroup, extractLabelContent, resolvePosGroupFromPrefix) into a dedicated package-private class (e.g. CollocatePosResolver). Consider splitting alias management and pattern building into separate final classes so each has a single coherent responsibility.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explorer_executor_field_redundancy",
+      "summary": "SemanticFieldExplorer stores executor directly but only uses it in fetchExamples; all other methods delegate to sub-objects that each hold their own reference to the same executor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Field: private final QueryExecutor executor (line 54)",
+        "executor is passed to CollocateProfileComparator, MultiSeedExplorer, SingleSeedExplorer \u2014 each stores it internally",
+        "Only fetchExamples (line 174) calls executor.executeBcqlQuery directly on the field",
+        "exploreByRelation, exploreMultiSeed, compareCollocateProfiles never reference this.executor"
+      ],
+      "suggestion": "Move the executeBcqlQuery call in fetchExamples to a dedicated collaborator (e.g. ExamplesQueryService) that accepts CollocateQueryPort, then remove the executor field from SemanticFieldExplorer. This eliminates the phantom shared state and makes each dependency's scope explicit.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "stored_fields_boolean_parameter",
+      "summary": "executeCollocateSearchWithStoredFields and executeCollocateSearch are thin wrappers that differ only by a single boolean flag, leaking an implementation detail into the public method names",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"
+      ],
+      "evidence": [
+        "executeCollocateSearchWithStoredFields delegates to performCollocateSearch(lemma, pattern, true)",
+        "executeCollocateSearch delegates to performCollocateSearch(lemma, pattern, false)",
+        "Both public methods have no body other than the delegation"
+      ],
+      "suggestion": "Either collapse to a single method accepting an explicit CollocateSearchMode enum, or inline the two-line wrapper bodies at call sites in BlackLabQueryExecutor to remove the indirection tier.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "explorer_over_wide_executor_dependency",
+      "summary": "SemanticFieldExplorer (and its sub-objects) depend on QueryExecutor (full interface) when only CollocateQueryPort is needed for the one direct call in fetchExamples",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer constructor accepts QueryExecutor executor",
+        "fetchExamples only calls executor.executeBcqlQuery() \u2014 declared on CollocateQueryPort",
+        "ConcordanceHandlers and CorpusQueryHandlers already follow the narrow-port pattern by depending on CollocateQueryPort",
+        "The exploration layer thus has a wider dependency surface than its actual usage requires"
+      ],
+      "suggestion": "Widen the exploration layer's dependency surface only as needed: accept CollocateQueryPort for corpus-lookup operations. This mirrors the pattern ConcordanceHandlers and CorpusQueryHandlers already follow and makes the dependency boundary explicit.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "find_label_double_pass",
+      "summary": "CqlUtils.findLabelTokenIndex makes two separate passes through the pattern string: one indexOf call to find the label, then a full character scan from position 0 to count bracket tokens",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"
+      ],
+      "evidence": [
+        "int labelIndex = pattern.indexOf(labelStr) \u2014 first pass to locate label",
+        "for (int i = 0; i < pattern.length(); i++) \u2014 second pass from position 0 counting '[' characters",
+        "The token counter restarts from 0 rather than walking forward from labelIndex"
+      ],
+      "suggestion": "Combine into a single forward pass: count '[' characters incrementally while scanning toward labelIndex; stop as soon as the matching bracket is found at or after labelIndex. This eliminates the redundant full-string re-scan.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "surface_collocations_redeclared_in_query_executor",
+      "summary": "executeSurfaceCollocations is declared in both SketchQueryPort and QueryExecutor (which extends it), resulting in duplicate signatures with divergent Javadoc",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/spi/SketchQueryPort.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "SketchQueryPort.executeSurfaceCollocations \u2014 concise declaration at line 30",
+        "QueryExecutor.executeSurfaceCollocations \u2014 re-declared at line 87 with a longer @implNote comment",
+        "QueryExecutor already extends SketchQueryPort, so the re-declaration is redundant"
+      ],
+      "suggestion": "Remove the re-declaration from QueryExecutor; move any additional Javadoc into the SketchQueryPort definition. If the extended documentation is important, annotate with @see or link to SketchQueryPort from the QueryExecutor interface-level Javadoc.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "exploration_error_paths_untested",
+      "summary": "ExplorationHandlers error cases \u2014 ExplorationException \u2192 503, unknown relation \u2192 400 \u2014 are not tested through the HTTP stack",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.sendExplorationError maps ExplorationException \u2192 503 but no test injects a failing service",
+        "resolveRelationConfig throws IAE for unknown relation IDs but no test exercises this path via handleSemanticFieldExplore",
+        "handleSemanticFieldExploreMulti: no test for seeds.size() < 2 case through the HTTP handler (only service-level validation is tested)"
+      ],
+      "suggestion": "Add tests that inject a stub ExplorationService that throws ExplorationException and verify the response is 503. Add tests for unknown relation IDs and single-seed calls to the multi endpoint and verify 400 responses.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "local_stub_executor_duplication",
+      "summary": "SemanticFieldExplorerTest defines a local StubExecutor subclass that duplicates the shared StubQueryExecutor infrastructure",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/StubQueryExecutor.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerTest defines `private static class StubExecutor extends StubQueryExecutor` with duplicate override pattern",
+        "StubQueryExecutor's Javadoc explicitly documents the anonymous-subclass override pattern as the intended test use",
+        "Other test files (ExplorationHandlersTest, SketchHandlersTest) use anonymous subclasses of StubQueryExecutor correctly"
+      ],
+      "suggestion": "Remove the local StubExecutor class; replace usages with anonymous subclasses of StubQueryExecutor following the pattern already used in ExplorationHandlersTest.collocatingExecutor.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "claude_md_stale_class_map",
+      "summary": "CLAUDE.md code structure map lists multiple classes at wrong paths or that no longer exist",
+      "related_files": [
+        "CLAUDE.md"
+      ],
+      "evidence": [
+        "CLAUDE.md line 111 lists `api/GrammarConfigSerializer.java` \u2014 this class exists only in `src/test/`, not in production sources",
+        "CLAUDE.md line 124 lists `exploration/ExplorationService.java` \u2014 the actual file is at `exploration/spi/ExplorationService.java`",
+        "CLAUDE.md line 133 lists `model/FetchExamplesOptions.java` \u2014 the actual file is at `model/exploration/FetchExamplesOptions.java`",
+        "CLAUDE.md line 135 lists `model/QueryResults.java` \u2014 this file does not exist; result types live under `model/sketch/`",
+        "CLAUDE.md line 136 lists `model/RelationType.java` \u2014 the actual file is at `config/RelationType.java`",
+        "CLAUDE.md lines 157-159 list `viz/Edge.java` and `viz/RelationEdgeType.java` \u2014 both actually live under `model/exploration/`",
+        "CLAUDE.md line 120 lists `config/RelationPatternBuilder.java` \u2014 this file does not exist",
+        "CLAUDE.md omits `api/ComparisonResponseAssembler.java`, `api/SketchResponseAssembler.java`, and the entire `query/spi/` package",
+        "An older spec section within CLAUDE.md (visible in the embedded concept-sketch-spec content) still references removed packages `grammar/` and `tagging/` and non-existent classes CQLParser, CQLPattern, CQLToLuceneCompiler, WordSketchQueryExecutor, SimpleTagger, LongIntHashMap, CQLVerifier \u2014 none of which exist in the current codebase",
+        "CLAUDE.md performance-tuning section references `CollocationsBuilderV2` and `HybridLuceneIndexer` \u2014 neither exists"
+      ],
+      "suggestion": "Regenerate the `## Code Structure` section of CLAUDE.md by walking `src/main/java` and updating all class paths, removing non-existent entries, and adding the missing classes. Remove or clearly archive the stale spec content that references the old `grammar/` and `tagging/` packages.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "dual_examples_endpoints",
+      "summary": "Two endpoints serve concordance examples under different URL prefixes with diverging error semantics",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "GET /api/semantic-field/examples returns 503 ExplorationException if the corpus fails; GET /api/concordance/examples returns 500 IOException for the same failure",
+        "GET /api/concordance/examples silently falls back to a proximity pattern when the relation is unknown (returns fallback:true in body); GET /api/semantic-field/examples throws 400 for the same condition \u2014 a caller switching between the two endpoints gets different behavior for the same invalid relation",
+        "Both endpoints accept identical parameter names (seed, collocate, relation, top) and return the same ExamplesResponse record, making the URL-level split invisible to consumers who must also memorise the diverging error contracts"
+      ],
+      "suggestion": "Document the intended difference explicitly at the HTTP level \u2014 either via distinct error codes (e.g., 422 for unknown relation vs 503 for corpus failure) or by consolidating the two endpoints behind a single path with a `mode=semantic|concordance` parameter. If the fallback behaviour in the concordance endpoint is intentional, add a clear note in both Javadocs.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "sketch_dep_special_segment",
+      "summary": "The `dep` keyword is overloaded as both a sketch-type discriminator and a URL path segment in /api/sketch/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/SketchHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java"
+      ],
+      "evidence": [
+        "routeSketchRequest splits the path and checks if parts[1].equals(RelationType.DEP.label()) \u2014 meaning a lemma named exactly `dep` would be misrouted to the dependency sketch handler instead of the single-relation surface handler",
+        "The server Javadoc lists both `/api/sketch/{lemma}/dep` and `/api/sketch/{lemma}/{relation}` but does not document the collision risk or that `dep` is a reserved segment",
+        "The relation ID namespace and the `dep` sketch-type keyword share the same URL position without a type prefix (e.g., `/api/sketch/{lemma}/type/dep` or a query param)"
+      ],
+      "suggestion": "Reserve the `dep` path segment explicitly in Javadoc and validate that no grammar relation can have id=`dep`. Alternatively, move the sketch-type discriminator to a query parameter (`?type=dep`) to eliminate the ambiguity entirely.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "model_posgroup_vs_config_relationtype",
+      "summary": "PosGroup (domain enum) lives in model/ while the analogous RelationType enum lives in config/",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/PosGroup.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/config/RelationType.java"
+      ],
+      "evidence": [
+        "PosGroup is a domain enum (NOUN, VERB, ADJ, ADV, OTHER) used by SemanticFieldExplorer and RelationUtils \u2014 it lives in the model/ root package",
+        "RelationType (SURFACE, DEP) is also a domain enum used by SketchHandlers and GrammarConfig \u2014 it lives in config/",
+        "Both enums are used across the config/, exploration/, and api/ layers but are homed in different packages with no documented rationale for the asymmetry"
+      ],
+      "suggestion": "Move both enums to a single location \u2014 either both in config/ (since they model grammar-level distinctions) or both in model/ (since they represent domain classifications). Document the chosen convention in the model/ or config/ package-info.",
+      "confidence": "low"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "test_ctor_missing_null_guards",
+      "summary": "SemanticFieldExplorer package-private test constructor accepts executor/nounCqlPattern without null validation, unlike the production injection constructor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Test constructor (line 70): `SemanticFieldExplorer(QueryExecutor executor, String nounCqlPattern)` has no Objects.requireNonNull calls and no @NonNull annotations on parameters",
+        "Production injection constructor (lines 90-100): `Objects.requireNonNull(executor, ...)`, `Objects.requireNonNull(comparator, ...)`, `Objects.requireNonNull(multiSeedExplorer, ...)`, `Objects.requireNonNull(grammarConfig, ...)` are all present",
+        "A null executor passed to the test constructor is silently stored and propagated into CollocateProfileComparator, MultiSeedExplorer, and SingleSeedExplorer, where it will cause an NPE at query time with no descriptive message"
+      ],
+      "suggestion": "Add explicit null guards in the test constructor: `Objects.requireNonNull(executor, \"executor must not be null\")` and `Objects.requireNonNull(nounCqlPattern, \"nounCqlPattern must not be null\")`. Add @NonNull annotations to both parameters to make the contract visible.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "semantic_field_explorer_executor_bypass",
+      "summary": "SemanticFieldExplorer stores a QueryExecutor field used only in fetchExamples, while exploreByRelation/exploreMultiSeed/compareCollocateProfiles all fully delegate to dedicated sub-components",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "`exploreByRelation` delegates entirely to `singleSeedExplorer.explore(...)`",
+        "`exploreMultiSeed` delegates entirely to `multiSeedExplorer.findCollocateIntersection(...)`",
+        "`compareCollocateProfiles` delegates entirely to `comparator.compareCollocateProfiles(...)`",
+        "`fetchExamples` (lines 167-193) is directly implemented on SemanticFieldExplorer itself via `executor.executeBcqlQuery(bcqlQuery, maxExamples)` \u2014 breaking the uniform delegation/facade pattern",
+        "Private field `private final QueryExecutor executor` (line 54) exists solely to service `fetchExamples`; all other delegation paths never touch it"
+      ],
+      "suggestion": "Extract the examples-fetch logic into a dedicated `ExamplesFetcher` package-private class (parallel to SingleSeedExplorer, MultiSeedExplorer, CollocateProfileComparator) and delegate from SemanticFieldExplorer. This makes the facade pattern consistent across all four service methods and removes the dual role of the class.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_service_throws_not_in_signature",
+      "summary": "ExplorationService interface Javadoc @throws ExplorationException for all four methods, but no interface method signature declares it; SemanticFieldExplorer implementation does declare it \u2014 asymmetric contract visibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationService.exploreByRelation (line 36-40): no `throws` clause in signature, but Javadoc says `@throws pl.marcinmilkowski.word_sketch.exploration.ExplorationException if corpus access fails`",
+        "Same pattern repeated for exploreMultiSeed (line 47), compareCollocateProfiles (line 58), fetchExamples (line 68) \u2014 all document throws in Javadoc but omit from signature",
+        "SemanticFieldExplorer.exploreByRelation (line 112): `throws ExplorationException` declared in signature",
+        "ExplorationHandlers catches ExplorationException via `catch (ExplorationException e)` on a reference of type ExplorationService \u2014 works at runtime since ExplorationException is unchecked, but IDE shows no throws declaration on the interface method, defeating the documented contract"
+      ],
+      "suggestion": "Add `throws ExplorationException` to all four ExplorationService interface method signatures. Since ExplorationException extends RuntimeException it is syntactically permitted; adding it to the interface signature makes the documented exception contract visible to callers who hold an ExplorationService reference, consistent with what the implementation already declares.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "npe_catch_rethrow_in_executecqlquery",
+      "summary": "BlackLabQueryExecutor.executeCqlQuery explicitly catches NullPointerException to re-throw it unchanged \u2014 catch-rethrow adds noise when the goal is only to prevent the generic RuntimeException handler below from wrapping it",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 152-154: `catch (NullPointerException e) { // Re-throw NPEs immediately \u2014 they are programming bugs, not expected runtime errors. throw e; }`",
+        "This is immediately followed by `catch (RuntimeException e) { throw new IOException(\"Unexpected error...\", e); }` \u2014 the NPE handler exists purely to skip the wrapping in that handler",
+        "The pattern is unusual: a reader must understand the multi-catch ordering to see why NPE is singled out; the comment helps but the pattern itself is non-idiomatic"
+      ],
+      "suggestion": "Replace the two-catch pattern with a single RuntimeException handler that checks for NullPointerException before wrapping: `catch (RuntimeException e) { if (e instanceof NullPointerException npe) throw npe; throw new IOException(\"Unexpected error executing CQL query: \" + e.getMessage(), e); }`. Alternatively, move the NPE rethrow into an `instanceof`-guarded branch inside the single catch. Both alternatives read as intentional without relying on catch-clause ordering.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "model_records_missing_nullability_annotations",
+      "summary": "DiscoveredNoun and CoreCollocate record components carry no @NonNull/@Nullable annotations, inconsistent with WordSketchResult which annotates both key fields \u2014 nullability is undocumented for core domain model types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/DiscoveredNoun.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CoreCollocate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/WordSketchResult.java"
+      ],
+      "evidence": [
+        "WordSketchResult (lines 7-8): `@NonNull String lemma`, `@NonNull String pos` \u2014 nullability explicitly documented",
+        "DiscoveredNoun: `String noun`, `Map<String, Double> sharedCollocates` \u2014 no annotations; a null noun would silently propagate into API responses (DiscoveredNounEntry.noun)",
+        "CoreCollocate: `String collocate` \u2014 no annotation; a null collocate flows into CoreCollocateEntry and then into JSON output",
+        "CollocateProfileComparator constructor `(QueryExecutor executor, GrammarConfig grammarConfig)` has no @NonNull/@Nullable on either parameter, unlike SemanticFieldExplorer's production constructors which annotate all parameters"
+      ],
+      "suggestion": "Add `@NonNull` to the primary string identifier components of DiscoveredNoun (`noun`), CoreCollocate (`collocate`), and the Map components where null is not a valid value. Apply the same treatment to the `executor` parameter of CollocateProfileComparator's constructor. This aligns with the project's established jspecify annotation convention visible in WordSketchResult, QueryExecutor, and ExplorationService.",
+      "confidence": "high"
+    }
+  ],
+  "provenance": {
+    "kind": "blind_review_batch_import",
+    "blind": true,
+    "runner": "claude",
+    "session_id": "ext_20260313_090437_184ae33d",
+    "created_at": "2026-03-13T09:21:25+00:00",
+    "packet_path": "/mnt/d/git/word-sketch-lucene/.desloppify/review_packet_blind.json",
+    "packet_sha256": "3d9d91f00d9827e79964c8f88953ba3f8ec995d58602accec4cf00c806faf0b9"
+  }
+}

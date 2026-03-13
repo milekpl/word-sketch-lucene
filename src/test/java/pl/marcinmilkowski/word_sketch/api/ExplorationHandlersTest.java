@@ -257,7 +257,7 @@ class ExplorationHandlersTest {
         ComparisonResult result = explorer.compareCollocateProfiles(
                 Set.of("theory", "model"), new ExplorationOptions(50, 0.0, 1));
 
-        List<Edge> edges = ExploreResponseAssembler.buildComparisonEdges(result);
+        List<Edge> edges = ComparisonResponseAssembler.buildComparisonEdges(result);
         assertFalse(edges.isEmpty(), "Should have edges");
 
         Edge theoryEdge = edges.stream()

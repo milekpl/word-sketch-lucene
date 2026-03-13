@@ -1,0 +1,136 @@
+{
+  "session": {
+    "id": "ext_20260313_090437_184ae33d",
+    "token": "a33fbac11e35ace06489541cf30d5bd6"
+  },
+  "assessments": {
+    "abstraction_fitness": 64,
+    "dependency_health": 73,
+    "low_level_elegance": 67,
+    "mid_level_elegance": 70,
+    "test_strategy": 62
+  },
+  "findings": [
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "relation_utils_wide_scope",
+      "summary": "RelationUtils bundles 6 unrelated concerns into a single static utility class",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/config/RelationUtils.java"],
+      "evidence": [
+        "resolveRelationAlias / validateAliases — alias lifecycle management",
+        "findBestCollocatePattern — grammar-config search",
+        "buildFullPattern (2 overloads) — BCQL pattern construction",
+        "buildCollocateReversePattern — reverse-lookup pattern derivation",
+        "computeCollocatePosGroup + extractLabelContent + resolvePosGroupFromPrefix — POS group inference from raw pattern strings"
+      ],
+      "suggestion": "Extract the POS-group inference helpers (computeCollocatePosGroup, extractLabelContent, resolvePosGroupFromPrefix) into a dedicated package-private class (e.g. CollocatePosResolver). Consider splitting alias management and pattern building into separate final classes so each has a single coherent responsibility.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "explorer_executor_field_redundancy",
+      "summary": "SemanticFieldExplorer stores executor directly but only uses it in fetchExamples; all other methods delegate to sub-objects that each hold their own reference to the same executor",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"],
+      "evidence": [
+        "Field: private final QueryExecutor executor (line 54)",
+        "executor is passed to CollocateProfileComparator, MultiSeedExplorer, SingleSeedExplorer — each stores it internally",
+        "Only fetchExamples (line 174) calls executor.executeBcqlQuery directly on the field",
+        "exploreByRelation, exploreMultiSeed, compareCollocateProfiles never reference this.executor"
+      ],
+      "suggestion": "Move the executeBcqlQuery call in fetchExamples to a dedicated collaborator (e.g. ExamplesQueryService) that accepts CollocateQueryPort, then remove the executor field from SemanticFieldExplorer. This eliminates the phantom shared state and makes each dependency's scope explicit.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "stored_fields_boolean_parameter",
+      "summary": "executeCollocateSearchWithStoredFields and executeCollocateSearch are thin wrappers that differ only by a single boolean flag, leaking an implementation detail into the public method names",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/CollocateQueryHelper.java"],
+      "evidence": [
+        "executeCollocateSearchWithStoredFields delegates to performCollocateSearch(lemma, pattern, true)",
+        "executeCollocateSearch delegates to performCollocateSearch(lemma, pattern, false)",
+        "Both public methods have no body other than the delegation"
+      ],
+      "suggestion": "Either collapse to a single method accepting an explicit CollocateSearchMode enum, or inline the two-line wrapper bodies at call sites in BlackLabQueryExecutor to remove the indirection tier.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "explorer_over_wide_executor_dependency",
+      "summary": "SemanticFieldExplorer (and its sub-objects) depend on QueryExecutor (full interface) when only CollocateQueryPort is needed for the one direct call in fetchExamples",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/CollocateProfileComparator.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer constructor accepts QueryExecutor executor",
+        "fetchExamples only calls executor.executeBcqlQuery() — declared on CollocateQueryPort",
+        "ConcordanceHandlers and CorpusQueryHandlers already follow the narrow-port pattern by depending on CollocateQueryPort",
+        "The exploration layer thus has a wider dependency surface than its actual usage requires"
+      ],
+      "suggestion": "Widen the exploration layer's dependency surface only as needed: accept CollocateQueryPort for corpus-lookup operations. This mirrors the pattern ConcordanceHandlers and CorpusQueryHandlers already follow and makes the dependency boundary explicit.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "find_label_double_pass",
+      "summary": "CqlUtils.findLabelTokenIndex makes two separate passes through the pattern string: one indexOf call to find the label, then a full character scan from position 0 to count bracket tokens",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/utils/CqlUtils.java"],
+      "evidence": [
+        "int labelIndex = pattern.indexOf(labelStr) — first pass to locate label",
+        "for (int i = 0; i < pattern.length(); i++) — second pass from position 0 counting '[' characters",
+        "The token counter restarts from 0 rather than walking forward from labelIndex"
+      ],
+      "suggestion": "Combine into a single forward pass: count '[' characters incrementally while scanning toward labelIndex; stop as soon as the matching bracket is found at or after labelIndex. This eliminates the redundant full-string re-scan.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "surface_collocations_redeclared_in_query_executor",
+      "summary": "executeSurfaceCollocations is declared in both SketchQueryPort and QueryExecutor (which extends it), resulting in duplicate signatures with divergent Javadoc",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/spi/SketchQueryPort.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/QueryExecutor.java"
+      ],
+      "evidence": [
+        "SketchQueryPort.executeSurfaceCollocations — concise declaration at line 30",
+        "QueryExecutor.executeSurfaceCollocations — re-declared at line 87 with a longer @implNote comment",
+        "QueryExecutor already extends SketchQueryPort, so the re-declaration is redundant"
+      ],
+      "suggestion": "Remove the re-declaration from QueryExecutor; move any additional Javadoc into the SketchQueryPort definition. If the extended documentation is important, annotate with @see or link to SketchQueryPort from the QueryExecutor interface-level Javadoc.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "exploration_error_paths_untested",
+      "summary": "ExplorationHandlers error cases — ExplorationException → 503, unknown relation → 400 — are not tested through the HTTP stack",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ExplorationHandlers.sendExplorationError maps ExplorationException → 503 but no test injects a failing service",
+        "resolveRelationConfig throws IAE for unknown relation IDs but no test exercises this path via handleSemanticFieldExplore",
+        "handleSemanticFieldExploreMulti: no test for seeds.size() < 2 case through the HTTP handler (only service-level validation is tested)"
+      ],
+      "suggestion": "Add tests that inject a stub ExplorationService that throws ExplorationException and verify the response is 503. Add tests for unknown relation IDs and single-seed calls to the multi endpoint and verify 400 responses.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "local_stub_executor_duplication",
+      "summary": "SemanticFieldExplorerTest defines a local StubExecutor subclass that duplicates the shared StubQueryExecutor infrastructure",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/query/StubQueryExecutor.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorerTest defines `private static class StubExecutor extends StubQueryExecutor` with duplicate override pattern",
+        "StubQueryExecutor's Javadoc explicitly documents the anonymous-subclass override pattern as the intended test use",
+        "Other test files (ExplorationHandlersTest, SketchHandlersTest) use anonymous subclasses of StubQueryExecutor correctly"
+      ],
+      "suggestion": "Remove the local StubExecutor class; replace usages with anonymous subclasses of StubQueryExecutor following the pattern already used in ExplorationHandlersTest.collocatingExecutor.",
+      "confidence": "high"
+    }
+  ]
+}

@@ -143,7 +143,7 @@ class ExplorationHandlers {
 
             ComparisonResult result = explorationService.compareCollocateProfiles(seeds, opts);
 
-            ComparisonResponse response = ExploreResponseAssembler.buildComparisonResponse(
+            ComparisonResponse response = ComparisonResponseAssembler.buildComparisonResponse(
                 new ArrayList<>(result.nouns()), CROSS_RELATIONAL,
                 opts,
                 result);

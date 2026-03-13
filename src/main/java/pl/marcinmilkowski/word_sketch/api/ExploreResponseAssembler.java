@@ -3,12 +3,9 @@ package pl.marcinmilkowski.word_sketch.api;
 import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import pl.marcinmilkowski.word_sketch.api.model.CollocateProfileEntry;
-import pl.marcinmilkowski.word_sketch.api.model.ComparisonResponse;
 import pl.marcinmilkowski.word_sketch.api.model.CoreCollocateEntry;
 import pl.marcinmilkowski.word_sketch.api.model.DiscoveredNounEntry;
 import pl.marcinmilkowski.word_sketch.api.model.EdgeEntry;
@@ -17,10 +14,8 @@ import pl.marcinmilkowski.word_sketch.api.model.ExamplesResponse;
 import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 import pl.marcinmilkowski.word_sketch.api.model.SeedCollocateEntry;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
-import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.utils.MathUtils;
-import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.CoreCollocate;
 import pl.marcinmilkowski.word_sketch.model.exploration.DiscoveredNoun;
 import pl.marcinmilkowski.word_sketch.model.exploration.Edge;
@@ -28,11 +23,11 @@ import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.RelationEdgeType;
 
 /**
- * Converts model-layer result objects into graph {@link Edge} lists and JSON-ready maps for API responses.
+ * Converts {@link ExplorationResult} objects into {@link ExploreResponse} API responses
+ * and their associated {@link Edge} lists for visualization.
  *
- * <p>This class owns the model-to-presentation translation so that {@link ExplorationResult}
- * and {@link ComparisonResult} stay free of presentation concerns. All response-body assembly
- * for exploration endpoints is centralised here.</p>
+ * <p>Covers single-seed and multi-seed explore responses and example concordance responses.
+ * Comparison-specific assembly lives in {@link ComparisonResponseAssembler}.</p>
  */
 final class ExploreResponseAssembler {
 
@@ -57,19 +52,6 @@ final class ExploreResponseAssembler {
         for (DiscoveredNoun noun : result.discoveredNouns()) {
             for (Map.Entry<String, Double> colloc : noun.sharedCollocates().entrySet()) {
                 edges.add(new Edge(noun.noun(), colloc.getKey(), colloc.getValue(), RelationEdgeType.DISCOVERED_ADJ));
-            }
-        }
-        return edges;
-    }
-
-    /** Builds {@link RelationEdgeType#MODIFIER} edges for collocate-noun pairs with positive logDice scores. */
-    static @NonNull List<Edge> buildComparisonEdges(@NonNull ComparisonResult result) {
-        List<Edge> edges = new ArrayList<>();
-        for (CollocateProfile collocate : result.collocates()) {
-            for (Map.Entry<String, Double> entry : collocate.nounScores().entrySet()) {
-                if (entry.getValue() > 0) {
-                    edges.add(new Edge(collocate.collocate(), entry.getKey(), entry.getValue(), RelationEdgeType.MODIFIER));
-                }
             }
         }
         return edges;
@@ -185,57 +167,6 @@ final class ExploreResponseAssembler {
                         MathUtils.round2dp(e.weight()),
                         e.type()))
                 .toList();
-    }
-
-    /**
-     * Builds a typed {@link ComparisonResponse} for the collocate-profile comparison endpoint.
-     *
-     * @param seeds         the seed nouns used for comparison
-     * @param relationType  the relation type identifier
-     * @param params        shared exploration parameters
-     * @param result        comparison result from the exploration service
-     * @return fully populated {@link ComparisonResponse}
-     */
-    static @NonNull ComparisonResponse buildComparisonResponse(
-            @NonNull List<String> seeds, @NonNull String relationType,
-            @NonNull ExplorationOptions params,
-            @NonNull ComparisonResult result) {
-        List<CollocateProfileEntry> collocates = result.collocates().stream()
-                .map(ExploreResponseAssembler::collocateProfileToEntry)
-                .toList();
-        ComparisonResult.SummaryCounts counts = result.summaryCounts();
-        List<EdgeEntry> edges = buildComparisonEdges(result).stream()
-                .map(e -> new EdgeEntry(e.source(), e.target(), e.weight(), e.type()))
-                .toList();
-        return new ComparisonResponse(
-                "ok", seeds, seeds.size(),
-                new ComparisonResponse.Parameters(relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold()),
-                collocates, collocates.size(),
-                counts.fullyShared(), counts.partiallyShared(), counts.specific(),
-                edges, edges.size());
-    }
-
-    private static CollocateProfileEntry collocateProfileToEntry(
-            CollocateProfile collocate) {
-        Map<String, Double> nounScores = new HashMap<>();
-        for (Map.Entry<String, Double> entry : collocate.nounScores().entrySet()) {
-            nounScores.put(entry.getKey(), MathUtils.round2dp(entry.getValue()));
-        }
-        String specificTo = collocate.isSpecific()
-                ? collocate.strongestNoun().orElse(null)
-                : null;
-        return new CollocateProfileEntry(
-                collocate.collocate(),
-                collocate.presentInCount(),
-                collocate.totalNouns(),
-                MathUtils.round2dp(collocate.avgLogDice()),
-                MathUtils.round2dp(collocate.maxLogDice()),
-                MathUtils.round2dp(collocate.variance()),
-                MathUtils.round2dp(collocate.commonalityScore()),
-                MathUtils.round2dp(collocate.distinctivenessScore()),
-                collocate.sharingCategory().label(),
-                nounScores,
-                specificTo);
     }
 
     /**

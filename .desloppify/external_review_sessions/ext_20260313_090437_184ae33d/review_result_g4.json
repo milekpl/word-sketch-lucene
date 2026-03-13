@@ -1,0 +1,97 @@
+{
+  "session": {
+    "id": "ext_20260313_090437_184ae33d",
+    "token": "a33fbac11e35ace06489541cf30d5bd6"
+  },
+  "assessments": {
+    "initialization_coupling": 75,
+    "design_coherence": 65,
+    "contract_coherence": 65,
+    "logic_clarity": 73,
+    "type_safety": 65
+  },
+  "findings": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "test_ctor_missing_null_guards",
+      "summary": "SemanticFieldExplorer package-private test constructor accepts executor/nounCqlPattern without null validation, unlike the production injection constructor",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Test constructor (line 70): `SemanticFieldExplorer(QueryExecutor executor, String nounCqlPattern)` has no Objects.requireNonNull calls and no @NonNull annotations on parameters",
+        "Production injection constructor (lines 90-100): `Objects.requireNonNull(executor, ...)`, `Objects.requireNonNull(comparator, ...)`, `Objects.requireNonNull(multiSeedExplorer, ...)`, `Objects.requireNonNull(grammarConfig, ...)` are all present",
+        "A null executor passed to the test constructor is silently stored and propagated into CollocateProfileComparator, MultiSeedExplorer, and SingleSeedExplorer, where it will cause an NPE at query time with no descriptive message"
+      ],
+      "suggestion": "Add explicit null guards in the test constructor: `Objects.requireNonNull(executor, \"executor must not be null\")` and `Objects.requireNonNull(nounCqlPattern, \"nounCqlPattern must not be null\")`. Add @NonNull annotations to both parameters to make the contract visible.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "semantic_field_explorer_executor_bypass",
+      "summary": "SemanticFieldExplorer stores a QueryExecutor field used only in fetchExamples, while exploreByRelation/exploreMultiSeed/compareCollocateProfiles all fully delegate to dedicated sub-components",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "`exploreByRelation` delegates entirely to `singleSeedExplorer.explore(...)`",
+        "`exploreMultiSeed` delegates entirely to `multiSeedExplorer.findCollocateIntersection(...)`",
+        "`compareCollocateProfiles` delegates entirely to `comparator.compareCollocateProfiles(...)`",
+        "`fetchExamples` (lines 167-193) is directly implemented on SemanticFieldExplorer itself via `executor.executeBcqlQuery(bcqlQuery, maxExamples)` — breaking the uniform delegation/facade pattern",
+        "Private field `private final QueryExecutor executor` (line 54) exists solely to service `fetchExamples`; all other delegation paths never touch it"
+      ],
+      "suggestion": "Extract the examples-fetch logic into a dedicated `ExamplesFetcher` package-private class (parallel to SingleSeedExplorer, MultiSeedExplorer, CollocateProfileComparator) and delegate from SemanticFieldExplorer. This makes the facade pattern consistent across all four service methods and removes the dual role of the class.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_service_throws_not_in_signature",
+      "summary": "ExplorationService interface Javadoc @throws ExplorationException for all four methods, but no interface method signature declares it; SemanticFieldExplorer implementation does declare it — asymmetric contract visibility",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "ExplorationService.exploreByRelation (line 36-40): no `throws` clause in signature, but Javadoc says `@throws pl.marcinmilkowski.word_sketch.exploration.ExplorationException if corpus access fails`",
+        "Same pattern repeated for exploreMultiSeed (line 47), compareCollocateProfiles (line 58), fetchExamples (line 68) — all document throws in Javadoc but omit from signature",
+        "SemanticFieldExplorer.exploreByRelation (line 112): `throws ExplorationException` declared in signature",
+        "ExplorationHandlers catches ExplorationException via `catch (ExplorationException e)` on a reference of type ExplorationService — works at runtime since ExplorationException is unchecked, but IDE shows no throws declaration on the interface method, defeating the documented contract"
+      ],
+      "suggestion": "Add `throws ExplorationException` to all four ExplorationService interface method signatures. Since ExplorationException extends RuntimeException it is syntactically permitted; adding it to the interface signature makes the documented exception contract visible to callers who hold an ExplorationService reference, consistent with what the implementation already declares.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "npe_catch_rethrow_in_executecqlquery",
+      "summary": "BlackLabQueryExecutor.executeCqlQuery explicitly catches NullPointerException to re-throw it unchanged — catch-rethrow adds noise when the goal is only to prevent the generic RuntimeException handler below from wrapping it",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "Lines 152-154: `catch (NullPointerException e) { // Re-throw NPEs immediately — they are programming bugs, not expected runtime errors. throw e; }`",
+        "This is immediately followed by `catch (RuntimeException e) { throw new IOException(\"Unexpected error...\", e); }` — the NPE handler exists purely to skip the wrapping in that handler",
+        "The pattern is unusual: a reader must understand the multi-catch ordering to see why NPE is singled out; the comment helps but the pattern itself is non-idiomatic"
+      ],
+      "suggestion": "Replace the two-catch pattern with a single RuntimeException handler that checks for NullPointerException before wrapping: `catch (RuntimeException e) { if (e instanceof NullPointerException npe) throw npe; throw new IOException(\"Unexpected error executing CQL query: \" + e.getMessage(), e); }`. Alternatively, move the NPE rethrow into an `instanceof`-guarded branch inside the single catch. Both alternatives read as intentional without relying on catch-clause ordering.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "model_records_missing_nullability_annotations",
+      "summary": "DiscoveredNoun and CoreCollocate record components carry no @NonNull/@Nullable annotations, inconsistent with WordSketchResult which annotates both key fields — nullability is undocumented for core domain model types",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/DiscoveredNoun.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CoreCollocate.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/sketch/WordSketchResult.java"
+      ],
+      "evidence": [
+        "WordSketchResult (lines 7-8): `@NonNull String lemma`, `@NonNull String pos` — nullability explicitly documented",
+        "DiscoveredNoun: `String noun`, `Map<String, Double> sharedCollocates` — no annotations; a null noun would silently propagate into API responses (DiscoveredNounEntry.noun)",
+        "CoreCollocate: `String collocate` — no annotation; a null collocate flows into CoreCollocateEntry and then into JSON output",
+        "CollocateProfileComparator constructor `(QueryExecutor executor, GrammarConfig grammarConfig)` has no @NonNull/@Nullable on either parameter, unlike SemanticFieldExplorer's production constructors which annotate all parameters"
+      ],
+      "suggestion": "Add `@NonNull` to the primary string identifier components of DiscoveredNoun (`noun`), CoreCollocate (`collocate`), and the Map components where null is not a valid value. Apply the same treatment to the `executor` parameter of CollocateProfileComparator's constructor. This aligns with the project's established jspecify annotation convention visible in WordSketchResult, QueryExecutor, and ExplorationService.",
+      "confidence": "high"
+    }
+  ]
+}

@@ -118,21 +118,9 @@ class ExplorationHandlers {
     /**
      * Compares cross-relational collocate profiles for the given seed nouns and returns a
      * graded overlay of shared and distinctive collocates.
+     * Does not accept a {@code relation} parameter — aggregates across all loaded relations.
      *
      * <p>GET /api/semantic-field/compare?seeds=theory,model,hypothesis&amp;min_logdice=3.0</p>
-     *
-     * <p>Cardinality: requires at least 2 comma-separated {@code seeds} values; works with 2 or
-     * more nouns, enabling pairwise and multi-way adjective profile comparison.
-     * This endpoint does not accept a {@code relation} parameter because
-     * {@link pl.marcinmilkowski.word_sketch.exploration.CollocateProfileComparator} aggregates
-     * collocates across all loaded relations rather than filtering to one relation type.</p>
-     *
-     * <p><strong>Handler asymmetry note:</strong> unlike {@link #handleSemanticFieldExplore} and
-     * {@link #handleSemanticFieldExploreMulti}, this handler intentionally does not share the
-     * seed/relation parsing preamble used by the other two because comparison is cross-relational —
-     * it aggregates collocates across all relations rather than routing to a specific one.
-     * The shared base-parameter extraction ({@code top}, {@code min_shared}, {@code min_logdice})
-     * is still performed via {@link #parseSharedExploreParams}.</p>
      *
      * @param exchange the HTTP exchange; receives a 400 if {@code seeds} is missing or has
      *                 fewer than 2 values

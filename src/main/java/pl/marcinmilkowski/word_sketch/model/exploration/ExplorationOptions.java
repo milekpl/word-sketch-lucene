@@ -11,8 +11,8 @@ package pl.marcinmilkowski.word_sketch.model.exploration;
 public record ExplorationOptions(
         /** Maximum collocates to retrieve per seed in the first lookup pass. */
         int topCollocates,
-        /** Minimum logDice score threshold; collocates below this value are discarded. */
-        double minLogDice,
+        /** Minimum logDice filter threshold; collocates below this value are discarded. */
+        double logDiceThreshold,
         /** Minimum number of shared collocates required for a noun to be included in results. */
         int minShared) {
 }

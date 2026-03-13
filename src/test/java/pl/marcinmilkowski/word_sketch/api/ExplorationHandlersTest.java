@@ -210,6 +210,7 @@ class ExplorationHandlersTest {
     }
 
     @Test
+    @Test
     void compare_edgeWeights_abstractHasCorrectWeightToTheory() throws Exception {
         QueryExecutor executor = collocatingExecutor(Map.of(
             "theory", List.of(wsr("abstract", 9.0)),

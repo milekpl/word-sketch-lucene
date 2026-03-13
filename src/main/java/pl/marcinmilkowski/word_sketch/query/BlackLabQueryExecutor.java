@@ -265,11 +265,11 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                     if (collocatePos < 0) {
                         return BlackLabSnippetParser.extractLastLemma(identity);
                     }
-                    // Primary path: identity is XML — count lemma="..." attributes up to 1-based collocatePos.
+                    // Primary path: identity is XML — count <w lemma="..."> elements up to collocatePos.
                     String collocate = BlackLabSnippetParser.extractCollocateFromXmlByPosition(identity, collocatePos);
                     if (collocate == null || collocate.isEmpty()) {
-                        // Fallback path: identity is plain whitespace-separated text — collocatePos is
-                        // reused as a 1-based word index (same integer value, different counting scheme).
+                        // Fallback: identity is plain whitespace-separated text.
+                        // Both methods share the same 1-based token-position semantics.
                         collocate = BlackLabSnippetParser.extractPlainTextTokenAt(identity, collocatePos);
                     }
                     return collocate;

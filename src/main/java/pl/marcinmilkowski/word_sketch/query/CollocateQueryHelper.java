@@ -76,7 +76,7 @@ class CollocateQueryHelper {
      * Returns total token frequency for the given lemma in the index.
      * Returns {@code 0L} if the lemma annotation is not found.
      *
-     * @throws IOException if an unexpected non-runtime failure occurs
+     * @throws IOException wrapping any RuntimeException thrown by the BlackLab index
      */
     long getTotalFrequency(String lemma) throws IOException {
         try {

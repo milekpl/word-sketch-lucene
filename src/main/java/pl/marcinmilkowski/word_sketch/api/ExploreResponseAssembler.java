@@ -92,7 +92,7 @@ final class ExploreResponseAssembler {
         List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
         List<ExploreResponse.EdgeEntry> edges = buildEdgeEntries(result);
         return new ExploreResponse.SingleSeed(
-                "ok", result.seed(), responseParams,
+                "ok", result.seeds().get(0), responseParams,
                 seedCollocs,
                 nouns,
                 core,

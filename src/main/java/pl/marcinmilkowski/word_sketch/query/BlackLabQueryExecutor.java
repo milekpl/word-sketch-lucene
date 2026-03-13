@@ -67,7 +67,7 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         this.blackLabIndex = index;
         this.collocateQueryHelper = index != null
                 ? new CollocateQueryHelper(index)
-                : new CollocateQueryHelper((BlackLabIndex) null) {};
+                : new CollocateQueryHelper((BlackLabIndex) null);
     }
 
     /**

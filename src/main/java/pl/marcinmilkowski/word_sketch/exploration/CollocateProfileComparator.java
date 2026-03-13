@@ -59,16 +59,12 @@ class CollocateProfileComparator {
         int maxPerNoun = opts.topCollocates();
         List<String> nounList = new ArrayList<>(seedNouns);
 
-        logger.debug("Nouns: {}", seedNouns);
-        logger.debug("Min logDice: {}", minLogDice);
-
         Map<String, Map<String, Double>> rawProfiles = buildRawCollocateProfiles(nounList, minLogDice, maxPerNoun);
         List<CollocateProfile> profiles = buildCollocateProfileList(nounList, rawProfiles);
 
         // Sort by commonality score (most shared first)
         profiles.sort((a, b) -> Double.compare(b.commonalityScore(), a.commonalityScore()));
 
-        logger.debug("Total unique adjectives: {}", profiles.size());
         debugLogTopProfiles(profiles);
 
         return ComparisonResult.of(nounList, profiles);

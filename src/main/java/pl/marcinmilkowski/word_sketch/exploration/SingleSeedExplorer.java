@@ -78,9 +78,6 @@ class SingleSeedExplorer {
 
         String normalizedSeed = seed.toLowerCase().trim();
 
-        logger.debug("Exploring semantic field: seed='{}', relation='{}', top={}, minShared={}, minLogDice={}",
-                normalizedSeed, relationName, topPredicates, minShared, minLogDice);
-
         List<WordSketchResult> seedRelations = fetchSeedCollocates(
             normalizedSeed, bcqlPattern, simplePattern, minLogDice, topPredicates);
 
@@ -104,9 +101,6 @@ class SingleSeedExplorer {
         discoveredNouns.sort((a, b) -> Double.compare(b.combinedRelevanceScore(), a.combinedRelevanceScore()));
 
         List<CoreCollocate> coreCollocates = identifyCoreCollocates(seedCollocateScores, discoveredNouns);
-
-        logger.debug("Exploration complete for '{}': {} nouns discovered, {} core collocates",
-                normalizedSeed, discoveredNouns.size(), coreCollocates.size());
 
         return ExplorationResult.of(List.of(normalizedSeed), seedCollocateScores, seedCollocateFrequencies,
                 discoveredNouns, coreCollocates, Map.of(normalizedSeed, seedCollocateScores));

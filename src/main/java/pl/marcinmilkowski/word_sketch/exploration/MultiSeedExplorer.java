@@ -64,8 +64,8 @@ class MultiSeedExplorer {
         Map<String, Map<String, Double>> perSeedCollocates = new LinkedHashMap<>();
         for (Map.Entry<String, List<WordSketchResult>> entry : data.seedCollocateMap().entrySet()) {
             Map<String, Double> collocateMap = new LinkedHashMap<>();
-            for (WordSketchResult collocateEntry : entry.getValue()) {
-                collocateMap.put(collocateEntry.lemma(), collocateEntry.logDice());
+            for (WordSketchResult sketchResult : entry.getValue()) {
+                collocateMap.put(sketchResult.lemma(), sketchResult.logDice());
             }
             perSeedCollocates.put(entry.getKey(), collocateMap);
         }
@@ -91,8 +91,8 @@ class MultiSeedExplorer {
             List<WordSketchResult> collocates = executor.executeSurfacePattern(
                 bcqlPattern, minLogDice, topCollocates);
             seedCollocateMap.put(seed, collocates);
-            for (WordSketchResult collocateEntry : collocates) {
-                collocateSharedCount.merge(collocateEntry.lemma(), 1, Integer::sum);
+            for (WordSketchResult sketchResult : collocates) {
+                collocateSharedCount.merge(sketchResult.lemma(), 1, Integer::sum);
             }
         }
         return new SeedCollocateData(seedCollocateMap, collocateSharedCount);
@@ -120,9 +120,9 @@ class MultiSeedExplorer {
         for (String seed : seeds) {
             List<WordSketchResult> collocates = seedCollocateMap.getOrDefault(seed, List.of());
             Map<String, Double> sharedCollocates = new LinkedHashMap<>();
-            for (WordSketchResult collocateEntry : collocates) {
-                if (commonCollocates.contains(collocateEntry.lemma())) {
-                    sharedCollocates.put(collocateEntry.lemma(), collocateEntry.logDice());
+            for (WordSketchResult sketchResult : collocates) {
+                if (commonCollocates.contains(sketchResult.lemma())) {
+                    sharedCollocates.put(sketchResult.lemma(), sketchResult.logDice());
                 }
             }
             int count = sharedCollocates.size();
@@ -164,9 +164,9 @@ class MultiSeedExplorer {
             Map<String, List<WordSketchResult>> seedCollocateMap) {
         Map<String, CollocateAccumulator> accumulators = new LinkedHashMap<>();
         for (List<WordSketchResult> collocates : seedCollocateMap.values()) {
-            for (WordSketchResult collocateEntry : collocates) {
-                accumulators.computeIfAbsent(collocateEntry.lemma(), k -> new CollocateAccumulator())
-                            .accumulate(collocateEntry.logDice(), collocateEntry.frequency());
+            for (WordSketchResult sketchResult : collocates) {
+                accumulators.computeIfAbsent(sketchResult.lemma(), k -> new CollocateAccumulator())
+                            .accumulate(sketchResult.logDice(), sketchResult.frequency());
             }
         }
         Map<String, Double> maxLogDice = new LinkedHashMap<>();

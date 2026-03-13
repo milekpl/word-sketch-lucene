@@ -1,6 +1,6 @@
 package pl.marcinmilkowski.word_sketch.query;
 
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import java.io.File;
@@ -9,15 +9,18 @@ import pl.marcinmilkowski.word_sketch.model.sketch.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Test for dependency relation queries using BlackLab backend.
+ * Integration tests for dependency relation queries using BlackLab backend.
  *
- * These tests verify that the executeDependencyPattern() method
- * correctly queries dependency relations from the CoNLL-U indexed corpus.
+ * <p>These tests verify that the {@code executeDependencyPattern()} method correctly
+ * queries dependency relations from the CoNLL-U indexed corpus.</p>
  *
- * To run these tests, set the INDEX_PATH environment variable or
- * modify the indexPath field to point to a valid BlackLab index.
+ * <p>The {@code @Tag("integration")} annotation allows these tests to be explicitly
+ * included or excluded. Use {@code mvn test -Dgroups=integration} to run only
+ * integration tests, or {@code mvn test -DexcludedGroups=integration} to skip them.
+ * A live BlackLab index is required: set {@code CONCEPT_SKETCH_TEST_INDEX} environment
+ * variable to point to a valid index directory.</p>
  */
-@Disabled("Requires a live BlackLab index — set CONCEPT_SKETCH_TEST_INDEX env var and remove @Disabled to run")
+@Tag("integration")
 public class DependencySketchTest {
 
     private static final String INDEX_PATH = System.getenv("CONCEPT_SKETCH_TEST_INDEX") != null

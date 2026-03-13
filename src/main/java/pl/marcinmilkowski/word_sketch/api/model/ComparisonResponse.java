@@ -3,7 +3,6 @@ package pl.marcinmilkowski.word_sketch.api.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
-import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 
 /**
  * Typed response record for the collocate-profile comparison endpoint
@@ -16,12 +15,24 @@ public record ComparisonResponse(
         String status,
         List<String> seeds,
         @JsonProperty("seed_count") int seedCount,
-        ExploreResponse.Parameters parameters,
+        Parameters parameters,
         List<CollocateProfileEntry> collocates,
         @JsonProperty("collocates_count") int collocatesCount,
         @JsonProperty("fully_shared_count") int fullySharedCount,
         @JsonProperty("partially_shared_count") int partiallySharedCount,
         @JsonProperty("specific_count") int specificCount,
         List<EdgeEntry> edges,
-        @JsonProperty("edges_count") int edgesCount) {}
+        @JsonProperty("edges_count") int edgesCount) {
+
+    /**
+     * Parameters sub-object for comparison responses.
+     * Intentionally omits {@code nouns_per} (which is single-seed-only) so the
+     * field does not appear in comparison output.
+     */
+    public record Parameters(
+            String relation,
+            int top,
+            @JsonProperty("min_shared") int minShared,
+            @JsonProperty("min_logdice") double minLogDice) {}
+}
 

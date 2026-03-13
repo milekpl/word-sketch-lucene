@@ -209,7 +209,7 @@ final class ExploreResponseAssembler {
                 .toList();
         return new ComparisonResponse(
                 "ok", seeds, seeds.size(),
-                new ExploreResponse.Parameters(relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold(), null),
+                new ComparisonResponse.Parameters(relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold()),
                 collocates, collocates.size(),
                 counts.fullyShared(), counts.partiallyShared(), counts.specific(),
                 edges, edges.size());

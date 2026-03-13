@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -114,7 +115,7 @@ final class HttpApiUtils {
 
     static void sendJsonResponse(@NonNull HttpExchange exchange, @NonNull Object data) throws IOException {
         String json = MAPPER.writeValueAsString(data);
-        byte[] bytes = json.getBytes("UTF-8");
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         setCorsHeader(exchange);
@@ -130,7 +131,7 @@ final class HttpApiUtils {
         error.put("status", "error");
         error.put("error", message);
         String json = MAPPER.writeValueAsString(error);
-        byte[] bytes = json.getBytes("UTF-8");
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         setCorsHeader(exchange);

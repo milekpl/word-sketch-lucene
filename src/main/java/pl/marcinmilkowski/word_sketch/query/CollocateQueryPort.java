@@ -27,5 +27,5 @@ public interface CollocateQueryPort {
      * @return Concordance results, ranked by logDice
      * @throws IOException if index access or parsing fails
      */
-    List<CollocateResult> executeBcqlQuery(@NonNull String bcqlPattern, int maxResults) throws IOException;
+    @NonNull List<CollocateResult> executeBcqlQuery(@NonNull String bcqlPattern, int maxResults) throws IOException;
 }

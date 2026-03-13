@@ -51,7 +51,8 @@ import java.util.Set;
 class CollocateQueryHelper {
     private static final Logger logger = LoggerFactory.getLogger(CollocateQueryHelper.class);
 
-    /** Over-fetch factor: request 3x as many hits as needed to compensate for scoring discards. */
+    /** Over-fetching factor: compensates for collocates eliminated by post-ranking filters.
+     *  Ensures enough candidates remain after frequency/logDice filtering. */
     private static final int OVER_FETCH_FACTOR = 3;
 
     @Nullable

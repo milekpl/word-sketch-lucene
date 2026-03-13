@@ -37,15 +37,15 @@ class ExplorationHandlers {
     private static final Logger logger = LoggerFactory.getLogger(ExplorationHandlers.class);
 
     private final GrammarConfig grammarConfig;
-    private final ExplorationService semanticFieldExplorer;
+    private final ExplorationService explorationService;
 
     /** Sentinel emitted in the {@code relation} field of compare-endpoint responses to signal aggregated cross-relational results. */
     private static final String CROSS_RELATIONAL = "cross_relational";
 
-    ExplorationHandlers(ExplorationService semanticFieldExplorer, @NonNull GrammarConfig grammarConfig) {
+    ExplorationHandlers(ExplorationService explorationService, @NonNull GrammarConfig grammarConfig) {
         this.grammarConfig = Objects.requireNonNull(grammarConfig,
             "grammarConfig must not be null; exploration endpoints require a loaded grammar configuration");
-        this.semanticFieldExplorer = semanticFieldExplorer;
+        this.explorationService = explorationService;
     }
 
     /**
@@ -71,7 +71,7 @@ class ExplorationHandlers {
             commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(base, nounsPerSeed);
 
-        ExplorationResult result = semanticFieldExplorer.exploreByRelation(seed, resolvedConfig, opts);
+        ExplorationResult result = explorationService.exploreByRelation(seed, resolvedConfig, opts);
 
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
                 result, resolvedConfig.id(),
@@ -110,7 +110,7 @@ class ExplorationHandlers {
 
         ExplorationOptions opts = new ExplorationOptions(
             commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
-        ExplorationResult result = semanticFieldExplorer.exploreMultiSeed(seeds, resolvedConfig, opts);
+        ExplorationResult result = explorationService.exploreMultiSeed(seeds, resolvedConfig, opts);
 
         ExploreResponse response = ExploreResponseAssembler.buildMultiSeedExploreResponse(
                 result, resolvedConfig.id(),
@@ -152,7 +152,7 @@ class ExplorationHandlers {
 
         ExplorationOptions opts = new ExplorationOptions(
             commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
-        ComparisonResult result = semanticFieldExplorer.compareCollocateProfiles(seeds, opts);
+        ComparisonResult result = explorationService.compareCollocateProfiles(seeds, opts);
 
         ComparisonResponse response = ExploreResponseAssembler.buildComparisonResponse(
             new ArrayList<>(result.nouns()), CROSS_RELATIONAL,
@@ -182,7 +182,7 @@ class ExplorationHandlers {
         RelationConfig resolvedConfig = resolveRelationConfig(params);
 
         int top = HttpApiUtils.parseIntParam(params, "top", 10);
-        FetchExamplesResult fetched = semanticFieldExplorer.fetchExamples(
+        FetchExamplesResult fetched = explorationService.fetchExamples(
                 seed, collocate, resolvedConfig, new FetchExamplesOptions(top));
 
         ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(

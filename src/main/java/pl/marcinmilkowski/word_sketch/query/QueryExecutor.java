@@ -50,7 +50,7 @@ public interface QueryExecutor extends CollocateQueryPort, Closeable {
      * @throws IOException if index access fails
      * @throws IllegalArgumentException if {@code cqlPattern} is not in a recognized format
      */
-    List<WordSketchResult> executeCollocations(@Nullable String lemma, @NonNull String cqlPattern,
+    @NonNull List<WordSketchResult> executeCollocations(@Nullable String lemma, @NonNull String cqlPattern,
                                              double minLogDice, int maxResults) throws IOException;
 
     /**
@@ -62,7 +62,7 @@ public interface QueryExecutor extends CollocateQueryPort, Closeable {
      * @return Concordance results in hit order
      * @throws IOException if index access fails
      */
-    List<ConcordanceResult> executeCqlQuery(@NonNull String cqlPattern, int maxResults) throws IOException;
+    @NonNull List<ConcordanceResult> executeCqlQuery(@NonNull String cqlPattern, int maxResults) throws IOException;
 
     /**
      * Get the total frequency of a lemma in the corpus.
@@ -91,7 +91,7 @@ public interface QueryExecutor extends CollocateQueryPort, Closeable {
      * @throws IOException if index access or parsing fails
      * @throws IllegalArgumentException if the headword lemma cannot be extracted from {@code bcqlPattern}
      */
-    List<WordSketchResult> executeSurfacePattern(
+    @NonNull List<WordSketchResult> executeSurfacePattern(
             @NonNull String bcqlPattern,
             double minLogDice, int maxResults) throws IOException;
 
@@ -107,7 +107,7 @@ public interface QueryExecutor extends CollocateQueryPort, Closeable {
      * @return Collocate results ranked by logDice descending
      * @throws IOException if index access fails
      */
-    List<WordSketchResult> executeDependencyPattern(
+    @NonNull List<WordSketchResult> executeDependencyPattern(
             @NonNull String lemma, @NonNull String deprel,
             double minLogDice, int maxResults,
             @Nullable String headPosConstraint) throws IOException;

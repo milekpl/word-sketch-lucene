@@ -3,7 +3,7 @@ package pl.marcinmilkowski.word_sketch.config;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
-import pl.marcinmilkowski.word_sketch.config.RelationType;
+import pl.marcinmilkowski.word_sketch.model.RelationType;
 
 import java.util.Optional;
 import java.util.regex.Matcher;

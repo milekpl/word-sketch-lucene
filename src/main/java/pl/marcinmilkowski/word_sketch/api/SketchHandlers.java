@@ -11,7 +11,7 @@ import pl.marcinmilkowski.word_sketch.api.model.RelationListResponse;
 import pl.marcinmilkowski.word_sketch.api.model.SketchResponse;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
-import pl.marcinmilkowski.word_sketch.config.RelationType;
+import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.query.spi.SketchQueryPort;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 

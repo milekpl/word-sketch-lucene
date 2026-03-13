@@ -1,4 +1,4 @@
-package pl.marcinmilkowski.word_sketch.config;
+package pl.marcinmilkowski.word_sketch.model;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 

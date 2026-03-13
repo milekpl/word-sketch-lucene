@@ -34,7 +34,7 @@ class SemanticFieldExplorerInternalTest {
             "test-adj", "test-relation", null,
             "[xpos=\"NN.*\"] [xpos=\"JJ.*\"]",
             1, 2, false, 0,
-            pl.marcinmilkowski.word_sketch.config.RelationType.SURFACE,
+            pl.marcinmilkowski.word_sketch.model.RelationType.SURFACE,
             pl.marcinmilkowski.word_sketch.model.PosGroup.ADJ);
     }
 

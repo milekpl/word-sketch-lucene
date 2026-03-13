@@ -4,7 +4,7 @@ import org.jspecify.annotations.NonNull;
 import pl.marcinmilkowski.word_sketch.api.model.CollocateEntry;
 import pl.marcinmilkowski.word_sketch.api.model.RelationEntry;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.config.RelationType;
+import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 
 import java.util.List;

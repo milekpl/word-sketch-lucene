@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.api.model.CollocateEntry;
 import pl.marcinmilkowski.word_sketch.api.model.RelationEntry;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
-import pl.marcinmilkowski.word_sketch.config.RelationType;
+import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.sketch.WordSketchResult;
 

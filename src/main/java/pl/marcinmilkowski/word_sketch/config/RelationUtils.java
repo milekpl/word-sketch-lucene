@@ -8,6 +8,7 @@ import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
+import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.utils.CqlUtils;
 
 /**

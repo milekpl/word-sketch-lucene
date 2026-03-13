@@ -1,6 +1,7 @@
 package pl.marcinmilkowski.word_sketch.config;
 
 import pl.marcinmilkowski.word_sketch.model.PosGroup;
+import pl.marcinmilkowski.word_sketch.model.RelationType;
 
 import java.io.IOException;
 import java.nio.file.Path;

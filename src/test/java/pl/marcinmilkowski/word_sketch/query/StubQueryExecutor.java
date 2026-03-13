@@ -76,4 +76,27 @@ public class StubQueryExecutor implements QueryExecutor {
 
     @Override
     public void close() {}
+
+    /**
+     * Factory: creates a StubQueryExecutor that looks up collocate results from a map.
+     * Both {@link #executeCollocations} and {@link #executeSurfaceCollocations} delegate to the
+     * map using the lemma as key (lowercased).
+     */
+    public static StubQueryExecutor withCollocations(
+            java.util.Map<String, List<WordSketchResult>> collocations) {
+        return new StubQueryExecutor() {
+            @Override
+            public List<WordSketchResult> executeCollocations(
+                    String lemma, String cqlPattern, double minLogDice, int maxResults) {
+                return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
+            }
+
+            @Override
+            public List<WordSketchResult> executeSurfaceCollocations(
+                    String bcqlPattern, double minLogDice, int maxResults) {
+                String lemma = extractLemmaFromPattern(bcqlPattern);
+                return collocations.getOrDefault(lemma.toLowerCase(), Collections.emptyList());
+            }
+        };
+    }
 }

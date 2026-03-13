@@ -1,7 +1,6 @@
 package pl.marcinmilkowski.word_sketch.api;
 
 import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -248,7 +247,7 @@ final class ExploreResponseAssembler {
      * @param relation  resolved relation identifier
      * @param bcql      the BCQL pattern that was executed
      * @param top       requested maximum result count
-     * @param fallback  {@code true} if a proximity fallback was used; {@code null} for normal responses
+     * @param fallbackUsed  {@code true} if a proximity fallback was used instead of the BCQL pattern
      */
     record ExamplesContext(
             @NonNull String seed,
@@ -256,7 +255,7 @@ final class ExploreResponseAssembler {
             @NonNull String relation,
             @NonNull String bcql,
             int top,
-            @Nullable Boolean fallback) {}
+            boolean fallbackUsed) {}
 
     /**
      * Converts a {@link CollocateResult} to a typed {@link ExamplesResponse.ExampleEntry}.
@@ -279,6 +278,6 @@ final class ExploreResponseAssembler {
                 .map(ExploreResponseAssembler::collocateResultToExampleEntry)
                 .toList();
         return new ExamplesResponse("ok", ctx.seed(), ctx.collocate(), ctx.relation(),
-                ctx.bcql(), ctx.top(), entries.size(), ctx.fallback(), entries);
+                ctx.bcql(), ctx.top(), entries.size(), ctx.fallbackUsed() ? Boolean.TRUE : null, entries);
     }
 }

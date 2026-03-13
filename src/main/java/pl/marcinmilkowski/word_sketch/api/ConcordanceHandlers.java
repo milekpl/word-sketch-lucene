@@ -66,7 +66,7 @@ class ConcordanceHandlers {
         ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
                 new ExploreResponseAssembler.ExamplesContext(
                         req.seed(), req.collocate(), req.relation(), bcqlQuery,
-                        req.top(), fallback ? Boolean.TRUE : null),
+                        req.top(), fallback),
                 results);
 
         HttpApiUtils.sendJsonResponse(exchange, response);

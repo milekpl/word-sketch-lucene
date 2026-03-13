@@ -34,15 +34,16 @@ public sealed interface ExploreResponse
     /**
      * Returns the list of noun entries for this response.
      *
-     * <p>Semantics differ by variant:
+     * <p>Semantics and JSON key differ by variant:
      * <ul>
-     *   <li>In {@link SingleSeed}: nouns discovered by reverse collocate expansion from the seed.</li>
-     *   <li>In {@link MultiSeed}: the caller-supplied source seeds (input words), serialised under
-     *       the {@code source_seeds} JSON key to distinguish them from genuinely reverse-discovered
-     *       nouns.</li>
+     *   <li>In {@link SingleSeed}: nouns discovered by reverse collocate expansion from the seed,
+     *       serialised as {@code discovered_nouns}.</li>
+     *   <li>In {@link MultiSeed}: the caller-supplied source seeds (input words), serialised as
+     *       {@code source_seeds} to distinguish them from genuinely reverse-discovered nouns.</li>
      * </ul>
+     * Each concrete variant carries its own {@code @JsonProperty} annotation; the interface
+     * intentionally omits one to avoid inheriting a misleading key name.
      */
-    @JsonProperty("discovered_nouns")
     List<DiscoveredNounEntry> discoveredNouns();
 
     @JsonProperty("core_collocates")
@@ -137,6 +138,7 @@ public sealed interface ExploreResponse
 
         /** Delegates to {@link #sourceSeeds()} to satisfy the shared interface contract. */
         @Override
+        @JsonProperty("source_seeds")
         public List<DiscoveredNounEntry> discoveredNouns() { return sourceSeeds(); }
     }
 }

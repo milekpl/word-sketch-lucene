@@ -76,24 +76,23 @@ final class ExploreResponseAssembler {
      *
      * @param result        exploration result from the service layer
      * @param relationType  resolved relation identifier (e.g. {@code "adj_predicate"})
-     * @param top           maximum number of collocates requested
-     * @param minShared     minimum shared-by count filter applied
-     * @param minLogDice    minimum logDice threshold applied
+     * @param params        shared exploration parameters (top, minShared, logDiceThreshold)
      * @param nounsPerSeed  maximum discovered nouns per seed
      * @return typed response ready for JSON serialisation
      */
     static @NonNull ExploreResponse buildSingleSeedExploreResponse(
             @NonNull ExplorationResult result,
             @NonNull String relationType,
-            int top, int minShared, double minLogDice, int nounsPerSeed) {
-        ExploreResponse.Parameters params = new ExploreResponse.Parameters(
-                relationType, top, minShared, minLogDice, nounsPerSeed);
+            @NonNull SharedExploreParams params,
+            int nounsPerSeed) {
+        ExploreResponse.Parameters responseParams = new ExploreResponse.Parameters(
+                relationType, params.topCollocates(), params.minShared(), params.minLogDice(), nounsPerSeed);
         List<SeedCollocateEntry> seedCollocs = buildSeedCollocateEntries(result);
         List<ExploreResponse.DiscoveredNounEntry> nouns = buildDiscoveredNounEntries(result);
         List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
         List<ExploreResponse.EdgeEntry> edges = buildEdgeEntries(result);
         return new ExploreResponse.SingleSeed(
-                "ok", result.seed(), params,
+                "ok", result.seed(), responseParams,
                 seedCollocs,
                 nouns,
                 core,
@@ -109,24 +108,22 @@ final class ExploreResponseAssembler {
      *
      * @param result       exploration result from the service layer
      * @param relationType resolved relation identifier
-     * @param top          maximum number of collocates requested
-     * @param minShared    minimum shared-by count filter applied
-     * @param minLogDice   minimum logDice threshold applied
+     * @param params       shared exploration parameters (top, minShared, logDiceThreshold)
      * @return typed response ready for JSON serialisation
      */
     static @NonNull ExploreResponse buildMultiSeedExploreResponse(
             @NonNull ExplorationResult result,
             @NonNull String relationType,
-            int top, int minShared, double minLogDice) {
+            @NonNull SharedExploreParams params) {
         List<String> seeds = result.seeds();
-        ExploreResponse.Parameters params = new ExploreResponse.Parameters(
-                relationType, top, minShared, minLogDice, null);
+        ExploreResponse.Parameters responseParams = new ExploreResponse.Parameters(
+                relationType, params.topCollocates(), params.minShared(), params.minLogDice(), null);
         List<SeedCollocateEntry> seedCollocs = buildSeedCollocateEntries(result);
         List<ExploreResponse.DiscoveredNounEntry> nouns = buildDiscoveredNounEntries(result);
         List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
         List<ExploreResponse.EdgeEntry> edges = buildEdgeEntries(result);
         return new ExploreResponse.MultiSeed(
-                "ok", seeds, params,
+                "ok", seeds, responseParams,
                 seedCollocs,
                 nouns,
                 core,

@@ -1,0 +1,555 @@
+{
+  "session": {
+    "id": "ext_20260313_005627_f6add7fb",
+    "token": "eab90b4eb184d48203a49e521f4a26b4"
+  },
+  "assessments": {
+    "high_level_elegance": 76,
+    "convention_outlier": 75,
+    "error_consistency": 65,
+    "naming_quality": 73,
+    "abstraction_fitness": 72,
+    "dependency_health": 84.0,
+    "low_level_elegance": 79.0,
+    "mid_level_elegance": 80.0,
+    "ai_generated_debt": 74.0,
+    "incomplete_migration": 87.0,
+    "package_organization": 70,
+    "contract_coherence": 65,
+    "logic_clarity": 72,
+    "type_safety": 73,
+    "cross_module_architecture": 63,
+    "initialization_coupling": 82,
+    "test_strategy": 73,
+    "api_surface_coherence": 65,
+    "authorization_consistency": 80,
+    "design_coherence": 70
+  },
+  "findings": [
+    {
+      "dimension": "naming_quality",
+      "identifier": "seed-accessor-misleads",
+      "summary": "ExplorationResult.seed() returns a comma-joined composite string in multi-seed mode, misleading readers who expect a single value",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "seed() Javadoc: 'In multi-seed mode it is comma-joined (e.g. \"theory,model,hypothesis\")'. A singular noun accessor that silently joins a list is a behavior mismatch.",
+        "ExploreResponseAssembler.buildSingleSeedExploreResponse calls result.seed() and passes it as the seed: String field of the SingleSeed record \u2014 correct for single-seed mode only.",
+        "If called in multi-seed context by mistake, callers get a composite string with no indication it is multi-valued."
+      ],
+      "suggestion": "Rename seed() to seedDisplay() or seedLabel() to signal that it is a display-only composite value, distinct from the authoritative seeds() list. Update call sites in ExploreResponseAssembler.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "reverse-expansion-four-names",
+      "summary": "The 'maximum nouns per reverse lookup' tuning parameter is named four different ways across the stack",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "HTTP parameter: nouns_per",
+        "ExploreResponse.Parameters record field: nounsPer (@JsonProperty(\"nouns_per\"))",
+        "ExplorationHandlers local variable: nounsPerSeed",
+        "SingleSeedExplorationOptions record component: reverseExpansionLimit"
+      ],
+      "suggestion": "Pick one name at the domain layer (reverseExpansionLimit or nounsPerSeed) and rename consistently. The HTTP/JSON name nouns_per can stay as an API alias but should be documented as mapping to the canonical domain name.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "minlogdice-dual-semantics",
+      "summary": "CollocateProfile.minLogDice means 'observed minimum across noun scores' while ExplorationOptions.minLogDice means 'filter threshold' \u2014 same name, different semantics",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/CollocateProfile.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationOptions.java"
+      ],
+      "evidence": [
+        "CollocateProfile record component: 'double minLogDice' \u2014 the lowest logDice score observed for this collocate across all nouns.",
+        "ExplorationOptions record component: 'double minLogDice' \u2014 the filter threshold below which collocates are discarded.",
+        "Both are in the same model package and appear in the same exploration call paths."
+      ],
+      "suggestion": "Rename CollocateProfile.minLogDice to lowestNounLogDice or minNounScore to distinguish it from the filter threshold. The ExplorationOptions name is correct as-is.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "naming_quality",
+      "identifier": "discoverednouns-misleads-multiseed",
+      "summary": "ExploreResponse.discoveredNouns() interface method accurately names single-seed behavior but misleads in MultiSeed context where it returns the caller's input seeds",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "Interface Javadoc: 'In MultiSeed: the caller-supplied source seeds (input words), serialised under the source_seeds JSON key'. The interface method is named discoveredNouns but the data is not discovered \u2014 it is provided by the caller.",
+        "MultiSeed.discoveredNouns() override comment: 'Delegates to sourceSeeds() to satisfy the shared interface contract' \u2014 the implementation itself acknowledges the name is wrong for this variant."
+      ],
+      "suggestion": "If the sealed interface abstraction must remain, rename the interface method to seedContextEntries() or contextualNouns() to cover both semantics without implying discovery. Alternatively, remove the shared method from the interface and let callers pattern-match on the concrete variant.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "null-vs-throw-query-layer",
+      "summary": "BlackLabSnippetParser returns null from parsing methods while the same query layer throws IOException/IllegalArgumentException, forcing callers to guard against both failure modes",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabSnippetParser.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "BlackLabSnippetParser.extractLemmaFromMatch, safeParts, extractWordAtPosition all return null on failure.",
+        "BlackLabQueryExecutor.collectFrequenciesAndPosFromGroups: 'if (lemma == null || lemma.isEmpty()) continue' \u2014 silently drops hits with null lemma.",
+        "executeCqlQuery: 'if (parts == null) continue' \u2014 silently skips hits where snippet parsing returns null.",
+        "query/ scan data: returns_null: 9, throws: 9 \u2014 equal frequency of both strategies in one layer."
+      ],
+      "suggestion": "Pick one strategy for the query layer: either return Optional<T> from parsing methods (making absent-value explicit in the type) or throw a parse exception. The current mix forces callers to know which methods can return null vs throw.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "silent-skip-empty-lemma",
+      "summary": "executeCollocations and executeDependencyPattern silently return empty list for null/empty lemma instead of throwing, masking callers that pass invalid arguments",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "executeCollocations: 'if (lemma == null || lemma.isEmpty()) { logger.debug(...); return Collections.emptyList(); }' \u2014 documented '@Nullable String lemma' but silently no-ops.",
+        "executeDependencyPattern: same pattern \u2014 'if (lemma == null || lemma.isEmpty()) { logger.debug(...); return Collections.emptyList(); }'",
+        "QueryExecutor Javadoc for executeCollocations: 'returns an empty list silently if null or empty' \u2014 so this is intentional, but it conflicts with the @NonNull declarations on other methods in the same interface and makes callers unable to detect programming errors."
+      ],
+      "suggestion": "For executeCollocations the silent-skip is documented and may be intentional for the profiling use case. At minimum the Javadoc should be explicit that null is permitted (or use @Nullable consistently). Consider throwing IllegalArgumentException for explicitly null lemma and only silently skip empty string, or document the null case more visibly.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "error_consistency",
+      "identifier": "concordance-silent-fallback",
+      "summary": "ConcordanceHandlers silently falls back to proximity pattern when relation is not found, inconsistent with ExplorationHandlers which throws 400 for the same condition",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "ConcordanceHandlers: 'boolean fallback = rel.isEmpty(); ... logger.warn(\"Relation '{}' not resolved to a BCQL pattern; using proximity fallback\")' \u2014 degrades silently to a weaker query.",
+        "ExplorationHandlers.resolveRelationConfig: 'if (relationConfig.isEmpty()) throw new IllegalArgumentException(\"Unknown relation: \" + relationId)' \u2014 throws 400 for the same condition.",
+        "Two sibling handlers in the same api/ package respond to an unknown relation with different strategies."
+      ],
+      "suggestion": "Align the two handlers: either both throw 400 for unknown relations (and document the fallback as a deprecated behavior), or both return the result with a fallback indicator. The current asymmetry makes the API surface unpredictable.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "seeds-single-method-class",
+      "summary": "Seeds utility class contains a single static validation method, creating a one-method class that does not justify its own file",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/Seeds.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Seeds.java: one public final class, one static method requireAtLeastTwo(Collection, String). Total LOC: ~15.",
+        "Called in 2 places: ExplorationHandlers.handleSemanticFieldExploreMulti and ExplorationHandlers.handleSemanticFieldComparison. SemanticFieldExplorer.exploreMultiSeed and CollocateProfileComparator.compareCollocateProfiles perform the same check inline.",
+        "The validation is a one-liner check with a fixed message format; it does not encapsulate any reusable policy beyond what an inline guard provides."
+      ],
+      "suggestion": "Inline requireAtLeastTwo into ExplorationOptions or ExplorationHandlers. If the Seeds class is kept, it should grow to own all seed-collection validation (lowercasing, deduplication, length limits) currently scattered in parseSeedSet.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "facade-with-algorithm",
+      "summary": "SemanticFieldExplorer is documented as a thin facade but owns a non-trivial deduplication algorithm in fetchExamples, making the stated abstraction inaccurate",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java"
+      ],
+      "evidence": [
+        "Class Javadoc: 'Thin facade wiring SingleSeedExplorer, MultiSeedExplorer, and CollocateProfileComparator for the HTTP exploration layer.'",
+        "fetchExamples method: contains a HashSet<String> seen deduplication loop, size-limit guard, and result assembly \u2014 real algorithm, not delegation.",
+        "exploreByRelation and exploreMultiSeed are true pass-throughs; fetchExamples is not. The inconsistency within the same class blurs the ownership model."
+      ],
+      "suggestion": "Either move fetchExamples deduplication logic into a new ExamplesDeduplicator helper (keeping SemanticFieldExplorer as a true facade), or acknowledge that SemanticFieldExplorer is a coordinator class and update the Javadoc to reflect that it owns some algorithms directly.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "abstraction_fitness",
+      "identifier": "single-seed-options-delegation",
+      "summary": "SingleSeedExplorationOptions wraps ExplorationOptions with three pure delegation methods that add no behaviour, creating unnecessary indirection",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/SingleSeedExplorationOptions.java"
+      ],
+      "evidence": [
+        "topCollocates(), minLogDice(), minShared() each delegate verbatim to base().topCollocates() etc.",
+        "The wrapper adds only reverseExpansionLimit \u2014 the single field that distinguishes single-seed from base options.",
+        "Callers in SingleSeedExplorer use opts.topCollocates() and opts.minLogDice() directly; if the delegation methods were removed they would write opts.base().topCollocates() \u2014 marginally more verbose but no abstraction loss."
+      ],
+      "suggestion": "The delegation methods are low-cost and improve readability for the common case. This is a minor issue. If cleaned up, remove the three delegation methods and let callers use opts.base().fieldName() \u2014 or promote the base fields directly by making SingleSeedExplorationOptions a flat record with all four fields.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "high_level_elegance",
+      "identifier": "facade-owns-algorithm-boundary",
+      "summary": "SemanticFieldExplorer mixes pass-through delegation with inline algorithm (deduplication in fetchExamples), blurring the facade's ownership boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java"
+      ],
+      "evidence": [
+        "exploreByRelation and exploreMultiSeed delegate 100% to algorithm classes; fetchExamples does not delegate and contains a deduplication loop.",
+        "The pattern is inconsistent within a class presented as a facade: two methods behave as facades, one behaves as an algorithm owner.",
+        "A new engineer reading the class Javadoc ('thin facade') would not expect to find algorithmic logic here."
+      ],
+      "suggestion": "Extract the deduplication loop in fetchExamples into a separate package-private ExamplesDeduplicator or move it into SingleSeedExplorer as a dedicated method. This restores SemanticFieldExplorer to a true coordination facade.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "convention_outlier",
+      "identifier": "fallback-boolean-boxing",
+      "summary": "ConcordanceHandlers uses 'fallback ? true : null' \u2014 a redundant ternary where the true branch is the literal Boolean.TRUE",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ConcordanceHandlers.java"
+      ],
+      "evidence": [
+        "Code: 'ctx.top(), fallback ? true : null' \u2014 the ternary is equivalent to 'fallback ? Boolean.TRUE : null' which itself is equivalent to storing a nullable Boolean and assigning it directly.",
+        "All other boolean parameters in response records use plain boolean or unboxed assignment. This is the only use of ternary-boxed-literal in the api/ package."
+      ],
+      "suggestion": "Replace with 'Boolean fallbackFlag = fallback ? Boolean.TRUE : null; ... ctx.top(), fallbackFlag' or pass the ternary directly as '@Nullable Boolean' without the redundant true literal. Minor style issue.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab_not_on_maven_central",
+      "summary": "BlackLab 4.0.0 absent from Maven Central requires manual local-install pre-step for every developer and CI system",
+      "related_files": [
+        "pom.xml"
+      ],
+      "evidence": [
+        "pom.xml comment: 'BlackLab 4.x is NOT published to Maven Central (latest on Central is 3.0.1). REQUIRED FIRST STEP: run ./install-blacklab.sh'",
+        "A blacklab-github-fallback profile registers a raw GitHub URL flagged 'WARNING: This profile depends on a GitHub raw-content URL which has NO SLA'",
+        "The fallback profile has checksumPolicy=warn, meaning corrupt artifacts would not fail the build"
+      ],
+      "suggestion": "Publish BlackLab 4.0.0 to a private artifact registry (GitHub Packages, Nexus, or Artifactory) and replace the raw-GitHub fallback profile URL with the registry URL. Until then, document the install-blacklab.sh step as a mandatory CI pre-step in the repository's CI workflow files so it cannot be accidentally omitted.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "orphaned_javadoc_single_seed_explorer",
+      "summary": "Orphaned Javadoc comment before identifyCoreCollocates in SingleSeedExplorer \u2014 placed before the constant, not the method",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "Two consecutive Javadoc blocks appear back-to-back: '/** Phase 4: Identify core collocates \u2014 those shared by enough discovered nouns. */' immediately followed by '/** Minimum fraction of discovered nouns... */' above CORE_COLLOCATE_MIN_NOUN_FRACTION",
+        "The first Javadoc ('Phase 4') does not attach to any declaration \u2014 it is absorbed into the following Javadoc and effectively lost from the rendered API doc",
+        "The method identifyCoreCollocates() has no Javadoc of its own at the point where it appears"
+      ],
+      "suggestion": "Move the 'Phase 4: Identify core collocates' Javadoc to immediately above the identifyCoreCollocates() method signature, and keep the CORE_COLLOCATE_MIN_NOUN_FRACTION Javadoc attached to the constant. The two blocks should be separated by the constant declaration, not placed consecutively.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "collocation_pos_dual_semantics_lambda",
+      "summary": "collocatePos used with dual semantics (XML label index vs plain-text word index) inside a 15-line lambda in executeSurfacePattern",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "In executeSurfacePattern, collocatePos is captured from CqlUtils.findLabelTokenIndex(bcqlPattern, 2) and then used inside the lambda with two different counting schemes: as a 1-based label index for XML (extractCollocateFromXmlByPosition) and re-used as a 1-based word index for plain-text fallback (extractPlainTextTokenAt)",
+        "Three inline comments are needed to explain why the same integer is valid for both: '// sentinel: collocatePos == -1 means label 2: is absent', '// Primary path: identity is XML', '// Fallback path: identity is plain whitespace-separated text \u2014 collocatePos is reused as a 1-based word index (same integer value, different counting scheme)'",
+        "The comment 'same integer value, different counting scheme' explicitly acknowledges the dual-semantic reuse"
+      ],
+      "suggestion": "Extract the lambda body to a private method extractCollocateLemmaFromGroupIdentity(String identity, int collocatePos) with a Javadoc that explains the two-phase resolution (XML label path \u2192 plain-text fallback). The extracted method makes the dual-semantic reuse of collocatePos explicit in a named, testable unit rather than an anonymous capture.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "over_documented_delegation_methods",
+      "summary": "Delegation/pass-through methods carry Javadocs longer than their bodies, with HTML-structured architecture rationale (h3, bold) on package-private helpers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles(): 12-line Javadoc including '<p><strong>Why this pass-through exists:</strong>' section for a 3-line method body that calls comparator.compareCollocateProfiles(seeds, opts) and wraps the IOException",
+        "MultiSeedExplorer.fetchCollocatesPerSeed() (package-private): Javadoc contains '<h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>' with sub-sections '<b>Design implication:</b>' and '<b>Do not introduce a fallback here</b>' \u2014 HTML-structured documentation on a method not visible outside the package",
+        "SingleSeedExplorer.fetchSeedCollocates() (private): mirrors the pattern with '<h3>Query strategy: executeSurfacePattern primary, executeCollocations fallback</h3>' and four '<b>...: </b>' sub-sections",
+        "The cross-referencing between SingleSeedExplorer and MultiSeedExplorer Javadocs (each explaining why the other does not apply the same fallback) duplicates the same design rationale in two places"
+      ],
+      "suggestion": "For delegation methods like compareCollocateProfiles: replace the multi-paragraph 'why this pass-through exists' Javadoc with a single sentence referencing the delegate: '@see CollocateProfileComparator#compareCollocateProfiles for the algorithm'. For the strategy Javadocs in fetchCollocatesPerSeed and fetchSeedCollocates: collapse to 2-3 plain sentences stating the key constraint (e.g., 'Uses executeSurfacePattern only \u2014 no fallback \u2014 to ensure cross-seed logDice scores are comparable. See MultiSeedExplorer.fetchCollocatesPerSeed for the symmetric rationale.'). Move the extended rationale to a package-level ADR comment or package-info.java if it must be preserved.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "discovered_nouns_bridge_method_semantic_gap",
+      "summary": "ExploreResponse interface retains discoveredNouns() after sourceSeeds rename, creating a permanent semantic mismatch for MultiSeed callers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse interface declares 'List<DiscoveredNounEntry> discoveredNouns()' with @JsonProperty('discovered_nouns')",
+        "ExploreResponse.MultiSeed record holds a 'sourceSeeds' field annotated @JsonProperty('source_seeds'); the discoveredNouns() override simply delegates: 'public List<DiscoveredNounEntry> discoveredNouns() { return sourceSeeds(); }'",
+        "The interface-level Javadoc acknowledges the semantic difference: 'In MultiSeed: the caller-supplied source seeds (input words), serialised under the source_seeds JSON key' \u2014 but the method name discoveredNouns() still implies discovery semantics that do not apply to MultiSeed",
+        "The sealed interface could support pattern-matching callers that access sourceSeeds() directly on MultiSeed without going through the bridge"
+      ],
+      "suggestion": "Remove discoveredNouns() from the ExploreResponse sealed interface. Replace the two known call sites (ExploreResponseAssembler.buildDiscoveredNounEntries and ExploreResponseAssembler.buildExplorationEdges) with a sealed switch/instanceof that accesses SingleSeed.discoveredNouns() and MultiSeed.sourceSeeds() by their correct names. This removes the misleading bridge and makes the semantic distinction compile-time visible.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "explore_response_jsonproperty_misleading",
+      "summary": "@JsonProperty(\"discovered_nouns\") on ExploreResponse.discoveredNouns() interface method is inaccurate for the MultiSeed variant",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "Interface method at line 45: @JsonProperty(\"discovered_nouns\") List<DiscoveredNounEntry> discoveredNouns()",
+        "MultiSeed record field at line 131: @JsonProperty(\"source_seeds\") List<DiscoveredNounEntry> sourceSeeds",
+        "MultiSeed.discoveredNouns() override at line 140 is a plain Java method delegate \u2014 not a Jackson-serialized property; Jackson serializes sourceSeeds as \"source_seeds\", not \"discovered_nouns\"",
+        "Developers reading the interface contract expect discoveredNouns() to always map to JSON key \"discovered_nouns\"; for MultiSeed it maps to \"source_seeds\""
+      ],
+      "suggestion": "Remove @JsonProperty(\"discovered_nouns\") from the interface method and replace it with a Javadoc note explaining the two JSON key conventions. Keep the concrete annotations on SingleSeed and MultiSeed records where they actually govern serialization.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_result_of_incomplete_null_guards",
+      "summary": "ExplorationResult.of() factory documents all parameters as non-null but enforces it for only one",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "Private constructor line 43: this.seeds = List.copyOf(seeds) \u2014 enforces non-null implicitly",
+        "Lines 44-48: seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, perSeedCollocates are all stored directly without any null check",
+        "Static factory Javadoc says 'must not be null' for all six parameters",
+        "Class Javadoc says 'All collections are non-null' \u2014 a guarantee the constructor does not uphold for five of the six fields"
+      ],
+      "suggestion": "Add Objects.requireNonNull(...) for seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, and perSeedCollocates in the private constructor, matching the 'must not be null' guarantee in the Javadoc.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "exploration_result_false_immutability_claim",
+      "summary": "ExplorationResult claims to be immutable but only defensively copies the seeds field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java"
+      ],
+      "evidence": [
+        "Class Javadoc: 'Immutable result of semantic field exploration'",
+        "Private constructor line 43: this.seeds = List.copyOf(seeds) \u2014 only seeds is defensively copied",
+        "Lines 44-48: seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, perSeedCollocates stored by direct reference \u2014 caller-retained references can mutate the stored state",
+        "ComparisonResult (same package, same pattern): both nouns and collocates are List.copyOf'd \u2014 making the inconsistency visible by contrast"
+      ],
+      "suggestion": "Wrap the remaining five fields with Map.copyOf / List.copyOf in the private constructor, or replace mutable Map types with Map.of / Map.copyOf at the call sites in MultiSeedExplorer and SingleSeedExplorer. Update the Javadoc if full immutability cannot be achieved (e.g. when nested Maps contain mutable values).",
+      "confidence": "high"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullaway_suppressed_test_constructor",
+      "summary": "@SuppressWarnings(\"NullAway\") on BlackLabQueryExecutor test constructor removes null-safety enforcement for a constructor with a documented null precondition",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "@SuppressWarnings(\"NullAway\") annotation on the package-private constructor accepting BlackLabIndex",
+        "The constructor body assigns this.blackLabIndex = index without a null check; the Javadoc says 'Callers must not invoke any method that delegates to blackLabIndex when null'",
+        "The collocateQueryHelper initialization uses an anonymous subclass 'new CollocateQueryHelper((BlackLabIndex) null) {}' \u2014 NullAway would flag the null cast without the suppression"
+      ],
+      "suggestion": "Extract the test-only null-index path to a static factory method (e.g. BlackLabQueryExecutor.forTesting()) that clearly documents its constraints, allowing the primary constructor to remain fully null-safe. Remove the suppress annotation.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "exploration_exception_boundary_leak",
+      "summary": "ExplorationException lives in the exploration/ implementation package but is imported directly by api/HttpApiUtils, bypassing the exploration/spi/ boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationException.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.java line 5: import pl.marcinmilkowski.word_sketch.exploration.ExplorationException",
+        "ExplorationHandlers and WordSketchApiServer both correctly import only pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService",
+        "ExplorationException.java is in the exploration/ package alongside implementation classes (SemanticFieldExplorer, MultiSeedExplorer, etc.) \u2014 not in spi/",
+        "The SPI pattern advertised by exploration/spi/ is intended to decouple api/ from implementation details; the HttpApiUtils import defeats this for the exception type"
+      ],
+      "suggestion": "Move ExplorationException into exploration/spi/ (or model/exploration/) so that the api/ layer's only direct dependency on exploration/ internals is through the spi/ boundary. This matches the stated design intent of the spi/ package.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "three_edge_representations",
+      "summary": "Three parallel edge representations with no shared base: model/exploration/Edge, ExploreResponse.EdgeEntry, and ComparisonResponse.EdgeEntry",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "model/exploration/Edge: record(String source, String target, double weight, RelationEdgeType type)",
+        "ExploreResponse.EdgeEntry: record(String source, String target, @JsonProperty(\"log_dice\") double logDice, RelationEdgeType type)",
+        "ComparisonResponse.EdgeEntry: record(String source, String target, double weight, RelationEdgeType type)",
+        "ExploreResponseAssembler builds List<Edge> internally then converts to EdgeEntry \u2014 the intermediate domain type adds a conversion step with no reuse at the API layer",
+        "ComparisonResponse.EdgeEntry and model/exploration/Edge have the same field names (weight) but are separate types"
+      ],
+      "suggestion": "Either reuse model/exploration/Edge directly in both response records (adding @JsonProperty(\"log_dice\") via a mixin or renaming the field), or collapse ComparisonResponse.EdgeEntry and ExploreResponse.EdgeEntry into a single shared response type in api/model/. The current three-type arrangement means edge serialization logic changes must be made in three places.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "init_dead_throws_ioexception",
+      "summary": "WordSketchApiServer constructor declares 'throws IOException' but never throws it; port binding is deferred to start()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Constructor signature: public WordSketchApiServer(...) throws IOException",
+        "Constructor body comment: 'NOTE: Port binding is deferred to start() so that construction and network binding are separated'",
+        "No IOException-throwing call exists in the constructor body; all handler constructors are pure",
+        "Main.handleBlackLabServerCommand must propagate 'throws IOException' because of this declaration even though it is never raised at construction"
+      ],
+      "suggestion": "Remove 'throws IOException' from the WordSketchApiServer constructor signature. The only IOException-producing operation (HttpServer.create) is in start(), which already throws IllegalStateException on bind failure. Removing the declaration makes the contract accurate and eliminates phantom checked-exception handling in callers.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_comparison_handler_no_data_assertion",
+      "summary": "ExplorationHandlers.handleSemanticFieldComparison is only tested at handler level with empty data; no data-shape assertion verifies comparison response contents through HTTP",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldComparison_twoSeeds_returns200() uses handlers() which creates SemanticFieldExplorer(emptyExecutor(), config) \u2014 all assertions operate on empty collections",
+        "compare_edgeWeights_abstractHasCorrectWeightToTheory() calls explorer.compareCollocateProfiles directly, bypassing the HTTP handler",
+        "By contrast, handleSemanticFieldExplore_withData_seedCollocatesNonEmpty() exercises the explore handler with actual collocate data and asserts on response content"
+      ],
+      "suggestion": "Add a test analogous to handleSemanticFieldExplore_withData_seedCollocatesNonEmpty that provides a collocatingExecutor to handlers().handleSemanticFieldComparison and asserts that the response collocates array is non-empty and contains the expected collocate word. This verifies the full HTTP\u2192handler\u2192assembler\u2192JSON path for the comparison endpoint.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_assembler_inconsistent_param_grouping",
+      "summary": "ExploreResponseAssembler.buildSingleSeedExploreResponse and buildMultiSeedExploreResponse pass top/minShared/minLogDice as individual scalars while buildComparisonResponse takes SharedExploreParams",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "buildSingleSeedExploreResponse(ExplorationResult, String, int top, int minShared, double minLogDice, int nounsPerSeed) \u2014 6 params",
+        "buildMultiSeedExploreResponse(ExplorationResult, String, int top, int minShared, double minLogDice) \u2014 5 params",
+        "buildComparisonResponse(List<String>, String, SharedExploreParams params, ComparisonResult) \u2014 uses SharedExploreParams record",
+        "All three methods are at the same level of abstraction within ExploreResponseAssembler; callers are in ExplorationHandlers which already holds a SharedExploreParams instance"
+      ],
+      "suggestion": "Change buildSingleSeedExploreResponse and buildMultiSeedExploreResponse to accept SharedExploreParams instead of three separate scalars (top, minShared, minLogDice), adding nounsPerSeed as a separate parameter only for the single-seed variant. This matches buildComparisonResponse's pattern and eliminates the repetition of three scalar params across two methods.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_explore_response_divergent_json_keys",
+      "summary": "Sibling explore endpoints return different JSON keys for the same conceptual field: 'discovered_nouns' (SingleSeed) vs 'source_seeds' (MultiSeed)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse.SingleSeed serialises the noun list as 'discovered_nouns' via @JsonProperty on the component",
+        "ExploreResponse.MultiSeed serialises the noun list as 'source_seeds' via @JsonProperty(\"source_seeds\") on the sourceSeeds field",
+        "The shared interface method discoveredNouns() bridges this but clients consuming the JSON from /api/semantic-field/explore vs /api/semantic-field/explore-multi receive different keys for the same positional concept",
+        "Javadoc acknowledges the asymmetry but does not explain why a unified key with a type discriminator would not serve as well"
+      ],
+      "suggestion": "Decide on one of two remedies: (a) document the divergent keys as stable public API in the REST API reference (if clients must handle both endpoints differently anyway); or (b) unify both to 'nouns' or 'noun_entries' with a 'noun_type: discovered|seed' field per entry so clients can handle both responses uniformly. Option (a) requires no code change but does require explicit client documentation.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "auth_bcql_audit_warn_level",
+      "summary": "BCQL audit log entry uses logger.warn() rather than INFO or a dedicated audit category, polluting warning-level logs with routine audit events",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "Line: logger.warn(\"BCQL audit \u2013 src={} len={} query: {}\", exchange.getRemoteAddress(), req.query().length(), req.query());",
+        "WARN is semantically reserved for degraded-but-operational conditions; using it for normal audit events causes false positives in monitoring dashboards that alert on WARN+"
+      ],
+      "suggestion": "Change the BCQL audit log to logger.info() (or introduce a named audit logger via LoggerFactory.getLogger(\"audit.bcql\")). WARN should be reserved for conditions that signal degraded service. The current log statement is emitted on every successful request, not just anomalous ones.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "design_nullable_grammar_config_escape_hatch",
+      "summary": "SemanticFieldExplorer constructor accepts nullable GrammarConfig, using null as a test-only escape hatch that is visible in the production constructor signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(QueryExecutor executor, GrammarConfig grammarConfig) \u2014 no @NonNull annotation; null triggers FALLBACK_NOUN_PATTERN",
+        "ExplorationHandlersTest: new SemanticFieldExplorer(emptyExecutor(), null) \u2014 null used to skip noun-pattern resolution",
+        "SemanticFieldExplorerTest: new SemanticFieldExplorer(executor, null) \u2014 same null bypass",
+        "The fallback path (FALLBACK_NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\") is only activated in tests; production always passes a real GrammarConfig"
+      ],
+      "suggestion": "Add @NonNull to the grammarConfig parameter and enforce it with Objects.requireNonNull(). Tests that currently pass null should instead use GrammarConfigHelper.requireTestConfig() or construct a minimal GrammarConfig. This removes the hidden null code path from the production constructor and makes the test intent explicit.",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "design_stale_crossref_fetchseedcollocates",
+      "summary": "MultiSeedExplorer Javadoc references SemanticFieldExplorer#fetchSeedCollocates but the method is actually on SingleSeedExplorer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.java line 91: '* <p>Contrast with {@link SemanticFieldExplorer#fetchSeedCollocates}'",
+        "SemanticFieldExplorer has no fetchSeedCollocates method",
+        "SingleSeedExplorer.java line 145: 'private List<WordSketchResult> fetchSeedCollocates(...)'"
+      ],
+      "suggestion": "Update the Javadoc cross-reference from '{@link SemanticFieldExplorer#fetchSeedCollocates}' to '{@link SingleSeedExplorer#fetchSeedCollocates}' (or refer to 'the single-seed fallback path in SingleSeedExplorer' if the method is private and not linkable).",
+      "confidence": "high"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "design_discoverednouns_semantic_divergence",
+      "summary": "ExploreResponse.discoveredNouns() interface method has different semantics per implementor \u2014 discovered nouns in SingleSeed vs caller-supplied seeds in MultiSeed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse interface Javadoc: 'In SingleSeed: nouns discovered by reverse collocate expansion from the seed. In MultiSeed: the caller-supplied source seeds (input words)'",
+        "MultiSeed.discoveredNouns() delegates to sourceSeeds() \u2014 the field name already acknowledges the semantic difference",
+        "An interface method that returns conceptually different things from different implementors (discovered vs supplied) is a type safety smell; callers holding an ExploreResponse reference cannot reason about what discoveredNouns() means without inspecting the runtime type"
+      ],
+      "suggestion": "Remove discoveredNouns() from the ExploreResponse sealed interface since the semantics diverge across variants. The method only needs to exist on SingleSeed where it is meaningful. MultiSeed can expose sourceSeeds() directly. Because the interface is sealed and both variants are produced by different endpoints (never mixed in a collection), callers can switch on the concrete type without needing a shared method.",
+      "confidence": "medium"
+    },
+    {
+      "dimension": "mid_level_elegance",
+      "identifier": "exploration_result_positional_params",
+      "summary": "ExplorationResult.of() takes 6 positional parameters, making call sites hard to read",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "ExplorationResult.of(seeds, collocates, profiles, nouns, options, config) \u2014 6 positional args with no builder"
+      ],
+      "suggestion": "Extract a builder or group related parameters into a record to reduce positional coupling",
+      "confidence": "high"
+    },
+    {
+      "dimension": "package_organization",
+      "identifier": "exploration_spi_single_interface",
+      "summary": "exploration/spi/ sub-package holds only one interface (ExplorationService), adding navigation overhead without structural benefit",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java"
+      ],
+      "evidence": [
+        "exploration/spi/ contains exactly one type; sibling CollocateQueryPort lives in query/ without an spi/ sub-package, creating inconsistency"
+      ],
+      "suggestion": "Move ExplorationService up to exploration/ directly, or apply the spi/ pattern consistently across all port interfaces",
+      "confidence": "high"
+    }
+  ]
+}

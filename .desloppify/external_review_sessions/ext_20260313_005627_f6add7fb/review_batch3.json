@@ -1,0 +1,192 @@
+{
+  "session": {
+    "id": "ext_20260313_005627_f6add7fb",
+    "token": "eab90b4eb184d48203a49e521f4a26b4"
+  },
+  "assessments": {
+    "package_organization": 70,
+    "contract_coherence": 65,
+    "logic_clarity": 72,
+    "type_safety": 73,
+    "cross_module_architecture": 63
+  },
+  "dimension_notes": {
+    "package_organization": {
+      "evidence": [
+        "11 packages with clear role separation: api/, api/model/, config/, exploration/, exploration/spi/, indexer/blacklab/, model/, model/exploration/, model/sketch/, query/, utils/",
+        "exploration/spi/ contains exactly one file (ExplorationService.java plus package-info.java) — the SPI pattern is valid but adds navigational overhead at this scale",
+        "Three parallel representations of the same 'graph edge' concept: model/exploration/Edge (domain), api/model/ExploreResponse.EdgeEntry (nested record), api/model/ComparisonResponse.EdgeEntry (separate nested record) — the domain type is never reused at the API layer",
+        "model/exploration/ has 14 files (514 LOC) and is referenced by both exploration/ and api/model/ — density is acceptable given each type is small and focused",
+        "viz/RadialPlot.java has no package-info, unlike all other packages"
+      ],
+      "impact_scope": "Low — navigability is generally strong; the duplication and spi-overhead are modest friction",
+      "fix_scope": "Small — merge ExplorationException into spi/, consolidate EdgeEntry types or reuse model/exploration/Edge in assembler",
+      "confidence": "high"
+    },
+    "contract_coherence": {
+      "evidence": [
+        "ExploreResponse sealed interface declares @JsonProperty(\"discovered_nouns\") on discoveredNouns() at line 45 — SingleSeed records it correctly, but MultiSeed records the physical field as sourceSeeds with @JsonProperty(\"source_seeds\") and the override method is a no-Jackson-serialized delegate. The annotation on the interface method is effectively a documented lie for MultiSeed callers reading the interface",
+        "ExplorationResult.of() factory Javadoc says all parameters 'must not be null' for 5 collections, but only seeds gets runtime enforcement via List.copyOf; the remaining 4 parameters (seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates) have no null guards — a contradiction between stated and enforced contract",
+        "ExplorationService interface Javadoc says '@throws IllegalArgumentException if seeds is empty or fewer than 2', but the implementation (SemanticFieldExplorer.exploreMultiSeed) also throws ExplorationException which is not mentioned in the interface contract",
+        "BlackLabQueryExecutor test constructor Javadoc says 'Callers must not invoke any method that delegates to blackLabIndex or collocateQueryHelper when those are null' — a caller contract that the compiler cannot enforce and tests could accidentally violate",
+        "RelationPatternUtils.buildFullPattern(config, headword) Javadoc says 'returned unchanged if headword is null/blank' which the code honours — a positive contract consistency"
+      ],
+      "impact_scope": "Medium — the @JsonProperty annotation discrepancy on the ExploreResponse interface could mislead API consumers or developers adding new variants; the incomplete null validation in ExplorationResult.of() could produce NullPointerException in runtime",
+      "fix_scope": "Small — move @JsonProperty annotation off the interface to a comment; add Objects.requireNonNull guards in ExplorationResult.of() for remaining params",
+      "confidence": "high"
+    },
+    "logic_clarity": {
+      "evidence": [
+        "ExplorationResult Javadoc says 'Immutable result' and 'All collections are non-null' but the private constructor only applies List.copyOf to seeds; the other 5 fields (seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, perSeedCollocates) are stored by reference — callers retaining the original collections can mutate them post-construction. ComparisonResult correctly uses List.copyOf for both of its fields, making the inconsistency visible by contrast",
+        "DiscoveredNoun.sharedCollocateList() creates a new ArrayList<>(sharedCollocates.keySet()) on every invocation with no caching — the record is used in iteration-heavy exploration paths",
+        "MultiSeedExplorer.identifyCommonCollocates correctly caps threshold to seedCount with Math.min(minShared, seedCount) — prevents degenerate case where minShared > seeds",
+        "BlackLabQueryExecutor test constructor uses an anonymous subclass 'new CollocateQueryHelper((BlackLabIndex) null) {}' to avoid real construction when index is null — the intent is documented but the pattern is unusual and fragile if CollocateQueryHelper gains non-overridable init logic",
+        "Control flow in SemanticFieldExplorer.fetchExamples deduplication loop is clear and correct; early-exit on maxExamples is properly placed"
+      ],
+      "impact_scope": "Medium for ExplorationResult mutability — post-construction mutation of collections can produce invisible bugs in multi-threaded or cached usage; low for the rest",
+      "fix_scope": "Small — apply List.copyOf/Map.copyOf to all 5 remaining ExplorationResult constructor fields; cache sharedCollocateList() or document the per-call cost",
+      "confidence": "high"
+    },
+    "type_safety": {
+      "evidence": [
+        "@NonNull/@Nullable JSpecify annotations are applied consistently on all QueryExecutor and CollocateQueryPort method signatures, ExplorationService, and RelationPatternUtils helpers — positive signal",
+        "@SuppressWarnings(\"NullAway\") on BlackLabQueryExecutor(BlackLabIndex) test constructor (line ~57) suppresses null-safety analysis for a constructor that has a documented precondition — removes compile-time enforcement",
+        "ExplorationResult.of() static factory declares 5 @NonNull-documented Map/List parameters but provides no Objects.requireNonNull guards for 4 of them; List.copyOf(seeds) provides implicit null enforcement only for seeds",
+        "ComparisonResult.specificTo(String noun) returns a mutable List via Collectors.toList() — inconsistent with the broader pattern of returning immutable views; callers could mutate the returned list",
+        "HttpApiUtils.sendJsonResponse(exchange, Object body) loses static type information at the API boundary — inherent to the generic JSON serializer, low severity",
+        "CollocateProfile.nounScores() returns Map<String, Double> with no nullability annotation on the return type — minor gap in otherwise well-annotated domain model"
+      ],
+      "impact_scope": "Low-to-medium — suppressed NullAway and incomplete factory guards are the highest-risk items; the mutable return from specificTo() is a correctness risk if callers mutate the list",
+      "fix_scope": "Small — add null guards in ExplorationResult.of(), remove suppress and refactor test constructor, change specificTo() to return List.copyOf(result)",
+      "confidence": "high"
+    },
+    "cross_module_architecture": {
+      "evidence": [
+        "ExplorationException lives in pl.marcinmilkowski.word_sketch.exploration (implementation package) but is imported and caught directly by api/HttpApiUtils.java — this punches a hole in the exploration/spi/ abstraction boundary that ExplorationHandlers and WordSketchApiServer otherwise respect. Moving ExplorationException to exploration/spi/ or model/ would close the leak",
+        "Three parallel edge types with no reuse: model/exploration/Edge (domain record), ExploreResponse.EdgeEntry (nested record with logDice field), ComparisonResponse.EdgeEntry (nested record with weight field instead of logDice) — the domain type is converted-away in ExploreResponseAssembler rather than being used directly; the field name divergence (logDice vs weight) is unexplained",
+        "Main.java imports pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer directly (bypassing the spi/ interface) — acceptable for the composition root, not a boundary violation per se",
+        "No import cycles detected: api/ → exploration/spi/ → (none), exploration/ → query/ → model/sketch/, config/ → model/ — the DAG is clean",
+        "ExplorationHandlers correctly declares ExplorationService (spi type) not SemanticFieldExplorer (impl type) — boundary is respected for the primary consumer"
+      ],
+      "impact_scope": "Medium — the ExplorationException boundary leak means api/ is not fully isolated from exploration/ internals; the three-way edge duplication increases maintenance surface when edge semantics change",
+      "fix_scope": "Small-to-medium — move ExplorationException to spi/ package; evaluate whether ComparisonResponse.EdgeEntry and ExploreResponse.EdgeEntry can share a common type or reuse model/exploration/Edge",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "contract_coherence",
+      "identifier": "explore_response_jsonproperty_misleading",
+      "summary": "@JsonProperty(\"discovered_nouns\") on ExploreResponse.discoveredNouns() interface method is inaccurate for the MultiSeed variant",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "Interface method at line 45: @JsonProperty(\"discovered_nouns\") List<DiscoveredNounEntry> discoveredNouns()",
+        "MultiSeed record field at line 131: @JsonProperty(\"source_seeds\") List<DiscoveredNounEntry> sourceSeeds",
+        "MultiSeed.discoveredNouns() override at line 140 is a plain Java method delegate — not a Jackson-serialized property; Jackson serializes sourceSeeds as \"source_seeds\", not \"discovered_nouns\"",
+        "Developers reading the interface contract expect discoveredNouns() to always map to JSON key \"discovered_nouns\"; for MultiSeed it maps to \"source_seeds\""
+      ],
+      "suggestion": "Remove @JsonProperty(\"discovered_nouns\") from the interface method and replace it with a Javadoc note explaining the two JSON key conventions. Keep the concrete annotations on SingleSeed and MultiSeed records where they actually govern serialization.",
+      "confidence": "high",
+      "impact_scope": "Low — the JSON output is correct; the risk is developer confusion when extending the sealed interface",
+      "fix_scope": "Trivial"
+    },
+    {
+      "dimension": "contract_coherence",
+      "identifier": "exploration_result_of_incomplete_null_guards",
+      "summary": "ExplorationResult.of() factory documents all parameters as non-null but enforces it for only one",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java"
+      ],
+      "evidence": [
+        "Private constructor line 43: this.seeds = List.copyOf(seeds) — enforces non-null implicitly",
+        "Lines 44-48: seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, perSeedCollocates are all stored directly without any null check",
+        "Static factory Javadoc says 'must not be null' for all six parameters",
+        "Class Javadoc says 'All collections are non-null' — a guarantee the constructor does not uphold for five of the six fields"
+      ],
+      "suggestion": "Add Objects.requireNonNull(...) for seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, and perSeedCollocates in the private constructor, matching the 'must not be null' guarantee in the Javadoc.",
+      "confidence": "high",
+      "impact_scope": "Low — callers are internal and unlikely to pass null today; the risk is future callers relying on the documented contract",
+      "fix_scope": "Trivial"
+    },
+    {
+      "dimension": "logic_clarity",
+      "identifier": "exploration_result_false_immutability_claim",
+      "summary": "ExplorationResult claims to be immutable but only defensively copies the seeds field",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ExplorationResult.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/ComparisonResult.java"
+      ],
+      "evidence": [
+        "Class Javadoc: 'Immutable result of semantic field exploration'",
+        "Private constructor line 43: this.seeds = List.copyOf(seeds) — only seeds is defensively copied",
+        "Lines 44-48: seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, perSeedCollocates stored by direct reference — caller-retained references can mutate the stored state",
+        "ComparisonResult (same package, same pattern): both nouns and collocates are List.copyOf'd — making the inconsistency visible by contrast"
+      ],
+      "suggestion": "Wrap the remaining five fields with Map.copyOf / List.copyOf in the private constructor, or replace mutable Map types with Map.of / Map.copyOf at the call sites in MultiSeedExplorer and SingleSeedExplorer. Update the Javadoc if full immutability cannot be achieved (e.g. when nested Maps contain mutable values).",
+      "confidence": "high",
+      "impact_scope": "Medium — the risk is subtle state corruption in concurrent or cached usage; current single-threaded call sites are safe but the class contract advertises a safety guarantee it does not deliver",
+      "fix_scope": "Small"
+    },
+    {
+      "dimension": "type_safety",
+      "identifier": "nullaway_suppressed_test_constructor",
+      "summary": "@SuppressWarnings(\"NullAway\") on BlackLabQueryExecutor test constructor removes null-safety enforcement for a constructor with a documented null precondition",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"
+      ],
+      "evidence": [
+        "@SuppressWarnings(\"NullAway\") annotation on the package-private constructor accepting BlackLabIndex",
+        "The constructor body assigns this.blackLabIndex = index without a null check; the Javadoc says 'Callers must not invoke any method that delegates to blackLabIndex when null'",
+        "The collocateQueryHelper initialization uses an anonymous subclass 'new CollocateQueryHelper((BlackLabIndex) null) {}' — NullAway would flag the null cast without the suppression"
+      ],
+      "suggestion": "Extract the test-only null-index path to a static factory method (e.g. BlackLabQueryExecutor.forTesting()) that clearly documents its constraints, allowing the primary constructor to remain fully null-safe. Remove the suppress annotation.",
+      "confidence": "medium",
+      "impact_scope": "Low — affects test code paths only; production construction always passes a non-null index",
+      "fix_scope": "Small"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "exploration_exception_boundary_leak",
+      "summary": "ExplorationException lives in the exploration/ implementation package but is imported directly by api/HttpApiUtils, bypassing the exploration/spi/ boundary",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/HttpApiUtils.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/ExplorationException.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/spi/ExplorationService.java"
+      ],
+      "evidence": [
+        "HttpApiUtils.java line 5: import pl.marcinmilkowski.word_sketch.exploration.ExplorationException",
+        "ExplorationHandlers and WordSketchApiServer both correctly import only pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService",
+        "ExplorationException.java is in the exploration/ package alongside implementation classes (SemanticFieldExplorer, MultiSeedExplorer, etc.) — not in spi/",
+        "The SPI pattern advertised by exploration/spi/ is intended to decouple api/ from implementation details; the HttpApiUtils import defeats this for the exception type"
+      ],
+      "suggestion": "Move ExplorationException into exploration/spi/ (or model/exploration/) so that the api/ layer's only direct dependency on exploration/ internals is through the spi/ boundary. This matches the stated design intent of the spi/ package.",
+      "confidence": "high",
+      "impact_scope": "Low-to-medium — no functional impact today; the boundary leak matters if the exploration/ implementation is ever replaced or modularised",
+      "fix_scope": "Trivial"
+    },
+    {
+      "dimension": "cross_module_architecture",
+      "identifier": "three_edge_representations",
+      "summary": "Three parallel edge representations with no shared base: model/exploration/Edge, ExploreResponse.EdgeEntry, and ComparisonResponse.EdgeEntry",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/model/exploration/Edge.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ComparisonResponse.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "model/exploration/Edge: record(String source, String target, double weight, RelationEdgeType type)",
+        "ExploreResponse.EdgeEntry: record(String source, String target, @JsonProperty(\"log_dice\") double logDice, RelationEdgeType type)",
+        "ComparisonResponse.EdgeEntry: record(String source, String target, double weight, RelationEdgeType type)",
+        "ExploreResponseAssembler builds List<Edge> internally then converts to EdgeEntry — the intermediate domain type adds a conversion step with no reuse at the API layer",
+        "ComparisonResponse.EdgeEntry and model/exploration/Edge have the same field names (weight) but are separate types"
+      ],
+      "suggestion": "Either reuse model/exploration/Edge directly in both response records (adding @JsonProperty(\"log_dice\") via a mixin or renaming the field), or collapse ComparisonResponse.EdgeEntry and ExploreResponse.EdgeEntry into a single shared response type in api/model/. The current three-type arrangement means edge serialization logic changes must be made in three places.",
+      "confidence": "medium",
+      "impact_scope": "Low — duplication is contained; the main cost is maintenance friction when edge fields change",
+      "fix_scope": "Small"
+    }
+  ]
+}

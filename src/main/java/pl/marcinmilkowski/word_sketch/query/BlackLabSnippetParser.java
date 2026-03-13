@@ -184,18 +184,23 @@ class BlackLabSnippetParser {
 
 
     /**
-     * Normalises the concordance parts array, returning {@code null} when the concordance
-     * is absent or malformed so each caller can apply its own skip/fallback logic.
-     * When present, each element is guaranteed non-null (empty-string instead of null).
+     * Normalises the concordance parts array, throwing {@link IllegalArgumentException} when the
+     * concordance is absent or malformed.  Each element in the returned array is guaranteed
+     * non-null (empty-string instead of null).
      *
-     * @param conc the concordance from BlackLab (may be {@code null})
-     * @return a 3-element array [left, match, right], or {@code null} if unavailable
+     * @param conc the concordance from BlackLab
+     * @return a 3-element array [left, match, right]
+     * @throws IllegalArgumentException if {@code conc} is null or parts are missing/malformed
      */
-    @Nullable
     static String[] safeParts(nl.inl.blacklab.search.Concordance conc) {
-        if (conc == null) return null;
+        if (conc == null) {
+            throw new IllegalArgumentException("Concordance must not be null");
+        }
         String[] parts = conc.parts();
-        if (parts == null || parts.length < 3) return null;
+        if (parts == null || parts.length < 3) {
+            throw new IllegalArgumentException(
+                "Concordance parts malformed or missing (length=" + (parts == null ? "null" : parts.length) + ")");
+        }
         return new String[]{
             parts[0] != null ? parts[0] : "",
             parts[1] != null ? parts[1] : "",

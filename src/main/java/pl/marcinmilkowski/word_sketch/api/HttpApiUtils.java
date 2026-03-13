@@ -2,7 +2,7 @@ package pl.marcinmilkowski.word_sketch.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import pl.marcinmilkowski.word_sketch.exploration.ExplorationException;
+import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationException;
 import pl.marcinmilkowski.word_sketch.utils.JsonUtils;
 import com.sun.net.httpserver.HttpExchange;
 import org.jspecify.annotations.NonNull;

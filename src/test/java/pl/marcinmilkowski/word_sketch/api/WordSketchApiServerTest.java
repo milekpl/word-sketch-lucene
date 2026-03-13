@@ -43,7 +43,7 @@ class WordSketchApiServerTest {
     private static final QueryExecutor STUB_EXECUTOR = new StubQueryExecutor();
 
     @BeforeEach
-    void startServer() throws IOException {
+    void startServer() throws Exception {
         var grammar = GrammarConfigHelper.requireTestConfig();
         ExplorationService explorer = new SemanticFieldExplorer(STUB_EXECUTOR, grammar);
         server = new WordSketchApiServer(STUB_EXECUTOR, explorer, 0, grammar);

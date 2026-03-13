@@ -135,8 +135,11 @@ public class BlackLabQueryExecutor implements QueryExecutor {
             for (int i = 0; i < Math.min(hits.size(), maxResults); i++) {
                 Hit hit = hits.get(i);
                 Concordance conc = concordances.get(hit);
-                String[] parts = BlackLabSnippetParser.safeParts(conc);
-                if (parts == null) {
+                String[] parts;
+                try {
+                    parts = BlackLabSnippetParser.safeParts(conc);
+                } catch (IllegalArgumentException e) {
+                    logger.debug("Skipping hit with malformed concordance: {}", e.getMessage());
                     continue;
                 }
                 String snippet = parts[0] + parts[1] + parts[2];

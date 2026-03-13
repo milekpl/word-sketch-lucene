@@ -1,0 +1,163 @@
+{
+  "session": {
+    "id": "ext_20260313_005627_f6add7fb",
+    "token": "eab90b4eb184d48203a49e521f4a26b4"
+  },
+  "assessments": {
+    "dependency_health": 84.0,
+    "low_level_elegance": 79.0,
+    "mid_level_elegance": 80.0,
+    "ai_generated_debt": 74.0,
+    "incomplete_migration": 87.0
+  },
+  "dimension_notes": {
+    "dependency_health": {
+      "evidence": [
+        "pom.xml has 8 runtime dependencies: blacklab-engine, blacklab-query-parser, jackson-databind, jackson-core, slf4j-api, logback-classic, jspecify, log4j-to-slf4j. No duplicate libraries for the same purpose.",
+        "Jackson BOM 2.17.2 imported for version alignment; explicit jackson-core pin explains transitive conflict with a comment.",
+        "BlackLab 4.0.0 is not published to Maven Central (latest on Central is 3.0.1 per pom comment); every developer and CI system must run install-blacklab.sh/ps1 as a prerequisite step.",
+        "A blacklab-github-fallback profile registers a raw GitHub URL (https://raw.githubusercontent.com/instituutnederlandsetaal/BlackLab/mvn-repo/) with explicit 'NO SLA' and 'do NOT rely on it in production CI' warnings in comments.",
+        "JUnit 5.9.0 / JUnit Platform 1.9.0 are roughly two minor versions behind the current 5.11.x release but functional.",
+        "logback-classic 1.5.18 is recent. jspecify 1.0.0 is current."
+      ],
+      "impact_scope": "CI setup and developer onboarding; any contributor or pipeline that has not run the local install script will fail at dependency resolution with a clear error. The raw GitHub fallback profile is a latent risk if the branch/repo is ever reorganised.",
+      "fix_scope": "BlackLab distribution gap: publish BlackLab 4.0.0 to a private registry (Nexus/Artifactory/GitHub Packages) and update the repository URL. JUnit version lag is a minor upgrade (bump version in pom.xml). Raw GitHub fallback can be removed once a proper registry is in place.",
+      "confidence": "high",
+      "issues_preventing_higher_score": "BlackLab 4.0.0 is absent from Maven Central, requiring every build environment to pre-run a local install script. This creates onboarding friction not present for any other dependency in the set. The raw-GitHub fallback profile is a latent availability risk explicitly documented as having 'NO SLA'."
+    },
+    "low_level_elegance": {
+      "evidence": [
+        "SingleSeedExplorer.java lines ~200-210: two consecutive Javadoc blocks appear back-to-back. The first ('Phase 4: Identify core collocates') is orphaned — it attaches to the second Javadoc rather than to the method below, which has its own separate documentation. The constant CORE_COLLOCATE_MIN_NOUN_FRACTION separates the orphaned comment from the method it was intended to head.",
+        "BlackLabQueryExecutor.executeSurfacePattern (lines ~254-278): a 15-line lambda passed to collectFrequenciesAndPosFromGroups captures collocatePos and uses it with dual semantics — as a 1-based label index for XML paths and as a 1-based word index for plain-text fallback. Three inline comments are required to explain the dual meaning of the same integer.",
+        "Most private helper methods in exploration classes (SingleSeedExplorer, MultiSeedExplorer, CollocateProfileComparator) are well-sized (10-40 lines), single-responsibility, and clearly named.",
+        "CollocateQueryHelper phase methods (executeCollocateSearchWithStoredFields vs executeCollocateSearch, buildAndRankCollocates) are proportionate and self-contained.",
+        "buildBcqlWithLemmaPrepended in BlackLabQueryExecutor checks cqlPattern != null at a package-private entry point that is only called from within the same class and tests — defensive null check on a non-public boundary."
+      ],
+      "impact_scope": "Localised: the orphaned Javadoc is a cosmetic placement error that misleads readers of SingleSeedExplorer. The dual-semantics lambda in executeSurfacePattern is a genuine comprehension burden for anyone modifying that extraction path.",
+      "fix_scope": "Orphaned comment: move the 'Phase 4' Javadoc to immediately above the identifyCoreCollocates method, replacing its current position between two adjacent Javadoc blocks. Dual-semantics lambda: extract to a named private method extractCollocateFromGroupIdentity(String identity, int collocatePos) with a clear docstring that describes the two-phase resolution, removing the inline comments from the call site.",
+      "confidence": "medium"
+    },
+    "mid_level_elegance": {
+      "evidence": [
+        "ExploreResponseAssembler is the sole translation point between model-layer ExplorationResult/ComparisonResult and API-layer ExploreResponse/ComparisonResponse — clean boundary.",
+        "ExplorationHandlers delegates to ExplorationService (SPI), with all HTTP concerns isolated in the handler and all business logic behind the interface.",
+        "ExploreResponse.MultiSeed.discoveredNouns() is an override that simply delegates to sourceSeeds(). At the sealed interface boundary, callers who hold ExploreResponse and call discoveredNouns() receive source seeds for MultiSeed and reverse-discovered nouns for SingleSeed — two different semantics behind one interface method name. The Javadoc acknowledges this but callers still must reason about which variant they hold.",
+        "ExplorationResult.of() factory takes 6 positional parameters (seeds, seedCollocates, seedCollocateFrequencies, discoveredNouns, coreCollocates, perSeedCollocates). At the seam between exploration algorithms and the assembler, call sites must match 6 positional arguments, making the handoff fragile to parameter-order errors.",
+        "The two-step construction in ExplorationHandlers.handleSemanticFieldExplore — ExplorationOptions base then SingleSeedExplorationOptions wrapping it — exposes an extra seam that multi-seed does not need; the caller must remember to build the wrapper.",
+        "SharedExploreParams is a clean local record that prevents duplicating three parameter extractions across handler methods."
+      ],
+      "impact_scope": "The dual-semantics discoveredNouns() issue affects any future caller that iterates over an ExploreResponse without knowing which concrete variant they have. The 6-parameter factory makes cross-layer refactors harder if the ExplorationResult shape changes.",
+      "fix_scope": "discoveredNouns() bridge: consider removing the discoveredNouns() method from the sealed interface and having callers pattern-match on the concrete type (already sealed), eliminating the false-same-name contract. ExplorationResult factory: introduce a builder or named parameter object for the 6-field construction to protect call sites from positional mistakes.",
+      "confidence": "medium"
+    },
+    "ai_generated_debt": {
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles() has a 12-line Javadoc block beginning with '<p><strong>Why this pass-through exists:</strong>' to justify a 3-line delegation method. The documentation is longer than the method body.",
+        "MultiSeedExplorer.fetchCollocatesPerSeed() carries a Javadoc section with '<h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>', bold '<b>Design implication:</b>' and '<b>Do not introduce a fallback here</b>' notices — HTML-structured architecture documentation embedded in Javadoc of a package-private helper.",
+        "SingleSeedExplorer.fetchSeedCollocates() follows the same HTML-Javadoc pattern: '<h3>Query strategy: executeSurfacePattern primary, executeCollocations fallback</h3>' with '<b>Primary</b>', '<b>Fallback</b>', '<b>Why not use...</b>', '<b>Why MultiSeedExplorer does not apply this fallback:</b>' sub-sections.",
+        "BlackLabQueryExecutor constructor Javadoc includes '<p><strong>Constructor I/O note:</strong>' explaining why I/O happens in a constructor — non-obvious context, but the explanation repeats information largely available from the throws clause and caller context.",
+        "No restating comments found (e.g., no '// increment counter' above i++). No nosy entry/exit debug logging.",
+        "No defensive null checks on non-nullable annotated values beyond a few package-private methods that also function as test entry points."
+      ],
+      "impact_scope": "Recurring but localised to exploration-layer and query-layer classes. The HTML-formatted Javadocs on package-private helpers are the most concentrated noise: a developer reading the exploration package must mentally parse multi-paragraph, header-structured documentation to find the actual algorithm.",
+      "fix_scope": "Delegation-method Javadocs: replace lengthy 'why this pass-through exists' explanations with a single sentence referencing the delegated class (e.g., '@see CollocateProfileComparator#compareCollocateProfiles'). HTML-formatted strategy sections: flatten to 2-3 plain prose sentences; the key design constraint (no fallback for cross-seed comparability) can be stated in one line without h3 headers and bold emphasis.",
+      "confidence": "medium"
+    },
+    "incomplete_migration": {
+      "evidence": [
+        "One TODO in WordSketchApiServer.java line 55: '// TODO: migrate to Undertow or Jetty if a multi-module build or custom classloader environment is ever needed.' This is conditional/aspirational, not evidence of an active migration.",
+        "ExploreResponse.MultiSeed: the field was renamed from discoveredNouns to sourceSeeds in the record definition, with the JSON key changed to 'source_seeds'. However, the sealed interface method discoveredNouns() was retained as a bridge (it overrides and delegates to sourceSeeds()). The interface-level @JsonProperty('discovered_nouns') annotation on discoveredNouns() is shadowed by MultiSeed's sourceSeeds field annotation, but the method name itself continues to carry the pre-rename identity.",
+        "No old+new API coexistence found: Jackson is used throughout with no Fastjson remnants (despite README.md's original version mentioning Fastjson 2.0.25). GrammarConfigLoader actively rejects deprecated config keys via a dedicated method.",
+        "No @Deprecated symbols called by live code paths.",
+        "No mixed file-format migrations (no JS/TS, no mixed CoNLL-U parsing strategies)."
+      ],
+      "impact_scope": "The discoveredNouns()/sourceSeeds naming tension is contained within the sealed ExploreResponse hierarchy and is documented with Javadoc. The conditional TODO has no active work attached. Neither affects runtime behaviour.",
+      "fix_scope": "discoveredNouns() bridge: if the sealed interface is the only internal caller, remove discoveredNouns() from ExploreResponse and replace the two call sites with direct access to SingleSeed.discoveredNouns() or MultiSeed.sourceSeeds() via sealed-type pattern matching (switch on ExploreResponse). The Jetty TODO is low-priority; convert to a GitHub issue if it represents a real future need, otherwise remove.",
+      "confidence": "medium",
+      "issues_preventing_higher_score": "The ExploreResponse interface retains discoveredNouns() as a bridge after the sourceSeeds rename, creating a permanent semantic mismatch where the interface method name is inaccurate for the MultiSeed variant. This is documented but represents an unresolved naming tension from an incomplete conceptual migration."
+    }
+  },
+  "issues": [
+    {
+      "dimension": "dependency_health",
+      "identifier": "blacklab_not_on_maven_central",
+      "summary": "BlackLab 4.0.0 absent from Maven Central requires manual local-install pre-step for every developer and CI system",
+      "related_files": ["pom.xml"],
+      "evidence": [
+        "pom.xml comment: 'BlackLab 4.x is NOT published to Maven Central (latest on Central is 3.0.1). REQUIRED FIRST STEP: run ./install-blacklab.sh'",
+        "A blacklab-github-fallback profile registers a raw GitHub URL flagged 'WARNING: This profile depends on a GitHub raw-content URL which has NO SLA'",
+        "The fallback profile has checksumPolicy=warn, meaning corrupt artifacts would not fail the build"
+      ],
+      "suggestion": "Publish BlackLab 4.0.0 to a private artifact registry (GitHub Packages, Nexus, or Artifactory) and replace the raw-GitHub fallback profile URL with the registry URL. Until then, document the install-blacklab.sh step as a mandatory CI pre-step in the repository's CI workflow files so it cannot be accidentally omitted.",
+      "confidence": "high",
+      "impact_scope": "Every new contributor and CI pipeline; missed pre-step produces an opaque 'artifact not found' failure",
+      "fix_scope": "Publish artifact to registry and update one repository URL in pom.xml; alternatively, commit the JAR as a file-based Maven repository in the repo"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "orphaned_javadoc_single_seed_explorer",
+      "summary": "Orphaned Javadoc comment before identifyCoreCollocates in SingleSeedExplorer — placed before the constant, not the method",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"],
+      "evidence": [
+        "Two consecutive Javadoc blocks appear back-to-back: '/** Phase 4: Identify core collocates — those shared by enough discovered nouns. */' immediately followed by '/** Minimum fraction of discovered nouns... */' above CORE_COLLOCATE_MIN_NOUN_FRACTION",
+        "The first Javadoc ('Phase 4') does not attach to any declaration — it is absorbed into the following Javadoc and effectively lost from the rendered API doc",
+        "The method identifyCoreCollocates() has no Javadoc of its own at the point where it appears"
+      ],
+      "suggestion": "Move the 'Phase 4: Identify core collocates' Javadoc to immediately above the identifyCoreCollocates() method signature, and keep the CORE_COLLOCATE_MIN_NOUN_FRACTION Javadoc attached to the constant. The two blocks should be separated by the constant declaration, not placed consecutively.",
+      "confidence": "high",
+      "impact_scope": "Readers of SingleSeedExplorer lose the phase-4 header from the method's API doc; minor but consistent with the phase-documentation pattern used in phases 1-3",
+      "fix_scope": "Single-line reordering in SingleSeedExplorer.java — move one comment block"
+    },
+    {
+      "dimension": "low_level_elegance",
+      "identifier": "collocation_pos_dual_semantics_lambda",
+      "summary": "collocatePos used with dual semantics (XML label index vs plain-text word index) inside a 15-line lambda in executeSurfacePattern",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/query/BlackLabQueryExecutor.java"],
+      "evidence": [
+        "In executeSurfacePattern, collocatePos is captured from CqlUtils.findLabelTokenIndex(bcqlPattern, 2) and then used inside the lambda with two different counting schemes: as a 1-based label index for XML (extractCollocateFromXmlByPosition) and re-used as a 1-based word index for plain-text fallback (extractPlainTextTokenAt)",
+        "Three inline comments are needed to explain why the same integer is valid for both: '// sentinel: collocatePos == -1 means label 2: is absent', '// Primary path: identity is XML', '// Fallback path: identity is plain whitespace-separated text — collocatePos is reused as a 1-based word index (same integer value, different counting scheme)'",
+        "The comment 'same integer value, different counting scheme' explicitly acknowledges the dual-semantic reuse"
+      ],
+      "suggestion": "Extract the lambda body to a private method extractCollocateLemmaFromGroupIdentity(String identity, int collocatePos) with a Javadoc that explains the two-phase resolution (XML label path → plain-text fallback). The extracted method makes the dual-semantic reuse of collocatePos explicit in a named, testable unit rather than an anonymous capture.",
+      "confidence": "medium",
+      "impact_scope": "Developers modifying the surface-pattern extraction path must fully understand the XML vs plain-text identity ambiguity to avoid introducing bugs",
+      "fix_scope": "Extract 15-line lambda to a private named method in BlackLabQueryExecutor.java; update the single call site"
+    },
+    {
+      "dimension": "ai_generated_debt",
+      "identifier": "over_documented_delegation_methods",
+      "summary": "Delegation/pass-through methods carry Javadocs longer than their bodies, with HTML-structured architecture rationale (h3, bold) on package-private helpers",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer.compareCollocateProfiles(): 12-line Javadoc including '<p><strong>Why this pass-through exists:</strong>' section for a 3-line method body that calls comparator.compareCollocateProfiles(seeds, opts) and wraps the IOException",
+        "MultiSeedExplorer.fetchCollocatesPerSeed() (package-private): Javadoc contains '<h3>Query strategy: executeSurfacePattern only (intentionally no fallback)</h3>' with sub-sections '<b>Design implication:</b>' and '<b>Do not introduce a fallback here</b>' — HTML-structured documentation on a method not visible outside the package",
+        "SingleSeedExplorer.fetchSeedCollocates() (private): mirrors the pattern with '<h3>Query strategy: executeSurfacePattern primary, executeCollocations fallback</h3>' and four '<b>...: </b>' sub-sections",
+        "The cross-referencing between SingleSeedExplorer and MultiSeedExplorer Javadocs (each explaining why the other does not apply the same fallback) duplicates the same design rationale in two places"
+      ],
+      "suggestion": "For delegation methods like compareCollocateProfiles: replace the multi-paragraph 'why this pass-through exists' Javadoc with a single sentence referencing the delegate: '@see CollocateProfileComparator#compareCollocateProfiles for the algorithm'. For the strategy Javadocs in fetchCollocatesPerSeed and fetchSeedCollocates: collapse to 2-3 plain sentences stating the key constraint (e.g., 'Uses executeSurfacePattern only — no fallback — to ensure cross-seed logDice scores are comparable. See MultiSeedExplorer.fetchCollocatesPerSeed for the symmetric rationale.'). Move the extended rationale to a package-level ADR comment or package-info.java if it must be preserved.",
+      "confidence": "medium",
+      "impact_scope": "Recurring across exploration package; developers reading these classes must scan through verbose HTML-formatted Javadocs to reach the actual algorithm",
+      "fix_scope": "Replace 3-4 verbose Javadoc blocks with short prose in the same files; no logic changes required"
+    },
+    {
+      "dimension": "incomplete_migration",
+      "identifier": "discovered_nouns_bridge_method_semantic_gap",
+      "summary": "ExploreResponse interface retains discoveredNouns() after sourceSeeds rename, creating a permanent semantic mismatch for MultiSeed callers",
+      "related_files": ["src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"],
+      "evidence": [
+        "ExploreResponse interface declares 'List<DiscoveredNounEntry> discoveredNouns()' with @JsonProperty('discovered_nouns')",
+        "ExploreResponse.MultiSeed record holds a 'sourceSeeds' field annotated @JsonProperty('source_seeds'); the discoveredNouns() override simply delegates: 'public List<DiscoveredNounEntry> discoveredNouns() { return sourceSeeds(); }'",
+        "The interface-level Javadoc acknowledges the semantic difference: 'In MultiSeed: the caller-supplied source seeds (input words), serialised under the source_seeds JSON key' — but the method name discoveredNouns() still implies discovery semantics that do not apply to MultiSeed",
+        "The sealed interface could support pattern-matching callers that access sourceSeeds() directly on MultiSeed without going through the bridge"
+      ],
+      "suggestion": "Remove discoveredNouns() from the ExploreResponse sealed interface. Replace the two known call sites (ExploreResponseAssembler.buildDiscoveredNounEntries and ExploreResponseAssembler.buildExplorationEdges) with a sealed switch/instanceof that accesses SingleSeed.discoveredNouns() and MultiSeed.sourceSeeds() by their correct names. This removes the misleading bridge and makes the semantic distinction compile-time visible.",
+      "confidence": "medium",
+      "impact_scope": "Contained within the sealed ExploreResponse hierarchy; affects ExploreResponseAssembler call sites and any future code that holds a bare ExploreResponse reference",
+      "fix_scope": "Remove one interface method, add a sealed switch in ExploreResponseAssembler; update 2-3 call sites"
+    }
+  ]
+}

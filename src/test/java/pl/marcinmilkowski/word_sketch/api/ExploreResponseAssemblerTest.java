@@ -82,7 +82,7 @@ class ExploreResponseAssemblerTest {
         ExplorationResult result = resultWith("theory", collocates, freqs, nouns, core);
 
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
-                result, "adj_predicate", 10, 1, 0.0, 20);
+                result, "adj_predicate", new SharedExploreParams(10, 1, 0.0), 20);
 
         assertNotNull(response.seedCollocates(), "should have seed_collocates");
         assertTrue(response.seedCollocates().size() >= 0, "should have seed_collocates_count");
@@ -99,7 +99,7 @@ class ExploreResponseAssemblerTest {
         ExplorationResult result = resultWith("theory", collocates, Map.of(), List.of(), List.of());
 
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
-                result, "adj_predicate", 10, 1, 0.0, 20);
+                result, "adj_predicate", new SharedExploreParams(10, 1, 0.0), 20);
 
         assertEquals(2, response.seedCollocates().size());
         assertEquals(2, response.seedCollocates().size());
@@ -112,7 +112,7 @@ class ExploreResponseAssemblerTest {
         ExplorationResult result = resultWith("theory", collocates, freqs, List.of(), List.of());
 
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
-                result, "adj_predicate", 10, 1, 0.0, 20);
+                result, "adj_predicate", new SharedExploreParams(10, 1, 0.0), 20);
 
         assertEquals(1, response.seedCollocates().size());
         SeedCollocateEntry entry = response.seedCollocates().get(0);
@@ -127,7 +127,7 @@ class ExploreResponseAssemblerTest {
         ExplorationResult result = resultWith("theory", Map.of(), Map.of(), List.of(noun), List.of());
 
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
-                result, "adj_predicate", 10, 1, 0.0, 20);
+                result, "adj_predicate", new SharedExploreParams(10, 1, 0.0), 20);
 
         assertEquals(1, response.discoveredNouns().size());
         ExploreResponse.DiscoveredNounEntry entry = response.discoveredNouns().get(0);

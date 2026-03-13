@@ -14,7 +14,6 @@ import pl.marcinmilkowski.word_sketch.model.exploration.FetchExamplesResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
 import pl.marcinmilkowski.word_sketch.model.exploration.SingleSeedExplorationOptions;
 import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
-import pl.marcinmilkowski.word_sketch.model.exploration.Seeds;
 
 import pl.marcinmilkowski.word_sketch.api.model.ComparisonResponse;
 import pl.marcinmilkowski.word_sketch.api.model.ExamplesResponse;
@@ -74,9 +73,7 @@ class ExplorationHandlers {
         ExplorationResult result = explorationService.exploreByRelation(seed, resolvedConfig, opts);
 
         ExploreResponse response = ExploreResponseAssembler.buildSingleSeedExploreResponse(
-                result, resolvedConfig.id(),
-                commonParams.topCollocates(), commonParams.minShared(), commonParams.minLogDice(),
-                nounsPerSeed);
+                result, resolvedConfig.id(), commonParams, nounsPerSeed);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -106,15 +103,14 @@ class ExplorationHandlers {
 
         Set<String> seeds = parseSeedSet(seedsParam);
 
-        Seeds.requireAtLeastTwo(seeds, "Multi-seed exploration");
+        requireAtLeastTwoSeeds(seeds, "Multi-seed exploration");
 
         ExplorationOptions opts = new ExplorationOptions(
             commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
         ExplorationResult result = explorationService.exploreMultiSeed(seeds, resolvedConfig, opts);
 
         ExploreResponse response = ExploreResponseAssembler.buildMultiSeedExploreResponse(
-                result, resolvedConfig.id(),
-                commonParams.topCollocates(), commonParams.minShared(), commonParams.minLogDice());
+                result, resolvedConfig.id(), commonParams);
 
         HttpApiUtils.sendJsonResponse(exchange, response);
     }
@@ -146,7 +142,7 @@ class ExplorationHandlers {
 
         String seedsParam = HttpApiUtils.requireParam(params, "seeds");
         Set<String> seeds = parseSeedSet(seedsParam);
-        Seeds.requireAtLeastTwo(seeds, "Comparison");
+        requireAtLeastTwoSeeds(seeds, "Comparison");
 
         SharedExploreParams commonParams = parseSharedExploreParams(params);
 
@@ -228,5 +224,12 @@ class ExplorationHandlers {
         int minShared = HttpApiUtils.parseIntParam(params, "min_shared", 2);
         double minLogDice = HttpApiUtils.parseDoubleParam(params, "min_logdice", 3.0);
         return new SharedExploreParams(top, minShared, minLogDice);
+    }
+
+    private static void requireAtLeastTwoSeeds(java.util.Collection<String> seeds, String context) {
+        if (seeds.size() < 2) {
+            throw new IllegalArgumentException(
+                context + " requires at least 2 seeds; received " + seeds.size());
+        }
     }
 }

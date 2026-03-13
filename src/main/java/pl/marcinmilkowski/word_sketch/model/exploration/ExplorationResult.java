@@ -41,11 +41,11 @@ public class ExplorationResult {
             List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates,
             Map<String, Map<String, Double>> perSeedCollocates) {
         this.seeds = List.copyOf(seeds);
-        this.seedCollocates = seedCollocates;
-        this.seedCollocateFrequencies = seedCollocateFrequencies;
-        this.discoveredNouns = discoveredNouns;
-        this.coreCollocates = coreCollocates;
-        this.perSeedCollocates = perSeedCollocates;
+        this.seedCollocates = Map.copyOf(seedCollocates);
+        this.seedCollocateFrequencies = Map.copyOf(seedCollocateFrequencies);
+        this.discoveredNouns = List.copyOf(discoveredNouns);
+        this.coreCollocates = List.copyOf(coreCollocates);
+        this.perSeedCollocates = Map.copyOf(perSeedCollocates);
     }
 
     /**
@@ -66,6 +66,12 @@ public class ExplorationResult {
             Map<String, Long> seedCollocateFrequencies,
             List<DiscoveredNoun> discoveredNouns, List<CoreCollocate> coreCollocates,
             Map<String, Map<String, Double>> perSeedCollocates) {
+        Objects.requireNonNull(seeds, "seeds must not be null");
+        Objects.requireNonNull(seedCollocates, "seedCollocates must not be null");
+        Objects.requireNonNull(seedCollocateFrequencies, "seedCollocateFrequencies must not be null");
+        Objects.requireNonNull(discoveredNouns, "discoveredNouns must not be null");
+        Objects.requireNonNull(coreCollocates, "coreCollocates must not be null");
+        Objects.requireNonNull(perSeedCollocates, "perSeedCollocates must not be null");
         return new ExplorationResult(seeds, seedCollocates, seedCollocateFrequencies,
                 discoveredNouns, coreCollocates, perSeedCollocates);
     }

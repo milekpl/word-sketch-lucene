@@ -59,6 +59,7 @@ class ConcordanceHandlers {
             bcqlQuery = RelationPatternUtils.buildFullPattern(rel.get(), req.seed(), req.collocate());
         } else {
             bcqlQuery = String.format("\"%s\" []{0,5} \"%s\"", req.seed().toLowerCase(), req.collocate().toLowerCase());
+            // Concordance intentionally falls back to proximity pattern for unknown relations — allows freetext CQL queries
             logger.warn("Relation '{}' not resolved to a BCQL pattern; using proximity fallback: {}", req.relation(), bcqlQuery);
         }
         List<CollocateResult> results = executor.executeBcqlQuery(bcqlQuery, req.top());
@@ -66,7 +67,7 @@ class ConcordanceHandlers {
         ExamplesResponse response = ExploreResponseAssembler.buildExamplesResponse(
                 new ExploreResponseAssembler.ExamplesContext(
                         req.seed(), req.collocate(), req.relation(), bcqlQuery,
-                        req.top(), fallback ? true : null),
+                        req.top(), fallback ? Boolean.TRUE : null),
                 results);
 
         HttpApiUtils.sendJsonResponse(exchange, response);

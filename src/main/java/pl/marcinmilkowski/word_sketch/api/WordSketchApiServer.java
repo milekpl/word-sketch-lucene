@@ -8,7 +8,6 @@ import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
 import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 
-import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Collections;
@@ -57,7 +56,7 @@ public class WordSketchApiServer {
 
     /** Full constructor accepting an injected {@link ExplorationService}. */
     public WordSketchApiServer(QueryExecutor executor, ExplorationService explorationService,
-                                int port, GrammarConfig grammarConfig) throws IOException {
+                                int port, GrammarConfig grammarConfig) {
         this.port = port;
         this.grammarConfig = Objects.requireNonNull(grammarConfig, "grammarConfig must not be null");
         this.sketchHandlers = new SketchHandlers(executor, grammarConfig);

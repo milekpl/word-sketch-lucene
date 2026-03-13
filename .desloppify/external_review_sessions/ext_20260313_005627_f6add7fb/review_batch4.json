@@ -1,0 +1,226 @@
+{
+  "session": {
+    "id": "ext_20260313_005627_f6add7fb",
+    "token": "eab90b4eb184d48203a49e521f4a26b4"
+  },
+  "assessments": {
+    "initialization_coupling": 82,
+    "test_strategy": 73,
+    "api_surface_coherence": 65,
+    "authorization_consistency": 80,
+    "design_coherence": 70
+  },
+  "dimension_notes": {
+    "initialization_coupling": {
+      "evidence": [
+        "Port binding deferred to start() in WordSketchApiServer, construction and network binding cleanly separated",
+        "System properties (grammar.config, cors.allow.origin) read at call time in createDefaultEnglish() and warnIfWildcardCors() — not at class load",
+        "RELATION_ALIASES in RelationUtils is a pure Map.of() constant with no I/O side effects",
+        "JsonUtils.MAPPER is a class-level static ObjectMapper; pure in-memory construction, no I/O",
+        "WordSketchApiServer constructor declares 'throws IOException' but port binding is deferred to start() so this checked exception is never actually thrown",
+        "Main.handleBlackLabServerCommand registers shutdown hook before serverHolder.set(server), but executor is closed directly in the hook so no resource leak window exists"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "line",
+      "confidence": "high"
+    },
+    "test_strategy": {
+      "evidence": [
+        "StubQueryExecutor is a well-designed shared stub extended via anonymous subclass per test — consistent approach across all test classes",
+        "ExplorationHandlersTest includes handleSemanticFieldExplore_withData_seedCollocatesNonEmpty asserting actual seed_collocates content, not just status codes",
+        "WordSketchApiServerTest starts a real server on an ephemeral port and makes HTTP calls — good integration coverage",
+        "SingleSeedExplorerTest, MultiSeedExplorerTest, SemanticFieldExplorerTest, CollocateProfileComparatorTest each cover their algorithm with data-shape assertions",
+        "handleSemanticFieldComparison in ExplorationHandlers is only tested at the handler level with empty data (emptyExecutor()); no data-shape assertion verifies comparison response contents through the HTTP handler path",
+        "WrapHandlerTest verifies the error-classification contract with specific status codes and message content — solid boundary testing",
+        "DependencySketchTest in the query package tests dep-pattern queries but the dep routing path in SketchHandlers.routeSketchRequest (/api/sketch/{lemma}/dep) lacks a handler-level test"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "file",
+      "confidence": "high"
+    },
+    "api_surface_coherence": {
+      "evidence": [
+        "buildSingleSeedExploreResponse(result, relationType, top, minShared, minLogDice, nounsPerSeed) and buildMultiSeedExploreResponse(result, relationType, top, minShared, minLogDice) pass scalar params individually, while buildComparisonResponse(seeds, relationType, params, result) uses SharedExploreParams — inconsistent parameter grouping at the same level of abstraction within ExploreResponseAssembler",
+        "ExploreResponse sealed interface: discoveredNouns() method returns source_seeds content in MultiSeed (serialized under JSON key 'source_seeds') but discovered_nouns content in SingleSeed (serialized under 'discovered_nouns') — sibling endpoints return different JSON keys for what the interface treats as the same method",
+        "WordSketchApiServer constructor declares 'throws IOException' which is never thrown (port binding deferred to start()); every call site must declare or catch a checked exception that can never be raised",
+        "GET/POST split is clean and intentional; all GET endpoints use query params, POST endpoints use JSON bodies",
+        "Parameter names seed/seeds/collocate/relation are consistent across all exploration endpoints and concordance endpoints"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "file",
+      "confidence": "high"
+    },
+    "authorization_consistency": {
+      "evidence": [
+        "Server binds exclusively to loopback (InetAddress.getLoopbackAddress()) — documented in class Javadoc as intentional security model",
+        "All endpoints are documented as unauthenticated; access control via host firewall and loopback-only bind",
+        "warnIfWildcardCors() called before port bind in start() — bad CORS config fails before socket is created",
+        "Input validation applied consistently: requireParam, parseIntParam, parseDoubleParam, MAX_PARAM_LENGTH enforced across all GET handlers; MAX_REQUEST_BODY_BYTES on all POST handlers",
+        "BCQL endpoint (/api/bcql) accepts arbitrary corpus queries; audit log present but uses logger.warn() (WARN level) rather than a separate audit logger or INFO level",
+        "No privileged/unprivileged endpoint distinction; all endpoints share the same trust level — consistent"
+      ],
+      "impact_scope": "codebase",
+      "fix_scope": "line",
+      "confidence": "high"
+    },
+    "design_coherence": {
+      "evidence": [
+        "SemanticFieldExplorer is a thin facade over SingleSeedExplorer, MultiSeedExplorer, CollocateProfileComparator — good composition with focused owners for each algorithm",
+        "ExplorationService SPI separates HTTP layer from exploration logic cleanly; ConcordanceHandlers and CorpusQueryHandlers declare the narrower CollocateQueryPort rather than QueryExecutor",
+        "ExploreResponseAssembler inconsistency: buildSingleSeedExploreResponse / buildMultiSeedExploreResponse pass top/minShared/minLogDice as three separate scalars, but buildComparisonResponse takes SharedExploreParams — inconsistent parameter grouping for methods at the same abstraction level",
+        "SemanticFieldExplorer constructor accepts nullable GrammarConfig and uses FALLBACK_NOUN_PATTERN when null; null is only used in tests (e.g. new SemanticFieldExplorer(emptyExecutor(), null)) — production constructor accepts a test-only null escape hatch",
+        "MultiSeedExplorer Javadoc at line 91 references 'SemanticFieldExplorer#fetchSeedCollocates' but the method is actually on SingleSeedExplorer — stale Javadoc cross-reference after refactoring",
+        "ExploreResponse.MultiSeed.discoveredNouns() delegates to sourceSeeds() and is serialized as 'source_seeds', but the interface contract says 'discovered_nouns' — interface method semantics differ across implementors rather than varying only in data"
+      ],
+      "impact_scope": "module",
+      "fix_scope": "file",
+      "confidence": "high"
+    }
+  },
+  "issues": [
+    {
+      "dimension": "initialization_coupling",
+      "identifier": "init_dead_throws_ioexception",
+      "summary": "WordSketchApiServer constructor declares 'throws IOException' but never throws it; port binding is deferred to start()",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/WordSketchApiServer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/Main.java"
+      ],
+      "evidence": [
+        "Constructor signature: public WordSketchApiServer(...) throws IOException",
+        "Constructor body comment: 'NOTE: Port binding is deferred to start() so that construction and network binding are separated'",
+        "No IOException-throwing call exists in the constructor body; all handler constructors are pure",
+        "Main.handleBlackLabServerCommand must propagate 'throws IOException' because of this declaration even though it is never raised at construction"
+      ],
+      "suggestion": "Remove 'throws IOException' from the WordSketchApiServer constructor signature. The only IOException-producing operation (HttpServer.create) is in start(), which already throws IllegalStateException on bind failure. Removing the declaration makes the contract accurate and eliminates phantom checked-exception handling in callers.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "line"
+    },
+    {
+      "dimension": "test_strategy",
+      "identifier": "test_comparison_handler_no_data_assertion",
+      "summary": "ExplorationHandlers.handleSemanticFieldComparison is only tested at handler level with empty data; no data-shape assertion verifies comparison response contents through HTTP",
+      "related_files": [
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlers.java"
+      ],
+      "evidence": [
+        "handleSemanticFieldComparison_twoSeeds_returns200() uses handlers() which creates SemanticFieldExplorer(emptyExecutor(), config) — all assertions operate on empty collections",
+        "compare_edgeWeights_abstractHasCorrectWeightToTheory() calls explorer.compareCollocateProfiles directly, bypassing the HTTP handler",
+        "By contrast, handleSemanticFieldExplore_withData_seedCollocatesNonEmpty() exercises the explore handler with actual collocate data and asserts on response content"
+      ],
+      "suggestion": "Add a test analogous to handleSemanticFieldExplore_withData_seedCollocatesNonEmpty that provides a collocatingExecutor to handlers().handleSemanticFieldComparison and asserts that the response collocates array is non-empty and contains the expected collocate word. This verifies the full HTTP→handler→assembler→JSON path for the comparison endpoint.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "file"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_assembler_inconsistent_param_grouping",
+      "summary": "ExploreResponseAssembler.buildSingleSeedExploreResponse and buildMultiSeedExploreResponse pass top/minShared/minLogDice as individual scalars while buildComparisonResponse takes SharedExploreParams",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/ExploreResponseAssembler.java"
+      ],
+      "evidence": [
+        "buildSingleSeedExploreResponse(ExplorationResult, String, int top, int minShared, double minLogDice, int nounsPerSeed) — 6 params",
+        "buildMultiSeedExploreResponse(ExplorationResult, String, int top, int minShared, double minLogDice) — 5 params",
+        "buildComparisonResponse(List<String>, String, SharedExploreParams params, ComparisonResult) — uses SharedExploreParams record",
+        "All three methods are at the same level of abstraction within ExploreResponseAssembler; callers are in ExplorationHandlers which already holds a SharedExploreParams instance"
+      ],
+      "suggestion": "Change buildSingleSeedExploreResponse and buildMultiSeedExploreResponse to accept SharedExploreParams instead of three separate scalars (top, minShared, minLogDice), adding nounsPerSeed as a separate parameter only for the single-seed variant. This matches buildComparisonResponse's pattern and eliminates the repetition of three scalar params across two methods.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "file"
+    },
+    {
+      "dimension": "api_surface_coherence",
+      "identifier": "api_explore_response_divergent_json_keys",
+      "summary": "Sibling explore endpoints return different JSON keys for the same conceptual field: 'discovered_nouns' (SingleSeed) vs 'source_seeds' (MultiSeed)",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse.SingleSeed serialises the noun list as 'discovered_nouns' via @JsonProperty on the component",
+        "ExploreResponse.MultiSeed serialises the noun list as 'source_seeds' via @JsonProperty(\"source_seeds\") on the sourceSeeds field",
+        "The shared interface method discoveredNouns() bridges this but clients consuming the JSON from /api/semantic-field/explore vs /api/semantic-field/explore-multi receive different keys for the same positional concept",
+        "Javadoc acknowledges the asymmetry but does not explain why a unified key with a type discriminator would not serve as well"
+      ],
+      "suggestion": "Decide on one of two remedies: (a) document the divergent keys as stable public API in the REST API reference (if clients must handle both endpoints differently anyway); or (b) unify both to 'nouns' or 'noun_entries' with a 'noun_type: discovered|seed' field per entry so clients can handle both responses uniformly. Option (a) requires no code change but does require explicit client documentation.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "file"
+    },
+    {
+      "dimension": "authorization_consistency",
+      "identifier": "auth_bcql_audit_warn_level",
+      "summary": "BCQL audit log entry uses logger.warn() rather than INFO or a dedicated audit category, polluting warning-level logs with routine audit events",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/CorpusQueryHandlers.java"
+      ],
+      "evidence": [
+        "Line: logger.warn(\"BCQL audit – src={} len={} query: {}\", exchange.getRemoteAddress(), req.query().length(), req.query());",
+        "WARN is semantically reserved for degraded-but-operational conditions; using it for normal audit events causes false positives in monitoring dashboards that alert on WARN+"
+      ],
+      "suggestion": "Change the BCQL audit log to logger.info() (or introduce a named audit logger via LoggerFactory.getLogger(\"audit.bcql\")). WARN should be reserved for conditions that signal degraded service. The current log statement is emitted on every successful request, not just anomalous ones.",
+      "confidence": "high",
+      "impact_scope": "file",
+      "fix_scope": "line"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "design_nullable_grammar_config_escape_hatch",
+      "summary": "SemanticFieldExplorer constructor accepts nullable GrammarConfig, using null as a test-only escape hatch that is visible in the production constructor signature",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorer.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/api/ExplorationHandlersTest.java",
+        "src/test/java/pl/marcinmilkowski/word_sketch/exploration/SemanticFieldExplorerTest.java"
+      ],
+      "evidence": [
+        "SemanticFieldExplorer(QueryExecutor executor, GrammarConfig grammarConfig) — no @NonNull annotation; null triggers FALLBACK_NOUN_PATTERN",
+        "ExplorationHandlersTest: new SemanticFieldExplorer(emptyExecutor(), null) — null used to skip noun-pattern resolution",
+        "SemanticFieldExplorerTest: new SemanticFieldExplorer(executor, null) — same null bypass",
+        "The fallback path (FALLBACK_NOUN_PATTERN = \"[xpos=\\\"NN.*\\\"]\") is only activated in tests; production always passes a real GrammarConfig"
+      ],
+      "suggestion": "Add @NonNull to the grammarConfig parameter and enforce it with Objects.requireNonNull(). Tests that currently pass null should instead use GrammarConfigHelper.requireTestConfig() or construct a minimal GrammarConfig. This removes the hidden null code path from the production constructor and makes the test intent explicit.",
+      "confidence": "high",
+      "impact_scope": "module",
+      "fix_scope": "file"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "design_stale_crossref_fetchseedcollocates",
+      "summary": "MultiSeedExplorer Javadoc references SemanticFieldExplorer#fetchSeedCollocates but the method is actually on SingleSeedExplorer",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/MultiSeedExplorer.java",
+        "src/main/java/pl/marcinmilkowski/word_sketch/exploration/SingleSeedExplorer.java"
+      ],
+      "evidence": [
+        "MultiSeedExplorer.java line 91: '* <p>Contrast with {@link SemanticFieldExplorer#fetchSeedCollocates}'",
+        "SemanticFieldExplorer has no fetchSeedCollocates method",
+        "SingleSeedExplorer.java line 145: 'private List<WordSketchResult> fetchSeedCollocates(...)'"
+      ],
+      "suggestion": "Update the Javadoc cross-reference from '{@link SemanticFieldExplorer#fetchSeedCollocates}' to '{@link SingleSeedExplorer#fetchSeedCollocates}' (or refer to 'the single-seed fallback path in SingleSeedExplorer' if the method is private and not linkable).",
+      "confidence": "high",
+      "impact_scope": "file",
+      "fix_scope": "line"
+    },
+    {
+      "dimension": "design_coherence",
+      "identifier": "design_discoverednouns_semantic_divergence",
+      "summary": "ExploreResponse.discoveredNouns() interface method has different semantics per implementor — discovered nouns in SingleSeed vs caller-supplied seeds in MultiSeed",
+      "related_files": [
+        "src/main/java/pl/marcinmilkowski/word_sketch/api/model/ExploreResponse.java"
+      ],
+      "evidence": [
+        "ExploreResponse interface Javadoc: 'In SingleSeed: nouns discovered by reverse collocate expansion from the seed. In MultiSeed: the caller-supplied source seeds (input words)'",
+        "MultiSeed.discoveredNouns() delegates to sourceSeeds() — the field name already acknowledges the semantic difference",
+        "An interface method that returns conceptually different things from different implementors (discovered vs supplied) is a type safety smell; callers holding an ExploreResponse reference cannot reason about what discoveredNouns() means without inspecting the runtime type"
+      ],
+      "suggestion": "Remove discoveredNouns() from the ExploreResponse sealed interface since the semantics diverge across variants. The method only needs to exist on SingleSeed where it is meaningful. MultiSeed can expose sourceSeeds() directly. Because the interface is sealed and both variants are produced by different endpoints (never mixed in a collection), callers can switch on the concrete type without needing a shared method.",
+      "confidence": "medium",
+      "impact_scope": "module",
+      "fix_scope": "file"
+    }
+  ]
+}

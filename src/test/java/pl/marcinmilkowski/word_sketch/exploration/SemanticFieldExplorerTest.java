@@ -111,30 +111,6 @@ class SemanticFieldExplorerTest {
     }
 
     @Test
-    @DisplayName("compare: empty seed set throws IllegalArgumentException")
-    void compare_emptySeedSet() {
-        StubExecutor executor = new StubExecutor(Map.of());
-        ExplorationService explorer = new SemanticFieldExplorer(executor, null);
-
-        assertThrows(IllegalArgumentException.class,
-            () -> explorer.compareCollocateProfiles(Collections.emptySet(), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1)),
-            "Empty seed set should throw IllegalArgumentException");
-    }
-
-    @Test
-    @DisplayName("compare: single seed throws IllegalArgumentException (requires >= 2 seeds)")
-    void compare_singleSeed() {
-        StubExecutor executor = new StubExecutor(Map.of(
-            "theory", List.of(wsr("empirical", 8.0), wsr("scientific", 7.5))
-        ));
-        ExplorationService explorer = new SemanticFieldExplorer(executor, null);
-
-        assertThrows(IllegalArgumentException.class,
-            () -> explorer.compareCollocateProfiles(Set.of("theory"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1)),
-            "Single seed should throw IllegalArgumentException");
-    }
-
-    @Test
     @DisplayName("compare: seed with no collocates produces empty profile for that noun")
     void compare_seedWithNoCollocates() throws IOException {
         StubExecutor executor = new StubExecutor(Map.of(

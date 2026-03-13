@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 import java.util.Map;
+import pl.marcinmilkowski.word_sketch.api.model.ExploreResponse;
 import pl.marcinmilkowski.word_sketch.model.exploration.RelationEdgeType;
 
 /**
@@ -17,7 +18,7 @@ public record ComparisonResponse(
         String status,
         List<String> seeds,
         @JsonProperty("seed_count") int seedCount,
-        ComparisonParameters parameters,
+        ExploreResponse.Parameters parameters,
         List<CollocateProfileEntry> collocates,
         @JsonProperty("collocates_count") int collocatesCount,
         @JsonProperty("fully_shared_count") int fullySharedCount,
@@ -25,13 +26,6 @@ public record ComparisonResponse(
         @JsonProperty("specific_count") int specificCount,
         List<EdgeEntry> edges,
         @JsonProperty("edges_count") int edgesCount) {
-
-    /** Parameters sub-object embedded in every comparison response. */
-    public record ComparisonParameters(
-            String relation,
-            int top,
-            @JsonProperty("min_shared") int minShared,
-            @JsonProperty("min_logdice") double minLogDice) {}
 
     /**
      * Per-collocate entry in a comparison response, capturing sharing statistics

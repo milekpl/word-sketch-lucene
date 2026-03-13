@@ -68,7 +68,7 @@ class ExplorationHandlers {
         int nounsPerSeed = HttpApiUtils.parseIntParam(params, "nouns_per", 30);
 
         ExplorationOptions base = new ExplorationOptions(
-            commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
+            commonParams.topCollocates(), commonParams.logDiceThreshold(), commonParams.minShared());
         SingleSeedExplorationOptions opts = new SingleSeedExplorationOptions(base, nounsPerSeed);
 
         ExplorationResult result = explorationService.exploreByRelation(seed, resolvedConfig, opts);
@@ -107,7 +107,7 @@ class ExplorationHandlers {
         requireAtLeastTwoSeeds(seeds, "Multi-seed exploration");
 
         ExplorationOptions opts = new ExplorationOptions(
-            commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
+            commonParams.topCollocates(), commonParams.logDiceThreshold(), commonParams.minShared());
         ExplorationResult result = explorationService.exploreMultiSeed(seeds, resolvedConfig, opts);
 
         ExploreResponse response = ExploreResponseAssembler.buildMultiSeedExploreResponse(
@@ -136,7 +136,7 @@ class ExplorationHandlers {
         SharedExploreParams commonParams = parseSharedExploreParams(params);
 
         ExplorationOptions opts = new ExplorationOptions(
-            commonParams.topCollocates(), commonParams.minLogDice(), commonParams.minShared());
+            commonParams.topCollocates(), commonParams.logDiceThreshold(), commonParams.minShared());
         ComparisonResult result = explorationService.compareCollocateProfiles(seeds, opts);
 
         ComparisonResponse response = ExploreResponseAssembler.buildComparisonResponse(

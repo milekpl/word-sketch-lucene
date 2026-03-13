@@ -12,7 +12,7 @@ import pl.marcinmilkowski.word_sketch.api.model.SketchResponse;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationPatternUtils;
 import pl.marcinmilkowski.word_sketch.config.RelationType;
-import pl.marcinmilkowski.word_sketch.query.QueryExecutor;
+import pl.marcinmilkowski.word_sketch.query.SketchQueryPort;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 
 import java.io.IOException;
@@ -36,10 +36,10 @@ class SketchHandlers {
     /** Higher limit for single-relation queries where the caller has already narrowed to one relation. */
     private static final int SINGLE_RELATION_RESULTS = 50;
 
-    private final QueryExecutor executor;
+    private final SketchQueryPort executor;
     private final GrammarConfig grammarConfig;
 
-    SketchHandlers(QueryExecutor executor, @NonNull GrammarConfig grammarConfig) {
+    SketchHandlers(SketchQueryPort executor, @NonNull GrammarConfig grammarConfig) {
         this.executor = executor;
         this.grammarConfig = grammarConfig;
     }

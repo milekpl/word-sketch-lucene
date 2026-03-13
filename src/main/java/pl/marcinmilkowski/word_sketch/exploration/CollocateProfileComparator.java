@@ -55,11 +55,6 @@ class CollocateProfileComparator {
             @NonNull Set<String> seedNouns,
             @NonNull ExplorationOptions opts) throws IOException {
 
-        if (seedNouns.size() < 2) {
-            throw new IllegalArgumentException(
-                "compareCollocateProfiles requires at least 2 seed nouns; got: " + seedNouns.size());
-        }
-
         double minLogDice = opts.logDiceThreshold();
         int maxPerNoun = opts.topCollocates();
         List<String> nounList = new ArrayList<>(seedNouns);

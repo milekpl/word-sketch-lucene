@@ -86,7 +86,7 @@ final class ExploreResponseAssembler {
             @NonNull SharedExploreParams params,
             int nounsPerSeed) {
         ExploreResponse.Parameters responseParams = new ExploreResponse.Parameters(
-                relationType, params.topCollocates(), params.minShared(), params.minLogDice(), nounsPerSeed);
+                relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold(), nounsPerSeed);
         List<SeedCollocateEntry> seedCollocs = buildSeedCollocateEntries(result);
         List<ExploreResponse.DiscoveredNounEntry> nouns = buildDiscoveredNounEntries(result);
         List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
@@ -117,7 +117,7 @@ final class ExploreResponseAssembler {
             @NonNull SharedExploreParams params) {
         List<String> seeds = result.seeds();
         ExploreResponse.Parameters responseParams = new ExploreResponse.Parameters(
-                relationType, params.topCollocates(), params.minShared(), params.minLogDice(), null);
+                relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold(), null);
         List<SeedCollocateEntry> seedCollocs = buildSeedCollocateEntries(result);
         List<ExploreResponse.DiscoveredNounEntry> nouns = buildDiscoveredNounEntries(result);
         List<ExploreResponse.CoreCollocateEntry> core = buildCoreCollocateEntries(result);
@@ -204,7 +204,7 @@ final class ExploreResponseAssembler {
                 .toList();
         return new ComparisonResponse(
                 "ok", seeds, seeds.size(),
-                new ComparisonResponse.ComparisonParameters(relationType, params.topCollocates(), params.minShared(), params.minLogDice()),
+                new ExploreResponse.Parameters(relationType, params.topCollocates(), params.minShared(), params.logDiceThreshold(), null),
                 collocates, collocates.size(),
                 counts.fullyShared(), counts.partiallyShared(), counts.specific(),
                 edges, edges.size());

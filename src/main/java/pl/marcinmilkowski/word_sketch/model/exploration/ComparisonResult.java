@@ -2,6 +2,7 @@ package pl.marcinmilkowski.word_sketch.model.exploration;
 
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -29,6 +30,8 @@ public class ComparisonResult {
      * @return a new ComparisonResult containing the given data
      */
     public static ComparisonResult of(List<String> nouns, List<CollocateProfile> collocates) {
+        Objects.requireNonNull(nouns, "nouns must not be null");
+        Objects.requireNonNull(collocates, "collocates must not be null");
         return new ComparisonResult(nouns, collocates);
     }
 

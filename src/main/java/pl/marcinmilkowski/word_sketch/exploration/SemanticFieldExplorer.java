@@ -194,10 +194,6 @@ public class SemanticFieldExplorer implements ExplorationService {
             @NonNull Set<String> seeds,
             @NonNull RelationConfig relationConfig,
             @NonNull ExplorationOptions opts) throws ExplorationException {
-        if (seeds.size() < 2) {
-            throw new IllegalArgumentException(
-                "Multi-seed exploration requires at least 2 seeds; received " + seeds.size());
-        }
         relationConfig.validate();
         try {
             return multiSeedExplorer.findCollocateIntersection(seeds, relationConfig, opts);

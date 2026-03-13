@@ -146,6 +146,15 @@ class ExplorationHandlersTest {
     }
 
     @Test
+    void handleSemanticFieldComparison_oneSeed_returns400() throws Exception {
+        ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/semantic-field/compare?seeds=theory&min_logdice=0.0");
+        HttpApiUtils.wrapWithErrorHandling(handlers::handleSemanticFieldComparison, "test").handle(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
     void handleSemanticFieldComparison_invalidNumericParam_returns400() throws Exception {
         ExplorationHandlers handlers = new ExplorationHandlers(stubService(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(

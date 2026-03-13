@@ -32,7 +32,7 @@ import pl.marcinmilkowski.word_sketch.model.sketch.*;
  *       {@link #executeCollocations} which ignores position hints.</li>
  * </ul>
  */
-public interface QueryExecutor extends CollocateQueryPort, Closeable {
+public interface QueryExecutor extends CollocateQueryPort, SketchQueryPort, Closeable {
 
     /**
      * Find collocations for a lemma using a CQL pattern.

@@ -143,12 +143,30 @@ class ExportEndpointTest {
     }
 
     @Test
+    @DisplayName("CSV response exposes Content-Disposition via Access-Control-Expose-Headers for cross-origin JS")
+    void sketchCsv_accessControlExposeHeaders_containsContentDisposition() throws Exception {
+        HttpResponse<String> response = get("/api/sketch/theory?format=csv");
+        String exposed = response.headers().firstValue("Access-Control-Expose-Headers").orElse("");
+        assertTrue(exposed.contains("Content-Disposition"),
+                "Access-Control-Expose-Headers must include Content-Disposition for cross-origin downloads");
+    }
+
+    @Test
     @DisplayName("Content-Disposition attachment header present in XML response")
     void sketchXml_contentDispositionPresent() throws Exception {
         HttpResponse<String> response = get("/api/sketch/theory?format=xml");
         String cd = response.headers().firstValue("Content-Disposition").orElse("");
         assertTrue(cd.startsWith("attachment"), "XML response must have attachment Content-Disposition");
         assertTrue(cd.contains(".xml"), "Filename hint must end with .xml");
+    }
+
+    @Test
+    @DisplayName("XML response exposes Content-Disposition via Access-Control-Expose-Headers for cross-origin JS")
+    void sketchXml_accessControlExposeHeaders_containsContentDisposition() throws Exception {
+        HttpResponse<String> response = get("/api/sketch/theory?format=xml");
+        String exposed = response.headers().firstValue("Access-Control-Expose-Headers").orElse("");
+        assertTrue(exposed.contains("Content-Disposition"),
+                "Access-Control-Expose-Headers must include Content-Disposition for cross-origin downloads");
     }
 
     // ── Concordance exports ───────────────────────────────────────────────────

@@ -177,6 +177,7 @@ final class HttpApiUtils {
         exchange.getResponseHeaders().set("Content-Disposition",
                 "attachment; filename=\"" + sanitizeHeaderFilename(suggestedFilename) + "\"");
         setCorsHeader(exchange);
+        exchange.getResponseHeaders().set("Access-Control-Expose-Headers", "Content-Disposition");
         exchange.sendResponseHeaders(200, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
@@ -204,6 +205,7 @@ final class HttpApiUtils {
         exchange.getResponseHeaders().set("Content-Disposition",
                 "attachment; filename=\"" + sanitizeHeaderFilename(suggestedFilename) + "\"");
         setCorsHeader(exchange);
+        exchange.getResponseHeaders().set("Access-Control-Expose-Headers", "Content-Disposition");
         exchange.sendResponseHeaders(200, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);

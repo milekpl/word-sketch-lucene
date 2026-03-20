@@ -190,6 +190,14 @@ public final class RelationUtils {
     }
 
     /**
+     * Returns the head POS group for a relation by inspecting the token at the configured head
+     * position inside the BCQL pattern.
+     */
+    public static PosGroup computeHeadPosGroup(RelationConfig config) {
+        return computePosGroupAtPosition(config.pattern(), config.headPosition());
+    }
+
+    /**
      * Computes the collocate {@link PosGroup} from a raw BCQL pattern string.
      * Called by {@link GrammarConfigLoader} at construction time to populate
      * {@link RelationConfig#collocatePosGroup()}.
@@ -203,6 +211,16 @@ public final class RelationUtils {
         String target = extractLabelContent(pat, 2);
         if (target == null) target = pat;
         return resolvePosGroupFromPrefix(target, "xpos=");
+    }
+
+    /**
+     * Returns the POS group for the token at a 1-based pattern position.
+     */
+    public static PosGroup computePosGroupAtPosition(@Nullable String pattern, int position) {
+        if (pattern == null || position < 1) return PosGroup.OTHER;
+        var tokens = CqlUtils.splitCqlTokens(pattern);
+        if (position > tokens.size()) return PosGroup.OTHER;
+        return resolvePosGroupFromPrefix(tokens.get(position - 1).toLowerCase(Locale.ROOT), "xpos=");
     }
 
     /** Extracts the bracket content of the nth labeled position (e.g. "2:[...]"). */

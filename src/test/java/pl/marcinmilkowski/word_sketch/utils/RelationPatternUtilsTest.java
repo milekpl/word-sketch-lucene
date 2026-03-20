@@ -116,6 +116,19 @@ class RelationPatternUtilsTest {
     }
 
     @Test
+    @DisplayName("buildFullPattern preserves reversed labels for verb-subject relations")
+    void buildFullPattern_preservesReversedLabelsForVerbSubjects() {
+        RelationConfig config = headConfig(
+                "2:[xpos=\"NN.*\"] []{0,3} 1:[xpos=\"VB.*\"]", 3, 1, PosGroup.NOUN);
+
+        String result = RelationUtils.buildFullPattern(config, "predict", "outcome");
+
+        assertEquals(
+                "2:[lemma=\"outcome\" & xpos=\"NN.*\"] []{0,3} 1:[lemma=\"predict\" & xpos=\"VB.*\"]",
+                result);
+    }
+
+    @Test
     @DisplayName("buildFullPattern with null collocateLemma falls back to 2-arg overload")
     void buildFullPattern_nullCollocateLemma_fallsBackToTwoArgOverload() {
         RelationConfig config = headConfig(
@@ -219,5 +232,19 @@ class RelationPatternUtilsTest {
     @DisplayName("computeCollocatePosGroup returns OTHER for unrecognized pattern")
     void computeCollocatePosGroup_unrecognizedPattern_returnsOther() {
         assertEquals(PosGroup.OTHER, RelationUtils.computeCollocatePosGroup("[lemma=\"foo\"]"));
+    }
+
+    @Test
+    @DisplayName("computeHeadPosGroup returns VERB when head is a later labeled token")
+    void computeHeadPosGroup_reversedVerbSubjectPattern_returnsVerb() {
+        RelationConfig config = new RelationConfig(
+                "verb_subjects", "Subjects (verbs)", null,
+                "2:[xpos=\"NN.*\"] []{0,3} 1:[xpos=\"VB.*\"]",
+                3, 1,
+                false, 8,
+                RelationType.SURFACE,
+                PosGroup.NOUN);
+
+        assertEquals(PosGroup.VERB, RelationUtils.computeHeadPosGroup(config));
     }
 }

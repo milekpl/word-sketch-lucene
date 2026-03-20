@@ -42,6 +42,8 @@ class SketchResponseAssemblerTest {
         assertEquals("adj_modifier", entry.id());
         assertEquals("Adjective modifier", entry.name());
         assertEquals("[xpos=\"JJ.*\"]", entry.pattern());
+        assertEquals("adj", entry.headPosGroup());
+        assertEquals("adj", entry.collocatePosGroup());
         assertEquals(300L, entry.totalMatches());
         assertEquals(2, entry.collocations().size());
         assertNull(entry.description(), "Surface relation should have no description");
@@ -83,6 +85,8 @@ class SketchResponseAssemblerTest {
         RelationEntry entry = SketchResponseAssembler.buildDepRelationEntry(rel, results, collocations);
 
         assertEquals("subject_of", entry.id());
+                assertEquals("other", entry.headPosGroup());
+                assertEquals("verb", entry.collocatePosGroup());
         assertEquals(200L, entry.totalMatches(), "totalMatches should be sum of all result frequencies");
         assertEquals(2, entry.collocations().size());
         assertEquals("Noun as subject of a verb", entry.description());

@@ -4,6 +4,7 @@ import org.jspecify.annotations.NonNull;
 import pl.marcinmilkowski.word_sketch.api.model.CollocateEntry;
 import pl.marcinmilkowski.word_sketch.api.model.RelationEntry;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.RelationType;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 
@@ -35,6 +36,7 @@ final class SketchResponseAssembler {
                 rel.pattern(),
                 null,
                 RelationType.SURFACE.label(),
+            RelationUtils.computeHeadPosGroup(rel).label(),
                 rel.collocatePosGroup().label(),
                 totalMatches,
                 collocations,
@@ -54,6 +56,7 @@ final class SketchResponseAssembler {
                 rel.pattern(),
                 rel.description(),
                 RelationType.DEP.label(),
+            RelationUtils.computeHeadPosGroup(rel).label(),
                 rel.collocatePosGroup().label(),
                 results.stream().mapToLong(WordSketchResult::frequency).sum(),
                 collocations,

@@ -26,6 +26,7 @@ public record RelationEntry(
         /** Present for dependency relations; absent ({@code null}) for surface relations. */
         @Nullable String description,
         @JsonProperty("relation_type") String relationType,
+        @JsonProperty("head_pos_group") String headPosGroup,
         @JsonProperty("collocate_pos_group") String collocatePosGroup,
         @JsonProperty("total_matches") long totalMatches,
         List<CollocateEntry> collocations,

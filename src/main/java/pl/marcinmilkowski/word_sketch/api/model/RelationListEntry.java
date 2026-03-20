@@ -18,6 +18,8 @@ public record RelationListEntry(
         String name,
         @Nullable String description,
         @JsonProperty("relation_type") String relationType,
+        @JsonProperty("head_pos_group") String headPosGroup,
+        @JsonProperty("collocate_pos_group") String collocatePosGroup,
         String pattern,
         /** Present for dependency relations; absent for surface relations. */
         @Nullable String deprel) {}

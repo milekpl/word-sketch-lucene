@@ -301,6 +301,14 @@ curl http://localhost:8080/health
 curl "http://localhost:8080/api/sketch/house"
 ```
 
+To limit full sketches to relations whose head is a specific POS group:
+
+```bash
+curl "http://localhost:8080/api/sketch/predict?head_pos=verb"
+```
+
+Accepted values: `noun`, `verb`, `adj`, `adv`.
+
 Response:
 ```json
 {
@@ -332,8 +340,11 @@ curl "http://localhost:8080/api/semantic-field/explore?seed=theory&relation=adj_
 **Relations:**
 - `adj_predicate`: "X is ADJ" (e.g., "theory is correct")
 - `adj_modifier`: "ADJ X" (e.g., "correct theory")  
-- `subject_of`: "X VERBs" (e.g., "theory suggests")
-- `object_of`: "VERB X" (e.g., "develop theory")
+- `subject_of`: subject verbs for noun-head sketches, strict local pattern (e.g., "theory suggests")
+- `noun_verbs`: nearby verbs for noun-head sketches, looser window than `subject_of`
+- `verb_subjects`: subject nouns for verb-head sketches (e.g., "theory predicts")
+- `object_of`: object nouns for verb-head sketches, strict local pattern (e.g., "develop theory")
+- `verb_nouns`: nearby nouns for verb-head sketches, looser window than `object_of`
 
 **Response:**
 ```json

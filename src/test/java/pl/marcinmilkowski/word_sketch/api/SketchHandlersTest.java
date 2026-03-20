@@ -94,8 +94,19 @@ class SketchHandlersTest {
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertEquals("ok", body.path("status").asText());
         assertNotNull(body.get("relations"), "Surface-relations response should contain a relations array");
+        assertFalse(body.path("relations").isEmpty(), "Surface-relations response should not be empty");
+        assertTrue(body.path("relations").get(0).has("head_pos_group"), "Relations catalogue should expose head_pos_group");
+        assertTrue(body.path("relations").get(0).has("collocate_pos_group"), "Relations catalogue should expose collocate_pos_group");
     }
-
+    @Test
+    void handleSketchRequest_fullSketch_includesVerbSubjectsRelation() throws Exception {
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange("http://localhost/api/sketch/predict");
+        handlers().routeSketchRequest(ex);
+        assertEquals(200, ex.statusCode);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode patterns = (ObjectNode) body.get("patterns");
+        assertTrue(patterns.has("verb_subjects"), "Full sketch should include the verb_subjects relation");
+    }
     // ── Validation / negative-path tests (migrated from HandlersTest) ────────
 
     @Test
@@ -175,10 +186,35 @@ class SketchHandlersTest {
     }
 
     @Test
+    void handleSketchRequest_headPosFilter_prunesSurfaceRelationsByHeadGroup() throws Exception {
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/sketch/predict?head_pos=verb");
+        handlers().routeSketchRequest(ex);
+        assertEquals(200, ex.statusCode);
+
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+        ObjectNode patterns = (ObjectNode) body.get("patterns");
+        assertNotNull(patterns, "Filtered sketch should contain a patterns map");
+        assertTrue(patterns.has("verb_subjects"), "Verb head filter should retain verb_subjects");
+        assertTrue(patterns.has("object_of"), "Verb head filter should retain object_of");
+        assertFalse(patterns.has("subject_of"), "Verb head filter should exclude noun-head subject_of");
+        assertFalse(patterns.has("noun_verbs"), "Verb head filter should exclude noun-head noun_verbs");
+    }
+
+    @Test
     void handleSketchRequest_invalidPosFilter_returns400() throws Exception {
         SketchHandlers handlers = new SketchHandlers(stubExecutor(), GrammarConfigHelper.requireTestConfig());
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
                 "http://localhost/api/sketch/theory?pos=banana");
+        HttpApiUtils.wrapWithErrorHandling(handlers::routeSketchRequest, "test").handle(ex);
+        assertEquals(400, ex.statusCode);
+    }
+
+    @Test
+    void handleSketchRequest_invalidHeadPosFilter_returns400() throws Exception {
+        SketchHandlers handlers = new SketchHandlers(stubExecutor(), GrammarConfigHelper.requireTestConfig());
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/sketch/theory?head_pos=banana");
         HttpApiUtils.wrapWithErrorHandling(handlers::routeSketchRequest, "test").handle(ex);
         assertEquals(400, ex.statusCode);
     }

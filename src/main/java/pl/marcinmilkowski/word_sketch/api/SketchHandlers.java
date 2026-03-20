@@ -99,7 +99,7 @@ class SketchHandlers {
                     exchange,
                     lemma,
                     RelationType.SURFACE,
-                    surfaceRelationFilter(parseSurfacePosFilter(params)),
+                    surfaceRelationFilter(parseSurfacePosFilter(params), parseHeadPosFilter(params)),
                     format,
                     exportLimit);
         }
@@ -114,6 +114,8 @@ class SketchHandlers {
                         rel.name(),
                         rel.description(),
                         relationType.name(),
+                    RelationUtils.computeHeadPosGroup(rel).label(),
+                    rel.collocatePosGroup().label(),
                         rel.pattern(),
                         relationType == RelationType.DEP ? rel.deriveDeprel() : null));
             }
@@ -137,18 +139,28 @@ class SketchHandlers {
     }
 
     private static Predicate<pl.marcinmilkowski.word_sketch.config.RelationConfig> surfaceRelationFilter(
-            Optional<PosGroup> collocatePosFilter) {
-        return rel -> collocatePosFilter.map(pos -> rel.collocatePosGroup() == pos).orElse(true);
+            Optional<PosGroup> collocatePosFilter,
+            Optional<PosGroup> headPosFilter) {
+        return rel -> collocatePosFilter.map(pos -> rel.collocatePosGroup() == pos).orElse(true)
+                && headPosFilter.map(pos -> RelationUtils.computeHeadPosGroup(rel) == pos).orElse(true);
     }
 
     private static Optional<PosGroup> parseSurfacePosFilter(Map<String, String> params) {
-        String raw = params.get("pos");
+        return parsePosFilter(params, "pos");
+    }
+
+    private static Optional<PosGroup> parseHeadPosFilter(Map<String, String> params) {
+        return parsePosFilter(params, "head_pos");
+    }
+
+    private static Optional<PosGroup> parsePosFilter(Map<String, String> params, String paramName) {
+        String raw = params.get(paramName);
         if (raw == null || raw.isBlank()) {
             return Optional.empty();
         }
         if (raw.length() > HttpApiUtils.MAX_PARAM_LENGTH) {
             throw new IllegalArgumentException(
-                    "Parameter 'pos' exceeds maximum length of " + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
+                    "Parameter '" + paramName + "' exceeds maximum length of " + HttpApiUtils.MAX_PARAM_LENGTH + " characters");
         }
         return switch (raw.trim().toLowerCase(Locale.ROOT)) {
             case "noun" -> Optional.of(PosGroup.NOUN);
@@ -156,7 +168,7 @@ class SketchHandlers {
             case "adj" -> Optional.of(PosGroup.ADJ);
             case "adv" -> Optional.of(PosGroup.ADV);
             default -> throw new IllegalArgumentException(
-                    "Invalid pos parameter: " + raw + " (expected noun, verb, adj, adv)");
+                    "Invalid " + paramName + " parameter: " + raw + " (expected noun, verb, adj, adv)");
         };
     }
 

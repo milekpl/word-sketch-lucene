@@ -234,7 +234,7 @@ class ExportUtilsTest {
     @DisplayName("sketchToXml — XML attribute values are escaped")
     void sketchToXml_attrValuesEscaped() {
         CollocateEntry c = new CollocateEntry("a&b", 10, 5.0, "JJ");
-        RelationEntry rel = new RelationEntry("r1", "Test", "[lemma=\"test\"]", null, "SURFACE", "adj", 100, List.of(c), null);
+        RelationEntry rel = new RelationEntry("r1", "Test", "[lemma=\"test\"]", null, "SURFACE", "noun", "adj", 100, List.of(c), null);
         SketchResponse response = new SketchResponse("ok", "test<word>", null, Map.of("r1", rel), null);
         String xml = ExportUtils.sketchToXml(response, 0);
         assertTrue(xml.contains("&amp;"), "Ampersand in lemma must be escaped");
@@ -348,7 +348,7 @@ class ExportUtilsTest {
     private SketchResponse buildSketchResponse() {
         CollocateEntry c = new CollocateEntry("empirical", 500L, 8.3, "JJ");
         RelationEntry rel = new RelationEntry("adj_predicate", "Adj predicate", "[lemma=\"theory\"]",
-                null, "SURFACE", "adj", 500, List.of(c), null);
+                null, "SURFACE", "noun", "adj", 500, List.of(c), null);
         return new SketchResponse("ok", "theory", null, Map.of("adj_predicate", rel), null);
     }
 
@@ -356,7 +356,7 @@ class ExportUtilsTest {
         CollocateEntry c1 = new CollocateEntry("empirical", 500L, 8.3, "JJ");
         CollocateEntry c2 = new CollocateEntry("scientific", 400L, 7.9, "JJ");
         RelationEntry rel = new RelationEntry("adj_predicate", "Adj predicate", "[lemma=\"theory\"]",
-                null, "SURFACE", "adj", 900, List.of(c1, c2), null);
+                null, "SURFACE", "noun", "adj", 900, List.of(c1, c2), null);
         return new SketchResponse("ok", "theory", null, Map.of("adj_predicate", rel), null);
     }
 

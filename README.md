@@ -29,6 +29,14 @@ A high-performance corpus-based collocation analysis tool built on [BlackLab](ht
 mvn clean package
 ```
 
+## Corpus Data for Testing
+
+You can test ConceptSketch by downloading this indexed and tagged corpus:
+
+- Frontiers in Psychology Corpus, <https://doi.org/10.18150/4LJ9WD>
+
+It is sufficiently large to provide interesting insights about the language of contemporary psychology (2010-2021, before the advent of AI-generated papers).
+
 ### 2. Create an Index
 
 #### Step 1 — Prepare a CoNLL-U corpus

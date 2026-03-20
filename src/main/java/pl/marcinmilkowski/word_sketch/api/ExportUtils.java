@@ -142,11 +142,11 @@ final class ExportUtils {
      * Converts an {@link ExploreResponse} to CSV.
      * Emits two sections: {@code seed_collocates} (type=seed_collocate) and
      * {@code core_collocates} (type=core_collocate).
-     * Columns: {@code type, word, log_dice, frequency}.
+     * Columns: {@code type, word, log_dice, frequency_or_shared_by_count}.
      */
     static String exploreToCsv(ExploreResponse response, int limit) {
         StringBuilder sb = new StringBuilder();
-        sb.append("type,word,log_dice,frequency\n");
+        sb.append("type,word,log_dice,frequency_or_shared_by_count\n");
         if (response.seedCollocates() != null) {
             int count = 0;
             for (SeedCollocateEntry e : response.seedCollocates()) {

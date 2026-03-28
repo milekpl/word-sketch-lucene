@@ -358,7 +358,7 @@ class CollocateQueryHelper {
         String leftXml  = parts[0];
         String matchXml = parts[1];
         String rightXml = parts[2];
-        String xmlSnippet = leftXml + matchXml + rightXml;
+        String xmlSnippet = BlackLabSnippetParser.trimXmlToSentence(leftXml, matchXml, rightXml);
         String leftText   = BlackLabSnippetParser.extractPlainTextFromXml(
                 BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
         String matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);

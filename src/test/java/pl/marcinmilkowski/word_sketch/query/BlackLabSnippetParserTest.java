@@ -306,4 +306,54 @@ class BlackLabSnippetParserTest {
     void trimToSentence_emptyContextsReturnMatch() {
         assertEquals("proposed", BlackLabSnippetParser.trimToSentence("", "proposed", ""));
     }
+
+    // ── trimXmlToSentence ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("trimXmlToSentence: strips tokens from a preceding sentence in left context")
+    void trimXmlToSentence_stripsPrecedingSentenceFromLeft() {
+        // Left context contains two sentences; only tokens after the last <s> tag should survive.
+        String leftXml  = "<s><w lemma=\"previous\" xpos=\"JJ\">Previous</w> <w lemma=\"sentence\" xpos=\"NN\">sentence</w> <w lemma=\"end\" xpos=\"NN\">end</w></s> "
+                        + "<s><w lemma=\"the\" xpos=\"DT\">The</w> <w lemma=\"scientist\" xpos=\"NN\">scientist</w>";
+        String matchXml = "<w lemma=\"propose\" xpos=\"VBD\">proposed</w>";
+        String rightXml = "<w lemma=\"a\" xpos=\"DT\">a</w> <w lemma=\"theory\" xpos=\"NN\">theory</w></s> "
+                        + "<s><w lemma=\"later\" xpos=\"RB\">Later</w> <w lemma=\"it\" xpos=\"PRP\">it</w></s>";
+
+        String result = BlackLabSnippetParser.trimXmlToSentence(leftXml, matchXml, rightXml);
+
+        // Tokens from the sentence surrounding the match
+        assertTrue(result.contains("scientist"), "Should include left sentence tokens, got: " + result);
+        assertTrue(result.contains("proposed"),  "Should include match token, got: " + result);
+        assertTrue(result.contains("theory"),    "Should include right sentence tokens, got: " + result);
+        // Tokens from out-of-sentence context
+        assertFalse(result.contains("Previous"), "Should not include preceding sentence tokens, got: " + result);
+        assertFalse(result.contains("Later"),    "Should not include following sentence tokens, got: " + result);
+    }
+
+    @Test
+    @DisplayName("trimXmlToSentence: empty contexts return just the match XML")
+    void trimXmlToSentence_emptyContextsReturnMatchXml() {
+        String matchXml = "<w lemma=\"propose\" xpos=\"VBD\">proposed</w>";
+        String result = BlackLabSnippetParser.trimXmlToSentence("", matchXml, "");
+        assertTrue(result.contains("proposed"), "Result should contain match, got: " + result);
+    }
+
+    @Test
+    @DisplayName("trimXmlToSentence: result is consistent with trimToSentence plain text")
+    void trimXmlToSentence_consistentWithTrimToSentence() {
+        String leftXml  = "<s><w lemma=\"the\" xpos=\"DT\">The</w> <w lemma=\"scientist\" xpos=\"NN\">scientist</w>";
+        String matchXml = "<w lemma=\"propose\" xpos=\"VBD\">proposed</w>";
+        String rightXml = "<w lemma=\"a\" xpos=\"DT\">a</w> <w lemma=\"theory\" xpos=\"NN\">theory</w> <w lemma=\".\" xpos=\".\">.</w></s>";
+
+        String xmlResult   = BlackLabSnippetParser.trimXmlToSentence(leftXml, matchXml, rightXml);
+        String plainResult = BlackLabSnippetParser.extractPlainTextFromXml(xmlResult);
+
+        String leftText  = BlackLabSnippetParser.extractPlainTextFromXml(leftXml);
+        String matchText = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
+        String rightText = BlackLabSnippetParser.extractPlainTextFromXml(rightXml);
+        String plainDirect = BlackLabSnippetParser.trimToSentence(leftText, matchText, rightText);
+
+        assertEquals(plainDirect, plainResult,
+                "Plain text extracted from XML result should match trimToSentence output");
+    }
 }

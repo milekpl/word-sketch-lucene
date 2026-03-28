@@ -2,8 +2,6 @@
 
 A high-performance corpus-based collocation analysis tool built on [BlackLab](https://blacklab.ivdnt.org/) corpus search software (which relies on Apache Lucene). This project implements word and dependecy sketch functionality (grammatical relations and collocations), semantic field exploration, and conceptual mining for corpus linguistics research and NLP applications.
 
-**Current Status:** ✅ **Functional Release v1.6** - See [Limitations](#limitations) section.
-
 ## Features
 
 - **Fast Collocation Analysis**: O(1) instant lookup with precomputed collocations
@@ -809,30 +807,6 @@ All seeds can: eat, run, live
 Dog-specific: bark, beg, fetch
 Cat-specific: meow, purr, scratch
 ```
----
-
-## Limitations
-
-This is a **functional v1.5 release** with the following limitations:
-
-### Known Limitations
-
-1. **No Agreement Rules**: Patterns don't enforce grammatical agreement
-   - "big house" and "the big house" are treated the same
-   - Consider this for interpretation of results
-
-2. **Fixed Grammatical Relations**: Only 4 relation types implemented
-   - `ADJ_PREDICATE`, `ADJ_MODIFIER`, `SUBJECT_OF`, `OBJECT_OF`
-   - Custom patterns require CQL specification
-
-3. **Limited Lemma Coverage**: Depends on the input corpus
-   - Low-frequency words may have insufficient data
-   - Compounds and rare morphological forms may not be covered
-
-4. **No Morphological Analysis**: Simple POS tag matching
-   - Plural/singular not distinguished
-   - Verb tense merged into single lemma
-
 ---
 
 ## Development

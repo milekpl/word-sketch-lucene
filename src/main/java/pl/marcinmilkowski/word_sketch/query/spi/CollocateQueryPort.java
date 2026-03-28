@@ -20,21 +20,36 @@ import pl.marcinmilkowski.word_sketch.model.sketch.*;
 public interface CollocateQueryPort {
 
     /**
-     * Execute a BCQL pattern and return concordance results.
-     * Supports labeled capture groups ({@code 1:}, {@code 2:}) and computes per-hit logDice scores.
+     * Execute a BCQL pattern and return concordance results in document order.
+     * No logDice scoring or ranking is performed.
      *
-     * @implNote Uses the BCQL parser ({@code CorpusQueryLanguageParser}). When scoring is required,
-     *           the headword lemma must be embedded in {@code bcqlPattern} (e.g. via a
-     *           {@code lemma="..."} attribute on the head token). This is intentionally asymmetric
-     *           with {@link pl.marcinmilkowski.word_sketch.query.QueryExecutor#executeCollocations},
-     *           which accepts the lemma as a separate parameter and looks up its frequency
-     *           independently.
+     * <p>Labeled capture groups ({@code 1:}, {@code 2:}) are supported for collocate-lemma
+     * extraction per hit but do not affect result ordering.</p>
      *
-     * @param bcqlPattern  BCQL pattern, optionally with labeled positions; embed the headword
-     *                     lemma in the pattern when per-hit logDice scoring is needed
-     * @param maxResults   Maximum number of results after ranking
-     * @return Concordance results, ranked by logDice
+     * @param bcqlPattern  BCQL pattern to match
+     * @param maxResults   maximum number of results to return (positive)
+     * @return Concordance results starting at offset 0
      * @throws IOException if index access or parsing fails
      */
     @NonNull List<CollocateResult> executeBcqlQuery(@NonNull String bcqlPattern, int maxResults) throws IOException;
+
+    /**
+     * Paginated BCQL concordance query. Returns one page of results together with the total
+     * hit count, enabling clients to iterate pages without re-executing a full scan.
+     * Hits are returned in document order; no logDice scoring is performed.
+     *
+     * <p>The default implementation delegates to {@link #executeBcqlQuery} with
+     * {@code pageSize} as the limit and synthesises a {@link BcqlPage} where {@code total}
+     * equals the number of results returned — suitable for stubs and tests.</p>
+     *
+     * @param bcqlPattern  BCQL pattern to match
+     * @param pageSize     number of hits to fetch for this page (positive)
+     * @param offset       0-based index of the first hit on this page
+     * @return {@link BcqlPage} with total hit count, offset, page size, and results
+     * @throws IOException if index access or parsing fails
+     */
+    default @NonNull BcqlPage executeBcqlPage(@NonNull String bcqlPattern, int pageSize, int offset) throws IOException {
+        List<CollocateResult> results = executeBcqlQuery(bcqlPattern, pageSize);
+        return new BcqlPage(results.size(), offset, pageSize, results);
+    }
 }

@@ -33,20 +33,20 @@ class CorpusQueryHandlers {
 
     /**
      * Handle arbitrary BCQL query (POST with JSON body to avoid URL encoding issues).
-     * POST /api/bcql with body: {"query": "[lemma=\"test\"]", "top": 20}
-     * The {@code top} field controls the maximum number of results returned.
+     * POST /api/bcql with body: {"query": "[lemma=\"test\"]", "top": 20, "offset": 0}
+     * {@code top} is the page size; {@code offset} is the 0-based start of this page.
      */
     void handleCorpusQuery(HttpExchange exchange) throws IOException {
         BcqlRequest req = parseBcqlRequest(exchange);
 
-        auditLogger.info("src={} len={} query: {}",
-                exchange.getRemoteAddress(), req.query().length(), req.query());
+        auditLogger.info("src={} len={} offset={} query: {}",
+                exchange.getRemoteAddress(), req.query().length(), req.offset(), req.query());
 
-        List<CollocateResult> results = executor.executeBcqlQuery(req.query(), req.top());
-        HttpApiUtils.sendJsonResponse(exchange, buildBcqlResponse(req, results));
+        BcqlPage page = executor.executeBcqlPage(req.query(), req.top(), req.offset());
+        HttpApiUtils.sendJsonResponse(exchange, buildBcqlResponse(req, page));
     }
 
-    private record BcqlRequest(String query, int top) {}
+    private record BcqlRequest(String query, int top, int offset) {}
 
     /**
      * Parse and validate the BCQL POST body.
@@ -73,22 +73,25 @@ class CorpusQueryHandlers {
         }
         com.fasterxml.jackson.databind.JsonNode topNode = obj.path("top");
         int resolvedTop;
-        if (!topNode.isMissingNode() && !topNode.isNull() && topNode.asInt() == -1) {
-            resolvedTop = -1; // -1 means unlimited
-        } else if (!topNode.isMissingNode() && !topNode.isNull() && topNode.asInt() > 0) {
+        if (!topNode.isMissingNode() && !topNode.isNull() && topNode.asInt() > 0) {
             resolvedTop = topNode.asInt();
         } else {
-            resolvedTop = 10;
+            resolvedTop = 20; // default page size
         }
-        return new BcqlRequest(bcqlQuery, resolvedTop);
+        com.fasterxml.jackson.databind.JsonNode offsetNode = obj.path("offset");
+        int resolvedOffset = (!offsetNode.isMissingNode() && !offsetNode.isNull() && offsetNode.asInt() >= 0)
+                ? offsetNode.asInt()
+                : 0;
+        return new BcqlRequest(bcqlQuery, resolvedTop, resolvedOffset);
     }
 
     /** Typed response envelope for the BCQL query endpoint. Serialised to JSON by Jackson. */
     private record BcqlQueryResponse(
             String status,
             String query,
-            int hits,
-            int limit,
+            long total,
+            int offset,
+            int pageSize,
             List<BcqlResultEntry> results) {}
 
     /**
@@ -108,14 +111,15 @@ class CorpusQueryHandlers {
             long frequency,
             double logDice) {}
 
-    /** Build the typed BCQL query response from the parsed request and results. */
-    private static BcqlQueryResponse buildBcqlResponse(BcqlRequest req, List<CollocateResult> results) {
+    /** Build the typed BCQL query response from the parsed request and the page returned by the executor. */
+    private static BcqlQueryResponse buildBcqlResponse(BcqlRequest req, BcqlPage page) {
         return new BcqlQueryResponse(
             "ok",
             req.query(),
-            results.size(),
-            req.top(),
-            results.stream().map(CorpusQueryHandlers::toBcqlResultEntry).toList());
+            page.total(),
+            page.offset(),
+            page.pageSize(),
+            page.results().stream().map(CorpusQueryHandlers::toBcqlResultEntry).toList());
     }
 
     private static BcqlResultEntry toBcqlResultEntry(CollocateResult r) {

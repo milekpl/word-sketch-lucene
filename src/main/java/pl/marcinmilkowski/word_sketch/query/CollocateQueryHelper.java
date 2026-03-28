@@ -7,8 +7,7 @@ import nl.inl.blacklab.resultproperty.HitProperty;
 import nl.inl.blacklab.resultproperty.HitPropertyHitText;
 
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
-import nl.inl.blacklab.search.BlackLabIndex;
-import nl.inl.blacklab.search.ConcordanceType;
+import nl.inl.blacklab.search.BlackLabIndex;import nl.inl.blacklab.search.ConcordanceType;
 import nl.inl.blacklab.search.lucene.BLSpanQuery;
 import nl.inl.blacklab.search.indexmetadata.AnnotatedField;
 import nl.inl.blacklab.search.indexmetadata.Annotation;
@@ -36,7 +35,6 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -52,10 +50,6 @@ import java.util.Set;
 class CollocateQueryHelper {
     private static final Logger logger = LoggerFactory.getLogger(CollocateQueryHelper.class);
     private static final int MAX_TOTAL_FREQUENCY_CACHE_ENTRIES = 20_000;
-
-    /** Over-fetching factor: compensates for collocates eliminated by post-ranking filters.
-     *  Ensures enough candidates remain after frequency/logDice filtering. */
-    private static final int OVER_FETCH_FACTOR = 3;
 
     @Nullable
     private final BlackLabIndex index;
@@ -220,19 +214,6 @@ class CollocateQueryHelper {
     // -------------------------------------------------------------------------
 
     /**
-     * Pre-fetches the corpus frequency for each lemma in the given collection,
-     * returning a map from lemma to total frequency.
-     * Avoids redundant I/O calls when the same lemma appears multiple times.
-     */
-    private Map<String, Long> prefetchCorpusFrequencies(Collection<String> lemmas) throws IOException {
-        Map<String, Long> freqs = new HashMap<>();
-        for (String lemma : lemmas) {
-            freqs.put(lemma, getTotalFrequency(lemma));
-        }
-        return freqs;
-    }
-
-    /**
      * Build and rank collocate results from a frequency map using logDice scoring.
      *
      * @param freqMap       joint co-occurrence frequencies (collocate lemma → count)
@@ -289,17 +270,44 @@ class CollocateQueryHelper {
     }
 
     // -------------------------------------------------------------------------
-    // BCQL hit-collection pipeline (used by executeBcqlQuery)
+    // BCQL concordance query
     // -------------------------------------------------------------------------
 
-    /** Per-hit data collected in phase 1 of {@link #executeBcqlQuery}. */
-    record HitRecord(String xmlSnippet, String leftText, String matchText, String rightText,
-                     @Nullable String collocateLemma, int docId, int start, int end) {}
-
     /**
-     * Full two-phase BCQL query execution: parse → collect hits → score → rank.
+     * BCQL concordance query: finds hits for {@code bcqlPattern} and returns them as plain
+     * concordance entries in document order. No logDice scoring or ranking is performed.
+     *
+     * <p>This convenience overload starts at offset 0 and returns at most {@code maxResults}
+     * hits. It is the method used by {@link pl.marcinmilkowski.word_sketch.api.ConcordanceHandlers}
+     * and {@link pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer}, which do not
+     * need pagination.</p>
+     *
+     * @param bcqlPattern  BCQL pattern; labeled positions (e.g. {@code 2:}) extract a
+     *                     collocate lemma per hit
+     * @param maxResults   maximum hits to return (positive); use
+     *                     {@link #executeBcqlPage} for paginated access with total count
      */
     List<CollocateResult> executeBcqlQuery(String bcqlPattern, int maxResults)
+            throws IOException {
+        return executeBcqlInternal(bcqlPattern, maxResults, 0).results();
+    }
+
+    /**
+     * Paginated BCQL concordance query: returns a single page of hits together with the
+     * total hit count (all pages combined). No logDice scoring or ranking is performed.
+     * Hits are returned in document order.
+     *
+     * @param bcqlPattern  BCQL pattern; labeled positions extract a collocate lemma per hit
+     * @param pageSize     number of hits to fetch for this page (positive)
+     * @param offset       0-based index of the first hit on this page
+     * @return             {@link BcqlPage} with total count, offset, page size, and results
+     */
+    BcqlPage executeBcqlPage(String bcqlPattern, int pageSize, int offset)
+            throws IOException {
+        return executeBcqlInternal(bcqlPattern, pageSize, offset);
+    }
+
+    private BcqlPage executeBcqlInternal(String bcqlPattern, int fetchSize, int offset)
             throws IOException {
         assertIndexAvailable();
         try {
@@ -307,127 +315,50 @@ class CollocateQueryHelper {
             TextPattern pattern = nl.inl.blacklab.queryParser.corpusql.CorpusQueryLanguageParser
                     .parse(bcqlPattern, "lemma");
             BLSpanQuery query = pattern.toQuery(QueryInfo.create(idx));
-
             Hits hits = idx.find(query);
-            String headword = CqlUtils.extractHeadword(bcqlPattern);
-            long headwordFreq = headword != null ? getTotalFrequency(headword) : 0L;
+            long total = hits.size();
+            int clampedFetch = (fetchSize <= 0 || offset >= total)
+                    ? 0
+                    : (int) Math.min((long) fetchSize, total - offset);
+
+            if (clampedFetch == 0) return new BcqlPage(total, offset, fetchSize, List.of());
+
             int collocatePos = CqlUtils.findLabelTokenIndex(bcqlPattern, 2);
-            // When maxResults == -1 collect every hit; otherwise over-fetch to allow post-filter churn.
-            int sampleSize = (maxResults == -1)
-                    ? (int) hits.size()
-                    : (int) Math.min(hits.size(), (long) maxResults * OVER_FETCH_FACTOR);
+            Hits window = hits.window((long) offset, (long) (offset + clampedFetch));
+            Concordances concordances = window.concordances(
+                    ContextSize.get(60, 60, Integer.MAX_VALUE), ConcordanceType.FORWARD_INDEX);
 
-            Map<String, Long> collocateFreqMap = new HashMap<>();
-            List<HitRecord> hitRecords = collectHits(hits, sampleSize, collocatePos);
-            buildCollocateFrequencyMap(hitRecords, collocateFreqMap);
-            List<CollocateResult> scored = scoreHits(hitRecords, collocateFreqMap, headwordFreq);
-            var stream = scored.stream().sorted(Comparator.comparingDouble(CollocateResult::logDice).reversed());
-            return (maxResults == -1 ? stream : stream.limit(maxResults)).toList();
-
+            List<CollocateResult> results = new ArrayList<>(clampedFetch);
+            for (int i = 0; i < clampedFetch; i++) {
+                Hit hit = window.get(i);
+                Concordance conc = concordances.get(hit);
+                String[] parts = BlackLabSnippetParser.safeParts(conc);
+                String leftXml  = parts[0];
+                String matchXml = parts[1];
+                String rightXml = parts[2];
+                String xmlSnippet = BlackLabSnippetParser.trimXmlToSentence(leftXml, matchXml, rightXml);
+                String leftText  = BlackLabSnippetParser.extractPlainTextFromXml(
+                        BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
+                String matchText = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
+                String rightText = BlackLabSnippetParser.extractPlainTextFromXml(
+                        BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
+                String collocateLemma = extractCollocateLemma(matchXml, collocatePos);
+                String trimmedLeft  = BlackLabSnippetParser.trimLeftAtSentenceBoundary(leftText);
+                String trimmedRight = BlackLabSnippetParser.trimRightAtSentenceBoundary(rightText);
+                String plainLeft  = BlackLabSnippetParser.detokenize(trimmedLeft);
+                String plainMatch = BlackLabSnippetParser.detokenize(matchText);
+                String plainRight = BlackLabSnippetParser.detokenize(trimmedRight);
+                String plainText  = BlackLabSnippetParser.trimToSentence(leftText, matchText, rightText);
+                results.add(new CollocateResult(
+                        plainText, xmlSnippet,
+                        plainLeft, plainMatch, plainRight,
+                        hit.start(), hit.end(), String.valueOf(hit.doc()),
+                        collocateLemma, 0L, 0.0));
+            }
+            return new BcqlPage(total, offset, clampedFetch, results);
         } catch (InvalidQuery e) {
             throw new IllegalArgumentException("BCQL parse error: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Phase 1 — hit collection: iterate sample hits and extract text/XML and collocate lemma
-     * into a list of {@link HitRecord}s. Frequency counting is a separate concern handled by
-     * {@link #buildCollocateFrequencyMap}.
-     */
-    private List<HitRecord> collectHits(Hits hits, int sampleSize, int collocatePos) {
-        List<HitRecord> records = new ArrayList<>(sampleSize);
-        if (sampleSize == 0) return records;
-
-        Hits sample = hits.window(0L, (long) sampleSize);
-        Concordances concordances = sample.concordances(
-                ContextSize.get(60, 60, Integer.MAX_VALUE), ConcordanceType.FORWARD_INDEX);
-
-        for (int idx = 0; idx < sampleSize; idx++) {
-            Hit hit = sample.get(idx);
-            Concordance conc = concordances.get(hit);
-            records.add(toHitRecord(hit, conc, collocatePos));
-        }
-        return records;
-    }
-
-    /**
-     * Transforms a single (hit, concordance) pair into a {@link HitRecord}.
-     */
-    private HitRecord toHitRecord(Hit hit, Concordance conc, int collocatePos) {
-        String[] parts = BlackLabSnippetParser.safeParts(conc);
-        String leftXml  = parts[0];
-        String matchXml = parts[1];
-        String rightXml = parts[2];
-        String xmlSnippet = BlackLabSnippetParser.trimXmlToSentence(leftXml, matchXml, rightXml);
-        String leftText   = BlackLabSnippetParser.extractPlainTextFromXml(
-                BlackLabSnippetParser.trimLeftXmlAtSentence(leftXml));
-        String matchText  = BlackLabSnippetParser.extractPlainTextFromXml(matchXml);
-        String rightText  = BlackLabSnippetParser.extractPlainTextFromXml(
-                BlackLabSnippetParser.trimRightXmlAtSentence(rightXml));
-        String collocateLemma = extractCollocateLemma(matchXml, collocatePos);
-
-        return new HitRecord(xmlSnippet, leftText, matchText, rightText,
-                collocateLemma, hit.doc(), hit.start(), hit.end());
-    }
-
-    /**
-     * Phase 1b — frequency counting: accumulates per-collocate co-occurrence counts from
-     * a previously collected list of {@link HitRecord}s into {@code freqMapOut}.
-     */
-    private static void buildCollocateFrequencyMap(List<HitRecord> records, Map<String, Long> freqMapOut) {
-        for (HitRecord rec : records) {
-            String collocateLemma = rec.collocateLemma();
-            if (collocateLemma != null && !collocateLemma.isEmpty()) {
-                freqMapOut.merge(collocateLemma.toLowerCase(), 1L, Long::sum);
-            }
-        }
-    }
-
-    /**
-     * Phase 2 — score each hit with logDice using corpus frequencies.
-     * Frequencies for each unique collocate are pre-fetched once and cached in a local map
-     * to avoid redundant {@link #getTotalFrequency} calls for the same lemma.
-     * Scores all hit records and returns the full list (unsorted); the caller is responsible for
-     * sorting by logDice and limiting to {@code maxResults}.
-     */
-    private List<CollocateResult> scoreHits(List<HitRecord> records,
-            Map<String, Long> collocateFreqMap, long headwordFreq) throws IOException {
-        // Pre-compute corpus frequency for each unique collocate to avoid one call per hit.
-        Map<String, Long> collocateCorpusFreqs = prefetchCorpusFrequencies(collocateFreqMap.keySet());
-
-        List<CollocateResult> results = new ArrayList<>();
-
-        for (HitRecord rec : records) {
-            String collocateLemma = rec.collocateLemma();
-            if (collocateLemma == null || collocateLemma.isEmpty()) {
-                // Null-collocate hits are SENTENCE_BOUND sentinels (no extractable collocate);
-                // they carry no logDice score and must not be mixed into the ranked results.
-                continue;
-            }
-
-            String key = collocateLemma.toLowerCase();
-            long jointFreq = collocateFreqMap.getOrDefault(key, 0L);
-            long collocateFreq = collocateCorpusFreqs.getOrDefault(key, 0L);
-
-            double logDice = (headwordFreq > 0 && collocateFreq > 0)
-                    ? LogDiceUtils.compute(jointFreq, headwordFreq, collocateFreq) : 0.0;
-
-            String plainText = BlackLabSnippetParser.trimToSentence(
-                    rec.leftText(), rec.matchText(), rec.rightText());
-
-            String trimmedLeft  = BlackLabSnippetParser.trimLeftAtSentenceBoundary(rec.leftText());
-            String trimmedRight = BlackLabSnippetParser.trimRightAtSentenceBoundary(rec.rightText());
-            String plainLeft  = BlackLabSnippetParser.detokenize(trimmedLeft);
-            String plainMatch = BlackLabSnippetParser.detokenize(rec.matchText());
-            String plainRight = BlackLabSnippetParser.detokenize(trimmedRight);
-
-            results.add(new CollocateResult(
-                    plainText, rec.xmlSnippet(),
-                    plainLeft, plainMatch, plainRight,
-                    rec.start(), rec.end(), String.valueOf(rec.docId()),
-                    collocateLemma, jointFreq, logDice));
-        }
-        return results;
     }
 
     /**

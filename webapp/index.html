@@ -981,16 +981,13 @@
                 <input type="text" id="bcqlInput" class="bcql-input" placeholder="e.g., [lemma=&quot;theory&quot;] []{0,3} [lemma=&quot;important&quot;]">
             </div>
             <div class="flex-row-center">
-                <label for="bcqlLimit">Max results:</label>
-                <input type="number" id="bcqlLimit" class="bcql-limit-input" value="20" min="-1"
-                    title="Max hits to fetch (-1 = unlimited)"
-                    onkeydown="if(event.key==='Enter') runBcqlQuery()">
                 <label for="bcqlPageSize">Per page:</label>
                 <select id="bcqlPageSize" onchange="setBcqlPageSize(this.value)">
                     <option value="20">20</option>
                     <option value="50" selected>50</option>
                     <option value="100">100</option>
-                    <option value="-1">All</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
                 </select>
                 <button type="button" onclick="runBcqlQuery()">Execute</button>
             </div>
@@ -1723,46 +1720,73 @@
             triggerExportDownload(lastSemanticUrl, format, limit, `semantic-export.${format}`);
         }
 
-        function exportBcql(format) {
-            if (!lastBcqlData) {
+        async function exportBcql(format) {
+            if (!lastBcqlData || !lastBcqlQuery) {
                 alert('No results to export. Please run a BCQL query first.');
                 return;
             }
-            const results = lastBcqlData.results || [];
-            let content, mimeType;
-            if (format === 'csv') {
-                const rows = [['#', 'left', 'match', 'right', 'sentence'].join(',')];
-                results.forEach((r, idx) => {
-                    const s = r.sentence || '';
-                    const ms = r.matchStart || 0;
-                    const me = r.matchEnd || s.length;
-                    const cells = [idx + 1, s.substring(0, ms), s.substring(ms, me), s.substring(me), s];
-                    rows.push(cells.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','));
-                });
-                content = rows.join('\n');
-                mimeType = 'text/csv;charset=utf-8;';
-            } else {
-                const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<bcql>',
-                    `  <query>${escapeHtml(lastBcqlQuery)}</query>`,
-                    `  <hits>${results.length}</hits>`, '  <results>'];
-                results.forEach((r, idx) => {
-                    const s = r.sentence || '';
-                    const ms = r.matchStart || 0;
-                    const me = r.matchEnd || s.length;
-                    lines.push(
-                        `    <result>`,
-                        `      <n>${idx + 1}</n>`,
-                        `      <left>${escapeHtml(s.substring(0, ms))}</left>`,
-                        `      <match>${escapeHtml(s.substring(ms, me))}</match>`,
-                        `      <right>${escapeHtml(s.substring(me))}</right>`,
-                        `      <sentence>${escapeHtml(s)}</sentence>`,
-                        `    </result>`);
-                });
-                lines.push('  </results>', '</bcql>');
-                content = lines.join('\n');
-                mimeType = 'application/xml;charset=utf-8;';
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const exportPageSize = 500;
+            const exportBtns = document.querySelectorAll('.export-btn');
+            exportBtns.forEach(b => { b.disabled = true; });
+            let allResults = [];
+            let offset = 0;
+            let total = lastBcqlData.total || 0;
+            try {
+                while (true) {
+                    const response = await fetch(`${apiUrl}/api/bcql`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: lastBcqlQuery, top: exportPageSize, offset })
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const page = await response.json();
+                    total = page.total;
+                    if (!page.results || page.results.length === 0) break;
+                    allResults.push(...page.results);
+                    offset += exportPageSize;
+                    if (offset >= total) break;
+                }
+                const results = allResults;
+                let content, mimeType;
+                if (format === 'csv') {
+                    const rows = [['#', 'left', 'match', 'right', 'sentence'].join(',')];
+                    results.forEach((r, idx) => {
+                        const s = r.sentence || '';
+                        const ms = r.matchStart || 0;
+                        const me = r.matchEnd || s.length;
+                        const cells = [idx + 1, s.substring(0, ms), s.substring(ms, me), s.substring(me), s];
+                        rows.push(cells.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','));
+                    });
+                    content = rows.join('\n');
+                    mimeType = 'text/csv;charset=utf-8;';
+                } else {
+                    const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<bcql>',
+                        `  <query>${escapeHtml(lastBcqlQuery)}</query>`,
+                        `  <hits>${total}</hits>`, '  <results>'];
+                    results.forEach((r, idx) => {
+                        const s = r.sentence || '';
+                        const ms = r.matchStart || 0;
+                        const me = r.matchEnd || s.length;
+                        lines.push(
+                            `    <result>`,
+                            `      <n>${idx + 1}</n>`,
+                            `      <left>${escapeHtml(s.substring(0, ms))}</left>`,
+                            `      <match>${escapeHtml(s.substring(ms, me))}</match>`,
+                            `      <right>${escapeHtml(s.substring(me))}</right>`,
+                            `      <sentence>${escapeHtml(s)}</sentence>`,
+                            `    </result>`);
+                    });
+                    lines.push('  </results>', '</bcql>');
+                    content = lines.join('\n');
+                    mimeType = 'application/xml;charset=utf-8;';
+                }
+                triggerBlobDownload(new Blob([content], { type: mimeType }), `bcql-export.${format}`);
+            } catch (err) {
+                alert('Export failed: ' + err.message);
+            } finally {
+                exportBtns.forEach(b => { b.disabled = false; });
             }
-            triggerBlobDownload(new Blob([content], { type: mimeType }), `bcql-export.${format}`);
         }
 
         /**
@@ -2812,7 +2836,6 @@
         // BCQL Query functions
         async function runBcqlQuery() {
             const bcql = document.getElementById('bcqlInput').value.trim();
-            const limit = parseInt(document.getElementById('bcqlLimit').value) || 20;
             const apiUrl = document.getElementById('apiUrl').value.trim();
             const resultsDiv = document.getElementById('bcqlResults');
 
@@ -2827,7 +2850,7 @@
                 const response = await fetch(`${apiUrl}/api/bcql`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: bcql, top: limit })
+                    body: JSON.stringify({ query: bcql, top: bcqlPageSize, offset: 0 })
                 });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -2857,8 +2880,8 @@
 
         function renderBcqlResults(results) {
             const resultsDiv = document.getElementById('bcqlResults');
-            const totalHits = lastBcqlData ? (lastBcqlData.hits || 0) : 0;
-            let html = `<div class="status-panel-success"><strong>${totalHits}</strong> hits found</div>`;
+            const totalHits = lastBcqlData ? (lastBcqlData.total || 0) : 0;
+            let html = `<div class="status-panel-success"><strong>${totalHits}</strong> results</div>`;
 
             if (!results || results.length === 0) {
                 html += '<div class="empty-state-text">No matches found.</div>';
@@ -2897,10 +2920,10 @@
                 <th class="kwic-right" onclick="setBcqlSort('right')">Right context${arrowFor('right')}</th>
               </tr></thead><tbody>`;
 
-            const pageItems = bcqlPageSize === -1 ? sorted : sorted.slice((bcqlPage - 1) * bcqlPageSize, bcqlPage * bcqlPageSize);
+            const pageItems = sorted;
 
             pageItems.forEach((r, idx) => {
-                const rowNum = bcqlPageSize === -1 ? idx + 1 : (bcqlPage - 1) * bcqlPageSize + idx + 1;
+                const rowNum = (bcqlPage - 1) * bcqlPageSize + idx + 1;
                 const left  = escapeHtml(decodeHtmlEntities(r.leftText  || ''));
                 const match = escapeHtml(decodeHtmlEntities(r.matchText || ''));
                 const right = escapeHtml(decodeHtmlEntities(r.rightText || ''));
@@ -2922,13 +2945,13 @@
 
             html += '</tbody></table>';
             resultsDiv.innerHTML = html;
-            renderBcqlPagination(sorted.length);
+            renderBcqlPagination(lastBcqlData ? (lastBcqlData.total || 0) : 0);
         }
 
         function renderBcqlPagination(total) {
             const bar = document.getElementById('bcqlPagination');
             if (!bar) return;
-            if (bcqlPageSize === -1 || total <= bcqlPageSize) { bar.innerHTML = ''; return; }
+            if (total <= bcqlPageSize) { bar.innerHTML = ''; return; }
             const pages = Math.ceil(total / bcqlPageSize);
             bar.innerHTML = `<div class="bcql-pagination">
                 <button onclick="goToBcqlPage(${bcqlPage - 1})" ${bcqlPage <= 1 ? 'disabled' : ''}>&#8249; Prev</button>
@@ -2937,16 +2960,30 @@
             </div>`;
         }
 
-        function goToBcqlPage(n) {
-            if (!lastBcqlData) return;
+        async function goToBcqlPage(n) {
+            if (!lastBcqlData || !lastBcqlQuery) return;
             bcqlPage = n;
-            renderBcqlResults(lastBcqlData.results);
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const offset = (n - 1) * bcqlPageSize;
+            try {
+                const response = await fetch(`${apiUrl}/api/bcql`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: lastBcqlQuery, top: bcqlPageSize, offset })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                lastBcqlData = data;
+                renderBcqlResults(data.results);
+            } catch (error) {
+                document.getElementById('bcqlResults').innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
         }
 
         function setBcqlPageSize(val) {
             bcqlPageSize = parseInt(val);
             bcqlPage = 1;
-            if (lastBcqlData) renderBcqlResults(lastBcqlData.results);
+            if (lastBcqlQuery) runBcqlQuery();
         }
 
         function toggleBcqlXml(id) {

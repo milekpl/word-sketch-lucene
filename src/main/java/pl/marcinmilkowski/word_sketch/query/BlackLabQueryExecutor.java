@@ -191,6 +191,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         return collocateQueryHelper.executeBcqlQuery(bcqlPattern, maxResults);
     }
 
+    @Override
+    public BcqlPage executeBcqlPage(String bcqlPattern, int pageSize, int offset) throws IOException {
+        return collocateQueryHelper.executeBcqlPage(bcqlPattern, pageSize, offset);
+    }
 
     @Override
     public long getTotalFrequency(String lemma) throws IOException {

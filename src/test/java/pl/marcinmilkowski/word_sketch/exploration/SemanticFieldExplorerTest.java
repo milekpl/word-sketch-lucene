@@ -3,6 +3,7 @@ package pl.marcinmilkowski.word_sketch.exploration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 import pl.marcinmilkowski.word_sketch.query.StubQueryExecutor;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
@@ -26,6 +27,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("SemanticFieldExplorer")
 class SemanticFieldExplorerTest {
 
+    private static RelationConfig adjectiveRelation() {
+        return GrammarConfigHelper.requireTestConfig().relation("noun_adj_predicates").orElseThrow();
+    }
+
     /** Convenience factory for WordSketchResult. */
     private static WordSketchResult wsr(String lemma, double logDice) {
         return new WordSketchResult(lemma, "JJ", 10, logDice, 0.0, Collections.emptyList());
@@ -44,7 +49,7 @@ class SemanticFieldExplorerTest {
 
         ExplorationService explorer = new SemanticFieldExplorer(executor, "[xpos=\"NN.*\"]");
         ComparisonResult result =
-            explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
+            explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), adjectiveRelation(), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
         List<CollocateProfile> fullyShared = result.collocates().stream()
                 .filter(CollocateProfile::isFullyShared).toList();
@@ -67,7 +72,7 @@ class SemanticFieldExplorerTest {
 
         ExplorationService explorer = new SemanticFieldExplorer(executor, "[xpos=\"NN.*\"]");
         ComparisonResult result =
-            explorer.compareCollocateProfiles(Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
+            explorer.compareCollocateProfiles(Set.of("theory", "model"), adjectiveRelation(), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
         List<CollocateProfile> specific = result.collocates().stream()
                 .filter(CollocateProfile::isSpecific).toList();
@@ -89,7 +94,7 @@ class SemanticFieldExplorerTest {
 
         ExplorationService explorer = new SemanticFieldExplorer(executor, "[xpos=\"NN.*\"]");
         ComparisonResult result =
-            explorer.compareCollocateProfiles(Set.of("theory", "model"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
+            explorer.compareCollocateProfiles(Set.of("theory", "model"), adjectiveRelation(), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
         // empirical is specific to theory (model has no adjectives)
         List<String> specificNames = result.collocates().stream()
@@ -106,7 +111,7 @@ class SemanticFieldExplorerTest {
         ExplorationService explorer = new SemanticFieldExplorer(executor, "[xpos=\"NN.*\"]");
 
         assertThrows(NullPointerException.class,
-            () -> explorer.compareCollocateProfiles(null, new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1)),
+            () -> explorer.compareCollocateProfiles(null, adjectiveRelation(), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1)),
             "Null seed set (violates @NonNull) should propagate as NullPointerException");
     }
 
@@ -124,7 +129,7 @@ class SemanticFieldExplorerTest {
 
         ExplorationService explorer = new SemanticFieldExplorer(executor, "[xpos=\"NN.*\"]");
         ComparisonResult result =
-            explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
+            explorer.compareCollocateProfiles(Set.of("theory", "model", "hypothesis"), adjectiveRelation(), new pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions(50, 0.0, 1));
 
         List<String> partialNames = result.collocates().stream()
                 .filter(CollocateProfile::isPartiallyShared)

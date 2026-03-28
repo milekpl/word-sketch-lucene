@@ -4,7 +4,7 @@
 
 PORT=8080
 WEB_PORT=3000
-INDEX="d:\corpus_74m\index-hybrid"
+INDEX="D:\corpora_philsci\fpsyg_index"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

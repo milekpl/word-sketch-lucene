@@ -32,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *   JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn test -Dtest=BlackLabBcqlConcordanceTest
  * </pre>
  * The index must contain sentences with "theory" and "concept" as lemmas. The
- * 74M-sentence corpus index at {@code d:\corpus_74m\index-hybrid} satisfies this.
+ * default local development index is {@code D:\corpora_philsci\fpsyg_index}, but any
+ * compatible BlackLab index may be supplied via {@code CONCEPT_SKETCH_TEST_INDEX}.
  * </p>
  */
 public class BlackLabBcqlConcordanceTest {
@@ -86,6 +87,24 @@ public class BlackLabBcqlConcordanceTest {
                     "Sentence should contain 'concept', got: " + sentence);
                 assertTrue(r.sentence().length() > 50,
                     "Should return full sentence, got: " + r.sentence().length() + " chars");
+            }
+        }
+    }
+
+    @Test
+    public void testBcqlExactPredicateQueryReturnsResults() throws Exception {
+        assumeIndexAvailable();
+        try (BlackLabQueryExecutor executor = new BlackLabQueryExecutor(INDEX_PATH)) {
+            String bcqlPattern = "[lemma=\"theory\" & xpos=\"NN.*\"] "
+                    + "[lemma=\"be|appear|seem|look|sound|feel|smell|taste|remain|become|get|grow|turn|prove\"] "
+                    + "[lemma=\"correct\" & xpos=\"JJ.*\"]";
+
+            List<CollocateResult> results = executor.executeBcqlQuery(bcqlPattern, 10);
+
+            assertNotNull(results, "BCQL result list must not be null");
+            for (CollocateResult r : results) {
+                assertNotNull(r.sentence(), "Sentence should not be null");
+                assertFalse(r.sentence().isBlank(), "Sentence should not be blank");
             }
         }
     }

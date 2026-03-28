@@ -9,57 +9,49 @@ import java.util.Set;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions;
-import pl.marcinmilkowski.word_sketch.model.PosGroup;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
 import pl.marcinmilkowski.word_sketch.query.spi.SketchQueryPort;
 
 /**
  * Compares collocate profiles across multiple seed nouns to reveal shared and distinctive
- * collocates. Given a set of seed nouns, fetches adjective collocates for each and computes
+ * collocates. Given a set of seed nouns, fetches relation-scoped collocates for each and computes
  * commonality and distinctiveness scores across the full set.
  */
 class CollocateProfileComparator {
 
     private static final Logger logger = LoggerFactory.getLogger(CollocateProfileComparator.class);
 
-    private static final String FALLBACK_COLLOCATE_PATTERN = "[xpos=\"JJ.*\"]";
-
     private final SketchQueryPort executor;
-    private final String adjCollocatePattern;
 
-    CollocateProfileComparator(SketchQueryPort executor, GrammarConfig grammarConfig) {
+    CollocateProfileComparator(SketchQueryPort executor) {
         this.executor = executor;
-        this.adjCollocatePattern = deriveCollocatePattern(grammarConfig);
-    }
-
-    private static String deriveCollocatePattern(GrammarConfig grammarConfig) {
-        return RelationUtils.findBestCollocatePattern(
-            grammarConfig, PosGroup.ADJ, FALLBACK_COLLOCATE_PATTERN);
     }
 
     /**
-     * Compare adjective collocate profiles across a set of seed nouns, revealing which
-     * adjectives are shared across seeds (commonality) and which are distinctive to individual seeds.
+    * Compare relation-scoped collocate profiles across a set of seed nouns, revealing which
+    * collocates are shared across seeds (commonality) and which are distinctive to individual seeds.
      *
      * @param seedNouns   Nouns to compare (e.g., "theory", "model", "hypothesis")
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
-     * @return ComparisonResult with graded adjective profiles
+    * @return ComparisonResult with graded collocate profiles
      */
     public ComparisonResult compareCollocateProfiles(
             @NonNull Set<String> seedNouns,
+            @NonNull RelationConfig relationConfig,
             @NonNull ExplorationOptions opts) throws IOException {
+
+        relationConfig.validate();
 
         double minLogDice = opts.logDiceThreshold();
         int maxPerNoun = opts.topCollocates();
         List<String> nounList = new ArrayList<>(seedNouns);
 
-        Map<String, Map<String, Double>> rawProfiles = buildRawCollocateProfiles(nounList, minLogDice, maxPerNoun);
+        Map<String, Map<String, Double>> rawProfiles = buildRawCollocateProfiles(nounList, relationConfig, minLogDice, maxPerNoun);
         List<CollocateProfile> profiles = buildCollocateProfileList(nounList, rawProfiles);
 
         // Sort by commonality score (most shared first)
@@ -72,24 +64,36 @@ class CollocateProfileComparator {
 
     /**
      * Phase 1: Collect collocates for each noun and index them by collocate.
+     * Uses the relation-specific surface pattern first and falls back to reverse lookup only
+     * when the surface query produces no matches for a seed.
      *
      * @return Map of collocate → (noun → logDice score)
      */
     private Map<String, Map<String, Double>> buildRawCollocateProfiles(
-            List<String> nounList, double minLogDice, int maxPerNoun) throws IOException {
+            List<String> nounList, RelationConfig relationConfig, double minLogDice, int maxPerNoun) throws IOException {
 
         Map<String, Map<String, Double>> collocateProfiles = new LinkedHashMap<>();
         for (String noun : nounList) {
-            List<WordSketchResult> adjectives = executor.executeCollocations(
-                noun, adjCollocatePattern, minLogDice, maxPerNoun);
-            logger.debug("Profiling {}: {} adjectives", noun, adjectives.size());
-            for (WordSketchResult r : adjectives) {
+            List<WordSketchResult> collocates = fetchSeedCollocates(noun, relationConfig, minLogDice, maxPerNoun);
+            logger.debug("Profiling {}: {} collocates", noun, collocates.size());
+            for (WordSketchResult r : collocates) {
                 collocateProfiles
                     .computeIfAbsent(r.lemma().toLowerCase(), k -> new LinkedHashMap<>())
                     .put(noun, r.logDice());
             }
         }
         return collocateProfiles;
+    }
+
+    private List<WordSketchResult> fetchSeedCollocates(
+            String seed, RelationConfig relationConfig, double minLogDice, int maxPerNoun) throws IOException {
+        String surfacePattern = RelationUtils.buildFullPattern(relationConfig, seed);
+        List<WordSketchResult> results = executor.executeSurfaceCollocations(surfacePattern, minLogDice, maxPerNoun);
+        if (results.isEmpty()) {
+            String reversePattern = RelationUtils.buildCollocateReversePattern(relationConfig);
+            results = executor.executeCollocations(seed, reversePattern, minLogDice, maxPerNoun);
+        }
+        return results;
     }
 
     /**

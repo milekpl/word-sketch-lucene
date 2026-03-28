@@ -1,6 +1,8 @@
 package pl.marcinmilkowski.word_sketch.exploration;
 
 import org.junit.jupiter.api.Test;
+import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
 import pl.marcinmilkowski.word_sketch.model.exploration.CollocateProfile;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
 import pl.marcinmilkowski.word_sketch.model.sketch.*;
@@ -16,6 +18,10 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CollocateProfileComparatorTest {
+
+    private static RelationConfig adjectiveRelation() {
+        return GrammarConfigHelper.requireTestConfig().relation("noun_adj_predicates").orElseThrow();
+    }
 
     /** Stub QueryExecutor that returns predefined collocate lists per lemma. */
     private static QueryExecutor stubExecutor(java.util.Map<String, List<WordSketchResult>> data) {
@@ -34,10 +40,10 @@ class CollocateProfileComparatorTest {
 
     @Test
     void compareCollocateProfiles_nullSeeds_throwsNullPointer() {
-        CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(Collections.emptyMap()), null);
+        CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(Collections.emptyMap()));
         //noinspection ConstantConditions — intentionally testing @NonNull violation
         assertThrows(NullPointerException.class,
-            () -> comparator.compareCollocateProfiles(null, new ExplorationOptions(10, 0.0, 2)));
+            () -> comparator.compareCollocateProfiles(null, adjectiveRelation(), new ExplorationOptions(10, 0.0, 2)));
     }
 
     @Test
@@ -50,8 +56,8 @@ class CollocateProfileComparatorTest {
         data.put("theory", List.of(wsr("important", 8.0), wsr("novel", 5.0)));
         data.put("model",  List.of(wsr("important", 7.0)));
 
-        CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(data), null);
-        ComparisonResult result = comparator.compareCollocateProfiles(Set.of("theory", "model"), new ExplorationOptions(10, 0.0, 2));
+        CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(data));
+        ComparisonResult result = comparator.compareCollocateProfiles(Set.of("theory", "model"), adjectiveRelation(), new ExplorationOptions(10, 0.0, 2));
 
         List<CollocateProfile> adjectives = result.collocates();
         assertFalse(adjectives.isEmpty());
@@ -73,9 +79,9 @@ class CollocateProfileComparatorTest {
         data.put("model",      List.of(wsr("important", 8.0), wsr("recent", 5.0)));
         data.put("hypothesis", List.of(wsr("important", 7.0), wsr("large",  4.0)));
 
-        CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(data), null);
+        CollocateProfileComparator comparator = new CollocateProfileComparator(stubExecutor(data));
         ComparisonResult result = comparator.compareCollocateProfiles(
-                Set.of("theory", "model", "hypothesis"), new ExplorationOptions(10, 0.0, 2));
+            Set.of("theory", "model", "hypothesis"), adjectiveRelation(), new ExplorationOptions(10, 0.0, 2));
 
         // "important" must be identified as fully shared (present in 3/3 nouns)
         List<CollocateProfile> fullyShared = result.collocates().stream()

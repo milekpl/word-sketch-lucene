@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Complete comparison result with graded adjective profiles for a set of seed nouns.
+ * Complete comparison result with graded collocate profiles for a set of seed nouns.
  *
  * <p>Produced by {@link pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer#compareCollocateProfiles}.
  * All collections are non-null; use {@code getNouns().isEmpty()} to detect an empty (no-data) result.

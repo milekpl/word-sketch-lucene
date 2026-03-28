@@ -62,7 +62,7 @@ public class SemanticFieldExplorer implements ExplorationService {
 
     public SemanticFieldExplorer(@NonNull QueryExecutor executor, @NonNull GrammarConfig grammarConfig) {
         this(executor,
-             new CollocateProfileComparator(executor, grammarConfig),
+             new CollocateProfileComparator(executor),
              new MultiSeedExplorer(executor),
              grammarConfig);
     }
@@ -74,7 +74,7 @@ public class SemanticFieldExplorer implements ExplorationService {
     SemanticFieldExplorer(@NonNull QueryExecutor executor, @NonNull String nounCqlPattern) {
         this.executor = Objects.requireNonNull(executor, "executor must not be null");
         Objects.requireNonNull(nounCqlPattern, "nounCqlPattern must not be null");
-        this.comparator = new CollocateProfileComparator(executor, null);
+        this.comparator = new CollocateProfileComparator(executor);
         this.multiSeedExplorer = new MultiSeedExplorer(executor);
         this.singleSeedExplorer = new SingleSeedExplorer(executor, nounCqlPattern);
     }
@@ -147,12 +147,13 @@ public class SemanticFieldExplorer implements ExplorationService {
      *
      * @param seeds       Nouns to compare (e.g., "theory", "model", "hypothesis"); must not be null or empty
      * @param opts        exploration options; {@code topCollocates} and {@code minLogDice} are used
-     * @return ComparisonResult with graded adjective profiles
+    * @return ComparisonResult with graded collocate profiles
      */
     public @NonNull ComparisonResult compareCollocateProfiles(
-            @NonNull Set<String> seeds, @NonNull ExplorationOptions opts) {
+            @NonNull Set<String> seeds, @NonNull RelationConfig relationConfig,
+            @NonNull ExplorationOptions opts) {
         try {
-            return comparator.compareCollocateProfiles(seeds, opts);
+            return comparator.compareCollocateProfiles(seeds, relationConfig, opts);
         } catch (java.io.IOException e) {
             throw new ExplorationException("Failed to compare collocate profiles for seeds " + seeds, e);
         }

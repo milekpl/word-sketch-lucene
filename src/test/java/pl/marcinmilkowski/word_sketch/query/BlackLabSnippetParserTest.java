@@ -42,6 +42,14 @@ class BlackLabSnippetParserTest {
         assertNull(BlackLabSnippetParser.extractLemmaFromMatch("<w xpos=\"NN\"/>"));
     }
 
+    @Test
+    @DisplayName("extractLemmaWithFallback: prefers XML lemma over visible word form")
+    void extractLemmaWithFallback_prefersXmlLemma() {
+        String xml = "<w lemma=\"sentence\" xpos=\"NNS\">sentences</w>";
+
+        assertEquals("sentence", BlackLabSnippetParser.extractLemmaWithFallback(xml));
+    }
+
     // ── extractPosFromMatch ───────────────────────────────────────────────────
 
     @Test

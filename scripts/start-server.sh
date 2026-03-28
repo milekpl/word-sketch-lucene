@@ -3,7 +3,7 @@
 # Usage: ./start-server.sh [--port 8080] [--index /path/to/index] [--collocations /path/to/collocations.bin]
 
 PORT=8080
-INDEX="d:\corpus_74m\index-hybrid"
+INDEX="D:\corpora_philsci\fpsyg_index"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

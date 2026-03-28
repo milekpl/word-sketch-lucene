@@ -17,6 +17,8 @@ class BlackLabSnippetParser {
     private static final java.util.regex.Pattern SENTENCE_BOUND_RIGHT = java.util.regex.Pattern.compile("[.!?](?=\\s+[A-Z]|\\s*$)");
     private static final java.util.regex.Pattern XML_SENTENCE_OPEN   = java.util.regex.Pattern.compile("<s(?:\\s[^>]*)?>", java.util.regex.Pattern.CASE_INSENSITIVE);
     private static final java.util.regex.Pattern XML_SENTENCE_CLOSE  = java.util.regex.Pattern.compile("</s>", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern XML_TOKEN = java.util.regex.Pattern.compile("<w(?:\\s[^>]*)?>[^<>]*</w>", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern XML_TOKEN_TEXT = java.util.regex.Pattern.compile(">([^<>]*)</w>", java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private BlackLabSnippetParser() {}
 
@@ -120,12 +122,114 @@ class BlackLabSnippetParser {
         return m.find() ? xml.substring(0, m.start()) : xml;
     }
 
+    /**
+     * Extracts exactly one XML sentence around a match using the same sentence boundaries
+     * that the plain-text concordance path relies on.
+     */
+    static String trimXmlToSentence(String leftXml, String matchXml, String rightXml) {
+        String sentenceLeftXml = trimLeftXmlAtSentence(leftXml);
+        String sentenceRightXml = trimRightXmlAtSentence(rightXml);
+        String alignedLeftXml = alignLeftXmlWithDisplayedSentence(sentenceLeftXml);
+        String alignedRightXml = alignRightXmlWithDisplayedSentence(sentenceRightXml);
+        return joinXmlFragments(alignedLeftXml, matchXml, alignedRightXml);
+    }
+
+    private static String joinXmlFragments(String left, String match, String right) {
+        StringBuilder joined = new StringBuilder();
+        appendXmlFragment(joined, left);
+        appendXmlFragment(joined, match);
+        appendXmlFragment(joined, right);
+        return joined.toString();
+    }
+
+    private static void appendXmlFragment(StringBuilder joined, String fragment) {
+        if (fragment == null || fragment.isBlank()) {
+            return;
+        }
+        if (!joined.isEmpty()) {
+            joined.append(' ');
+        }
+        joined.append(fragment.trim());
+    }
+
+    private static String alignLeftXmlWithDisplayedSentence(String xml) {
+        String text = extractPlainTextFromXml(xml);
+        String trimmedText = trimLeftAtSentenceBoundary(text);
+        if (trimmedText.isEmpty()) return "";
+        return keepMatchingLeftXmlTokens(xml, trimmedText);
+    }
+
+    private static String alignRightXmlWithDisplayedSentence(String xml) {
+        String text = extractPlainTextFromXml(xml);
+        String trimmedText = trimRightAtSentenceBoundary(text);
+        if (trimmedText.isEmpty()) return "";
+        return keepMatchingRightXmlTokens(xml, trimmedText);
+    }
+
+    private static String keepMatchingLeftXmlTokens(String xml, String targetText) {
+        java.util.List<String> tokenXml = extractXmlTokens(xml);
+        if (tokenXml.isEmpty()) return xml;
+        java.util.List<String> tokenTexts = extractXmlTokenTexts(tokenXml);
+        for (int start = tokenXml.size() - 1; start >= 0; start--) {
+            String candidate = detokenize(String.join(" ", tokenTexts.subList(start, tokenTexts.size())).trim());
+            if (targetText.equals(candidate)) {
+                return joinXmlTokens(tokenXml.subList(start, tokenXml.size()));
+            }
+        }
+        return xml;
+    }
+
+    private static String keepMatchingRightXmlTokens(String xml, String targetText) {
+        java.util.List<String> tokenXml = extractXmlTokens(xml);
+        if (tokenXml.isEmpty()) return xml;
+        java.util.List<String> tokenTexts = extractXmlTokenTexts(tokenXml);
+        for (int end = 1; end <= tokenXml.size(); end++) {
+            String candidate = detokenize(String.join(" ", tokenTexts.subList(0, end)).trim());
+            if (targetText.equals(candidate)) {
+                return joinXmlTokens(tokenXml.subList(0, end));
+            }
+        }
+        return xml;
+    }
+
+    private static java.util.List<String> extractXmlTokens(String xml) {
+        java.util.ArrayList<String> tokens = new java.util.ArrayList<>();
+        java.util.regex.Matcher matcher = XML_TOKEN.matcher(xml);
+        while (matcher.find()) {
+            tokens.add(matcher.group());
+        }
+        return tokens;
+    }
+
+    private static java.util.List<String> extractXmlTokenTexts(java.util.List<String> tokenXml) {
+        java.util.ArrayList<String> texts = new java.util.ArrayList<>(tokenXml.size());
+        for (String token : tokenXml) {
+            java.util.regex.Matcher matcher = XML_TOKEN_TEXT.matcher(token);
+            texts.add(matcher.find() ? matcher.group(1) : "");
+        }
+        return texts;
+    }
+
+    private static String joinXmlTokens(java.util.List<String> tokenXml) {
+        return String.join(" ", tokenXml);
+    }
+
     static String extractPlainTextFromXml(String xmlSnippet) {
         if (xmlSnippet == null || xmlSnippet.isEmpty()) {
             return "";
         }
-        String text = xmlSnippet.replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
-        return detokenize(text);
+        StringBuilder text = new StringBuilder();
+        java.util.regex.Matcher matcher = XML_TOKEN_TEXT.matcher(xmlSnippet);
+        while (matcher.find()) {
+            if (!text.isEmpty()) {
+                text.append(' ');
+            }
+            text.append(matcher.group(1));
+        }
+        if (text.isEmpty()) {
+            return detokenize(xmlSnippet.replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim());
+        }
+        return detokenize(text.toString().replaceAll("\\s+", " ").trim());
     }
 
     /**

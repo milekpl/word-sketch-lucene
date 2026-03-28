@@ -39,6 +39,22 @@ class BlackLabQueryExecutorTest {
     }
 
     @Test
+    @DisplayName("buildCaptureGroupedBcql: single-token pattern becomes labeled lemma query")
+    void buildCaptureGroupedBcql_singleTokenPattern_buildsLabeledQuery() {
+        String result = BlackLabQueryExecutor.buildCaptureGroupedBcql("[xpos=\"JJ.*\"]", "Theory");
+
+        assertEquals("1:[lemma=\"theory\"] 2:[xpos=\"JJ.*\"]", result);
+    }
+
+    @Test
+    @DisplayName("buildCaptureGroupedBcql: multi-token pattern returns null")
+    void buildCaptureGroupedBcql_multiTokenPattern_returnsNull() {
+        String result = BlackLabQueryExecutor.buildCaptureGroupedBcql("[]{0,3} [xpos=\"VB.*\"]", "Theory");
+
+        assertNull(result);
+    }
+
+    @Test
     @DisplayName("buildBcqlWithLemmaPrepended: backslash in lemma is escaped")
     void buildBcql_backslashEscaped() {
         String result = BlackLabQueryExecutor.buildBcqlWithLemmaPrepended("[xpos=\"NN\"]", "back\\slash");

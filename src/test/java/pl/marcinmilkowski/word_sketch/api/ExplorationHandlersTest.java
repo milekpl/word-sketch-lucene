@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfig;
 import pl.marcinmilkowski.word_sketch.config.GrammarConfigHelper;
+import pl.marcinmilkowski.word_sketch.config.RelationConfig;
+import pl.marcinmilkowski.word_sketch.config.RelationUtils;
 import pl.marcinmilkowski.word_sketch.exploration.spi.ExplorationService;
 import pl.marcinmilkowski.word_sketch.exploration.SemanticFieldExplorer;
 import pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult;
@@ -66,12 +68,13 @@ class ExplorationHandlersTest {
     @Test
     void handleSemanticFieldComparison_twoSeeds_returns200() throws Exception {
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
-                "http://localhost/api/semantic-field/compare?seeds=theory,model&min_logdice=0.0");
+                "http://localhost/api/semantic-field/compare?seeds=theory,model&relation=adj_predicate&min_logdice=0.0");
         handlers().handleSemanticFieldComparison(ex);
         assertEquals(200, ex.statusCode);
         ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
         assertNotNull(body, "Response body should be valid JSON");
         assertEquals("ok", body.path("status").asText());
+        assertEquals("noun_adj_predicates", body.path("parameters").path("relation").asText());
         assertNotNull(body.get("collocates"), "Response should contain a collocates array");
         assertNotNull(body.get("seeds"), "Response should contain a seeds/nouns array");
         assertNotNull(body.get("collocates_count"), "Response should contain collocates_count");
@@ -80,16 +83,29 @@ class ExplorationHandlersTest {
 
     @Test
     void handleSemanticFieldComparison_withData_collocatesNonEmpty() throws Exception {
-        QueryExecutor executor = collocatingExecutor(Map.of(
-            "theory",     List.of(wsr("important", 8.5), wsr("new", 7.0)),
-            "hypothesis", List.of(wsr("important", 7.8), wsr("new", 6.5))
-        ));
         GrammarConfig config = GrammarConfigHelper.requireTestConfig();
+        RelationConfig relation = config.relation("subject_of").orElseThrow();
+        String theoryPattern = RelationUtils.buildFullPattern(relation, "theory");
+        String hypothesisPattern = RelationUtils.buildFullPattern(relation, "hypothesis");
+
+        QueryExecutor executor = new StubQueryExecutor() {
+            @Override
+            public List<WordSketchResult> executeSurfaceCollocations(
+                    String pattern, double minLogDice, int maxResults) {
+                if (theoryPattern.equals(pattern)) {
+                    return List.of(new WordSketchResult("explain", "VB", 10L, 8.5, 0.0, List.of()));
+                }
+                if (hypothesisPattern.equals(pattern)) {
+                    return List.of(new WordSketchResult("explain", "VB", 10L, 7.8, 0.0, List.of()));
+                }
+                return List.of();
+            }
+        };
         ExplorationService explorer = new SemanticFieldExplorer(executor, config);
         ExplorationHandlers handlers = new ExplorationHandlers(explorer, config);
 
         MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
-                "http://localhost/api/semantic-field/compare?seeds=theory,hypothesis&min_logdice=0.0");
+                "http://localhost/api/semantic-field/compare?seeds=theory,hypothesis&relation=subject_of&min_logdice=0.0");
         handlers.handleSemanticFieldComparison(ex);
 
         assertEquals(200, ex.statusCode);
@@ -97,14 +113,59 @@ class ExplorationHandlersTest {
         assertEquals("ok", body.path("status").asText());
         assertTrue(body.path("collocates").isArray(), "collocates must be an array");
         assertFalse(body.path("collocates").isEmpty(), "collocates must not be empty");
-        boolean hasImportant = false;
+        assertEquals("subject_of", body.path("parameters").path("relation").asText());
+        boolean hasExplain = false;
         for (var node : body.path("collocates")) {
-            if ("important".equals(node.path("word").asText())) {
-                hasImportant = true;
+            if ("explain".equals(node.path("word").asText())) {
+                hasExplain = true;
                 break;
             }
         }
-        assertTrue(hasImportant, "collocates should contain 'important'");
+        assertTrue(hasExplain, "collocates should contain 'explain'");
+    }
+
+    @Test
+    void handleSemanticFieldComparison_differentRelationsProduceDifferentOutputs() throws Exception {
+        GrammarConfig config = GrammarConfigHelper.requireTestConfig();
+        RelationConfig predicateRelation = config.relation("noun_adj_predicates").orElseThrow();
+        RelationConfig modifierRelation = config.relation("noun_modifiers").orElseThrow();
+
+        String theoryPredicatePattern = RelationUtils.buildFullPattern(predicateRelation, "theory");
+        String modelPredicatePattern = RelationUtils.buildFullPattern(predicateRelation, "model");
+        String theoryModifierPattern = RelationUtils.buildFullPattern(modifierRelation, "theory");
+        String modelModifierPattern = RelationUtils.buildFullPattern(modifierRelation, "model");
+
+        QueryExecutor executor = new StubQueryExecutor() {
+            @Override
+            public List<WordSketchResult> executeSurfaceCollocations(
+                    String pattern, double minLogDice, int maxResults) {
+                return switch (pattern) {
+                    case String p when theoryPredicatePattern.equals(p) -> List.of(wsr("abstract", 8.5));
+                    case String p when modelPredicatePattern.equals(p) -> List.of(wsr("abstract", 7.5));
+                    case String p when theoryModifierPattern.equals(p) -> List.of(wsr("formal", 8.2));
+                    case String p when modelModifierPattern.equals(p) -> List.of(wsr("formal", 7.1));
+                    default -> List.of();
+                };
+            }
+        };
+
+        ExplorationService explorer = new SemanticFieldExplorer(executor, config);
+        ExplorationHandlers handlers = new ExplorationHandlers(explorer, config);
+
+        MockExchangeFactory.MockExchange predicateEx = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/semantic-field/compare?seeds=theory,model&relation=adj_predicate&min_logdice=0.0");
+        handlers.handleSemanticFieldComparison(predicateEx);
+        ObjectNode predicateBody = HttpApiUtils.mapper().readValue(predicateEx.getResponseBodyAsString(), ObjectNode.class);
+
+        MockExchangeFactory.MockExchange modifierEx = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/semantic-field/compare?seeds=theory,model&relation=adj_modifier&min_logdice=0.0");
+        handlers.handleSemanticFieldComparison(modifierEx);
+        ObjectNode modifierBody = HttpApiUtils.mapper().readValue(modifierEx.getResponseBodyAsString(), ObjectNode.class);
+
+        assertEquals("noun_adj_predicates", predicateBody.path("parameters").path("relation").asText());
+        assertEquals("noun_modifiers", modifierBody.path("parameters").path("relation").asText());
+        assertEquals("abstract", predicateBody.path("collocates").get(0).path("word").asText());
+        assertEquals("formal", modifierBody.path("collocates").get(0).path("word").asText());
     }
 
     @Test
@@ -248,6 +309,75 @@ class ExplorationHandlersTest {
     }
 
     @Test
+    void handleSemanticFieldExplore_withData_returnsSingleSeedOutputShape() throws Exception {
+        QueryExecutor executor = new StubQueryExecutor() {
+            @Override
+            public List<WordSketchResult> executeSurfaceCollocations(
+                    String pattern, double minLogDice, int maxResults) {
+                String lemma = StubQueryExecutor.extractLemmaFromPattern(pattern);
+                if (!"theory".equals(lemma)) {
+                    return List.of();
+                }
+                return List.of(wsr("correct", 8.5), wsr("false", 7.2));
+            }
+
+            @Override
+            public List<WordSketchResult> executeCollocations(
+                    String lemma, String cqlPattern, double minLogDice, int maxResults) {
+                return switch (lemma) {
+                    case "correct" -> List.of(wsr("answer", 6.2), wsr("response", 5.4));
+                    case "false" -> List.of(wsr("answer", 5.1), wsr("belief", 4.7));
+                    default -> List.of();
+                };
+            }
+        };
+
+        GrammarConfig config = GrammarConfigHelper.requireTestConfig();
+        ExplorationService explorer = new SemanticFieldExplorer(executor, config);
+        ExplorationHandlers handlers = new ExplorationHandlers(explorer, config);
+
+        MockExchangeFactory.MockExchange ex = new MockExchangeFactory.MockExchange(
+                "http://localhost/api/semantic-field/explore?seed=theory&relation=adj_predicate&top=5&min_shared=1&min_logdice=0.0");
+        handlers.handleSemanticFieldExplore(ex);
+
+        assertEquals(200, ex.statusCode);
+        ObjectNode body = HttpApiUtils.mapper().readValue(ex.getResponseBodyAsString(), ObjectNode.class);
+
+        assertEquals("ok", body.path("status").asText());
+        assertEquals("theory", body.path("seed").asText());
+        assertEquals("noun_adj_predicates", body.path("parameters").path("relation").asText());
+        assertEquals(5, body.path("parameters").path("top").asInt());
+        assertEquals(1, body.path("parameters").path("min_shared").asInt());
+
+        assertTrue(body.path("seed_collocates").isArray(), "seed_collocates must be an array");
+        assertEquals(2, body.path("seed_collocates").size(), "seed_collocates should include both seed collocates");
+
+        assertTrue(body.path("discovered_nouns").isArray(), "discovered_nouns must be an array");
+        assertFalse(body.path("discovered_nouns").isEmpty(), "discovered_nouns must not be empty");
+        var discovered = body.path("discovered_nouns").get(0);
+        assertTrue(discovered.has("word"), "discovered_nouns entries must have word");
+        assertTrue(discovered.has("shared_count"), "discovered_nouns entries must have shared_count");
+        assertTrue(discovered.has("similarity_score"), "discovered_nouns entries must have similarity_score");
+        assertTrue(discovered.has("avg_logdice"), "discovered_nouns entries must have avg_logdice");
+        assertTrue(discovered.path("shared_collocates").isArray(), "shared_collocates must be an array");
+
+        assertTrue(body.path("core_collocates").isArray(), "core_collocates must be an array");
+        assertFalse(body.path("core_collocates").isEmpty(), "core_collocates must not be empty");
+        var core = body.path("core_collocates").get(0);
+        assertTrue(core.has("word"), "core_collocates entries must have word");
+        assertTrue(core.has("coverage"), "core_collocates entries must have coverage");
+        assertTrue(core.has("seed_logdice"), "core_collocates entries must have seed_logdice");
+
+        assertTrue(body.path("edges").isArray(), "edges must be an array");
+        assertFalse(body.path("edges").isEmpty(), "edges must not be empty");
+        var edge = body.path("edges").get(0);
+        assertTrue(edge.has("source"), "edge entries must have source");
+        assertTrue(edge.has("target"), "edge entries must have target");
+        assertTrue(edge.has("log_dice"), "edge entries must have log_dice");
+        assertTrue(edge.has("type"), "edge entries must have type");
+    }
+
+    @Test
     void compare_edgeWeights_abstractHasCorrectWeightToTheory() throws Exception {
         QueryExecutor executor = collocatingExecutor(Map.of(
             "theory", List.of(wsr("abstract", 9.0)),
@@ -255,7 +385,7 @@ class ExplorationHandlersTest {
         ));
         ExplorationService explorer = new SemanticFieldExplorer(executor, GrammarConfigHelper.requireTestConfig());
         ComparisonResult result = explorer.compareCollocateProfiles(
-                Set.of("theory", "model"), new ExplorationOptions(50, 0.0, 1));
+            Set.of("theory", "model"), GrammarConfigHelper.requireTestConfig().relation("noun_adj_predicates").orElseThrow(), new ExplorationOptions(50, 0.0, 1));
 
         List<Edge> edges = ComparisonResponseAssembler.buildComparisonEdges(result);
         assertFalse(edges.isEmpty(), "Should have edges");
@@ -316,7 +446,8 @@ class ExplorationHandlersTest {
             }
             @Override
             public pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult compareCollocateProfiles(
-                    java.util.Set<String> seeds, pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions opts) {
+                    java.util.Set<String> seeds, pl.marcinmilkowski.word_sketch.config.RelationConfig rc,
+                    pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions opts) {
                 throw new pl.marcinmilkowski.word_sketch.exploration.ExplorationException("index offline");
             }
             @Override
@@ -352,7 +483,8 @@ class ExplorationHandlersTest {
             }
             @Override
             public pl.marcinmilkowski.word_sketch.model.exploration.ComparisonResult compareCollocateProfiles(
-                    java.util.Set<String> seeds, pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions opts) {
+                    java.util.Set<String> seeds, pl.marcinmilkowski.word_sketch.config.RelationConfig rc,
+                    pl.marcinmilkowski.word_sketch.model.exploration.ExplorationOptions opts) {
                 throw new pl.marcinmilkowski.word_sketch.exploration.ExplorationException("index offline");
             }
             @Override

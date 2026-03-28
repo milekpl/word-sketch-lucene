@@ -57,6 +57,7 @@ public interface ExplorationService {
      */
     @NonNull ComparisonResult compareCollocateProfiles(
             @NonNull Set<String> seeds,
+            @NonNull RelationConfig relationConfig,
             @NonNull ExplorationOptions opts);
 
     /**

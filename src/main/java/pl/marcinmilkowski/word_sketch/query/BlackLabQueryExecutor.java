@@ -112,14 +112,34 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         }
 
         String bcql = buildBcqlWithLemmaPrepended(cqlPattern, lemma);
+        String captureGroupedBcql = buildCaptureGroupedBcql(cqlPattern, lemma);
 
-        CollocateQueryHelper.CollocateSearch collocateSearch =
-                collocateQueryHelper.executeCollocateSearch(lemma, bcql, false);
+        CollocateQueryHelper.CollocateSearch collocateSearch;
+        HitProperty effectiveGroupBy = null;
+        if (captureGroupedBcql != null) {
+            HitProperty groupBy = createSurfaceCollocateGroupProperty();
+            if (groupBy != null) {
+                try {
+                    collocateSearch = collocateQueryHelper.executeCollocateSearch(lemma, captureGroupedBcql, groupBy, false);
+                    effectiveGroupBy = groupBy;
+                } catch (IllegalArgumentException e) {
+                    logger.debug("Lemma capture grouping unavailable for pattern '{}', falling back: {}",
+                            captureGroupedBcql, e.getMessage());
+                    collocateSearch = executeStoredHitTextCollocateSearch(lemma, bcql);
+                }
+            } else {
+                collocateSearch = executeStoredHitTextCollocateSearch(lemma, bcql);
+            }
+        } else {
+            collocateSearch = executeStoredHitTextCollocateSearch(lemma, bcql);
+        }
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
-        CollocateHitStats stats = collectFrequenciesAndPosFromGroups(groups,
-                identity -> BlackLabSnippetParser.extractLemmaWithFallback(identity));
+        CollocateHitStats stats = effectiveGroupBy != null
+                ? collectFrequenciesAndPosFromPropertyGroups(groups)
+                : collectFrequenciesAndPosFromGroups(groups,
+                        identity -> BlackLabSnippetParser.extractLemmaWithFallback(identity));
 
         return collocateQueryHelper.buildAndRankCollocates(stats.freqMap(), headwordFreq, minLogDice, maxResults, stats.lemmaPosMap());
     }
@@ -207,14 +227,12 @@ public class BlackLabQueryExecutor implements QueryExecutor {
     private List<WordSketchResult> queryAndRankDepCollocates(
             String bcql, String lemma, double minLogDice, int maxResults) throws IOException {
         CollocateQueryHelper.CollocateSearch collocateSearch =
-                collocateQueryHelper.executeCollocateSearch(lemma, bcql, false);
+            executeStoredHitTextCollocateSearch(lemma, bcql);
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
 
         CollocateHitStats stats = collectFrequenciesAndPosFromGroups(groups,
-            // Dependency relation identities are plain word-form strings; extractLastLemma
-            // picks the dependent token directly without needing a lemma= attribute fallback.
-            BlackLabSnippetParser::extractLastLemma);
+            BlackLabSnippetParser::extractLemmaWithFallback);
 
         return collocateQueryHelper.buildAndRankCollocates(stats.freqMap(), headwordFreq, minLogDice, maxResults, stats.lemmaPosMap());
     }
@@ -334,10 +352,10 @@ public class BlackLabQueryExecutor implements QueryExecutor {
                 logger.debug("Capture group grouping unavailable for pattern '{}', falling back: {}",
                         bcqlPattern, e.getMessage());
                 effectiveGroupBy = null;
-                collocateSearch = collocateQueryHelper.executeCollocateSearch(lemma, bcqlPattern, false);
+                collocateSearch = executeStoredHitTextCollocateSearch(lemma, bcqlPattern);
             }
         } else {
-            collocateSearch = collocateQueryHelper.executeCollocateSearch(lemma, bcqlPattern, false);
+            collocateSearch = executeStoredHitTextCollocateSearch(lemma, bcqlPattern);
         }
         long headwordFreq = collocateSearch.headwordFreq();
         HitGroups groups = collocateSearch.groups();
@@ -408,5 +426,24 @@ public class BlackLabQueryExecutor implements QueryExecutor {
         } else {
             throw new IllegalArgumentException("Unrecognized CQL pattern format: " + cqlPattern);
         }
+    }
+
+    @Nullable
+    static String buildCaptureGroupedBcql(String cqlPattern, String lemma) {
+        if (cqlPattern == null || lemma == null) {
+            return null;
+        }
+        String trimmedPattern = cqlPattern.trim();
+        List<String> tokens = CqlUtils.splitCqlTokens(trimmedPattern);
+        if (tokens.size() != 1 || !trimmedPattern.equals(tokens.get(0))) {
+            return null;
+        }
+        return String.format("1:[lemma=\"%s\"] 2:%s",
+                CqlUtils.escapeForRegex(lemma.toLowerCase()), tokens.get(0));
+    }
+
+    private CollocateQueryHelper.CollocateSearch executeStoredHitTextCollocateSearch(String lemma, String bcql)
+            throws IOException {
+        return collocateQueryHelper.executeCollocateSearch(lemma, bcql, true);
     }
 }

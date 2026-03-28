@@ -126,9 +126,8 @@ class ExplorationHandlers {
     }
 
     /**
-     * Compares cross-relational collocate profiles for the given seed nouns and returns a
-     * graded overlay of shared and distinctive collocates.
-     * Does not accept a {@code relation} parameter — aggregates across all loaded relations.
+    * Compares relation-scoped collocate profiles for the given seed nouns and returns a
+    * graded overlay of shared and distinctive collocates.
      *
      * <p>GET /api/semantic-field/compare?seeds=theory,model,hypothesis&amp;min_logdice=3.0</p>
      *
@@ -140,6 +139,7 @@ class ExplorationHandlers {
             Map<String, String> params = HttpApiUtils.parseQueryParams(exchange.getRequestURI().getQuery());
 
             String seedsParam = HttpApiUtils.requireParam(params, "seeds");
+            RelationConfig resolvedConfig = resolveRelationConfig(params);
             Set<String> seeds = parseSeedSet(seedsParam);
             requireAtLeastTwoSeeds(seeds, "Comparison");
 
@@ -147,10 +147,10 @@ class ExplorationHandlers {
             String format = ExportUtils.parseFormat(params);
             int exportLimit = ExportUtils.parseExportLimit(params);
 
-            ComparisonResult result = explorationService.compareCollocateProfiles(seeds, opts);
+            ComparisonResult result = explorationService.compareCollocateProfiles(seeds, resolvedConfig, opts);
 
             ComparisonResponse response = ComparisonResponseAssembler.buildComparisonResponse(
-                new ArrayList<>(result.nouns()), CROSS_RELATIONAL,
+                new ArrayList<>(result.nouns()), resolvedConfig.id(),
                 opts,
                 result);
 

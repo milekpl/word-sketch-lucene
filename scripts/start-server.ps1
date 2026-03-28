@@ -3,7 +3,7 @@
 
 param(
     [int]$Port = 8080,
-    [string]$Index = "d:\corpus_74m\index-hybrid"
+    [string]$Index = "D:\corpora_philsci\fpsyg_index"
 )
 
 # Get script directory
